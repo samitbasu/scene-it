@@ -1,0 +1,11 @@
+# 0023 — Word counts match Microsoft Word
+
+**Status:** Accepted (2026-11-02)
+
+A word is a maximal run of non-whitespace characters. A run made only of punctuation (a standalone `--`, `...` or `-`) doesn't
+count. So "well-known" is 1 word and "dawn--and" is 1 word, as in Word and Pages, whose counts publishers and contests
+ask for. Counts cover scene bodies only: no titles, no notes, and the Boneyard excluded. They're cached per scene and recomputed
+only for the scene whose body changed.
+
+**Not chosen:** macOS linguistic word boundaries, which count hyphenated and dash-joined words as several and so disagree with
+the writer's exported Word document.
