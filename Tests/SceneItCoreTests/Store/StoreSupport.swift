@@ -80,14 +80,17 @@ func eventually(
     Issue.record("the condition never held", sourceLocation: sourceLocation)
 }
 
-/// The book in `package`'s `book.json`, decoded.
+/// The book in `package`'s `book.json`, parsed.
 func bookOnDisk(_ package: URL, file: String = "book.json") throws -> Book {
-    try BookCoding.decode(Data(contentsOf: package.appending(path: file)))
+    var ids = IDGenerator.system
+    return BookFormat.parse(
+        try Data(contentsOf: package.appending(path: file)), opened: Timestamp(.now, in: .current), ids: &ids
+    ).book
 }
 
 /// What another program (a sync service, say) does: replaces `book.json` with `book`.
 func writeExternally(_ book: Book, to package: URL) throws {
-    try BookCoding.encode(book).write(to: package.appending(path: "book.json"), options: .atomic)
+    try BookFormat.serialize(book).write(to: package.appending(path: "book.json"), options: .atomic)
 }
 
 extension OpenBook {

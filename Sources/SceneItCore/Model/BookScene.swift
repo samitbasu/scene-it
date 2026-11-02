@@ -1,41 +1,38 @@
-/// A comment's anchor is the set of runs whose `comments` list its id, so it isn't stored here.
-public struct Comment: Identifiable, Hashable, Sendable, Encodable {
+/// A comment's anchor is the set of runs whose `comments` list its id, so it isn't stored
+/// here. A comment no run mentions is *detached*: its text was deleted (PLAN §8.1).
+public struct Comment: Identifiable, Hashable, Sendable {
     public var id: CommentID
     public var color: PaletteColor
-    public var text: String
+    /// Text `CharacterPolicy` admits, which may hold line breaks; every assignment
+    /// applies the policy.
+    public var text: String {
+        didSet { text = CharacterPolicy.admitted(text) }
+    }
     public var created: Timestamp
 
     public init(id: CommentID, color: PaletteColor, text: String, created: Timestamp) {
         self.id = id
         self.color = color
-        self.text = text
+        self.text = CharacterPolicy.admitted(text)
         self.created = created
     }
 }
 
-extension Comment: Decodable {
-    enum CodingKeys: String, CodingKey, CaseIterable {
-        case id, color, text, created
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
-        id = try container.decode(CommentID.self, forKey: .id)
-        color = try container.decode(PaletteColor.self, forKey: .color)
-        text = try container.decode(String.self, forKey: .text)
-        created = try container.decode(Timestamp.self, forKey: .created)
-    }
-}
-
-public struct BookScene: Identifiable, Hashable, Sendable, Encodable {
+public struct BookScene: Identifiable, Hashable, Sendable {
     public var id: SceneID
     public var modified: Timestamp
     public var title: SceneTitle
-    /// Stored without the leading `#`.
-    public var tags: [String]
+    /// Stored without the leading `#`. Each is text `CharacterPolicy` admits, and none is
+    /// empty: every assignment applies the policy and drops empty tags.
+    public var tags: [String] {
+        didSet { tags = Self.admitted(tags) }
+    }
     public var body: [Paragraph]
     public var notes: [Paragraph]
     public var comments: [Comment]
+    /// What the parser couldn't understand in this scene, kept verbatim. They travel with
+    /// the scene to and from the Boneyard.
+    public var errors: [ErrorEntry]
 
     public init(
         id: SceneID,
@@ -44,31 +41,25 @@ public struct BookScene: Identifiable, Hashable, Sendable, Encodable {
         tags: [String] = [],
         body: [Paragraph] = [],
         notes: [Paragraph] = [],
-        comments: [Comment] = []
+        comments: [Comment] = [],
+        errors: [ErrorEntry] = []
     ) {
         self.id = id
         self.modified = modified
         self.title = title
-        self.tags = tags
+        self.tags = Self.admitted(tags)
         self.body = body
         self.notes = notes
         self.comments = comments
-    }
-}
-
-extension BookScene: Decodable {
-    enum CodingKeys: String, CodingKey, CaseIterable {
-        case id, modified, title, tags, body, notes, comments
+        self.errors = errors
     }
 
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
-        id = try container.decode(SceneID.self, forKey: .id)
-        modified = try container.decode(Timestamp.self, forKey: .modified)
-        title = try container.decode(SceneTitle.self, forKey: .title)
-        tags = try container.decode([String].self, forKey: .tags)
-        body = try container.decode([Paragraph].self, forKey: .body)
-        notes = try container.decode([Paragraph].self, forKey: .notes)
-        comments = try container.decode([Comment].self, forKey: .comments)
+    private static func admitted(_ tags: [String]) -> [String] {
+        tags.map(CharacterPolicy.admitted).filter { !$0.isEmpty }
+    }
+
+    /// Whether no run in the body or the notes carries the comment.
+    public func isDetached(_ comment: CommentID) -> Bool {
+        !Paragraph.commentIDs(in: body + notes).contains(comment)
     }
 }

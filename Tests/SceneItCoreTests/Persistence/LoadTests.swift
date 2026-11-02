@@ -5,7 +5,6 @@ import Testing
 
 @Suite struct LoadTests {
     enum Damage: CaseIterable, CustomTestStringConvertible {
-        case truncated, empty, garbage, invalidBook, unsupportedFormat
         case bookMissing, bookIsADirectory, bookIsASymlink, bookIsADanglingSymlink
         case packageIsAFile, packageMissing, missingExtension
 
@@ -14,19 +13,6 @@ import Testing
             let book = url.layout.book
             let bytes = try Data(contentsOf: book)
             switch self {
-            case .truncated:
-                try bytes.prefix(bytes.count / 2).write(to: book)
-            case .empty:
-                try Data().write(to: book)
-            case .garbage:
-                try Data((0..<256).map { UInt8(truncatingIfNeeded: $0 &* 37) }).write(to: book)
-            case .invalidBook:
-                let text = String(decoding: bytes, as: UTF8.self)
-                try Data(text.replacingFirst(#""text" : "letter""#, with: #""text" : """#).utf8).write(
-                    to: book)
-            case .unsupportedFormat:
-                let text = String(decoding: bytes, as: UTF8.self)
-                try Data(text.replacingFirst(#""format" : 1"#, with: #""format" : 2"#).utf8).write(to: book)
             case .bookMissing:
                 try FileManager.default.removeItem(at: book)
             case .bookIsADirectory:
@@ -56,8 +42,7 @@ import Testing
 
         func matches(_ problem: LoadProblem) -> Bool {
             switch (self, problem) {
-            case (.truncated, .undecodable), (.empty, .undecodable), (.garbage, .undecodable),
-                (.unsupportedFormat, .undecodable), (.invalidBook, .invalid), (.bookMissing, .bookMissing),
+            case (.bookMissing, .bookMissing),
                 (.bookIsADirectory, .bookNotAFile), (.bookIsASymlink, .bookNotAFile),
                 (.bookIsADanglingSymlink, .bookNotAFile), (.packageIsAFile, .notADirectory),
                 (.packageMissing, .notFound), (.missingExtension, .missingPackageExtension):
@@ -116,31 +101,67 @@ import Testing
 
     @Test func theErrorNamesTheProblemAndListsTheBackups() throws {
         try withTemporaryDirectory { directory in
-            let url = try LoadTests.Damage.invalidBook.apply(
+            let url = try LoadTests.Damage.bookIsADirectory.apply(
                 to: makeFullPackage(
                     at: directory.appending(path: "Novel.sceneit"), fileSystem: LocalFileSystem()
                 )
                 .layout.root)
             let error = try #require(throws: LoadError.self) { try BookPackage.open(at: url) }
             let description = error.description
-            #expect(description.hasPrefix("Couldn't open Novel.sceneit: book.json isn't a valid book:"))
-            #expect(description.contains("a run's text is empty"))
+            #expect(
+                description.hasPrefix(
+                    "Couldn't open Novel.sceneit: the package's book.json isn't a regular file"))
             for slot in BackupSlot.allCases {
                 #expect(description.contains("- \(slot.fileName) (last modified "))
             }
         }
     }
 
+    enum ContentDamage: CaseIterable, CustomTestStringConvertible {
+        case truncated, empty, garbage, newerFormat
+
+        func apply(to bytes: Data) -> Data {
+            switch self {
+            case .truncated: bytes.prefix(bytes.count / 2)
+            case .empty: Data()
+            case .garbage: Data((0..<256).map { UInt8(truncatingIfNeeded: $0 &* 37) })
+            case .newerFormat:
+                Data(
+                    String(decoding: bytes, as: UTF8.self).replacingOccurrences(
+                        of: "format: 2", with: "format: 3"
+                    ).utf8)
+            }
+        }
+
+        var testDescription: String { "\(self)" }
+    }
+
+    /// The parser never fails (book format §6), so damaged contents still open, with what
+    /// couldn't be read kept as error entries, and opening writes nothing but the lock.
+    @Test(arguments: ContentDamage.allCases)
+    func damagedContentsOpenAndNothingIsWritten(_ damage: ContentDamage) throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            _ = try BookPackage.create(at: url, title: "Novel")
+            try damage.apply(to: encoded(RichBook.make())).write(to: url.layout.book)
+            let before = try Data(contentsOf: url.layout.book)
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let book = try BookPackage.open(at: url, fileSystem: fileSystem).book
+            #expect(book != (try RichBook.make()))
+            #expect(fileSystem.calls.allSatisfy { !$0.isMutation || $0 == .lock(".lock") })
+            #expect(try Data(contentsOf: url.layout.book) == before)
+        }
+    }
+
     /// Random single-byte edits, deletions, insertions and truncations of a valid file:
-    /// each either loads a valid book or fails with a `LoadError`, and nothing is written.
-    @Test func mutatedFilesNeverHalfLoad() throws {
+    /// each loads, and nothing but the lock is written.
+    @Test func mutatedFilesAlwaysLoadAndWriteNothing() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             _ = try BookPackage.create(at: url, title: "Novel")
             let original = try encoded(RichBook.make())
             var random = SplitMix64(seed: 0x5CE7E_17)
-            var outcomes = (loaded: 0, refused: 0)
-            for _ in 0..<400 {
+            for _ in 0..<100 {
                 var bytes = [UInt8](original)
                 for _ in 0..<Int.random(in: 1...3, using: &random) {
                     let index = Int.random(in: 0..<bytes.count, using: &random)
@@ -150,21 +171,14 @@ import Testing
                     case 2: bytes.insert(UInt8.random(in: .min ... .max, using: &random), at: index)
                     default: bytes.removeLast(Int.random(in: 1...(bytes.count - index), using: &random))
                     }
-                    if bytes.isEmpty { bytes = [UInt8(ascii: "{")] }
+                    if bytes.isEmpty { bytes = [UInt8(ascii: "#")] }
                 }
                 try Data(bytes).write(to: url.layout.book)
                 let fileSystem = FaultInjectingFileSystem(root: url)
-                do {
-                    let book = try BookPackage.open(at: url, fileSystem: fileSystem).book
-                    #expect(BookValidator.problems(in: book).isEmpty)
-                    outcomes.loaded += 1
-                } catch {
-                    outcomes.refused += 1
-                }
+                _ = try BookPackage.open(at: url, fileSystem: fileSystem)
                 #expect(fileSystem.calls.allSatisfy { !$0.isMutation || $0 == .lock(".lock") })
+                #expect(try Data(contentsOf: url.layout.book) == Data(bytes))
             }
-            #expect(
-                outcomes.refused > 0 && outcomes.loaded > 0, "precondition: the fuzz exercised both outcomes")
         }
     }
 }

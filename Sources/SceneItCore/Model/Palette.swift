@@ -1,5 +1,5 @@
-/// PLAN §6.2's seven palette names, as stored in `book.json`. A comment can be any of them.
-public enum PaletteColor: String, StrictStringEnum {
+/// PLAN §6.2's seven palette names, as written in `book.md`. A comment can be any of them.
+public enum PaletteColor: String, CaseIterable, Hashable, Sendable {
     case black, purple, red, blue, green, gray, pink
 
     /// `.black` for `nil`, the inverse of `TextColor.init?(_:)`.
@@ -18,7 +18,7 @@ public enum PaletteColor: String, StrictStringEnum {
 
 /// A run's text color. There is no `black`: a run without a color is black
 /// (decision 0013).
-public enum TextColor: String, StrictStringEnum {
+public enum TextColor: String, CaseIterable, Hashable, Sendable {
     case purple, red, blue, green, gray, pink
 
     /// `nil` for black, which a run expresses by having no color.
@@ -27,6 +27,6 @@ public enum TextColor: String, StrictStringEnum {
     }
 }
 
-public enum HighlightColor: String, StrictStringEnum {
+public enum HighlightColor: String, CaseIterable, Hashable, Sendable {
     case purple, red, blue, green, gray, pink
 }

@@ -1,28 +1,7 @@
 import Foundation
 
-/// Why a book couldn't be turned into bytes that are safe to write.
-public enum EncodingFailure: Error, Hashable, Sendable, CustomStringConvertible {
-    /// `BookCoding.encode` refused the book (it's invalid) or the encoder failed.
-    case rejected(BookEncodingError)
-    /// The encoded bytes don't decode.
-    case undecodable(BookDecodingError)
-    /// The encoded bytes decode, but the result won't encode.
-    case reencodingRejected(BookEncodingError)
-    /// Decoding and re-encoding the bytes produced different bytes.
-    case unstable
-
-    public var description: String {
-        switch self {
-        case .rejected(let error): error.description
-        case .undecodable(let error): "the encoded book doesn't decode: \(error)"
-        case .reencodingRejected(let error): "the encoded book decodes, but doesn't re-encode: \(error)"
-        case .unstable: "the encoded book changes when it's decoded and encoded again"
-        }
-    }
-}
-
 public enum SaveError: Error, Hashable, Sendable, CustomStringConvertible {
-    case encoding(EncodingFailure)
+    case encoding(VerificationFailure)
     /// `book.json` doesn't hold what this package last read or wrote, and the save's
     /// `ExternalChangePolicy` (or the kind of change) doesn't allow replacing it.
     case externallyModified(ExternalChange)
@@ -108,7 +87,7 @@ public enum OlderBackups: Hashable, Sendable {
 public enum CreateError: Error, Hashable, Sendable, CustomStringConvertible {
     case missingPackageExtension(URL)
     case alreadyExists(URL)
-    case encoding(EncodingFailure)
+    case encoding(VerificationFailure)
     case fileSystem(FileSystemError)
 
     public var description: String {
@@ -156,8 +135,6 @@ public enum LoadProblem: Error, Hashable, Sendable, CustomStringConvertible {
         case .bookMissing: "bookMissing"
         case .bookNotAFile: "bookNotAFile"
         case .unreadable: "unreadable"
-        case .undecodable: "undecodable"
-        case .invalid: "invalid"
         }
     }
 
@@ -167,8 +144,6 @@ public enum LoadProblem: Error, Hashable, Sendable, CustomStringConvertible {
     case bookMissing
     case bookNotAFile
     case unreadable(FileSystemError)
-    case undecodable(BookDecodingError)
-    case invalid([BookProblem])
 
     public var description: String {
         switch self {
@@ -179,9 +154,6 @@ public enum LoadProblem: Error, Hashable, Sendable, CustomStringConvertible {
         case .bookMissing: "the package has no book.json"
         case .bookNotAFile: "the package's book.json isn't a regular file (it may be a folder or a link)"
         case .unreadable(let error): "\(error)"
-        case .undecodable(let error): "book.json isn't a valid book: \(error)"
-        case .invalid(let problems):
-            "book.json isn't a valid book:\n" + problems.map { "- \($0)" }.joined(separator: "\n")
         }
     }
 }

@@ -1,35 +1,27 @@
 /// A scene's title: one line of plain text (decision 0015).
 ///
-/// `book.json` keeps PLAN §5.2's shape, a paragraph of runs: `[{"text": "…"}]`, or `[]`
-/// when empty. Decoding a formatted title keeps its text and drops the attributes,
-/// including comment ids, so its next save writes a single plain run. `BookValidator`
-/// rejects a line break, since the type doesn't prevent one.
+/// `book.md` writes it as the scene's `## ` heading; formatting typed into a heading by hand
+/// is dropped on load, keeping the text.
 public struct SceneTitle: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
-    public var text: String
+    /// One line of text `CharacterPolicy` admits: every assignment applies the policy, and
+    /// a line break becomes a space.
+    public var text: String {
+        didSet { text = CharacterPolicy.admittedLine(text) }
+    }
 
     public init(_ text: String) {
-        self.text = text
+        self.text = CharacterPolicy.admittedLine(text)
     }
 
     public init(stringLiteral text: String) {
         self.init(text)
     }
 
-    /// Each line break becomes a space, so pasted text stays on one line, and object
-    /// replacement characters are removed.
+    /// As `init(_:)`, except that object replacement characters are removed rather than
+    /// becoming `[?]`.
     public init(pasted text: String) {
-        self.init(String(text.filter { !$0.isObjectReplacement }.map { $0.isLineBreak ? " " : $0 }))
+        self.init(String(text.filter { !$0.isObjectReplacement }))
     }
 
     public var description: String { text }
-}
-
-extension SceneTitle: Codable {
-    public init(from decoder: any Decoder) throws {
-        text = try Paragraph(from: decoder).text
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        try Paragraph(text.isEmpty ? [] : [Run(text)]).encode(to: encoder)
-    }
 }

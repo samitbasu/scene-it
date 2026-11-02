@@ -272,7 +272,8 @@ struct BookStoreTests {
             let book = try #require(store.current)
             let broken = folder.appending(path: "Broken.sceneit")
             try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: false)
-            try Data("{ not a book".utf8).write(to: broken.appending(path: "book.json"))
+            try FileManager.default.createDirectory(
+                at: broken.appending(path: "book.json"), withIntermediateDirectories: false)
 
             guard case .failed(let error) = await store.open(broken) else {
                 Issue.record("the broken book opened")

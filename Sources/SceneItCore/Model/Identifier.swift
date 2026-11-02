@@ -1,9 +1,9 @@
 /// A string id that can't be mixed up with an id of another kind: `Owner` is a phantom
-/// type, so a `SceneID` is not a `CommentID` even though both encode as a bare string.
+/// type, so a `SceneID` is not a `CommentID` even though both are bare text.
 ///
 /// Equality and ordering compare UTF-8 bytes, not `String`'s canonical equivalence, so
-/// two ids are the same only if they encode identically and sorting is byte-stable.
-public struct Identifier<Owner>: RawRepresentable, Codable, Hashable, Comparable, Sendable {
+/// two ids are the same only if they are written identically and sorting is byte-stable.
+public struct Identifier<Owner>: RawRepresentable, Hashable, Comparable, Sendable {
     public let rawValue: String
 
     public init(rawValue: String) {

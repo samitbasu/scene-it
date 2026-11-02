@@ -71,7 +71,7 @@ struct WindowRenders {
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
-            try BookCoding.encode(Self.sampleBook()).write(
+            try BookFormat.serialize(Self.sampleBook()).write(
                 to: url.appending(path: "book.json"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)

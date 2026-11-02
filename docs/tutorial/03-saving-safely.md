@@ -4,7 +4,7 @@ How a book gets onto disk without ever being lost or half-loaded, explained for 
 who has written `tempfile` + `persist` in Rust.
 
 The rules come from [WORKFLOW.md](../dev/WORKFLOW.md)'s trust section: never write
-`book.json` without encode → verify → rotate → atomic write; a failed load never
+`book.json` without serialize → verify → rotate → atomic write; a failed load never
 half-loads or overwrites anything; refuse with a clear error rather than guess. Two
 decision records refine them: [ADR 0018](../decisions/0018-external-change-ux.md) (what
 happens when another program changed the book) and
@@ -115,13 +115,14 @@ It plays the role of Rust's `.map_err(LoadProblem::Unreadable)?`.
 ## 3. The save pipeline
 
 ```swift
-    func save(
-        encoded data: Data, onExternalChange policy: ExternalChangePolicy = .refuse
+    public func save(
+        _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse
     ) throws(SaveError) -> SaveOutcome {
+        let data: Data
         do {
-            try Self.verify(data)
+            data = try BookFormat.verifiedSerialization(of: book)
         } catch {
-            Log.store.fault("the encoded book failed verification", ["error": .error(LoggedError(error))])
+            Log.store.fault("the serialized book failed verification", ["error": .error(LoggedError(error))])
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
@@ -140,26 +141,27 @@ It plays the role of Rust's `.map_err(LoadProblem::Unreadable)?`.
 
 In order:
 
-1. **Encode.** `save(_ book:)` calls `BookCoding.encode`, which runs the validator
-   first (chapter 02 §8), so an invalid book never reaches the disk.
-2. **Verify.** Decode the bytes and encode the result again, and require the *same
-   bytes*:
+1. **Serialize and verify.** `save(_ book:)` calls `BookFormat.verifiedSerialization`
+   (chapter 02 §6): serialize, parse the bytes, and require that serializing the result
+   gives the *same bytes* and that the parse found no error entries the book didn't
+   already have:
 
    ```swift
-           guard reencoded == data else { throw .unstable }
+           guard serialize(reread) == bytes else { throw .unstable }
    ```
 
    Not `Book ==`: Swift's `String ==` compares canonical equivalence, so `"é"`
    written as one code point (NFC) equals `"e"` plus a combining accent (NFD). Two
-   "equal" books can encode differently, and comparing values would hide exactly
-   the kind of drift this step exists to catch.
-3. **Read `book.json`, and decide whose it is.** Refuse a read-only or locked file (§8).
+   "equal" books can serialize differently, and comparing values would hide exactly
+   the kind of drift this step exists to catch. A failure is `SaveError.encoding`, and
+   nothing is written.
+2. **Read `book.json`, and decide whose it is.** Refuse a read-only or locked file (§8).
    Compare the bytes' digest with the one remembered: equal means *ours*, otherwise
    *theirs*, which `.refuse` turns into an error (§7).
-4. **Skip unchanged.** If `book.json` already holds these exact bytes, return
+3. **Skip unchanged.** If `book.json` already holds these exact bytes, return
    `.unchanged` without touching anything. Autosave runs every couple of seconds;
    if it rotated each time, three idle autosaves would push every real backup out.
-5. **Replace,** in two phases: write everything, then rename (§4).
+4. **Replace,** in two phases: write everything, then rename (§4).
 
 Every failure is logged through `Log.store` (chapter 11) before it's thrown. The
 log gets the operation and cause as fixed symbols (`operation=write cause=noSpace`),
@@ -669,14 +671,14 @@ lock *after* the read, so a book that fails to load never gains one.
 `open` checks the extension, that the package is a directory and that `book.json` is a
 regular file. It doesn't follow links: a symbolic link at `book.json` is
 `.bookNotAFile`, and so is a named pipe, which would block a read forever. Then it
-reads, decodes and validates. It builds the `Book` only when all of that succeeds, so
+reads and parses. The parse never fails (chapter 02): damaged contents open, with what
+couldn't be read kept as error entries. So only the file system can make `open` fail, and
 there's no partially loaded state to clean up. Failures become a `LoadError`: the
 problem, plus the backups that exist with their modification times, so the message
 tells the writer what they could restore by hand:
 
 ```
-Couldn't open Novel.sceneit: book.json isn't a valid book:
-- scene "01JC4K00000000000000000001" (scenes[0]), body[0][1]: a run's text is empty
+Couldn't open Novel.sceneit: the package's book.json isn't a regular file (it may be a folder or a link)
 Backups in the package:
 - book.json.bak1 (last modified 2026-11-01T17:03:12Z)
 - book.json.bak2 (last modified 2026-11-01T17:03:12Z)
@@ -787,16 +789,16 @@ The tests that use it:
   modification time restored, removed, touched, replaced with identical bytes, and
   replaced by a directory; a read-only, locked or append-only `book.json`; permissions
   kept across a save.
-- **Loading damaged packages.** Truncated, empty, garbage, an invalid book, an
-  unsupported format, a missing `book.json`, a directory, a link or a dangling link
-  where `book.json` should be, an unreadable `book.json`, a file where the package
+- **Loading damaged packages.** A missing `book.json`, a directory, a link or a dangling
+  link where `book.json` should be, an unreadable `book.json`, a file where the package
   should be, a missing package and a missing extension. Each must throw the right
   `LoadProblem`, make no mutating call, and leave the directory listing, contents and
   modification times unchanged.
-- **Fuzzing.** 400 seeded random edits of a valid file (byte changes, insertions,
-  deletions, truncations): each either loads a book that passes the validator or
-  throws a `LoadError`, and never writes. The test asserts that both outcomes
-  occurred, so it can't silently degenerate into testing only one.
+- **Damaged contents.** Truncated, empty, garbage and a newer format all open, and
+  opening writes nothing but the lock.
+- **Fuzzing.** 100 seeded random edits of a valid file (byte changes, insertions,
+  deletions, truncations): each loads, and nothing but the lock is written. The format's
+  own fuzz suite (chapter 02 §7) covers what the parse makes of them.
 - **Rotation.** Five saves of distinct content leave `bak1`–`bak3` byte-equal to the
   previous three versions, and an unchanged save leaves the whole package untouched.
 - **Mutation checks.** Removing the "theirs must be backed up" guard, the swap-back, or

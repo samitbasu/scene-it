@@ -3,18 +3,20 @@ import Testing
 
 @testable import SceneItCore
 
-/// The value stored in `Fixtures/rich-book.json`: every run attribute, overlapping
-/// comments, a boneyard scene, several UTC offsets, and characters JSON must escape.
+/// A book that uses every part of the model: every run attribute, overlapping and detached
+/// comments, notes marks, an empty paragraph, error entries, a Boneyard scene, several UTC
+/// offsets, and characters the format must escape.
 enum RichBook {
     static func make() throws -> Book {
         let c1 = CommentID(rawValue: "01JC4K0000000000000000C001")
         let c2 = CommentID(rawValue: "01JC4K0000000000000000C002")
         let c3 = CommentID(rawValue: "01JC4K0000000000000000C003")
+        let c4 = CommentID(rawValue: "c4")
         let ferry = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000001"),
             modified: try timestamp("2026-10-31T20:54:00-07:00"),
-            title: "The ferry",
-            tags: ["opening", "Mara"],
+            title: "The *ferry*, \\ and_more ",
+            tags: ["opening", "Mara", "a, b", "#hash"],
             body: [
                 [
                     Run("He found the "),
@@ -27,18 +29,24 @@ enum RichBook {
                     Run("Bold", styles: [.bold]),
                     Run(" struck", styles: [.strike], highlight: .green),
                     Run(" all three", styles: [.bold, .italic, .strike], color: .red, highlight: .pink),
-                    Run(" \"quoted\" and/or back\\slash, café ☕️"),
+                    Run(" \"quoted\" and/or back\\slash, caf\u{E9} * _ ~ "),
                 ],
+                [Run("# not a heading")],
             ],
-            notes: [[Run("Check the tide tables.", color: .gray)]],
+            notes: [[Run("Check the ", color: .gray), Run("tide tables.", color: .gray, comments: [c4])]],
             comments: [
                 Comment(
                     id: c2, color: .blue, text: "Overlaps the first.\nTwo lines.",
                     created: try timestamp("2026-10-31T20:41:30-07:00")),
                 Comment(
-                    id: c1, color: .purple, text: "Too early for this reveal?",
+                    id: c1, color: .purple, text: "Too early for this reveal? | maybe",
                     created: try timestamp("2026-10-31T20:40:00-07:00")),
-            ])
+                Comment(id: c4, color: .gray, text: "", created: try timestamp("2026-10-31T20:42:00-07:00")),
+                Comment(
+                    id: CommentID(rawValue: "gone"), color: .pink, text: " detached ",
+                    created: try timestamp("2026-10-31T20:43:00-07:00")),
+            ],
+            errors: [ErrorEntry(.metadata, "mood: grim"), ErrorEntry(.notice, "Something was repaired.")])
         let station = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000002"),
             modified: try timestamp("2026-11-01T09:15:07+05:30"),
@@ -57,14 +65,8 @@ enum RichBook {
             ])
         return Book(
             title: "My Novel",
-            settings: BookSettings(
-                zoom: try #require(Zoom(exactly: 1.25)),
-                voice: "com.apple.voice.premium.en-US.Zoe",
-                rate: try #require(SpeechRate(exactly: 0.5)),
-                rightPanel: .notes,
-                rightPanelOpen: .closed,
-                scenesView: .lightTable),
             scenes: [ferry, station],
-            boneyard: [cut])
+            boneyard: [cut],
+            errors: [ErrorEntry(.frontMatter, "author: S. Basu")])
     }
 }

@@ -173,16 +173,22 @@ enum Editor: CaseIterable, Sendable {
         let text = NSMutableAttributedString(string: "a😀b")
         text.addAttribute(.strikethroughStyle, value: 1, range: NSRange(location: 1, length: 1))
         let body = RunCodec.body(from: text)
-        #expect(body.map(\.text) == ["a😀b"])
+        #expect(body.map(\.text) == ["a[?]b"], "one character, one placeholder")
         #expect(body.allSatisfy { $0.runs.allSatisfy { !$0.text.isEmpty } })
     }
 
     @Test func offsetsCountUTF16CodeUnits() {
-        let body: [Paragraph] = [[Run("😀")], [Run("é", styles: [.bold])]]
-        let text = RunCodec.attributedString(forBody: body)
+        let text = NSMutableAttributedString(string: "😀\né")
+        text.addAttribute(
+            .font, value: ParagraphRole.body.font([.bold]), range: NSRange(location: 3, length: 1))
         #expect(text.length == 4, "😀 is two UTF-16 code units; é is one; plus the break")
         #expect(text.string.count == 3)
-        #expect(RunCodec.body(from: text) == body)
+        #expect(RunCodec.body(from: text) == [[Run("[?]")], [Run("é", styles: [.bold])]])
+    }
+
+    @Test func savedTextFollowsTheCharacterPolicy() {
+        let typed = NSAttributedString(string: "\u{201C}Wait\u{201D}\u{2014} 🌊 cafe\u{301}\tthen")
+        #expect(RunCodec.body(from: typed).map(\.text) == ["\"Wait\"-- [?] café then"])
     }
 
     @Test(arguments: 0..<100)
@@ -202,7 +208,7 @@ enum Editor: CaseIterable, Sendable {
                 }
             }
         }
-        #expect(BookValidator.problems(in: book).isEmpty)
+        #expect(throws: Never.self) { try BookFormat.verifiedSerialization(of: book) }
     }
 
     @Test func randomSeparatorsAndForeignAttributesSaveToValidParagraphs() {
@@ -224,7 +230,8 @@ enum Editor: CaseIterable, Sendable {
             let body = RunCodec.body(from: text)
             #expect(body.allSatisfy(Self.isCanonical))
             #expect(RunCodec.body(from: RunCodec.attributedString(forBody: body)) == body, "idempotent")
-            let expected = text.string.filter { !$0.isObjectReplacement && !$0.isLineBreak }
+            let kept = String(text.string.filter { !$0.isObjectReplacement && !$0.isLineBreak })
+            let expected = CharacterPolicy.admitted(kept)
             #expect(Array(body.map(\.text).joined().unicodeScalars) == Array(expected.unicodeScalars))
         }
     }

@@ -2,15 +2,14 @@ public enum TextStyle: String, CaseIterable, Hashable, Sendable {
     case bold, italic, strike
 }
 
-/// A stretch of text with uniform formatting.
-///
-/// In `book.json` each style is a `true` flag and `comments` is an id array, all omitted
-/// when absent. In memory, absence is the empty set, so "`false`" and "`[]`" can't exist.
-/// Decoding rejects them rather than normalizing, so the encoder's output is a fixed
-/// point: encode → decode → encode is byte-identical. The one normalization is
-/// `"color": "black"`, which decodes as no color (decision 0013).
+/// A stretch of text with uniform formatting. `book.md` writes the styles inline and the
+/// colors, highlights and comments as ranges in the scene's `### Marks` and `### Comments`.
 public struct Run: Hashable, Sendable {
-    public var text: String
+    /// One line of text `CharacterPolicy` admits. Every assignment applies the policy
+    /// (`CharacterPolicy.admittedLine`), so a run can't hold what `book.md` can't store.
+    public var text: String {
+        didSet { text = CharacterPolicy.admittedLine(text) }
+    }
     public var styles: Set<TextStyle>
     public var color: TextColor?
     public var highlight: HighlightColor?
@@ -23,75 +22,47 @@ public struct Run: Hashable, Sendable {
         highlight: HighlightColor? = nil,
         comments: Set<CommentID> = []
     ) {
+        self.init(
+            admitted: CharacterPolicy.admittedLine(text), styles: styles, color: color, highlight: highlight,
+            comments: comments)
+    }
+
+    /// For text the caller has already admitted, like the parser's.
+    init(
+        admitted text: String, styles: Set<TextStyle>, color: TextColor?, highlight: HighlightColor?,
+        comments: Set<CommentID>
+    ) {
         self.text = text
         self.styles = styles
         self.color = color
         self.highlight = highlight
         self.comments = comments
     }
-}
 
-extension Run: Codable {
-    enum CodingKeys: String, CodingKey, CaseIterable {
-        case text, bold, italic, strike, color, highlight, comments
-
-        init(_ style: TextStyle) {
-            switch style {
-            case .bold: self = .bold
-            case .italic: self = .italic
-            case .strike: self = .strike
-            }
-        }
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
-        text = try container.decode(String.self, forKey: .text)
-        styles = []
-        for style in TextStyle.allCases {
-            let key = CodingKeys(style)
-            switch try container.decodeUnlessAbsent(Bool.self, forKey: key) {
-            case true?: styles.insert(style)
-            case false?: throw container.corrupted(key, "must be true when present; omit it instead of false")
-            case nil: break
-            }
-        }
-        color = try container.decodeUnlessAbsent(PaletteColor.self, forKey: .color).flatMap(TextColor.init)
-        highlight = try container.decodeUnlessAbsent(HighlightColor.self, forKey: .highlight)
-        let ids = try container.decodeUnlessAbsent([CommentID].self, forKey: .comments) ?? []
-        comments = Set(ids)
-        if container.contains(.comments) && ids.isEmpty {
-            throw container.corrupted(.comments, "must not be empty when present; omit it instead")
-        }
-        if comments.count != ids.count {
-            throw container.corrupted(.comments, "lists the same comment id more than once")
-        }
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(text, forKey: .text)
-        for style in styles {
-            try container.encode(true, forKey: CodingKeys(style))
-        }
-        try container.encodeIfPresent(color, forKey: .color)
-        try container.encodeIfPresent(highlight, forKey: .highlight)
-        if !comments.isEmpty {
-            try container.encode(comments.sorted(), forKey: .comments)
-        }
+    /// Whether the two runs differ only in their text, so they can be one run.
+    func hasSameFormat(as other: Run) -> Bool {
+        styles == other.styles && color == other.color && highlight == other.highlight
+            && comments == other.comments
     }
 }
 
-/// A paragraph: an array of runs in `book.json`.
-public struct Paragraph: Hashable, Sendable, Codable, ExpressibleByArrayLiteral {
-    public var runs: [Run]
+/// A paragraph. One with no runs is empty: the writer pressed Return twice.
+public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
+    /// Never holds an empty run: the initializers and every assignment drop them, since an
+    /// empty run has nothing `book.md` could write. (Each assignment scans the runs once,
+    /// so build a paragraph's runs in an array rather than appending one at a time.)
+    public var runs: [Run] {
+        didSet {
+            if runs.contains(where: \.text.isEmpty) { runs.removeAll(where: \.text.isEmpty) }
+        }
+    }
 
     public init(_ runs: [Run]) {
-        self.runs = runs
+        self.runs = runs.filter { !$0.text.isEmpty }
     }
 
     public init(arrayLiteral runs: Run...) {
-        self.runs = runs
+        self.init(runs)
     }
 
     public var text: String {
@@ -103,12 +74,26 @@ public struct Paragraph: Hashable, Sendable, Codable, ExpressibleByArrayLiteral 
         Set(paragraphs.lazy.flatMap(\.runs).flatMap(\.comments))
     }
 
-    public init(from decoder: any Decoder) throws {
-        runs = try decoder.singleValueContainer().decode([Run].self)
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(runs)
+    /// The same text with neighbouring runs of the same format merged, as `book.md`
+    /// writes it.
+    var withMaximalRuns: Paragraph {
+        var merged: [Run] = []
+        var start = runs.startIndex
+        while start < runs.endIndex {
+            var end = start + 1
+            while end < runs.endIndex, runs[end].hasSameFormat(as: runs[start]) {
+                end += 1
+            }
+            let first = runs[start]
+            merged.append(
+                end == start + 1
+                    ? first
+                    : Run(
+                        admitted: runs[start..<end].map(\.text).joined(), styles: first.styles,
+                        color: first.color,
+                        highlight: first.highlight, comments: first.comments))
+            start = end
+        }
+        return Paragraph(merged)
     }
 }

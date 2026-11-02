@@ -40,7 +40,7 @@ public final class AppPreferences {
 }
 
 /// The right panel's tabs, left to right.
-public enum RightPanelTab: String, StrictStringEnum {
+public enum RightPanelTab: String, CaseIterable, Hashable, Sendable {
     case comments, notes, tags
 }
 

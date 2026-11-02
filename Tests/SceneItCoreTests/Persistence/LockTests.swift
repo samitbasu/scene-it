@@ -214,7 +214,8 @@ private struct LockHolder {
                 let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
                 _ = consume package
             }
-            try Data("{}".utf8).write(to: url.layout.book)
+            try FileManager.default.removeItem(at: url.layout.book)
+            try FileManager.default.createDirectory(at: url.layout.book, withIntermediateDirectories: false)
             #expect(FileManager.default.fileExists(atPath: url.layout.lock.path(percentEncoded: false)))
             let error = try #require(throws: LoadError.self) { try BookPackage.open(at: url) }
             #expect(error.backups.map(\.slot) == BackupSlot.allCases)
@@ -291,7 +292,7 @@ private struct LockHolder {
         }
     }
 
-    @Test func aBookDamagedWhileItWasBeingLockedFailsAndReleasesTheLock() throws {
+    @Test func aBookDamagedWhileItWasBeingLockedIsReadAgain() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             do {
@@ -300,14 +301,9 @@ private struct LockHolder {
             }
             let fileSystem = FaultInjectingFileSystem(root: url)
             fileSystem.before(.lock(".lock")) { try? Data("{".utf8).write(to: url.layout.book) }
-            let error = try #require(throws: LoadError.self) {
-                try BookPackage.open(at: url, fileSystem: fileSystem)
-            }
-            guard case .undecodable = error.problem else {
-                Issue.record("expected undecodable, got \(error.problem)")
-                return
-            }
-            #expect(ExclusiveFileLock.acquire(url.layout.lock).summary() == "acquired")
+            let opened = try BookPackage.open(at: url, fileSystem: fileSystem)
+            #expect(opened.book.errors.contains(ErrorEntry(.line, "{")), "the damaged version was read")
+            #expect(opened.editable != nil)
         }
     }
 }

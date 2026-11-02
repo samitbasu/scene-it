@@ -15,12 +15,15 @@ import AppKit
 ///   without an `.attachment` (decision 0016).
 /// - A lone UTF-16 surrogate, which `NSString` allows but `String` can't hold, becomes
 ///   U+FFFD.
+/// - `Run` applies `CharacterPolicy` to its text, so what's saved is what `book.md` can
+///   store: an emoji (or that U+FFFD) becomes `[?]`, `—` becomes `--`, a tab a space.
 /// - Text with no line breaks and nothing left to save is no paragraphs, so `[[]]` (one
 ///   empty paragraph) saves as `[]`.
 ///
-/// The output therefore satisfies `BookValidator` except for one rule the codec can't
-/// see: comment ids must exist in the scene's `comments`, or encoding fails. Whoever
-/// accepts the edit must remap or strip unknown ids (decision 0017);
+/// One of the model's rules (book format §7.5) is beyond the codec: comment ids must
+/// exist in the scene's `comments`. `book.md` writes a comment's ranges from that list,
+/// so save verification refuses a book with an id missing from it. Whoever accepts the
+/// edit must remap or strip unknown ids (decision 0017);
 /// `Paragraph.commentIDs(in:)` lists the ids to check.
 ///
 /// Main-actor isolated, because the `NSTextStorage` it reads and fills is.
@@ -61,7 +64,7 @@ public enum RunCodec {
         let string = text.string
         let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isLineBreak)
         let paragraphs = lines.map { line in
-            var runs: [Run] = []
+            var pieces: [(format: RunFormat, text: [String])] = []
             let lineRange = NSRange(line.startIndex..<line.endIndex, in: string)
             text.enumerateAttributes(in: lineRange) { attributes, range, _ in
                 // Slicing rounds an index inside a surrogate pair down, so a range that
@@ -71,13 +74,13 @@ public enum RunCodec {
                 piece.removeAll(where: \.isObjectReplacement)
                 guard !piece.isEmpty else { return }
                 let format = RunFormat(attributes)
-                if let last = runs.last, RunFormat(last) == format {
-                    runs[runs.count - 1].text += piece
+                if pieces.last?.format == format {
+                    pieces[pieces.count - 1].text.append(piece)
                 } else {
-                    runs.append(format.run(piece))
+                    pieces.append((format, [piece]))
                 }
             }
-            return Paragraph(runs)
+            return Paragraph(pieces.map { $0.format.run($0.text.joined()) })
         }
         return paragraphs == [[]] ? [] : paragraphs
     }

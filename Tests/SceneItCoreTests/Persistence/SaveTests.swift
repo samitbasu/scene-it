@@ -87,10 +87,20 @@ func expectLayout(
     }
 }
 
-/// Bytes that decode to a valid book but aren't what the encoder writes.
-func unstableEncoding(of book: Book) throws -> Data {
-    let object = try JSONSerialization.jsonObject(with: encoded(book))
-    return try JSONSerialization.data(withJSONObject: object)
+/// A book whose serialization reads back as a different book, with no new error entries:
+/// a run carries a comment id the scene doesn't list (book format §7.5), so the save
+/// would lose it.
+func lossyBook(_ number: Int) throws -> Book {
+    var book = try draft(number)
+    book.scenes[0].body.append([Run("ghost", comments: [CommentID(rawValue: "ghost")])])
+    return book
+}
+
+/// A book whose re-read gains error entries: two scenes with the same id.
+func bookWithNewEntries(_ number: Int) throws -> Book {
+    var book = try draft(number)
+    book.scenes.append(book.scenes[0])
+    return book
 }
 
 @Suite struct SaveTests {
@@ -168,7 +178,7 @@ func unstableEncoding(of book: Book) throws -> Data {
                         try attemptSave(package, failing: fault, fileSystem)
                     }
                     switch (fault, error) {
-                    case (.encode, .encoding(.rejected)), (.verify, .encoding(.unstable)),
+                    case (.encode, .encoding(.newEntries)), (.verify, .encoding(.changed)),
                         (.readDisplaced, .externallyModified(.changed)):
                         break
                     case (_, .fileSystem) where fault.call != nil: break
@@ -264,11 +274,14 @@ func unstableEncoding(of book: Book) throws -> Data {
         }
     }
 
-    @Test func verificationRejectsBytesThatAreNotAFixedPoint() throws {
-        let unstable = try unstableEncoding(of: draft(1))
-        #expect(throws: EncodingFailure.unstable) { try BookPackage.verify(unstable) }
-        #expect(throws: EncodingFailure.self) { try BookPackage.verify(Data("{".utf8)) }
-        try BookPackage.verify(encoded(draft(1)))
+    @Test func verificationRejectsBooksThatDontReadBack() throws {
+        #expect(throws: VerificationFailure.changed) {
+            try BookFormat.verifiedSerialization(of: lossyBook(1))
+        }
+        #expect(throws: VerificationFailure.self) {
+            try BookFormat.verifiedSerialization(of: bookWithNewEntries(1))
+        }
+        #expect(try BookFormat.verifiedSerialization(of: draft(1)) == encoded(draft(1)))
     }
 }
 
@@ -293,11 +306,9 @@ private func attemptSave(
 ) throws -> SaveOutcome {
     switch fault {
     case .encode:
-        var book = try draft(9)
-        book.scenes.append(book.scenes[0])
-        return try package.save(book)
+        return try package.save(bookWithNewEntries(9))
     case .verify:
-        return try package.save(encoded: unstableEncoding(of: draft(9)))
+        return try package.save(lossyBook(9))
     default:
         fileSystem.inject(.fail(try #require(fault.call)))
         return try package.save(draft(9))

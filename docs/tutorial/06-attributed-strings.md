@@ -1,7 +1,7 @@
 # 06 — Attributed strings and the `RunCodec`
 
 How a scene's paragraphs of runs become the text an `NSTextView` edits, and how
-the edited text becomes runs again. Read it after [chapter 02](02-model-and-codable.md),
+the edited text becomes runs again. Read it after [chapter 02](02-the-book-format.md),
 which introduces `Run` and `Paragraph`.
 
 ## Where the code is
@@ -68,7 +68,7 @@ preview of a comment's quote, say) gets the same keys with types.
 ## 3. The text bridge in one picture
 
 ```
-book.json ─decode─▶ [Paragraph] ─RunCodec.attributedString─▶ NSAttributedString ─▶ NSTextStorage
+book.md ─parse─▶ [Paragraph] ─RunCodec.attributedString─▶ NSAttributedString ─▶ NSTextStorage
                          ▲                                                              │
                          └──────────────── RunCodec.body(from:) / notes(from:) ◀────────┘
 ```
@@ -253,10 +253,10 @@ attribute runs:
 `isLineBreak` is the model's one definition of a line break, in
 [`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift). It's
 `Character.isNewline`: true for `\n`, `\r`, `\r\n` (one `Character`), U+000B, U+000C,
-U+0085, U+2028 and U+2029. `BookValidator` and `SceneTitle(pasted:)` use the same
-property, so the codec and the validator can't disagree. A paste
+U+0085, U+2028 and U+2029. `SceneTitle(pasted:)` uses the same property, so the
+codec and the title field can't disagree. A paste
 from Word that contains U+2029 becomes a paragraph break instead of a run that the
-encoder would refuse to save. Splitting the *whole string* first, not each attribute
+save verification would refuse. Splitting the *whole string* first, not each attribute
 run, matters for `\r\n`: if the `\r` is bold and the `\n` isn't, they're two
 attribute runs but still one `Character` and one break.
 
@@ -307,8 +307,9 @@ single empty paragraph (empty text, or only a U+FFFC) saves as no paragraphs (`[
 because loading `[]` and `[[]]` both give an empty string.
 
 One rule is beyond the codec: every comment id in a run must be in the scene's
-`comments`, or `BookCoding.encode` refuses the book. The codec doesn't know the
-scene, so it passes ids through untouched. Whoever accepts an edit (the store, for a
+`comments`, because `book.md` writes a comment's ranges from that list, so save
+verification refuses a book with an id missing from it. The codec doesn't know the scene, so it
+passes ids through untouched. Whoever accepts an edit (the store, for a
 paste) must remap or strip ids it can't resolve
 ([decision 0017](../decisions/0017-paste-carries-comments.md)).
 `Paragraph.commentIDs(in:)` lists the ids to check.
@@ -342,6 +343,11 @@ so the half becomes U+FFFD REPLACEMENT CHARACTER (�) when it's read into one. 
 unit, so offsets don't shift. `aLoneSurrogateBecomesTheReplacementCharacter` pins
 this down.
 
+Neither the emoji nor the U+FFFD survives into the model, though. `Run` applies the
+character policy to its text (chapter 02 §6), so both are saved as `[?]`, the placeholder
+for anything `book.md` can't store. The surrogate handling still matters: it decides that
+the emoji is *one* character, and so one `[?]`, not two.
+
 ## 7. How the tests prove it
 
 - **Round trips** in both editors of every color × highlight × style combination
@@ -350,8 +356,8 @@ this down.
 - **Generated scenes**: `generatedScenesRoundTrip` reuses the model tests'
   `BookGenerator`. Since run boundaries may legitimately move, it compares the text
   scalar by scalar together with each scalar's format, checks the output is
-  canonical, checks `save(load(save(x))) == save(x)`, and validates the resulting
-  book.
+  canonical, checks `save(load(save(x))) == save(x)`, and checks that the resulting
+  book passes save verification.
 - **Hostile input**: every separator, foreign attributes, malformed custom values,
   a pasted color without a name, attachments, a lone surrogate, and random mixtures
   of them.
