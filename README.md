@@ -124,6 +124,24 @@ The version comes from `MARKETING_VERSION`; the build number is the git commit c
 `README.txt` telling the tester to allow the app the first time it's blocked, via
 **System Settings → Privacy & Security → Open Anyway**.
 
+## Reading a problem report
+
+Writers send reports from **Help → Report a Problem…** to the address in
+`ProblemReport.destination` ([ADR 0009](docs/decisions/0009-report-destination.md)). The
+attachment is `Scene It Report <yyyy-MM-dd HHmm>.zip`:
+
+| File | What it tells you |
+| --- | --- |
+| `manifest.txt` | Every file in the zip and why, plus anything that couldn't be gathered. Read it first. |
+| `system.txt` | App version and build, macOS version, Mac model, and settings and backup status |
+| `logs/recent-sessions.log` | Our own log across launches (UTC). `Launched lastSession=crashed` starts the session after a crash. |
+| `logs/this-session.log` | The same messages for the sending session, read from the unified log |
+| `crash-reports/*.ips` | macOS crash reports. Open them in Console, or read `exception`, `asi` and `faultingThread`. |
+| `metrickit/*.json` | Crash and hang diagnostics MetricKit delivered to the app |
+
+Release builds need their dSYM to symbolicate (`atos`), and `scripts/release.sh` must archive
+it. See [tutorial 11](docs/tutorial/11-crash-reporting.md#reading-a-report-you-receive) for the steps.
+
 ## Opening in Xcode
 
 `open SceneIt.xcodeproj`, choose the **SceneIt** scheme, then press Run. New Swift

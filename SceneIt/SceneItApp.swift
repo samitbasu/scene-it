@@ -8,5 +8,8 @@ struct SceneItApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            DiagnosticsCommands(diagnostics: .shared)
+        }
     }
 }
