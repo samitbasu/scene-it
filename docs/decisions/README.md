@@ -30,3 +30,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0021](0021-one-book-at-a-time.md) | One book open at a time; switching books saves and closes the current one first | Accepted |
 | [0022](0022-markdown-book-format.md) | Book format v2: tolerant Markdown (`book.md`), Latin-1, marks, Errors tab; settings move to app prefs | Accepted — replaces PLAN §5 |
 | [0023](0023-word-count-like-word.md) | Word counts match Microsoft Word (whitespace-delimited, body only) | Accepted |
+| [0024](0024-damaged-books-open-read-only.md) | A book repaired on open is read-only until the writer chooses Make Editable; the original is kept permanently | Accepted |
