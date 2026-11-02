@@ -16,3 +16,5 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0007](0007-name-and-bundle-id.md) | "Scene It", `com.samitbasu.SceneIt` | Accepted — resolves PLAN Q2 |
 | [0008](0008-local-ci.md) | Local `scripts/check.sh` instead of hosted CI | Accepted |
 | [0009](0009-report-destination.md) | Problem reports go to the owner's personal email | Accepted — resolves #6 |
+| [0010](0010-nonnegative-interval.md) | Time spans use a non-negative `Interval` newtype over `Duration` | Accepted — Swift caveat to CLAUDE.md |
+| [0011](0011-mainactor-default-isolation.md) | App target defaults to `@MainActor` isolation | Accepted |
