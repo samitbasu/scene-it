@@ -160,6 +160,7 @@ public final class BookPackage: Sendable {
 
     /// The bytes of `book.md` and what they parsed to.
     private struct ReadBook {
+        let layout: PackageLayout
         let data: Data
         let parsed: ParsedBook
 
@@ -168,7 +169,8 @@ public final class BookPackage: Sendable {
         var readOnlyReason: ReadOnlyReason? {
             if parsed.isNewerThanSupported, let format = parsed.declaredFormat { return .newerFormat(format) }
             guard parsed.wasRepaired else { return nil }
-            return .repairedOnOpen(Repair(newEntries: parsed.newEntries, original: data))
+            return .repairedOnOpen(
+                Repair(layout: layout, book: parsed.book, newEntries: parsed.newEntries, original: data))
         }
     }
 
@@ -179,12 +181,11 @@ public final class BookPackage: Sendable {
     /// drive. It never replaces a file, and nothing ever removes the one it writes.
     ///
     /// The bytes are the ones the open parsed, never a second read of `book.md`, so what's
-    /// kept is exactly what the writer was shown repaired.
+    /// kept is exactly what the writer was shown repaired, in the package it came from.
     public static func keepOriginal(
-        of book: ReadOnlyBook, _ repair: Repair, now: Date = .now,
-        fileSystem: any FileSystem = LocalFileSystem()
+        of repair: Repair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
     ) throws(FileSystemError) -> KeptOriginal {
-        let layout = book.layout
+        let layout = repair.layout
         let temporary = try fileSystem.writeTemporary(
             repair.original, for: layout.original(at: now, attempt: 1), permissionsFrom: layout.book)
         let kept: URL?
@@ -202,35 +203,39 @@ public final class BookPackage: Sendable {
         Log.store.info(
             "kept the original of a book repaired as it opened",
             ["bytes": .bytes(Int64(repair.original.count))])
-        return KeptOriginal(url: kept, book: book, original: ContentDigest(repair.original))
+        return KeptOriginal(url: kept, repair: repair)
     }
 
     /// Make Editable's second step: locks the book for editing, as `open` does. `book.md`
     /// isn't read again: the book is the one shown read-only, and the package takes the kept
     /// original as what it last read, so a save finds any change since then and stops
-    /// (ADR 0018). If the lock can't be had, the book stays read-only for that reason.
+    /// (ADR 0018).
+    ///
+    /// It consumes `kept`, so one kept original makes one editable package. If the lock can't
+    /// be had, it hands `kept` back with the reason, for another try.
     public static func edit(
-        _ kept: KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
+        _ kept: consuming KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
         fileSystem: any FileSystem = LocalFileSystem()
-    ) -> OpenedBook {
+    ) -> MadeEditable {
         edit(kept, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
     }
 
     static func edit(
-        _ kept: KeptOriginal, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem,
+        _ kept: consuming KeptOriginal, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem,
         opener: Opener
-    ) -> OpenedBook {
-        let layout = kept.book.layout
-        switch access(layout, fileSystem, policy, opener) {
+    ) -> MadeEditable {
+        let repair = kept.repair
+        switch access(repair.layout, fileSystem, policy, opener) {
         case .editing(let lock):
             Log.store.info("made a repaired book editable")
             let package = BookPackage(
-                layout: layout, fileSystem: fileSystem, lastSeen: kept.original, lock: lock)
-            return .editing(EditableBook(package: package, book: kept.book.book))
+                layout: repair.layout, fileSystem: fileSystem, lastSeen: ContentDigest(repair.original),
+                lock: lock)
+            return .editing(EditableBook(package: package, book: repair.book))
         case .readOnly(let reason):
             Log.store.info(
                 "couldn't make a repaired book editable", ["reason": .symbol(reason.logSymbol)])
-            return .readOnly(kept.book, reason)
+            return .readOnly(kept, reason)
         }
     }
 
@@ -571,7 +576,11 @@ public final class BookPackage: Sendable {
                 ["problem": .symbol(error.logSymbol), "backups": .count(backups.count)])
             throw LoadError(package: layout.root, problem: error, backups: backups)
         }
-        return ReadBook(data: data, parsed: defaults.parse(data))
+        let parsed = defaults.parse(data)
+        if parsed.wasRepaired, case .file? = try? fileSystem.item(at: layout.legacyBook) {
+            Log.store.info("a book.md that needed repairs has a JSON book from before format 2 beside it")
+        }
+        return ReadBook(layout: layout, data: data, parsed: parsed)
     }
 
     private static func read(_ layout: PackageLayout, _ fileSystem: any FileSystem) throws(LoadProblem)
@@ -699,26 +708,66 @@ public enum ReadOnlyReason: Hashable, Sendable {
     }
 }
 
-/// What a parse repaired in `book.md` as the book opened, and the bytes it read.
+/// A book a parse repaired as it opened (ADR 0024): where it is, the book shown, the entries
+/// the parse made, and the bytes it read. Only `BookPackage.open` makes one, so the three
+/// always belong together, and `keepOriginal` writes the bytes into the package they came from.
 public struct Repair: Hashable, Sendable {
+    public let layout: PackageLayout
+    public let book: Book
     /// The error entries the parse made, in the Errors tab's order (`ParsedBook.newEntries`).
     public let newEntries: [ErrorEntry]
     /// Exactly the bytes that were parsed: what Make Editable keeps.
     let original: Data
+
+    fileprivate init(layout: PackageLayout, book: Book, newEntries: [ErrorEntry], original: Data) {
+        self.layout = layout
+        self.book = book
+        self.newEntries = newEntries
+        self.original = original
+    }
 }
 
 /// A repaired book whose original bytes are safely in its package (ADR 0024). Only
-/// `BookPackage.keepOriginal` makes one, so only a book whose original is kept can be edited
-/// through `BookPackage.edit`.
-public struct KeptOriginal: Sendable {
+/// `BookPackage.keepOriginal` makes one, and `BookPackage.edit` consumes it: it can't be
+/// copied, so one kept original makes at most one editable package.
+public struct KeptOriginal: ~Copyable, Sendable {
     /// The `book.md.original-<UTC time>.md` holding the original.
     public let url: URL
-    let book: ReadOnlyBook
-    let original: ContentDigest
+    let repair: Repair
 
-    fileprivate init(url: URL, book: ReadOnlyBook, original: ContentDigest) {
+    fileprivate init(url: URL, repair: Repair) {
         self.url = url
-        self.book = book
-        self.original = original
+        self.repair = repair
+    }
+}
+
+/// What `BookPackage.edit` did with a kept original.
+public enum MadeEditable: ~Copyable, Sendable {
+    case editing(EditableBook)
+    /// The lock couldn't be had; the kept original comes back for another try.
+    case readOnly(KeptOriginal, ReadOnlyReason)
+
+    /// The editable book, if there is one; consumes this.
+    public consuming func editable() -> EditableBook? {
+        switch consume self {
+        case .editing(let editable): editable
+        case .readOnly: nil
+        }
+    }
+
+    /// The kept original handed back for another try, if the lock couldn't be had; consumes this.
+    public consuming func keptOriginal() -> KeptOriginal? {
+        switch consume self {
+        case .editing: nil
+        case .readOnly(let kept, _): kept
+        }
+    }
+
+    /// Why the book is still read-only, if it is.
+    public var readOnlyReason: ReadOnlyReason? {
+        switch self {
+        case .editing: nil
+        case .readOnly(_, let reason): reason
+        }
     }
 }

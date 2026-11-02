@@ -192,6 +192,14 @@ enum Lexical {
         return Int(String(decoding: digits, as: UTF8.self))
     }
 
+    /// A `format:` value (§1.5): ASCII digits, optionally after one `+`. A number too large
+    /// for `Int` saturates, so it reads as newer than any format rather than as no number.
+    static func formatNumber(_ value: some Collection<UInt8>) -> Int? {
+        let digits = value.first == UInt8(ascii: "+") ? value.dropFirst() : value[...]
+        guard !digits.isEmpty, digits.allSatisfy({ (0x30...0x39).contains($0) }) else { return nil }
+        return Int(String(decoding: digits, as: UTF8.self)) ?? .max
+    }
+
     /// Whether a trimmed line starts an entry: `-` then a space, or `-` alone (§4.1).
     static func isEntryStart(_ line: [UInt8]) -> Bool {
         line.first == dash && (line.count == 1 || line[1] == space)

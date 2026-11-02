@@ -42,14 +42,17 @@ struct StrayTemporaryFiles {
     private let keptFiles: [URL]
     private let keptSnapshots: URL
 
-    /// A save's temporary `book.md` and `bak1`, compared with the book, its backups and the
-    /// snapshots in `Backups/`.
+    /// A save's temporary `book.md` and `bak1`, and Make Editable's temporary original
+    /// (ADR 0024), compared with the book, its backups and the snapshots in `Backups/`. An
+    /// original that never got its name holds the bytes `book.md` held when it was written,
+    /// so it's usually removed as a copy of `book.md`; if not, it's recovered like any other.
     init(packageRoot layout: PackageLayout, fileSystem: any FileSystem) {
         let destinations = [layout.book, layout.backup(.bak1)].map(\.lastPathComponent)
         self.init(
             folder: layout.root, fileSystem: fileSystem, log: .store,
             contents: { destination in
-                destinations.contains { destination.isExactly($0) } ? .bookVersion : nil
+                destinations.contains { destination.isExactly($0) } || PackageLayout.isOriginal(destination)
+                    ? .bookVersion : nil
             },
             keptFiles: Self.packageVersions(layout), keptSnapshots: layout.snapshots)
     }

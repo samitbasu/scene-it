@@ -38,7 +38,6 @@ import Testing
             ".book.md.crashed.tmp",
             ".book.md\(id).tmp", ".book.md.\(id)tmp", ".book.md.\(id).tmp\n", ".lock",
             "book.md.original-20261101T143005Z.md", "book.md.original-20261101T143005Z-2.md",
-            ".book.md.original-20261101T143005Z.md.\(id).tmp",
         ]
     }
 
@@ -99,6 +98,47 @@ import Testing
             #expect(!exists(stray, in: url))
             #expect(!exists(bakStray, in: url))
             #expect(try recoveredFiles(in: url).isEmpty)
+        }
+    }
+
+    /// Make Editable's temporary original, orphaned by a crash (ADR 0024): removed only if
+    /// the book or a backup holds the same bytes, and otherwise recovered.
+    @Test func anOrphanedOriginalIsRemovedOnlyIfKeptElsewhereAndOtherwiseRecovered() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            let original = package.layout.original(at: Self.longAgo, attempt: 2).lastPathComponent
+            let copyOfABackup = Self.temporaryName(for: original)
+            let unique = Self.temporaryName(for: original)
+            let damaged = Data("a damaged book kept nowhere else".utf8)
+            try plant(try encoded(draft(0)), as: copyOfABackup, in: url)
+            try plant(damaged, as: unique, in: url)
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            #expect(!exists(copyOfABackup, in: url))
+            #expect(!exists(unique, in: url))
+            let recovered = try recoveredFiles(in: url)
+            #expect(recovered.count == 1)
+            #expect(try recovered.map { try Data(contentsOf: url.appending(path: $0)) } == [damaged])
+        }
+    }
+
+    @Test func onlyExactOriginalNamesAreOriginals() {
+        let layout = PackageLayout(root: URL(filePath: "/Books/Novel.sceneit"))
+        for attempt in [1, 2, 37] {
+            #expect(
+                PackageLayout.isOriginal(
+                    layout.original(at: Self.longAgo, attempt: attempt).lastPathComponent))
+        }
+        let stamp = UTCStamp.string(for: Self.longAgo)
+        for name in [
+            "book.md.original-\(stamp)-1.md", "book.md.original-\(stamp)-02.md",
+            "book.md.original-\(stamp).MD",
+            "book.md.original-\(stamp)", "book.md.original-.md", "book.md.original-\(stamp)-x.md",
+            "Book.md.original-\(stamp).md", "book.md.recovered-\(stamp).md", "book.md",
+        ] {
+            #expect(!PackageLayout.isOriginal(name), "\(name)")
         }
     }
 

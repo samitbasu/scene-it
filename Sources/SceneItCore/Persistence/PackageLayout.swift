@@ -53,6 +53,19 @@ public struct PackageLayout: Hashable, Sendable {
         file("\(Self.bookFileName).original-\(Self.stamp(date, attempt)).md", in: root)
     }
 
+    /// Whether `fileName` is a name `original(at:attempt:)` writes.
+    static func isOriginal(_ fileName: some StringProtocol) -> Bool {
+        let prefix = "\(bookFileName).original-"
+        guard fileName.hasPrefix(prefix), fileName.hasSuffix(".md") else { return false }
+        let stamp = fileName.dropFirst(prefix.count).dropLast(".md".count)
+        let parts = stamp.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let date = UTCStamp.date(from: parts[0]) else { return false }
+        let attempt = parts.count == 2 ? Int(parts[1]) ?? 0 : 1
+        let name = PackageLayout(root: URL(filePath: "/")).original(at: date, attempt: attempt)
+            .lastPathComponent
+        return attempt >= 1 && fileName.utf8.elementsEqual(name.utf8)
+    }
+
     /// Where a stray temporary file in the package's root holding a version found nowhere
     /// else in the package is kept.
     public func recovered(modified date: Date, attempt: Int) -> URL {

@@ -130,7 +130,7 @@ public enum StoreWording {
         }
         let backups =
             error.backups.isEmpty
-            ? "There are no backups (book.md.bak1…3) in the book."
+            ? "There are no backups (\(BackupSlot.bak1)…3) in the book."
             : "Backups in the book, newest first:\n"
                 + error.backups.map {
                     "• \($0.slot), saved \($0.modified.formatted(date: .abbreviated, time: .shortened))"

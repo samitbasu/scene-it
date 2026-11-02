@@ -42,7 +42,7 @@ drops it when the process exits. That's the same mechanism as Rust's `fs2::FileE
   inherit the lock. A lock file without write permission is locked through a read-only
   descriptor (`flock` allows it); only the record can't be written.
 - **A failed load takes no lock**: `open` reads first, then locks, so a damaged package gains
-  no `.lock`. If `book.json` changed in between, it's read again under the lock; if it no
+  no `.lock`. If `book.json` (`book.md` since ADR 0022) changed in between, it's read again under the lock; if it no
   longer loads, the lock is released and the load fails.
 - **The app lock file holds the holder's PID**, so a second launch hands off to exactly that
   process, falling back to any other running instance with the bundle id.

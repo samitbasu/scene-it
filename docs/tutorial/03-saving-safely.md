@@ -1175,29 +1175,40 @@ Make Editable is two calls, and the type system orders them:
 
 ```swift
     public static func keepOriginal(
-        of book: ReadOnlyBook, _ repair: Repair, now: Date = .now,
-        fileSystem: any FileSystem = LocalFileSystem()
+        of repair: Repair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
     ) throws(FileSystemError) -> KeptOriginal
 
     public static func edit(
-        _ kept: KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
+        _ kept: consuming KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
         fileSystem: any FileSystem = LocalFileSystem()
-    ) -> OpenedBook
+    ) -> MadeEditable
 ```
 
 1. `keepOriginal` writes `repair.original` through the usual durable path
    (`writeTemporary`, flushed with `F_FULLFSYNC`, then a rename that never replaces
    anything) to `book.md.original-<UTC time>.md`, with `-2`, `-3`, … if that name is taken
    (the shared `publishUnderFreeName`). It returns a `KeptOriginal`.
-2. `edit` takes that `KeptOriginal`, takes the lock as `open` would, and returns an
-   editable book whose package believes it last read the original's bytes.
+2. `edit` consumes that `KeptOriginal`, takes the lock as `open` would, and returns an
+   editable book whose package believes it last read the original's bytes. If the lock
+   can't be had, `MadeEditable.readOnly` hands the `KeptOriginal` back with the reason, for
+   another try.
 
-`KeptOriginal`'s initializer is `fileprivate`, so outside `BookPackage.swift` the only way
-to get one is a successful `keepOriginal`, and the only way into `edit` is with one. "The
-first save happens only after the original is on disk" isn't a convention the store has to
-remember: there is no other way to write the call. In Rust this is a *witness* or *proof
-token*: a struct with a private field, returned only by the function that did the work,
-and required by the next one.
+Three types make the order the only one that compiles:
+
+- `Repair`, the payload of `.repairedOnOpen`, holds the package's layout, the book and the
+  bytes together, and its initializer is `fileprivate`: only `open` makes one. So
+  `keepOriginal` can't be handed one book's bytes and another book's package.
+- `KeptOriginal`'s initializer is `fileprivate` too, so the only way to get one is a
+  successful `keepOriginal`, and the only way into `edit` is with one. "The first save
+  happens only after the original is on disk" isn't a convention the store has to remember.
+- `KeptOriginal` is `~Copyable` and `edit` takes it `consuming`, so one kept original makes
+  at most one editable package: using it twice is a compile error ("'kept' used after
+  consume"), not a runtime check.
+
+In Rust this is a *witness* or *proof token*: a struct with a private field and no `Clone`,
+returned only by the function that did the work and taken by value by the next one.
+`MadeEditable` is the `Result<EditableBook, (KeptOriginal, Reason)>` that gives the token
+back on failure.
 
 **Why the bytes come from the open, not a second read.** Between showing the read-only
 book and the writer clicking Make Editable, another program can change `book.md`. Reading
@@ -1215,7 +1226,11 @@ names it owns:
 | --- | --- | --- |
 | Rotation | `book.md.bak1…3` (`BackupSlot`) | no |
 | Snapshot pruning | names `SnapshotName(fileName:)` accepts, in `Backups/` | no: wrong prefix and folder |
-| Stray-file sweep | `.<destination>.<UUID>.tmp`, for `book.md` and `bak1` only | no: not a temporary name, and its own temporary file's destination isn't one the sweep handles |
+| Stray-file sweep | `.<destination>.<UUID>.tmp`, for `book.md`, `bak1` and an original | no: it isn't a temporary name |
+
+An original whose own temporary file was orphaned by a crash (`.book.md.original-<time>.md.<UUID>.tmp`) is swept like a
+save's: it holds the bytes `book.md` held when it was written, so it's removed only if `book.md`, a backup or a
+snapshot holds exactly those bytes, and otherwise renamed to `book.md.recovered-<time>.md`.
 
 The tests plant it among the sweep's and the pruning's decoys, and one test runs 120 saves
 with snapshots over 40 simulated days (with pruning and a sweep) and checks the original is
@@ -1233,13 +1248,13 @@ elsewhere), the original is kept anyway and the book stays read-only with its
 offers **Keep Read-Only** (first, so it's the default) and **Make Editable**;
 `.newerFormat` offers only Keep Read-Only. `BookStore.makeEditable()` runs the two steps off
 the main actor and then switches the open book to editing in place
-(`OpenBook.becomeEditable`), keeping the selected scene. The wording is a draft waiting for
-the owner (an aesthetic choice).
+(`OpenBook.becomeEditable`), keeping the selected scene. The owner approved the wording; a
+persistent banner and File → Make Editable… (#67) will call the same operation.
 
 ### Rust comparison
 
 | Swift | Rust |
 | --- | --- |
-| `KeptOriginal` with a `fileprivate init` | `pub struct KeptOriginal { _private: () }` returned only by `keep_original` |
-| `edit(_ kept: KeptOriginal)` | `fn edit(kept: KeptOriginal)`: taking the token by value |
+| `KeptOriginal: ~Copyable` with a `fileprivate init` | `pub struct KeptOriginal { _private: () }` (no `Clone`), returned only by `keep_original` |
+| `edit(_ kept: consuming KeptOriginal) -> MadeEditable` | `fn edit(kept: KeptOriginal) -> Result<EditableBook, (KeptOriginal, Reason)>` |
 | `ParseDefaults` holding `@Sendable` closures | a `Send + Sync` struct of `Arc<dyn Fn() -> … + Send + Sync>` |

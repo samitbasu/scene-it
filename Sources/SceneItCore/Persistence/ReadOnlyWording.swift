@@ -1,8 +1,8 @@
 import Foundation
 
 /// Every string a writer sees about a book opening read-only (ADR 0020, 0024 and book format
-/// §10 Q7), in one place so the owner can review the wording as a whole. Drafts awaiting the
-/// owner's approval.
+/// §10 Q7), in one place so the owner can review the wording as a whole. The owner approved
+/// the repaired-book, newer-format and Make Editable wording on 2026-11-02.
 public enum ReadOnlyWording {
     public static let readOnlyTitle = "Opened Read-Only"
 

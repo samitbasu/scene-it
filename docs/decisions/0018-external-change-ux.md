@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-11-01)
 
-When a save finds that `book.json` was changed by something other than this
+When a save finds that `book.json` (`book.md` since ADR 0022) was changed by something other than this
 window (a sync service, another Mac, another copy of the app):
 
 1. Autosave pauses, and the status bar shows "Changed on disk".

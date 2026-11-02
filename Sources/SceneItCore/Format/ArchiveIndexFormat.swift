@@ -59,6 +59,14 @@ public struct ParsedArchiveIndex: Hashable, Sendable {
     /// The error entries this parse made, as `ParsedBook.newEntries`: entries the file
     /// already held in `### Unparsed` sections aren't among them.
     public var newEntries: [ErrorEntry]
+    /// The index's `format:` value, as `ParsedBook.declaredFormat`.
+    public var declaredFormat: FormatVersion?
+
+    /// Whether a newer Scene It wrote the index: rewriting it here could lose what that
+    /// version added, so it should be left as it is.
+    public var isNewerThanSupported: Bool {
+        declaredFormat?.isNewerThanSupported ?? false
+    }
 }
 
 private final class SectionDraft {
@@ -141,7 +149,7 @@ private final class IndexReader {
     private func frontMatter(_ line: [UInt8], _ number: Int) {
         guard let (key, value) = Lexical.keyValue(line), key == "format",
             frontMatterKeys.insert(key).inserted,
-            let format = Lexical.decimal(Lexical.fieldUnescaped(value))
+            let format = Lexical.formatNumber(Lexical.fieldUnescaped(value))
         else {
             return entries.append(
                 Positioned(line: number, entry: ErrorEntry(.frontMatter, Lexical.string(line))))
@@ -269,6 +277,7 @@ private final class IndexReader {
             copies: copies.sorted { $0.number < $1.number },
             errors: ordered.map(\.entry) + notices.map(\.entry))
         return ParsedArchiveIndex(
-            index: index, newEntries: Positioned.new(ordered) + notices.map(\.entry) + newInSections)
+            index: index, newEntries: Positioned.new(ordered) + notices.map(\.entry) + newInSections,
+            declaredFormat: format.map(FormatVersion.init))
     }
 }

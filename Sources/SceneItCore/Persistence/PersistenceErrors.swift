@@ -15,8 +15,8 @@ public enum SaveError: Error, Hashable, Sendable, CustomStringConvertible {
         switch self {
         case .encoding(let failure): "couldn't save: \(failure)"
         case .externallyModified(let change): "couldn't save: \(change)"
-        case .writeProtected(.readOnly): "couldn't save: book.md is read-only"
-        case .writeProtected(.locked): "couldn't save: book.md is locked"
+        case .writeProtected(.readOnly): "couldn't save: \(PackageLayout.bookFileName) is read-only"
+        case .writeProtected(.locked): "couldn't save: \(PackageLayout.bookFileName) is locked"
         case .couldNotBackUpTheirVersion(let error):
             "couldn't save: the version another program wrote couldn't be backed up (\(error))"
         case .fileSystem(let error): "couldn't save: \(error)"
@@ -39,11 +39,11 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .changed: "book.md was changed by another program"
-        case .removed: "book.md was removed by another program"
-        case .notAFile: "book.md was replaced by something that isn't a file"
+        case .changed: "\(PackageLayout.bookFileName) was changed by another program"
+        case .removed: "\(PackageLayout.bookFileName) was removed by another program"
+        case .notAFile: "\(PackageLayout.bookFileName) was replaced by something that isn't a file"
         case .keptAsConflict(let fileName):
-            "book.md was changed by another program during the save; its version is in \(fileName)"
+            "\(PackageLayout.bookFileName) was changed by another program during the save; its version is in \(fileName)"
         }
     }
 }
@@ -113,7 +113,7 @@ public struct LoadError: Error, Hashable, Sendable, CustomStringConvertible {
         let name = package.lastPathComponent
         let backupList =
             backups.isEmpty
-            ? "There are no backups (book.md.bak1…3) in the package."
+            ? "There are no backups (\(BackupSlot.bak1)…3) in the package."
             : "Backups in the package:\n"
                 + backups.map { "- \($0.slot) (last modified \($0.modified.formatted(.iso8601)))" }
                 .joined(separator: "\n")
@@ -155,8 +155,9 @@ public enum LoadProblem: Error, Hashable, Sendable, CustomStringConvertible {
             "it isn't a Scene It book (its name doesn't end in .\(PackageLayout.pathExtension))"
         case .notFound: "it doesn't exist"
         case .notADirectory: "it isn't a folder, but a Scene It book is a package (a folder)"
-        case .bookMissing: "the package has no book.md"
-        case .bookNotAFile: "the package's book.md isn't a regular file (it may be a folder or a link)"
+        case .bookMissing: "the package has no \(PackageLayout.bookFileName)"
+        case .bookNotAFile:
+            "the package's \(PackageLayout.bookFileName) isn't a regular file (it may be a folder or a link)"
         case .legacyJSONBook:
             "it was saved by a test version of Scene It, in a format this version can't read "
                 + "(\(PackageLayout.legacyBookFileName) instead of \(PackageLayout.bookFileName))"

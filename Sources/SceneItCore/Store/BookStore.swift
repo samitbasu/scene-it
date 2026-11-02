@@ -180,8 +180,7 @@ public final class BookStore<C: Clock<Duration>> {
         }
         let kept: KeptOriginal
         do throws(FileSystemError) {
-            kept = try await Self.keepOriginal(
-                of: ReadOnlyBook(layout: book.layout, book: book.book), repair, fileSystem)
+            kept = try await Self.keepOriginal(of: repair, fileSystem)
         } catch {
             await prompts.tell(ReadOnlyWording.makeEditableFailed(error))
             return .failed(error)
@@ -190,9 +189,10 @@ public final class BookStore<C: Clock<Duration>> {
     }
 
     private func edit(
-        _ book: OpenBook<C>, keeping kept: KeptOriginal, onLockRecord policy: LockRecordPolicy
+        _ book: OpenBook<C>, keeping kept: consuming KeptOriginal, onLockRecord policy: LockRecordPolicy
     ) async -> MakeEditableOutcome {
-        switch await Self.edit(kept, policy, fileSystem) {
+        let made = await Self.edit(kept, policy, fileSystem)
+        switch consume made {
         case .editing(let editable):
             let writer = BookWriter(editable.package, mirror: mirror)
             guard book === current else {
@@ -201,7 +201,7 @@ public final class BookStore<C: Clock<Duration>> {
             }
             book.becomeEditable(writer, clock: clock)
             return .editable
-        case .readOnly(_, let reason):
+        case .readOnly(let kept, let reason):
             switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
             case .openAnyway(let record):
                 return await edit(book, keeping: kept, onLockRecord: .openAnyway(record))
@@ -445,15 +445,15 @@ public final class BookStore<C: Clock<Duration>> {
 
     @concurrent
     private nonisolated static func keepOriginal(
-        of book: ReadOnlyBook, _ repair: Repair, _ fileSystem: any FileSystem
+        of repair: Repair, _ fileSystem: any FileSystem
     ) async throws(FileSystemError) -> KeptOriginal {
-        try BookPackage.keepOriginal(of: book, repair, fileSystem: fileSystem)
+        try BookPackage.keepOriginal(of: repair, fileSystem: fileSystem)
     }
 
     @concurrent
     private nonisolated static func edit(
-        _ kept: KeptOriginal, _ policy: LockRecordPolicy, _ fileSystem: any FileSystem
-    ) async -> OpenedBook {
+        _ kept: consuming KeptOriginal, _ policy: LockRecordPolicy, _ fileSystem: any FileSystem
+    ) async -> MadeEditable {
         BookPackage.edit(kept, onLockRecord: policy, fileSystem: fileSystem)
     }
 

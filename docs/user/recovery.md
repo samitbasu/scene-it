@@ -32,7 +32,7 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
   this version can't save it without losing what the newer one added.
 - A book from an early test version of Scene It holds `book.json` instead of
   `book.md`. This version can't open it, and leaves it untouched.
-- Hidden files named `.book.md.<…>.tmp` or `.book.md.bak1.<…>.tmp` belong to a save in
+- Hidden files named `.book.md.<…>.tmp`, `.book.md.bak1.<…>.tmp` or `.book.md.original-<time>.md.<…>.tmp` belong to a save (or a Make Editable) in
   progress, or to one that was interrupted. Once one is 10 minutes old, the next save
   deletes it if `book.md`, a `.bak` file or a snapshot already holds exactly the same
   text, and otherwise renames it to `book.md.recovered-<time>.md`. It is never deleted

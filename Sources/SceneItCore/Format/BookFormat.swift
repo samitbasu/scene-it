@@ -70,7 +70,7 @@ public struct ParsedBook: Hashable, Sendable {
     /// Whether the file says it's a format newer than this version reads. Such a book
     /// should open read-only, so a downgraded copy can't be saved over it (book format §10 Q7).
     public var isNewerThanSupported: Bool {
-        declaredFormat.map { $0 > .current } ?? false
+        declaredFormat?.isNewerThanSupported ?? false
     }
 }
 
@@ -89,6 +89,11 @@ public struct FormatVersion: Hashable, Comparable, Sendable, CustomStringConvert
     }
 
     public var description: String { String(number) }
+
+    /// Whether this version can't read the format without losing something.
+    public var isNewerThanSupported: Bool {
+        self > .current
+    }
 }
 
 /// Why `BookFormat.verifiedSerialization` refused a book. Either means the serializer wrote

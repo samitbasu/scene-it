@@ -103,7 +103,7 @@ private final class Reader {
         let unescaped = Lexical.fieldUnescaped(value)
         if key == "title" {
             title = Lexical.string(unescaped)
-        } else if let number = Lexical.decimal(unescaped) {
+        } else if let number = Lexical.formatNumber(unescaped) {
             format = number
         } else {
             bookEntry(.frontMatter, line, number)
