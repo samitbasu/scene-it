@@ -50,6 +50,9 @@ public protocol FileSystem: Sendable {
     /// power loss the file may still be there.
     func remove(_ file: URL) throws(FileSystemError)
 
+    /// Removes the empty directory at `directory` (`rmdir`); never follows a link.
+    func removeDirectory(_ directory: URL) throws(FileSystemError)
+
     /// Which file or directory is at `url`, whatever its path: `nil` if its volume has no
     /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
     /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".

@@ -22,6 +22,7 @@ final class FaultInjectingFileSystem: FileSystem {
         case createDirectory(String)
         case list(String)
         case remove(String)
+        case removeDirectory(String)
         case identify(String)
         /// Creates the lock file if it's missing.
         case lock(String)
@@ -29,7 +30,10 @@ final class FaultInjectingFileSystem: FileSystem {
         var isMutation: Bool {
             switch self {
             case .inspect, .read, .open, .list, .identify: false
-            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove, .lock: true
+            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove,
+                .removeDirectory,
+                .lock:
+                true
             }
         }
 
@@ -46,6 +50,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .createDirectory(let name): "create directory \(name)"
             case .list(let name): "list \(name)"
             case .remove(let name): "remove \(name)"
+            case .removeDirectory(let name): "remove directory \(name)"
             case .identify(let name): "identify \(name)"
             case .lock(let name): "lock \(name)"
             }
@@ -166,6 +171,12 @@ final class FaultInjectingFileSystem: FileSystem {
 
     func remove(_ file: URL) throws(FileSystemError) {
         try perform(.remove(name(file)), .remove, file) { () throws(FileSystemError) in try base.remove(file)
+        }
+    }
+
+    func removeDirectory(_ directory: URL) throws(FileSystemError) {
+        try perform(.removeDirectory(name(directory)), .remove, directory) { () throws(FileSystemError) in
+            try base.removeDirectory(directory)
         }
     }
 

@@ -13,12 +13,18 @@ public enum ReportWording {
     // MARK: Alert after a crash
 
     public static let crashAlertTitle = "Scene It quit unexpectedly the last time it was open."
-    public static func crashAlertMessage(lastLaunch: Date?) -> String {
+    /// `lastSaved` is the last time any book was saved; it's mentioned only if it falls within
+    /// the session that crashed (or that session's start is unknown).
+    public static func crashAlertMessage(lastLaunch: Date?, lastSaved: Date?) -> String {
         let opened =
             lastLaunch.map {
                 "That session started \($0.formatted(date: .abbreviated, time: .shortened)). "
             } ?? ""
-        return opened
+        var saved = ""
+        if let lastSaved, lastLaunch.map({ lastSaved >= $0 }) ?? true {
+            saved = "Your book was last saved \(lastSaved.formatted(date: .abbreviated, time: .shortened)). "
+        }
+        return opened + saved
             + "You can send a report to help fix the problem. "
             + "You'll see what's included before anything is sent, and it contains no text from your books."
     }

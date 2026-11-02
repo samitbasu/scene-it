@@ -373,8 +373,7 @@ public struct BackupMirror: Hashable, Sendable {
     }
 
     static func path(of package: URL) -> String {
-        let path = package.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
-        return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
+        package.canonicalPath
     }
 }
 

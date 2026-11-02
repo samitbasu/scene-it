@@ -41,4 +41,24 @@ public enum LockWording {
         "If the book is still open there, each copy of Scene It will stop and ask before saving over "
         + "the other's changes."
     public static let keepReadOnly = "Keep Read-Only"
+
+    /// The alert after a book opened read-only. "Open Anyway" is offered only where a
+    /// `LockRecord` names the holder; its warning then follows the message.
+    public static func alert(for reason: ReadOnlyReason) -> WriterAlert<ReadOnlyChoice> {
+        let keep = WriterAlert<ReadOnlyChoice>.Button(choice: .keepReadOnly, label: keepReadOnly)
+        switch reason {
+        case .openOnAnotherMac(let record), .openInAnotherProcess(let record):
+            return WriterAlert(
+                title: readOnlyTitle, message: readOnlyMessage(reason) + "\n\n" + openAnywayWarning,
+                buttons: [keep, .init(choice: .openAnyway(record), label: openAnyway)])
+        case .openElsewhere, .lockUnavailable:
+            return WriterAlert(title: readOnlyTitle, message: readOnlyMessage(reason), buttons: [keep])
+        }
+    }
+}
+
+public enum ReadOnlyChoice: Hashable, Sendable {
+    case keepReadOnly
+    /// Reopen for editing despite exactly this record (`LockRecordPolicy.openAnyway`).
+    case openAnyway(LockRecord)
 }

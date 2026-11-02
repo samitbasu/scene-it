@@ -5,14 +5,6 @@ import Testing
 
 @testable import SceneIt
 
-private func menuItem(titled title: String, in menu: NSMenu?) -> NSMenuItem? {
-    for item in menu?.items ?? [] {
-        if item.title == title { return item }
-        if let found = menuItem(titled: title, in: item.submenu) { return found }
-    }
-    return nil
-}
-
 private func isInsideTemporaryDirectory(_ url: URL) -> Bool {
     url.path(percentEncoded: false).hasPrefix(
         FileManager.default.temporaryDirectory.path(percentEncoded: false))
@@ -104,8 +96,7 @@ private func unzippedFile(endingWith suffix: String, in zip: URL) throws -> Stri
 
 @Test func helpMenuReportAProblemOpensTheReportWindow() async throws {
     let item = try #require(menuItem(titled: ReportWording.reportMenuItem, in: NSApp.mainMenu))
-    let menu = try #require(item.menu)
-    menu.performActionForItem(at: menu.index(of: item))
+    try perform(item)
     let window = try #require(NSApp.windows.first { $0.title == ReportWording.windowTitle && $0.isVisible })
     await DiagnosticsController.shared.reportPreparation?.value
     window.close()
