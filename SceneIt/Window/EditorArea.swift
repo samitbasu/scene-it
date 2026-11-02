@@ -3,8 +3,10 @@ import SwiftUI
 
 /// The center of the window (PLAN §4.3, ADR 0015): the editor control bar, the scene's title
 /// field, and the page on its gray desk.
-struct EditorArea: View {
+struct EditorArea<Banner: View>: View {
     let book: AppOpenBook
+    @ViewBuilder let banner: Banner
+
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
@@ -15,6 +17,7 @@ struct EditorArea: View {
             .padding(.horizontal, 12)
             .frame(height: WindowMetrics.barHeight)
             Divider()
+            banner
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
                     Section {

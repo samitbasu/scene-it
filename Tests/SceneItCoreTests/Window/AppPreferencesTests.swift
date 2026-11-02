@@ -28,8 +28,25 @@ struct AppPreferencesTests {
 
     @Test func unknownStoredValuesAreTheDefaults() {
         let preferences = AppPreferences(
-            TransientPreferenceStorage(["rightPanelOpen": "sideways", "rightPanelTab": "errors"]))
+            TransientPreferenceStorage(["rightPanelOpen": "sideways", "rightPanelTab": "outline"]))
         #expect(preferences.rightPanel == .open)
         #expect(preferences.rightPanelTab == .comments)
+    }
+
+    @Test func revealOpensThePanelOnTheTab() {
+        let preferences = AppPreferences(TransientPreferenceStorage())
+        preferences.setRightPanel(.closed)
+        preferences.reveal(.errors)
+        #expect(preferences.rightPanel == .open)
+        #expect(preferences.rightPanelTab == .errors)
+    }
+
+    @Test func theErrorsTabShowsAlwaysOrOnlyWhileThereAreEntries() {
+        #expect(RightPanelTab.shown(errorCount: 0, .always) == [.comments, .notes, .tags, .errors])
+        #expect(RightPanelTab.shown(errorCount: 0, .whenPresent) == [.comments, .notes, .tags])
+        #expect(RightPanelTab.shown(errorCount: 3, .whenPresent) == [.comments, .notes, .tags, .errors])
+        let hidden = RightPanelTab.shown(errorCount: 0, .whenPresent)
+        #expect(RightPanelTab.selected(.errors, among: hidden) == .comments, "the last entry went")
+        #expect(RightPanelTab.selected(.tags, among: hidden) == .tags)
     }
 }

@@ -1,5 +1,5 @@
 /// Why a comment or mark entry is an error (book format §4.8, E1–E10).
-enum EntryProblem: String, Error, Hashable, CaseIterable {
+public enum EntryProblem: String, Error, Hashable, CaseIterable, Sendable {
     case strayLine = "E1"
     case fields = "E2"
     case commentID = "E3"

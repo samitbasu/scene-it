@@ -4,11 +4,14 @@ struct Positioned {
     let line: Int
     let entry: ErrorEntry
     var origin = EntryOrigin.new
+    /// The rule the line broke, where the parser knows it.
+    var reason: ErrorReason?
 
-    init(line: Int, entry: ErrorEntry, origin: EntryOrigin = .new) {
+    init(line: Int, entry: ErrorEntry, origin: EntryOrigin = .new, reason: ErrorReason? = nil) {
         self.line = line
         self.entry = entry
         self.origin = origin
+        self.reason = reason
     }
 
     /// §5.2's first group: the entries in file order of the lines that produced them.
@@ -20,6 +23,11 @@ struct Positioned {
     /// The ones this parse made (ADR 0024).
     static func new(_ entries: [Positioned]) -> [ErrorEntry] {
         entries.filter { $0.origin == .new }.map(\.entry)
+    }
+
+    /// Why the first of them is an error.
+    static func firstNewReason(_ entries: [Positioned]) -> ErrorReason? {
+        entries.first { $0.origin == .new }.map { $0.reason ?? .line }
     }
 }
 

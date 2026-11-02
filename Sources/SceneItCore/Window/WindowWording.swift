@@ -82,6 +82,7 @@ public enum WindowWording {
         case .comments: "Comments"
         case .notes: "Notes"
         case .tags: "Tags"
+        case .errors: ErrorsWording.tabName
         }
     }
 

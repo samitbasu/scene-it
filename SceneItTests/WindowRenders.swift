@@ -11,7 +11,7 @@ import Testing
 ///
 /// Each render draws our own window's views into a bitmap (`cacheDisplay`); nothing reads the
 /// screen. Books are created in a temporary folder through a test-host `BookController`.
-nonisolated private var renderFolder: URL? {
+nonisolated var renderFolder: URL? {
     ProcessInfo.processInfo.environment["SCENEIT_RENDER_DIR"].map {
         URL(filePath: $0, directoryHint: .isDirectory)
     }
@@ -31,9 +31,9 @@ struct WindowRenders {
     @Test func window() async throws {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try await withSampleBook { book, preferences in
+        try await withSampleBook { store, book, preferences in
             let window = { (mode: WindowMode) in
-                BookWindow(book: book, preferences: preferences, mode: .constant(mode))
+                BookWindow(book: book, store: store, preferences: preferences, mode: .constant(mode))
             }
             try Self.write(
                 try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",
@@ -64,7 +64,8 @@ struct WindowRenders {
 
     // MARK: Sample books
 
-    private func withSampleBook(_ body: (AppOpenBook, AppPreferences) async throws -> Void) async throws {
+    func withSampleBook(_ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void) async throws
+    {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let store = books.store
@@ -75,7 +76,7 @@ struct WindowRenders {
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)
-            try await body(book, books.preferences)
+            try await body(store, book, books.preferences)
             #expect(await store.closeBook() == .left)
         }
     }
@@ -187,17 +188,19 @@ struct WindowRenders {
     static func write(_ renders: Renders, name: String, caption: String, to folder: URL) throws {
         try png(renders.single).write(to: folder.appending(path: "\(name)@1x.png"))
         try png(renders.double).write(to: folder.appending(path: "\(name)@2x.png"))
-        try png(try composite(renders.single, caption: caption)).write(
-            to: folder.appending(path: "\(name)-vs-mockup.png"))
+        let mockup = try #require(NSImage(contentsOf: mockup))
+        try png(try composite(renders.single, caption: caption, beside: mockup, "Mockup: 01-main-window.png"))
+            .write(to: folder.appending(path: "\(name)-vs-mockup.png"))
     }
 
     static func png(_ rep: NSBitmapImageRep) throws -> Data {
         try #require(rep.representation(using: .png, properties: [:]))
     }
 
-    /// The candidate at 1× on the left and the mockup on the right, each under a caption.
-    static func composite(_ candidate: NSBitmapImageRep, caption: String) throws -> NSBitmapImageRep {
-        let mockup = try #require(NSImage(contentsOf: mockup))
+    /// The candidate at 1× on the left and `other` on the right, each under a caption.
+    static func composite(
+        _ candidate: NSBitmapImageRep, caption: String, beside other: NSImage, _ otherCaption: String
+    ) throws -> NSBitmapImageRep {
         let gap: CGFloat = 24
         let header: CGFloat = 40
         let size = CGSize(width: windowSize.width * 2 + gap, height: windowSize.height + header)
@@ -213,10 +216,10 @@ struct WindowRenders {
         ]
         NSAttributedString(string: caption, attributes: attributes).draw(
             at: NSPoint(x: 8, y: size.height - 30))
-        NSAttributedString(string: "Mockup: 01-main-window.png", attributes: attributes)
+        NSAttributedString(string: otherCaption, attributes: attributes)
             .draw(at: NSPoint(x: windowSize.width + gap + 8, y: size.height - 30))
         candidate.draw(in: NSRect(origin: .zero, size: windowSize))
-        mockup.draw(in: NSRect(origin: NSPoint(x: windowSize.width + gap, y: 0), size: windowSize))
+        other.draw(in: NSRect(origin: NSPoint(x: windowSize.width + gap, y: 0), size: windowSize))
         NSGraphicsContext.restoreGraphicsState()
         return rep
     }

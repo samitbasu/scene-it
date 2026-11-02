@@ -65,6 +65,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         editingDriver != nil
     }
 
+    /// Whether `BookStore.makeEditable()` applies: the book is read-only because it was
+    /// repaired as it opened (ADR 0024).
+    public var canBeMadeEditable: Bool {
+        if case .readOnly(.repairedOnOpen) = access { true } else { false }
+    }
+
     var autosave: AutosaveDriver<C>? {
         if case .writable(let driver, _, _) = access { driver } else { nil }
     }
@@ -134,6 +140,58 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             driver.send(.edited)
             return
         }
+    }
+
+    // MARK: Error entries (book format §5.4)
+
+    public enum EntryEdit: Hashable, Sendable {
+        /// The edited entry took effect and left the Errors tab.
+        case repaired
+        /// The entry stays, holding the edited payload.
+        case kept(ErrorReason)
+        /// The book is read-only, the entry is no longer where the row said, or it can't be
+        /// repaired.
+        case refused
+    }
+
+    /// Undoable on `structureUndo`.
+    @discardableResult
+    public func deleteError(_ ref: ErrorRef) -> Bool {
+        guard editingDriver != nil, book.holds(ref), let part = book.part(ref.owner) else { return false }
+        var errors = part.errors
+        errors.remove(at: ref.index)
+        replace(ref.owner, with: part.with(errors: errors))
+        return true
+    }
+
+    /// Undoable on `structureUndo`.
+    @discardableResult
+    public func repairError(_ ref: ErrorRef, as payload: String) -> EntryEdit {
+        guard editingDriver != nil, let repair = BookFormat.repair(ref, as: payload, in: book) else {
+            return .refused
+        }
+        switch repair {
+        case .repaired(let part):
+            replace(ref.owner, with: part)
+            return .repaired
+        case .kept(let part, let reason):
+            replace(ref.owner, with: part)
+            return .kept(reason)
+        }
+    }
+
+    /// Entry operations act on the book's text through the file format, not as typing, so
+    /// they leave every scene's `modified` as it is.
+    private func replace(_ owner: ErrorOwner, with part: BookPart) {
+        guard let driver = editingDriver, let old = book.part(owner), old != part,
+            book.replace(owner, with: part)
+        else { return }
+        if case .scene(let scene) = part {
+            wordCounts.recount(scene)
+            if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
+        }
+        structureUndo.registerUndo(withTarget: self) { $0.replace(part.owner, with: old) }
+        driver.send(.edited)
     }
 
     // MARK: Saving
