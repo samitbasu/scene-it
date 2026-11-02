@@ -13,6 +13,10 @@ public struct LocalFileSystem: FileSystem {
             if code == ENOENT || code == ENOTDIR { return nil }
             throw FileSystemError(.inspect, url, .init(errno: code))
         }
+        return Self.item(info)
+    }
+
+    private static func item(_ info: stat) -> FileItem {
         switch info.st_mode & S_IFMT {
         case S_IFREG:
             let modified = info.st_mtimespec
@@ -20,17 +24,32 @@ public struct LocalFileSystem: FileSystem {
                 size: info.st_size,
                 modified: Date(
                     timeIntervalSince1970: TimeInterval(modified.tv_sec) + TimeInterval(modified.tv_nsec)
-                        / 1e9))
-            return .file(metadata, protection: Self.protection(info))
+                        / 1e9),
+                fileNumber: UInt64(info.st_ino))
+            return .file(metadata, protection: protection(info))
         case S_IFDIR: return .directory
         case S_IFLNK: return .symbolicLink
         default: return .other
         }
     }
 
+    public func open(_ file: URL) throws(FileSystemError) -> OpenFile {
+        let descriptor = file.withUnsafeFileSystemRepresentation {
+            Darwin.open($0!, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { throw FileSystemError(.read, file, .init(errno: errno)) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else {
+            let code = errno
+            close(descriptor)
+            throw FileSystemError(.inspect, file, .init(errno: code))
+        }
+        return OpenFile(url: file, descriptor: descriptor, item: Self.item(info))
+    }
+
     public func read(_ file: URL) throws(FileSystemError) -> Data {
         let descriptor = file.withUnsafeFileSystemRepresentation {
-            open($0!, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            Darwin.open($0!, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         }
         guard descriptor >= 0 else { throw FileSystemError(.read, file, .init(errno: errno)) }
         defer { close(descriptor) }
@@ -48,7 +67,7 @@ public struct LocalFileSystem: FileSystem {
             path: TemporaryFile.name(for: destination.lastPathComponent, id: UUID()),
             directoryHint: .notDirectory)
         let descriptor = url.withUnsafeFileSystemRepresentation {
-            open($0!, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
+            Darwin.open($0!, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
         }
         guard descriptor >= 0 else { throw FileSystemError(.write, destination, .init(errno: errno)) }
         defer { close(descriptor) }
@@ -259,7 +278,9 @@ public struct LocalFileSystem: FileSystem {
     /// the change is already visible, so reporting the operation as failed would be false.
     private static func flushDirectory(containing url: URL) {
         let directory = url.deletingLastPathComponent()
-        let descriptor = directory.withUnsafeFileSystemRepresentation { open($0!, O_RDONLY | O_CLOEXEC) }
+        let descriptor = directory.withUnsafeFileSystemRepresentation {
+            Darwin.open($0!, O_RDONLY | O_CLOEXEC)
+        }
         guard descriptor >= 0 else {
             Log.store.error("couldn't open a directory to flush it", ["errno": .errno(errno)])
             return

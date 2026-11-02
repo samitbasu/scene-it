@@ -496,11 +496,20 @@ The rules, each one there to keep a version from being lost:
 - **It's removed only if its bytes are already kept**: the same size and bytes as
   `book.json`, `bak1`–`bak3` or a snapshot in `Backups/`. A crash during a save leaves
   either the new book (now in `book.json`) or the old one (in a backup), so this is the
-  normal case.
+  normal case. The size comes first: a stray whose size no kept file has isn't even read,
+  and each kept file is read (and hashed) at most once per sweep.
 - **Anything else is renamed, never removed**, to `book.json.recovered-<UTC time>.json`
   (the file's modification time; `-2`, `-3`, … on a clash, never replacing anything). This is
   §7's double fault: another program's version left at the temporary name when it couldn't
-  be swapped back or renamed.
+  be swapped back or renamed. `keepAsConflict` and this rename share one helper,
+  `FileSystem.publishUnderFreeName`.
+- **What's removed is the file that was compared, not whatever has its name.** The stray is
+  opened once with `FileSystem.open` (`O_NOFOLLOW`, and `O_NONBLOCK` so a pipe swapped in
+  can't hang the save while it holds the package's mutex), `fstat`ed and read through that
+  descriptor. To remove it, it's first renamed (never replacing anything) to a fresh
+  temporary name, and removed only if the file there has the same inode, size and
+  modification time; anything else found there is recovered instead. A program that writes
+  the old name afterwards writes a new file, which the sweep doesn't touch.
 
 Nothing in the sweep throws. Each failure is logged (metadata only) and leaves the file
 where it is, and the save's outcome is the same as without it.
@@ -661,6 +670,10 @@ public protocol FileSystem: Sendable {
 
     /// Refuses to follow a symbolic link at `file`.
     func read(_ file: URL) throws(FileSystemError) -> Data
+
+    /// Opens `file` for reading. Refuses to follow a symbolic link at `file`, and never waits
+    /// for a writer if a pipe is there.
+    func open(_ file: URL) throws(FileSystemError) -> OpenFile
 
     /// Writes `data` to a new hidden file next to `destination` and flushes it to the
     /// drive. The file takes the permissions of `model` if that's an existing file.

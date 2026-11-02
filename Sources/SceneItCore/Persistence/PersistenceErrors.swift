@@ -54,7 +54,8 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
     case notAFile
     /// Another program wrote `book.json` while this save was replacing it, and its version
     /// couldn't be put back, so it was kept in the package under this file name. `book.json`
-    /// holds the book this save wrote.
+    /// holds the book this save wrote. If that name is the hidden temporary file, a later save
+    /// renames it to `book.json.recovered-<time>.json` (`StrayTemporaryFiles`).
     case keptAsConflict(fileName: String)
 
     public var description: String {

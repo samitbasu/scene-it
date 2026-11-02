@@ -186,7 +186,7 @@ import Testing
     }
 
     enum SweepFault: CaseIterable {
-        case list, read, remove, rename
+        case list, open, moveAside, remove, rename
     }
 
     @Test(arguments: SweepFault.allCases)
@@ -196,13 +196,13 @@ import Testing
             let fileSystem = FaultInjectingFileSystem(root: url)
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             let bytes = try fault == .rename ? Data("unique".utf8) : encoded(draft(0))
-            let stray = Self.temporaryName()
-            try plant(bytes, as: stray, in: url)
+            try plant(bytes, as: Self.temporaryName(), in: url)
             let recovered = package.layout.recovered(modified: Self.longAgo, attempt: 1).lastPathComponent
             let call: FaultInjectingFileSystem.Call =
                 switch fault {
                 case .list: .list("")
-                case .read: .read("temporary book.json")
+                case .open: .open("temporary book.json")
+                case .moveAside: .publish("temporary book.json")
                 case .remove: .remove("temporary book.json")
                 case .rename: .publish(recovered)
                 }
@@ -216,8 +216,113 @@ import Testing
 
             #expect(fileSystem.calls.contains(call), "precondition: the cleanup reached the failing call")
             try expectLayout(package.layout, book: 9, backups: [0, 1, 2])
-            #expect(try Data(contentsOf: url.appending(path: stray)) == bytes)
+            #expect(try temporaryContents(in: url) == [bytes])
             #expect(!exists(recovered, in: url))
+        }
+    }
+
+    @Test func aStrayReplacedJustBeforeTheRemovalSurvives() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let stray = url.appending(path: Self.temporaryName())
+            try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
+            let theirs = Data("written by another program between the comparison and the removal".utf8)
+            fileSystem.before(.remove("temporary book.json")) { try? Self.replace(stray, with: theirs) }
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            #expect(fileSystem.calls.contains(.remove("temporary book.json")), "precondition: the hook ran")
+            #expect(try Data(contentsOf: stray) == theirs)
+            #expect(try temporaryContents(in: url) == [theirs])
+        }
+    }
+
+    @Test func aStrayReplacedJustBeforeItIsMovedAsideIsRecoveredNotRemoved() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let stray = url.appending(path: Self.temporaryName())
+            try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
+            let theirs = Data("written by another program after the comparison".utf8)
+            fileSystem.before(.publish("temporary book.json")) { try? Self.replace(stray, with: theirs) }
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            #expect(fileSystem.calls.contains(.publish("temporary book.json")), "precondition: the hook ran")
+            #expect(!fileSystem.calls.contains(.remove("temporary book.json")))
+            #expect(try temporaryContents(in: url).isEmpty)
+            let recovered = try recoveredFiles(in: url)
+            #expect(recovered.count == 1)
+            #expect(try recovered.map { try Data(contentsOf: url.appending(path: $0)) } == [theirs])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aPipeSwappedInForAStrayNeitherBlocksNorIsTouched() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let stray = url.appending(path: Self.temporaryName())
+            try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
+            fileSystem.before(.open("temporary book.json")) {
+                try? FileManager.default.removeItem(at: stray)
+                _ = stray.withUnsafeFileSystemRepresentation { mkfifo($0!, 0o600) }
+            }
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            #expect(fileSystem.calls.contains(.open("temporary book.json")), "precondition: the hook ran")
+            #expect(try LocalFileSystem().item(at: stray) == .other)
+            #expect(try recoveredFiles(in: url).isEmpty)
+        }
+    }
+
+    @Test func aStrayOfASizeNothingKeptHasIsRecoveredWithoutReadingAnything() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let theirs = Data("short".utf8)
+            try plant(theirs, as: Self.temporaryName(), in: url)
+            fileSystem.clearCalls()
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            let sweep = fileSystem.calls.drop { $0 != .list("") }
+            #expect(sweep.contains(.open("temporary book.json")), "precondition: the sweep found the stray")
+            #expect(!sweep.contains { if case .read = $0 { true } else { false } })
+            let recovered = try recoveredFiles(in: url).map { try Data(contentsOf: url.appending(path: $0)) }
+            #expect(recovered == [theirs])
+        }
+    }
+
+    @Test func eachKeptVersionIsReadAtMostOncePerSweep() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let kept = try encoded(draft(0))
+            var unique = kept
+            unique[unique.startIndex] ^= 1
+            let strays = [kept, unique, unique + Data("!".utf8)]
+            for data in strays { try plant(data, as: Self.temporaryName(), in: url) }
+            fileSystem.clearCalls()
+
+            #expect(try package.save(draft(9)).backupStatus == .intact)
+
+            let sweep = fileSystem.calls.drop { $0 != .list("") }
+            let reads = sweep.compactMap { call -> String? in
+                if case .read(let name) = call { name } else { nil }
+            }
+            #expect(!reads.isEmpty, "precondition: some kept version was compared")
+            #expect(reads.count == Set(reads).count, "\(reads)")
+            #expect(try temporaryContents(in: url).isEmpty)
+            let recovered = try recoveredFiles(in: url).map { try Data(contentsOf: url.appending(path: $0)) }
+            #expect(Set(recovered) == [unique, unique + Data("!".utf8)])
         }
     }
 
@@ -265,6 +370,21 @@ import Testing
         try data.write(to: url)
         try FileManager.default.setAttributes(
             [.modificationDate: modified], ofItemAtPath: url.path(percentEncoded: false))
+    }
+
+    /// Another program writing `url` the way most do: a new file (new inode, new modification
+    /// time) renamed over whatever is there, if anything.
+    private static func replace(_ url: URL, with data: Data) throws {
+        let staged = url.deletingLastPathComponent().appending(path: "staged-\(UUID().uuidString)")
+        try data.write(to: staged)
+        guard rename(staged.path(percentEncoded: false), url.path(percentEncoded: false)) == 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    private func temporaryContents(in url: URL) throws -> [Data] {
+        try temporaryFiles(in: url).filter { TemporaryFile.destination(ofName: $0) != nil }
+            .map { try Data(contentsOf: url.appending(path: $0)) }
     }
 
     private func exists(_ name: String, in directory: URL) -> Bool {

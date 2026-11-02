@@ -476,25 +476,20 @@ public final class BookPackage: Sendable {
     ) -> SaveError {
         lastSeen = ContentDigest(published)
         let now = Date.now
-        for attempt in 1...Self.conflictNameAttempts {
-            let conflict = layout.conflict(at: now, attempt: attempt)
-            do {
-                try fileSystem.publish(displaced, as: conflict)
+        do {
+            if let conflict = try fileSystem.publishUnderFreeName(
+                displaced, { layout.conflict(at: now, attempt: $0) })
+            {
                 Log.store.fault(
                     "another program changed book.json during a save; kept its version separately")
                 return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
-            } catch  where error.cause == .alreadyExists {
-                continue
-            } catch {
-                Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
-                break
             }
+        } catch {
+            Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
         }
         guard case .file? = try? fileSystem.item(at: displaced.url) else { return changedDuringSave() }
         return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
     }
-
-    private static let conflictNameAttempts = 100
 
     private static func writeNewFile(_ data: Data, at url: URL, _ fileSystem: any FileSystem)
         throws(FileSystemError)
