@@ -11,7 +11,8 @@ func at(_ offset: Duration) -> ManualClock.Instant {
 
 let diskFull = SaveError.fileSystem(
     FileSystemError(.write, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace))
-let changedOnDisk = SaveError.externallyModified(.changed)
+let theirVersion = ContentDigest(Data("their version".utf8))
+let changedOnDisk = SaveError.externallyModified(.changed(theirs: theirVersion))
 
 extension Scheduler {
     /// A scheduler that has just started a save of edits made at `start`.
@@ -39,8 +40,8 @@ extension Scheduler.Decision {
         .saveNow(SaveRequest(trigger))
     }
 
-    static func overwriting(_ trigger: SaveTrigger) -> Self {
-        .saveNow(SaveRequest(trigger, onExternalChange: .overwriteKeepingTheirsAsBackup))
+    static func overwriting(_ trigger: SaveTrigger, theirs: ContentDigest = theirVersion) -> Self {
+        .saveNow(SaveRequest(trigger, onExternalChange: .overwriteKeepingTheirsAsBackup(theirs: theirs)))
     }
 }
 
@@ -196,11 +197,16 @@ func anImmediateRequestDuringASaveWaitsForIt(event: AutosaveEvent) {
 // MARK: Pause on an external change (ADR 0018)
 
 @Test(arguments: [
-    changedOnDisk,
-    SaveError.couldNotBackUpTheirVersion(
-        FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace)),
+    (changedOnDisk, ExternalChangePolicy.overwriteKeepingTheirsAsBackup(theirs: theirVersion)),
+    (.externallyModified(.removed), .recreate),
+    (.externallyModified(.notAFile), .refuse),
+    (
+        .couldNotBackUpTheirVersion(
+            FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace)),
+        .refuse
+    ),
 ])
-func anExternalChangePausesAutosaveUntilResolved(error: SaveError) {
+func anExternalChangePausesAutosaveUntilResolved(error: SaveError, keepingMine: ExternalChangePolicy) {
     var scheduler = Scheduler.saving(at: .seconds(2))
     #expect(scheduler.handle(.saveFailed(error), at: at(.seconds(2))) == .idle)
     guard case .paused(let paused) = scheduler.state else {
@@ -208,6 +214,7 @@ func anExternalChangePausesAutosaveUntilResolved(error: SaveError) {
         return
     }
     #expect(paused.error == error)
+    #expect(paused.keepingMine == keepingMine)
     for event in immediateEvents.map(\.0) + [.edited, .tick, .saveSucceeded] {
         #expect(scheduler.handle(event, at: at(.seconds(300))) == .idle)
     }
@@ -220,7 +227,7 @@ func anExternalChangePausesAutosaveUntilResolved(error: SaveError) {
 
     #expect(
         scheduler.handle(.externalChangeResolved, at: at(.seconds(360)))
-            == .overwriting(.immediate(.externalChangeResolved)))
+            == .saveNow(SaveRequest(.immediate(.externalChangeResolved), onExternalChange: keepingMine)))
     #expect(scheduler.handle(.saveSucceeded, at: at(.seconds(360))) == .idle)
     #expect(scheduler.state == .clean)
 }

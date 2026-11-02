@@ -7,7 +7,8 @@ import Observation
 public protocol AutosaveSaver: AnyObject {
     /// Starts in the same main-actor turn as the scheduler's `.saveNow`, so everything before its
     /// first `await` (taking the snapshot of the book) sees exactly the edits the save covers.
-    /// Edits made after that arrive as `edited` and are saved by a later call.
+    /// Edits made after that arrive as `edited` and are saved by a later call. It must not call
+    /// the driver's `send` itself: the driver reports the outcome.
     func save(_ request: SaveRequest) async throws(SaveError)
 }
 
@@ -24,7 +25,8 @@ public final class AutosaveDriver<C: Clock<Duration>> {
     @ObservationIgnored private var timer: (deadline: C.Instant, task: Task<Void, Never>)?
     @ObservationIgnored private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    /// Once `saver` is gone, saves stop; the driver is meant to go with it.
+    /// Once `saver` is gone, the book it held is gone too: the driver ignores new events and
+    /// lets the app quit.
     public init(clock: C, saver: any AutosaveSaver) {
         self.clock = clock
         self.saver = saver
@@ -34,6 +36,10 @@ public final class AutosaveDriver<C: Clock<Duration>> {
 
     /// Send `.edited` in the same main-actor turn as the change to the model.
     public func send(_ event: AutosaveEvent) {
+        switch event {
+        case .saveSucceeded, .saveFailed: break
+        default: guard saver != nil else { return }
+        }
         perform(scheduler.handle(event, at: clock.now))
         let waiting = waiters.values
         waiters = [:]
@@ -44,16 +50,17 @@ public final class AutosaveDriver<C: Clock<Duration>> {
     /// needs the writer's choice. A save still running after `AutosavePolicy.quitGracePeriod`
     /// gives `.askWriter(.stillSaving)` and keeps running. Call it again for Retry or Wait.
     public func prepareToQuit() async throws(CancellationError) -> QuitVerdict {
+        guard saver != nil else { return .terminate }
         send(.quitRequested)
         let deadline = clock.now.advanced(by: AutosavePolicy.quitGracePeriod.duration)
         while true {
             if case .settled(let verdict) = state.quitDecision { return verdict }
             guard clock.now < deadline else { return .askWriter(.stillSaving) }
-            try await nextStateChange(orUntil: deadline)
+            try await nextEvent(orUntil: deadline)
         }
     }
 
-    func nextStateChange(orUntil deadline: C.Instant?) async throws(CancellationError) {
+    func nextEvent(orUntil deadline: C.Instant?) async throws(CancellationError) {
         let id = UUID()
         let alarm = deadline.map { deadline in
             Task { [weak self, clock] in

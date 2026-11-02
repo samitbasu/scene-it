@@ -10,8 +10,8 @@ public enum AutosaveEvent: Hashable, Sendable {
     /// Cmd+S.
     case saveCommand
     /// The writer chose "Keep My Version" after an external change (ADR 0018). It ends a pause,
-    /// and saves carry `.overwriteKeepingTheirsAsBackup` until one succeeds. Outside a pause it
-    /// does nothing.
+    /// and saves carry `Paused.keepingMine`, which replaces only the version the writer was
+    /// told about, until one succeeds. Outside a pause it does nothing.
     case externalChangeResolved
     case saveSucceeded
     case saveFailed(SaveError)
@@ -117,7 +117,7 @@ public struct AutosaveScheduler<Instant: InstantProtocol<Duration>>: Hashable, S
         /// The last save failed; the next one is a retry on the backoff schedule.
         public let failure: Failure?
         public fileprivate(set) var requested: ImmediateTrigger?
-        /// `.overwriteKeepingTheirsAsBackup` from "Keep My Version" until a save succeeds.
+        /// The approval from "Keep My Version" until a save succeeds; otherwise `.refuse`.
         public let onExternalChange: ExternalChangePolicy
 
         init(
@@ -146,6 +146,9 @@ public struct AutosaveScheduler<Instant: InstantProtocol<Duration>>: Hashable, S
     public struct Paused: Hashable, Sendable {
         public fileprivate(set) var edits: Edits
         public let error: SaveError
+        /// What "Keep My Version" approves: replacing exactly the version found, or recreating
+        /// a removed book. Nothing can approve replacing a non-file.
+        public let keepingMine: ExternalChangePolicy
     }
 
     public enum Decision: Hashable, Sendable {
@@ -231,7 +234,7 @@ public struct AutosaveScheduler<Instant: InstantProtocol<Duration>>: Hashable, S
             return .unsaved(
                 Unsaved(
                     edits: paused.edits, requested: .externalChangeResolved,
-                    onExternalChange: .overwriteKeepingTheirsAsBackup))
+                    onExternalChange: paused.keepingMine))
         case (.paused, _):
             return state
         }
@@ -243,8 +246,16 @@ public struct AutosaveScheduler<Instant: InstantProtocol<Duration>>: Hashable, S
     private static func afterFailure(_ error: SaveError, of saving: Saving, at now: Instant) -> State {
         let edits = saving.covering.merged(with: saving.editsSince)
         switch error {
-        case .externallyModified, .couldNotBackUpTheirVersion:
-            return .paused(Paused(edits: edits, error: error))
+        case .externallyModified(.changed(let theirs)):
+            return .paused(
+                Paused(
+                    edits: edits, error: error, keepingMine: .overwriteKeepingTheirsAsBackup(theirs: theirs)))
+        case .externallyModified(.removed):
+            return .paused(Paused(edits: edits, error: error, keepingMine: .recreate))
+        case .externallyModified(.notAFile), .externallyModified(.keptAsConflict):
+            return .paused(Paused(edits: edits, error: error, keepingMine: .refuse))
+        case .couldNotBackUpTheirVersion:
+            return .paused(Paused(edits: edits, error: error, keepingMine: saving.onExternalChange))
         case .encoding, .writeProtected, .fileSystem:
             let consecutive = (saving.previousFailure?.consecutive ?? 0) + 1
             let failure = Failure(error: error, consecutive: consecutive, at: now)

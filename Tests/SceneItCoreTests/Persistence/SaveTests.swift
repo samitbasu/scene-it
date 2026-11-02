@@ -193,7 +193,7 @@ func unstableEncoding(of book: Book) throws -> Data {
             try encoded(draft(7)).write(to: url.layout.book)
             fileSystem.inject(.fail(try #require(fault.call)))
             let error = try #require(throws: SaveError.self) {
-                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                try package.save(draft(9), onExternalChange: overwriting(7))
             }
             guard case .couldNotBackUpTheirVersion = error else {
                 Issue.record("unexpected error \(error)")
@@ -213,14 +213,14 @@ func unstableEncoding(of book: Book) throws -> Data {
             fileSystem.inject(.fail(.exchange("book.json")))
             for _ in 1...3 {
                 #expect(throws: SaveError.self) {
-                    try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                    try package.save(draft(9), onExternalChange: overwriting(7))
                 }
             }
             try expectLayout(url.layout, book: 7, backups: [7, 1, 2])
             fileSystem.clearFault()
-            #expect(throws: SaveError.externallyModified(.changed)) { try package.save(draft(9)) }
+            #expect(throws: try changed(to: 7)) { try package.save(draft(9)) }
             #expect(
-                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                try package.save(draft(9), onExternalChange: overwriting(7))
                     == .saved(.intact))
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
         }

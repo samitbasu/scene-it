@@ -5,7 +5,7 @@ import Testing
 extension AutosaveDriver {
     func wait(until condition: (AutosaveScheduler<C.Instant>.State) -> Bool) async {
         while !condition(state) {
-            try? await nextStateChange(orUntil: nil)
+            try? await nextEvent(orUntil: nil)
         }
     }
 
@@ -166,6 +166,19 @@ struct AutosaveDriverTests {
             weakStore = store
         }
         #expect(weakStore == nil, "store -> driver must not lead back to the store")
+    }
+
+    @Test func aDriverWhoseSaverIsGoneNeverGetsStuckSaving() async throws {
+        let clock = ManualClock()
+        var saver: ScriptedSaver? = ScriptedSaver(clock: clock)
+        let driver = AutosaveDriver(clock: clock, saver: try #require(saver))
+        weak let gone = saver
+        saver = nil
+        try #require(gone == nil, "precondition: the saver was freed")
+        driver.send(.edited)
+        driver.send(.saveCommand)
+        #expect(driver.state == .clean)
+        #expect(try await driver.prepareToQuit() == .terminate)
     }
 
     // MARK: Quitting

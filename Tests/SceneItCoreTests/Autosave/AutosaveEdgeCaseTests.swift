@@ -29,6 +29,25 @@ extension Scheduler {
     #expect(scheduler.handle(.saveCommand, at: at(.seconds(7))) == .saveNow(.immediate(.saveCommand)))
 }
 
+@Test func keepMyVersionNeverCoversASecondExternalVersion() {
+    var scheduler = Scheduler.resolvingExternalChange()
+    #expect(scheduler.handle(.saveFailed(diskFull), at: at(.seconds(3))) == .waitUntil(at(.seconds(5))))
+    #expect(scheduler.handle(.tick, at: at(.seconds(5))) == .overwriting(.retry))
+
+    let secondVersion = ContentDigest(Data("a sync wrote this later".utf8))
+    let secondChange = SaveError.externallyModified(.changed(theirs: secondVersion))
+    #expect(scheduler.handle(.saveFailed(secondChange), at: at(.seconds(5))) == .idle)
+    guard case .paused(let paused) = scheduler.state else {
+        Issue.record("a second version must pause again, not be overwritten")
+        return
+    }
+    #expect(paused.keepingMine == .overwriteKeepingTheirsAsBackup(theirs: secondVersion))
+    #expect(scheduler.handle(.tick, at: at(.seconds(60))) == .idle)
+    #expect(
+        scheduler.handle(.externalChangeResolved, at: at(.seconds(61)))
+            == .overwriting(.immediate(.externalChangeResolved), theirs: secondVersion))
+}
+
 @Test func editsDuringTheOverwritingSaveAreSavedWithoutOverwriting() {
     var scheduler = Scheduler.resolvingExternalChange()
     _ = scheduler.handle(.edited, at: at(.seconds(4)))

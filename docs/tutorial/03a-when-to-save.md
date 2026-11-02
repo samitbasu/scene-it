@@ -80,10 +80,15 @@ status bar shows and what the retry backoff counts. There's no `isSaving` to for
 a save is running exactly when the state is `.saving`.
 
 The writer's "Keep My Version" lives in the state too, as `onExternalChange` on `Unsaved` and
-`Saving`, rather than in a flag on the store. `externalChangeResolved` sets it while leaving
-`.paused`. It survives ordinary failures (the retry still needs it), and a successful save or a
-new pause clears it. Outside `.paused`, the event does nothing, so there's no way to approve an
-overwrite the writer was never asked about.
+`Saving`, rather than in a flag on the store. When a save finds an external change, `.paused`
+records what "Keep My Version" would approve (`keepingMine`): for a changed file,
+`.overwriteKeepingTheirsAsBackup(theirs: digest)`, bound to the exact version found (chapter 03
+§7); for a removed one, `.recreate`. `externalChangeResolved` copies it into the state while
+leaving `.paused`. It survives ordinary failures, because the retry still needs it and can't
+hurt anything: if a sync writes a different version meanwhile, its digest doesn't match, the save
+fails with `.changed` naming the new version, and autosave pauses again to ask. A successful save
+clears it. Outside `.paused`, the event does nothing, so there's no way to approve an overwrite
+the writer was never asked about.
 
 `.saveNow` isn't advice. When `handle` returns it, the state has already moved to
 `.saving`, so the driver can't start a save and forget to say so. The only thing the driver
@@ -245,7 +250,12 @@ isolation, so it says so explicitly). That buys three things:
   There's a consequence: a saver that finishes without suspending (one that throws at once,
   for example) reports its outcome *inside* `send`, which re-enters `send`. That's safe because
   `send` finishes changing the state before it starts the save, and does nothing with the
-  state afterwards. A test covers it.
+  state afterwards. A test covers it. The saver itself must never call `send`; the driver reports the
+  outcome.
+
+  Because the saver is weak, it can disappear (the store closed). The driver then ignores new
+  events, so it never commits to a save nobody will run, and `prepareToQuit` returns
+  `.terminate`: the book that held the edits is already gone.
 
   For the same reason, the store must send `.edited` in the same main-actor turn as the
   change to the model.

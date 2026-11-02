@@ -237,6 +237,21 @@ func encoded(_ book: Book) throws -> Data {
     try BookCoding.encode(book)
 }
 
+/// The digest of `draft(number)` as written to disk.
+func version(_ number: Int) throws -> ContentDigest {
+    ContentDigest(try encoded(draft(number)))
+}
+
+/// What a save finds when another program wrote `draft(number)`.
+func changed(to number: Int) throws -> SaveError {
+    .externallyModified(.changed(theirs: try version(number)))
+}
+
+/// "Keep My Version" for the version `draft(number)`.
+func overwriting(_ number: Int) throws -> ExternalChangePolicy {
+    .overwriteKeepingTheirsAsBackup(theirs: try version(number))
+}
+
 extension PackageLayout {
     /// The bytes of `book.json` and each backup slot; `nil` where a file is absent.
     func contents() -> (book: Data?, backups: [BackupSlot: Data]) {

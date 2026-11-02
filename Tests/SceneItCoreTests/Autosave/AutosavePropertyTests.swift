@@ -16,9 +16,9 @@ private struct Simulation {
 
     mutating func send(_ event: AutosaveEvent) {
         switch (scheduler.state, event) {
-        case (.paused, .externalChangeResolved):
-            onExternalChange = .overwriteKeepingTheirsAsBackup
-        case (.saving, .saveSucceeded), (.saving, .saveFailed(changedOnDisk)):
+        case (.paused(let paused), .externalChangeResolved):
+            onExternalChange = paused.keepingMine
+        case (.saving, .saveSucceeded):
             onExternalChange = .refuse
         default:
             break
