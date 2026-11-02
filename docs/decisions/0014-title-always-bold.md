@@ -1,6 +1,6 @@
 # 0014 — The scene title is always bold
 
-**Status:** Accepted (2026-11-01)
+**Status:** Superseded by [0015](0015-title-is-a-plain-field.md) (2026-11-01)
 
 ## Decision
 Bold belongs to the title's Heading 1 style. In the title, the Bold button and Cmd+B are
