@@ -17,8 +17,12 @@ external mirror, and immutable filed copies.
 
 - macOS 26 or later (ADR 0003)
 - Xcode 27 (`xcode-select -p` should point at `/Applications/Xcode.app/Contents/Developer`)
-- For releases only: an Apple Developer Program team, a *Developer ID Application*
-  certificate, and a stored `notarytool` profile named `scene-it-notary` (issue #3)
+- For releases only (`scripts/release.sh`): membership of team `8H6754RJ2W` in the Apple
+  Developer Program, the *Developer ID Application* certificate with its private key in the
+  login keychain (`security find-identity -v -p codesigning` lists it), and, except for
+  `--unnotarized`, a `notarytool` keychain profile named `scene-it-notary` (see release.sh
+  below). Debug builds, `scripts/check.sh` and the tests need none of these: Debug is signed
+  ad hoc.
 
 ## Repository layout
 
@@ -31,7 +35,7 @@ SceneIt/                   app sources (SwiftUI + AppKit UI)
 SceneItTests/              app-hosted tests (run through xcodebuild)
 Config/                    Info.plist and other build configuration
 .swift-format              formatter and lint rules (used by both scripts)
-scripts/                   the scripts below; lib.sh holds shared paths, guards.sh the source guards
+scripts/                   the scripts below; lib.sh holds shared paths and log helpers, guards.sh the source guards
 docs/                      decisions, workflow, tutorials
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
@@ -91,8 +95,8 @@ bundle is also listed as `✘ <target>/<test>: <failure text>`.
 **Products:** one log per step in `build/check/` (`guard-tests.log`, `textkit1-guard.log`,
 `logging-guard.log`, `trap-message-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
-`build/DerivedData/Build/Products/Debug/Scene It.app`. All of `build/` can be
-deleted at any time. Run this before every commit; nothing lands on `main`
+`build/DerivedData/Build/Products/Debug/Scene It.app`. All of `build/` except
+`build/release/` (see release.sh) can be deleted at any time. Run this before every commit; nothing lands on `main`
 without it passing.
 
 ### `scripts/test-guards.sh`: tests for the source guards
@@ -127,29 +131,95 @@ with `git diff`.
 
 ### `scripts/release.sh`: build a distributable app
 
-**Status:** planned, lands with #4. Needs #3 (Developer ID) for the default mode.
+**Status:** available. The default mode also needs the `scene-it-notary` profile
+(see *Setting up notarization* below).
 
 ```sh
 scripts/release.sh                 # signed, notarized, stapled DMG
-scripts/release.sh --unnotarized   # ad-hoc-signed zip for friendly testers only
+scripts/release.sh --unnotarized   # signed but not notarized zip, for testers only
 ```
 
-**Default mode:** archive → export with Developer ID → notarize (`notarytool`,
-profile `scene-it-notary`) → staple → build a DMG → notarize and staple the DMG.
+**It refuses to run** (exit status 1, reason on stderr), before building anything, if:
+- the working tree has uncommitted or untracked changes, because the build number must
+  name a commit;
+- `HEAD` is not on `origin/main` (checked after `git fetch origin`), or the clone is shallow.
+  Only merged commits are released, so each build number names one commit and later
+  releases get higher numbers;
+- the *Developer ID Application: Samit BASU (8H6754RJ2W)* identity isn't in the keychain;
+- in the default mode, `notarytool` can't use the `scene-it-notary` profile. The message
+  prints the command that creates it;
+- `build/release/<version>-<build>[-unnotarized]/` already exists, because it may hold the
+  dSYM of a build that was shipped. Delete it only if nothing from it was shipped. (A
+  leftover `….partial/` directory from an interrupted run is deleted and rebuilt instead.);
+- `~/Library/Developer/Xcode/Archives/<today>/Scene It <version>-<build>[-unnotarized].xcarchive`
+  already exists;
+- the artifact in `dist/` already exists. Bump `MARKETING_VERSION` or delete the file;
+- `scripts/check.sh` fails. Its diagnostics are printed. There is no flag to skip it.
 
-**Output:**
-- `dist/Scene It <version>.dmg`, which opens on any Mac running macOS 26 or later
-  without Gatekeeper warnings. Verify with `spctl -a -vvv -t install "dist/Scene It <version>.dmg"`,
-  which should report *Notarized Developer ID*.
-- `build/release/`, which holds the intermediate `.xcarchive`, the exported app
-  and the notarization logs.
+The version is the project's `MARKETING_VERSION`. The build number is
+`git rev-list --count HEAD`, passed to `xcodebuild` as `CURRENT_PROJECT_VERSION`, so it
+becomes the app's `CFBundleVersion` and appears in problem reports.
 
-The version comes from `MARKETING_VERSION`; the build number is the git commit count.
+**Default mode** (all of it inside `build/release/<version>-<build>.partial/`):
+1. `xcodebuild clean archive`: Release, universal (arm64 and x86_64), DerivedData in
+   `build/release/DerivedData`. Release signs with Developer ID, the hardened runtime and a
+   secure timestamp (`--timestamp`).
+2. `xcodebuild -exportArchive` with [`Config/ExportOptions.plist`](Config/ExportOptions.plist)
+   (method `developer-id`, manual signing, team `8H6754RJ2W`).
+3. `codesign --verify --deep --strict`, plus checks that the team, the hardened runtime and
+   the timestamp are in the signature.
+4. `ditto` zips the app for `xcrun notarytool submit --keychain-profile scene-it-notary --wait`.
+   If Apple doesn't accept it, the script prints Apple's log (`notarytool log`) and stops.
+5. `xcrun stapler staple` on the app (up to three tries, 15 s and 30 s apart, because the
+   ticket can lag behind *Accepted*); `spctl -a -vvv -t exec` must report
+   *Notarized Developer ID*.
+6. `diskutil image create from --format UDZO` builds the DMG (the app plus an `Applications`
+   link), which is signed with Developer ID, notarized and stapled the same way;
+   `spctl -a -vvv -t install` must report *Notarized Developer ID*.
+7. Copies the `.xcarchive` to `~/Library/Developer/Xcode/Archives/<yyyy-MM-dd>/`, moves the
+   DMG into `dist/`, and renames the `.partial` directory to `build/release/<version>-<build>/`.
+   Nothing reaches `dist/` unless every check passed.
 
-**`--unnotarized`:** a stopgap for when the Developer ID account isn't active.
-**Output:** `dist/Scene It <version>-unnotarized.zip`, which contains the app and a
-`README.txt` telling the tester to allow the app the first time it's blocked, via
-**System Settings → Privacy & Security → Open Anyway**.
+**`--unnotarized`:** steps 1–3, then a zip of a folder holding the app and a `README.txt`,
+then step 7 (the directories end in `-unnotarized`).
+The README walks the tester through **System Settings → Privacy & Security → Open Anyway**,
+which macOS 15 and later require for an app that isn't notarized (Control-click → Open no
+longer bypasses Gatekeeper). The app is still signed with Developer ID, but Gatekeeper
+reports it as *Unnotarized Developer ID* and blocks it once. A stopgap only.
+
+**Output on success:** three absolute paths on stdout: the artifact, the dSYM in
+`build/release/`, and the archive copy. For example:
+
+```
+/Users/samitbasu/Devel/scene-it/dist/Scene It 0.1.0-unnotarized.zip
+/Users/samitbasu/Devel/scene-it/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
+/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
+```
+
+**Output on failure:** exit status 1 and, on stderr, `release.sh: <step> failed (full log:
+build/release/<version>-<build>.partial/logs/<step>.log)` followed by that log's error lines,
+or the reason it refused to run.
+
+**Products:**
+- `dist/Scene It <version>.dmg` (default) or `dist/Scene It <version>-unnotarized.zip`.
+- `build/release/<version>-<build>/` (`…-unnotarized/` for `--unnotarized`): the
+  `Scene It.xcarchive`, the exported (and stapled) app in `export/`, the zip sent for
+  notarization, and one log per step in `logs/`. Keep it for every build you ship.
+- `~/Library/Developer/Xcode/Archives/<yyyy-MM-dd>/Scene It <version>-<build>[-unnotarized].xcarchive`:
+  a copy of the archive outside the repository. Xcode's Organizer lists it, and Spotlight
+  indexes its dSYM by UUID, so Console and `mdfind` find it. **Back it up.** Rebuilding a
+  commit later produces a binary with different UUIDs (they depend on the build path and
+  toolchain), so a lost dSYM can't be recovered, and without it that build's crash reports
+  can't be symbolicated ([tutorial 10](docs/tutorial/10-shipping.md#dsyms-and-symbolication)).
+
+**Setting up notarization (once per Mac):** create an app-specific password at
+[account.apple.com](https://account.apple.com) → Sign-In and Security → App-Specific
+Passwords, then run the command below. It prompts for the password and stores it in the
+login keychain, never in the repository.
+
+```sh
+xcrun notarytool store-credentials scene-it-notary --apple-id <your Apple ID email> --team-id 8H6754RJ2W
+```
 
 ## Reading a problem report
 
@@ -166,8 +236,9 @@ attachment is `Scene It Report <yyyy-MM-dd HHmm>.zip`:
 | `crash-reports/*.ips` | macOS crash reports. Open them in Console, or read `exception`, `asi` and `faultingThread`. |
 | `metrickit/*.json` | Crash and hang diagnostics MetricKit delivered to the app |
 
-Release builds need their dSYM to symbolicate (`atos`), and `scripts/release.sh` must archive
-it. See [tutorial 11](docs/tutorial/11-crash-reporting.md#reading-a-report-you-receive) for the steps.
+Release builds need their dSYM to symbolicate (`atos`). `scripts/release.sh` keeps it in
+`~/Library/Developer/Xcode/Archives/` and under `build/release/<version>-<build>/`, where
+`<build>` is the build in `system.txt`. See [tutorial 11](docs/tutorial/11-crash-reporting.md#reading-a-report-you-receive) for the steps.
 
 ## Opening in Xcode
 

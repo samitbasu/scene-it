@@ -63,7 +63,9 @@ is an old NeXTSTEP-style property list. The key objects:
   - project level (shared): `SWIFT_VERSION = 6.0`, `SWIFT_STRICT_CONCURRENCY = complete`,
     `MACOSX_DEPLOYMENT_TARGET = 26.0`, `SWIFT_TREAT_WARNINGS_AS_ERRORS` and
     `GCC_TREAT_WARNINGS_AS_ERRORS` (for C/Obj-C, which we don't have yet),
-    `MARKETING_VERSION = 0.1.0`, and ad-hoc signing (`CODE_SIGN_IDENTITY = "-"`).
+    `MARKETING_VERSION = 0.1.0`, `DEVELOPMENT_TEAM = 8H6754RJ2W`, and signing:
+    ad hoc in Debug (`CODE_SIGN_IDENTITY = "-"`), Developer ID in Release
+    ([chapter 10](10-shipping.md)).
   - app target: `PRODUCT_NAME = "Scene It"` (the bundle and executable name, with
     the space), `PRODUCT_MODULE_NAME = SceneIt` (the Swift module, which can't
     contain a space), `PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneIt`,
@@ -160,9 +162,12 @@ been registered, so tests shouldn't rely on them.
 
 ## Signing and the hardened runtime
 
-Every Mac executable must be code-signed. Without a certificate we use **ad-hoc**
-signing (`CODE_SIGN_IDENTITY = "-"`), which seals the bundle's contents but proves
-nothing about who signed it. A Developer ID identity comes in issue #3 ([ADR 0001](../decisions/0001-distribution-developer-id.md)).
+Every Mac executable must be code-signed. Debug builds use **ad-hoc** signing
+(`CODE_SIGN_IDENTITY = "-"`), which seals the bundle's contents but proves nothing
+about who signed it, and needs no certificate, so `check.sh` runs on any Mac. Release
+builds are signed with the team's *Developer ID Application* identity
+([ADR 0001](../decisions/0001-distribution-developer-id.md)); [chapter 10](10-shipping.md)
+covers that, notarization and Gatekeeper.
 
 The **hardened runtime** is a signing flag that makes the OS refuse code
 injection, unsigned libraries, and writable+executable memory unless the app
@@ -174,9 +179,9 @@ on day one, not on release day.
 Caveat: Xcode drops the flag for **ad-hoc Debug** builds and prints
 `note: Disabling hardened runtime with ad-hoc codesigning.` Release builds
 keep it. You can see this with
-`codesign -dv "…/Scene It.app"`. Release prints `flags=0x10002(adhoc,runtime)`,
-Debug prints `flags=0x2(adhoc)`. Once we sign with a real identity, Debug will
-be hardened too.
+`codesign -dv "…/Scene It.app"`. Debug prints `flags=0x2(adhoc)`; Release, signed
+with Developer ID, prints `flags=0x10000(runtime)`. Debug stays unhardened because
+it stays ad hoc.
 
 ## The gate: `scripts/check.sh`
 

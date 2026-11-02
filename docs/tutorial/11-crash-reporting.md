@@ -235,7 +235,9 @@ can't put an arbitrary string into a log or report either. Only `Log` and
 Debug builds keep their symbols, so `.ips` frames show function names. **Release builds
 are stripped.** Their frames are just addresses, and you need the build's **dSYM**
 (the DWARF debug info, like a separate `.debug` file from `objcopy --only-keep-debug`).
-`scripts/release.sh` (#4) must archive the dSYM of every release it ships. Without it,
+`scripts/release.sh` keeps the dSYM of every release it builds in
+`build/release/<version>-<build>/Scene It.xcarchive/dSYMs/` and copies the archive into
+`~/Library/Developer/Xcode/Archives/` ([chapter 10](10-shipping.md#dsyms-and-symbolication)). Without it,
 crashes from that release can't be symbolicated.
 
 To symbolicate one frame:
