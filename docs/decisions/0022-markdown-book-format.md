@@ -69,6 +69,11 @@ id: 01JC9Q
   export "smarten" it back. Searching for `"` therefore finds both opening and closing quotes.
 - Any other character (emoji, Greek, CJK, control characters…) becomes the visible placeholder **`[?]`**, on paste and typing, and
   likewise when the parser meets one in a hand-edited file (plus an error entry naming it).
+- **Normalization:** input is normalized to NFC before filtering, so a decomposed `e`+U+0301 from another editor becomes `é`
+  (U+00E9), not `e[?]`.
+- **Encoding tolerance:** bytes that aren't valid UTF-8 are decoded as their Latin-1 characters (an editor that saved Latin-1 or
+  Windows-1252 loses nothing) and recorded as one error entry; the next save writes clean UTF-8.
+- Offsets count characters (code points), not bytes: `é` is one character but two UTF-8 bytes.
 
 ## Saving and verification
 `serialize(book) → parse → serialize` must give **identical bytes with zero error entries**, or the save is refused (this
