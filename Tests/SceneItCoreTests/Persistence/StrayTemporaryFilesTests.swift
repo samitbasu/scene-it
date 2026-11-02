@@ -176,7 +176,7 @@ import Testing
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             let stray = Self.temporaryName()
             try plant(try encoded(draft(0)), as: stray, in: url)
-            let sweep = StrayTemporaryFiles(layout: package.layout, fileSystem: LocalFileSystem())
+            let sweep = StrayTemporaryFiles(packageRoot: package.layout, fileSystem: LocalFileSystem())
 
             sweep.sweep(now: Self.longAgo + StrayTemporaryFiles.minimumAge - .seconds(1))
             #expect(exists(stray, in: url))

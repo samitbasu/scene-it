@@ -242,7 +242,7 @@ public final class BookPackage: Sendable {
             let backups = try replaceBook(with: data, current: current, &lastSeen)
             lastSeen = ContentDigest(data)
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
-            StrayTemporaryFiles(layout: layout, fileSystem: fileSystem).sweep(now: .now)
+            StrayTemporaryFiles(packageRoot: layout, fileSystem: fileSystem).sweep(now: .now)
             return .saved(backups, PublishedBook(data: data))
         }
     }

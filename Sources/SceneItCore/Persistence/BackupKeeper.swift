@@ -19,7 +19,9 @@ public struct BackupKeeper: Sendable {
     /// Call with the `PublishedBook` of each `.saved` outcome, off the main actor: when a
     /// snapshot is due this flushes two files to the drive. Calls for one book should be
     /// serialized, like its saves. Each destination decides on its own whether a snapshot is
-    /// due, and prunes its own snapshots before writing one.
+    /// due, and prunes its own snapshots before writing one. When one is due, it also clears
+    /// away the temporary files an interrupted `keep` left in its folder (`StrayTemporaryFiles`),
+    /// whatever the snapshot's outcome, never failing because of them.
     public func keep(_ book: PublishedBook, now: Date) -> SnapshotReport {
         let inPackage = keep(book, in: { () throws(SnapshotFailure) in layout.snapshots }, now: now, .package)
         let inMirror = keep(book, in: mirrorFolder, now: now, .mirror)
@@ -36,6 +38,7 @@ public struct BackupKeeper: Sendable {
             guard SnapshotSchedule.decision(snapshots: snapshots.map(\.date), now: now) == .due else {
                 return .notDue
             }
+            defer { strayTemporaryFiles(in: directory, destination).sweep(now: now) }
             let pruning = prune(snapshots, in: directory, now: now)
             try write(book, in: directory, now: now)
             if let pruning { throw pruning }
@@ -43,6 +46,19 @@ public struct BackupKeeper: Sendable {
         } catch {
             error.log(destination)
             return .failed(error)
+        }
+    }
+
+    private func strayTemporaryFiles(in directory: URL, _ destination: Destination) -> StrayTemporaryFiles {
+        switch destination {
+        case .package:
+            StrayTemporaryFiles(
+                snapshotsIn: directory, metadata: layout.bookID, isValid: { Self.bookID(from: $0) != nil },
+                alsoKept: StrayTemporaryFiles.packageVersions(layout), fileSystem: fileSystem)
+        case .mirror:
+            StrayTemporaryFiles(
+                snapshotsIn: directory, metadata: BackupMirror.packageRecord(in: directory),
+                isValid: { Self.packageRecord(from: $0) != nil }, alsoKept: [], fileSystem: fileSystem)
         }
     }
 
@@ -194,10 +210,13 @@ public struct BackupKeeper: Sendable {
         } catch {
             throw .fileSystem(.readBookID, error)
         }
-        guard let text = String(data: data, encoding: .utf8),
-            let id = UUID(uuidString: text.trimmingCharacters(in: .whitespacesAndNewlines))
-        else { return .corrupt }
-        return .valid(id)
+        return Self.bookID(from: data).map(StoredID.valid) ?? .corrupt
+    }
+
+    private static func bookID(from data: Data) -> UUID? {
+        String(data: data, encoding: .utf8).flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
     }
 
     /// Whether the package at `path` holds `id`. Anything but a clear "no" counts as yes:
@@ -227,10 +246,14 @@ public struct BackupKeeper: Sendable {
         } catch {
             throw .fileSystem(.readMirrorOwner, error)
         }
+        return Self.packageRecord(from: data).map(RecordedPackage.recorded) ?? .unrecognized
+    }
+
+    private static func packageRecord(from data: Data) -> PackageRecord? {
         guard let record = try? JSONDecoder().decode(PackageRecord.self, from: data),
             record.path.hasPrefix("/")
-        else { return .unrecognized }
-        return .recorded(record)
+        else { return nil }
+        return record
     }
 
     private func claim(_ folder: URL, for record: PackageRecord, over existing: Existing)

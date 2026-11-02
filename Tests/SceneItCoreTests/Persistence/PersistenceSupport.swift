@@ -8,7 +8,8 @@ import Testing
 /// dying at one, and can run an action (another program's write) just before a call.
 final class FaultInjectingFileSystem: FileSystem {
     /// One call, naming files relative to the package so traces read like the pipeline. A
-    /// hidden temporary file for `book.json` is named "temporary book.json".
+    /// hidden temporary file for `book.json` is named "temporary book.json", and one for
+    /// `Backups/book-id` "Backups/temporary book-id".
     enum Call: Hashable, CustomStringConvertible {
         case inspect(String)
         case read(String)
@@ -248,8 +249,8 @@ final class FaultInjectingFileSystem: FileSystem {
         let rootPath = root.standardizedFileURL.path(percentEncoded: false)
         guard path.hasPrefix(rootPath) else { return path }
         let relative = String(path.dropFirst(rootPath.count)).trimmingSlashes
-        if let match = relative.wholeMatch(of: /\.(.+)\.[0-9A-F-]{36}\.tmp/) {
-            return "temporary \(match.1)"
+        if let match = relative.wholeMatch(of: /(.*\/)?\.(.+)\.[0-9A-F-]{36}\.tmp/) {
+            return "\(match.1 ?? "")temporary \(match.2)"
         }
         return relative
     }
