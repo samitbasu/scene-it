@@ -249,7 +249,7 @@ What happens next depends on whose version `book.json` holds:
 | `book.json` holds | The rotation fails | Result |
 | --- | --- | --- |
 | our own last save | at any step | **Save anyway**: `.saved(.previousVersionNotBackedUp(error, olderBackups:))`. The new book contains the old one plus the edits; refusing would leave the session's typing only in memory. The store shows "Backups aren't working". |
-| another program's version (`.overwriteKeepingTheirsAsBackup`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.json`. |
+| another program's version (`.overwriteKeepingTheirsAsBackup(theirs:)`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.json`. |
 
 Other details:
 
@@ -457,10 +457,10 @@ Errors (as opposed to crashes), when `book.json` holds our own last save:
 | `bak1` → `bak2` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; V1, —, V2 |
 | publishing `bak1` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; —, V1, V2 |
 | exchanging `book.json` | throws; retries don't rotate again | V0; V0, V1, V2 |
-| reading the displaced file after the exchange | swapped back; `.externallyModified(.changed)` | V0; V0, V1, V2 |
+| reading the displaced file after the exchange | swapped back; `.externallyModified(.changed(theirs:))` | V0; V0, V1, V2 |
 
 When `book.json` holds another program's version (saving with
-`.overwriteKeepingTheirsAsBackup`), the three rotation rows throw
+`.overwriteKeepingTheirsAsBackup(theirs:)`), the three rotation rows throw
 `.couldNotBackUpTheirVersion` instead, and `book.json` keeps their version.
 
 ## 7. Noticing someone else's changes
@@ -473,19 +473,28 @@ the backup), so there's no cheaper signal worth trusting more: size and modifica
 can be restored by a careful writer, and one of the tests does exactly that.
 
 ```swift
-            if ContentDigest(data) == lastSeen { return Current(data: data, owner: .ours) }
-            guard policy == .overwriteKeepingTheirsAsBackup else { throw refusal(.changed) }
+            let digest = ContentDigest(data)
+            if digest == lastSeen { return Current(data: data, owner: .ours) }
+            guard policy == .overwriteKeepingTheirsAsBackup(theirs: digest) else {
+                throw refusal(.changed(theirs: digest))
+            }
             return Current(data: data, owner: .theirs)
 ```
 
 - A **touched** file, or one **copied back with identical bytes**, is still ours.
-- A **changed** file throws `SaveError.externallyModified(.changed)`, and a removed one
-  throws `.removed`, unless the caller passes
-  `onExternalChange: .overwriteKeepingTheirsAsBackup`. With that policy, the other
-  program's version is rotated into `bak1` first (and the save is refused if that fails,
-  §4), and a removed `book.json` is recreated.
+- A **changed** file throws `SaveError.externallyModified(.changed(theirs: digest))`, naming the
+  version it found. The only way past it is `onExternalChange:
+  .overwriteKeepingTheirsAsBackup(theirs: digest)` with *that* digest: the writer's "Keep My
+  Version" approves exactly the version they were told about. The other program's version is
+  rotated into `bak1` first (and the save is refused if that fails, §4). If a sync writes yet
+  another version before the save, its digest differs, and the save throws `.changed` again
+  with the new digest, so the writer is asked again (ADR 0018: each external change asks).
+- A **removed** `book.json` throws `.removed`, unless the caller passes `.recreate`.
 - Anything that **isn't a file** (a directory or a link where `book.json` was) is
-  `.notAFile` and is refused under either policy.
+  `.notAFile` and is refused under every policy.
+
+The approval is a value carrying the digest, not a flag. A `Bool` named `keepMine` could
+outlive the version it was about; a policy naming the version can't.
 
 ADR 0018 decides what the writer sees.
 
@@ -505,7 +514,7 @@ anyone noticing. So the final step is a compare-and-swap:
                 return try fileSystem.publish(replacement, as: layout.book)
             } catch {
                 fileSystem.discard(replacement.url)
-                throw error.cause == .alreadyExists ? refusal(.changed) : .fileSystem(error)
+                throw error.cause == .alreadyExists ? changedDuringSave() : .fileSystem(error)
             }
         }
         do {
@@ -526,13 +535,15 @@ anyone noticing. So the final step is a compare-and-swap:
             throw keepAsConflict(replacement, published: data, &lastSeen)
         }
         fileSystem.discard(replacement.url)
-        throw refusal(.changed)
+        throw changedDuringSave()
     }
 ```
 
 After the swap, the temporary name holds whatever `book.json` held *at the instant of the
 swap*. If those aren't the bytes the save checked, another program renamed a new version
-into place in between, and a second swap puts their version back. The save then throws `.externallyModified(.changed)`,
+into place in between, and a second swap puts their version back. The save then throws
+`.externallyModified(.changed(theirs:))` (`changedDuringSave` reads `book.json` again to name the
+version that's there now),
 which leads to ADR 0018's choice like any other external change. Swapping back, rather
 than keeping their bytes under another name, leaves the package exactly as the other
 program meant it, and needs nothing new from the store.

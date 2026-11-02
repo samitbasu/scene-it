@@ -9,6 +9,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 01 | [Project anatomy](01-project-anatomy.md): the SwiftPM package, the Xcode app target, build settings | written |
 | 02 | [The model and `Codable`](02-model-and-codable.md): `Book`, `Scene`, `Run`, strict decoding, validation | written |
 | 03 | [Saving safely](03-saving-safely.md): the `.sceneit` package, verify-then-atomic-write, backup rotation, `F_FULLFSYNC`, crash states, the file-system seam | written |
+| 03a | [When to save](03a-when-to-save.md): the autosave scheduler as a pure state machine, the `Clock` protocol, task cancellation, `@MainActor`, safe quit | written |
 | 04 | SwiftUI and Observation: the main window, `@Observable` `BookStore`, how views track state | planned, lands with #13 |
 | 05 | AppKit interop and TextKit 2: `NSViewRepresentable`, `ManuscriptTextView` | planned, lands with #15 |
 | 06 | [Attributed strings and the `RunCodec`](06-attributed-strings.md): `NovelAttributes`, runs to `NSAttributedString` and back | written |

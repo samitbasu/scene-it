@@ -46,9 +46,9 @@ public enum SaveError: Error, Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
-    /// Another program wrote different contents. If that happened while this save was
-    /// replacing `book.json`, its version was put back.
-    case changed
+    /// Another program wrote different contents, the version `theirs`. If that happened while
+    /// this save was replacing `book.json`, its version was put back.
+    case changed(theirs: ContentDigest)
     case removed
     /// A directory, link or other non-file now stands where `book.json` was. Never overwritten.
     case notAFile
@@ -69,12 +69,15 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
 }
 
 /// What a save does when `book.json` has changed since this package last read or wrote it.
+/// Each approval names the change the writer saw, so it can't overwrite a later one.
 public enum ExternalChangePolicy: Hashable, Sendable {
     /// Throw `SaveError.externallyModified` and write nothing.
     case refuse
-    /// Save anyway, but only after the other program's version is safely in `bak1` (or
-    /// recreate `book.json` if it was removed).
-    case overwriteKeepingTheirsAsBackup
+    /// Replace the version `theirs`, but only after it's safely in `bak1`. Any other version
+    /// is refused with `.changed` naming it.
+    case overwriteKeepingTheirsAsBackup(theirs: ContentDigest)
+    /// Recreate a `book.json` another program removed.
+    case recreate
 }
 
 public enum SaveOutcome: Hashable, Sendable {

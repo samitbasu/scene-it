@@ -138,7 +138,7 @@ public final class BookPackage: Sendable {
         }
         switch item {
         case nil:
-            guard policy == .overwriteKeepingTheirsAsBackup else { throw refusal(.removed) }
+            guard policy == .recreate else { throw refusal(.removed) }
             return nil
         case .directory, .symbolicLink, .other:
             throw refusal(.notAFile)
@@ -147,8 +147,11 @@ public final class BookPackage: Sendable {
             let data = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
                 try fileSystem.read(layout.book)
             }
-            if ContentDigest(data) == lastSeen { return Current(data: data, owner: .ours) }
-            guard policy == .overwriteKeepingTheirsAsBackup else { throw refusal(.changed) }
+            let digest = ContentDigest(data)
+            if digest == lastSeen { return Current(data: data, owner: .ours) }
+            guard policy == .overwriteKeepingTheirsAsBackup(theirs: digest) else {
+                throw refusal(.changed(theirs: digest))
+            }
             return Current(data: data, owner: .theirs)
         }
     }
@@ -156,6 +159,28 @@ public final class BookPackage: Sendable {
     private func refusal(_ change: ExternalChange) -> SaveError {
         Log.store.error("refused to save over a book.json changed by another program")
         return .externallyModified(change)
+    }
+
+    /// The refusal for a `book.json` that changed during the save, naming what's there now.
+    private func changedDuringSave() -> SaveError {
+        let item: FileItem?
+        do {
+            item = try fileSystem.item(at: layout.book)
+        } catch {
+            return .fileSystem(error)
+        }
+        switch item {
+        case nil:
+            return refusal(.removed)
+        case .directory, .symbolicLink, .other:
+            return refusal(.notAFile)
+        case .file:
+            do {
+                return refusal(.changed(theirs: ContentDigest(try fileSystem.read(layout.book))))
+            } catch {
+                return .fileSystem(error)
+            }
+        }
     }
 
     /// Writes both temporary files first, so every failure that leaves the disk unchanged
@@ -270,7 +295,7 @@ public final class BookPackage: Sendable {
                 return try fileSystem.publish(replacement, as: layout.book)
             } catch {
                 fileSystem.discard(replacement.url)
-                throw error.cause == .alreadyExists ? refusal(.changed) : .fileSystem(error)
+                throw error.cause == .alreadyExists ? changedDuringSave() : .fileSystem(error)
             }
         }
         do {
@@ -291,7 +316,7 @@ public final class BookPackage: Sendable {
             throw keepAsConflict(replacement, published: data, &lastSeen)
         }
         fileSystem.discard(replacement.url)
-        throw refusal(.changed)
+        throw changedDuringSave()
     }
 
     /// For volumes that can't swap (FAT, exFAT, HFS+). A change landing between this re-read
@@ -301,7 +326,7 @@ public final class BookPackage: Sendable {
     {
         guard (try? fileSystem.read(layout.book)) == expected else {
             fileSystem.discard(replacement.url)
-            throw refusal(.changed)
+            throw changedDuringSave()
         }
         do {
             try fileSystem.move(replacement.url, over: layout.book)
@@ -335,7 +360,7 @@ public final class BookPackage: Sendable {
                 break
             }
         }
-        guard case .file? = try? fileSystem.item(at: displaced.url) else { return refusal(.changed) }
+        guard case .file? = try? fileSystem.item(at: displaced.url) else { return changedDuringSave() }
         return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
     }
 
@@ -420,11 +445,11 @@ public final class BookPackage: Sendable {
     }
 }
 
-/// SHA-256 of a file's contents, so recognizing our own bytes doesn't mean keeping a copy.
-private struct ContentDigest: Hashable, Sendable {
+/// SHA-256 of a file's contents, so recognizing a version doesn't mean keeping a copy.
+public struct ContentDigest: Hashable, Sendable {
     let bytes: Data
 
-    init(_ contents: Data) {
+    public init(_ contents: Data) {
         bytes = Data(SHA256.hash(data: contents))
     }
 }

@@ -47,9 +47,9 @@ import Testing
         }
 
         /// What `.refuse` reports; `nil` when the bytes are still ours and the save proceeds.
-        var refusal: ExternalChange? {
+        func refusal() throws -> ExternalChange? {
             switch self {
-            case .rewritten, .rewrittenInPlaceKeepingSizeAndTime: .changed
+            case .rewritten, .rewrittenInPlaceKeepingSizeAndTime: .changed(theirs: try version(7))
             case .removed: .removed
             case .replacedByADirectory: .notAFile
             case .touched, .replacedWithIdenticalBytes: nil
@@ -63,7 +63,7 @@ import Testing
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try change.apply(to: url.layout.book)
-            guard let refusal = change.refusal else {
+            guard let refusal = try change.refusal() else {
                 #expect(try package.save(draft(9)) == .saved(.intact))
                 try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
                 return
@@ -80,7 +80,7 @@ import Testing
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.rewritten.apply(to: url.layout.book)
-            let outcome = try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+            let outcome = try package.save(draft(9), onExternalChange: overwriting(7))
             #expect(outcome == .saved(.intact))
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
             #expect(try package.save(draft(10)) == .saved(.intact), "later saves need no policy")
@@ -92,7 +92,10 @@ import Testing
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.removed.apply(to: url.layout.book)
-            let outcome = try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+            #expect(throws: SaveError.externallyModified(.removed)) {
+                try package.save(draft(9), onExternalChange: overwriting(7))
+            }
+            let outcome = try package.save(draft(9), onExternalChange: .recreate)
             #expect(outcome == .saved(.intact))
             try expectLayout(url.layout, book: 9, backups: [1, 2, 3])
         }
@@ -103,8 +106,10 @@ import Testing
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.replacedByADirectory.apply(to: url.layout.book)
-            #expect(throws: SaveError.externallyModified(.notAFile)) {
-                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+            for policy in [try overwriting(7), .recreate] {
+                #expect(throws: SaveError.externallyModified(.notAFile)) {
+                    try package.save(draft(9), onExternalChange: policy)
+                }
             }
         }
     }
@@ -118,7 +123,7 @@ import Testing
             defer { chflags(bak1, 0) }
             try Change.rewritten.apply(to: url.layout.book)
             let error = try #require(throws: SaveError.self) {
-                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                try package.save(draft(9), onExternalChange: overwriting(7))
             }
             guard case .couldNotBackUpTheirVersion = error else {
                 Issue.record("unexpected error \(error)")
@@ -128,12 +133,29 @@ import Testing
         }
     }
 
+    @Test func keepingMyVersionNeverOverwritesALaterVersion() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            try Change.rewritten.apply(to: url.layout.book)
+            #expect(throws: try changed(to: 7)) { try package.save(draft(9)) }
+            try encoded(draft(8)).write(to: url.layout.book)
+            let before = try DirectorySnapshot(url)
+            #expect(throws: try changed(to: 8)) {
+                try package.save(draft(9), onExternalChange: overwriting(7))
+            }
+            #expect(try DirectorySnapshot(url) == before)
+            #expect(try package.save(draft(9), onExternalChange: overwriting(8)) == .saved(.intact))
+            try expectLayout(url.layout, book: 9, backups: [8, 1, 2])
+        }
+    }
+
     @Test func reopeningAfterAnExternalChangeSavesAgain() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.rewritten.apply(to: url.layout.book)
-            #expect(throws: SaveError.externallyModified(.changed)) { try package.save(draft(9)) }
+            #expect(throws: try changed(to: 7)) { try package.save(draft(9)) }
 
             let reopened = try BookPackage.open(at: url)
             #expect(reopened.book == (try draft(7)))
@@ -163,15 +185,21 @@ import Testing
         return (package, fileSystem)
     }
 
-    @Test(arguments: Replacement.allCases, [ExternalChangePolicy.refuse, .overwriteKeepingTheirsAsBackup])
-    func aWriteDuringTheSaveIsNeverLost(_ replacement: Replacement, _ policy: ExternalChangePolicy) throws {
+    /// `.keepingTheirs` approves exactly the version that lands during the save.
+    enum Policy: CaseIterable {
+        case refuse, keepingTheirs
+    }
+
+    @Test(arguments: Replacement.allCases, Policy.allCases)
+    func aWriteDuringTheSaveIsNeverLost(_ replacement: Replacement, _ choice: Policy) throws {
+        let policy = choice == .refuse ? ExternalChangePolicy.refuse : try overwriting(7)
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let (package, fileSystem) = try package(url, replacement)
             let book = url.layout.book
             let theirs = try encoded(draft(7))
             fileSystem.before(.writeTemporary("book.json")) { try? theirs.write(to: book) }
-            #expect(throws: SaveError.externallyModified(.changed)) {
+            #expect(throws: try changed(to: 7)) {
                 try package.save(draft(9), onExternalChange: policy)
             }
             try expectLayout(url.layout, book: 7, backups: [0, 1, 2])
@@ -235,7 +263,7 @@ extension ConcurrentChangeTests {
             #expect(url.layout.contents().book == theirs2, "precondition: theirs2 landed in book.json")
 
             fileSystem.inject(.fail(.publish("book.json.bak1")))
-            #expect(throws: SaveError.externallyModified(.changed)) { try package.save(draft(10)) }
+            #expect(throws: try changed(to: 8)) { try package.save(draft(10)) }
             #expect(url.layout.contents().book == theirs2)
         }
     }
