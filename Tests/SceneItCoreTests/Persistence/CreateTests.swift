@@ -52,7 +52,7 @@ import Testing
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
-            fileSystem.inject(.write("book.json"))
+            fileSystem.inject(.fail(.writeTemporary("book.json")))
             #expect(throws: CreateError.self) {
                 try BookPackage.create(at: url, title: "Novel", fileSystem: fileSystem)
             }

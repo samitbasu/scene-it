@@ -4,20 +4,23 @@ import Testing
 
 @testable import SceneItCore
 
-/// A `LocalFileSystem` that records every call and can fail chosen ones.
+/// A `LocalFileSystem` that records every call and can fail chosen ones, or simulate the
+/// process dying at one.
 final class FaultInjectingFileSystem: FileSystem {
     /// One call, naming files relative to the package so traces read like the pipeline.
     enum Call: Hashable, CustomStringConvertible {
         case inspect(String)
         case read(String)
-        case write(String)
+        case writeTemporary(String)
+        case publish(String)
+        case discard(String)
         case move(String, over: String)
         case createDirectory(String)
 
         var isMutation: Bool {
             switch self {
             case .inspect, .read: false
-            case .write, .move, .createDirectory: true
+            case .writeTemporary, .publish, .discard, .move, .createDirectory: true
             }
         }
 
@@ -25,24 +28,27 @@ final class FaultInjectingFileSystem: FileSystem {
             switch self {
             case .inspect(let name): "inspect \(name)"
             case .read(let name): "read \(name)"
-            case .write(let name): "write \(name)"
+            case .writeTemporary(let name): "write a temporary file for \(name)"
+            case .publish(let name): "publish \(name)"
+            case .discard(let name): "discard \(name)"
             case .move(let source, let destination): "move \(source) over \(destination)"
             case .createDirectory(let name): "create directory \(name)"
             }
         }
     }
 
-    /// What a faulted write leaves behind.
-    enum Debris {
-        case none
-        /// A half-written temporary file next to the target, as a crash mid-write would leave.
-        case partialTemporaryFile
+    enum Fault {
+        /// Every call equal to this one fails, until `clearFault()`.
+        case fail(Call)
+        /// The process dies when it reaches this call: it and every later call do nothing and
+        /// fail. A temporary file being written is left half-written.
+        case crash(Call)
     }
 
     private struct State {
         var calls: [Call] = []
-        var fault: Call?
-        var debris = Debris.none
+        var fault: Fault?
+        var crashed = false
     }
 
     private let base = LocalFileSystem()
@@ -55,12 +61,8 @@ final class FaultInjectingFileSystem: FileSystem {
 
     var calls: [Call] { state.withLock { $0.calls } }
 
-    /// Every later call equal to `call` fails, until `clearFault()`.
-    func inject(_ call: Call, leaving debris: Debris = .none) {
-        state.withLock {
-            $0.fault = call
-            $0.debris = debris
-        }
+    func inject(_ fault: Fault) {
+        state.withLock { $0.fault = fault }
     }
 
     func clearFault() {
@@ -80,9 +82,29 @@ final class FaultInjectingFileSystem: FileSystem {
         try perform(.read(name(file)), .read, file) { () throws(FileSystemError) in try base.read(file) }
     }
 
-    func writeAtomically(_ data: Data, to file: URL) throws(FileSystemError) -> FileStamp {
-        try perform(.write(name(file)), .write, file, partialData: data) { () throws(FileSystemError) in
-            try base.writeAtomically(data, to: file)
+    func writeTemporary(
+        _ data: Data, for destination: URL, permissionsFrom model: URL
+    ) throws(FileSystemError) -> TemporaryFile {
+        let call = Call.writeTemporary(name(destination))
+        if isCrash(at: call) {
+            let debris = destination.deletingLastPathComponent()
+                .appending(path: ".\(destination.lastPathComponent).crashed.tmp")
+            try? data.prefix(data.count / 2).write(to: debris)
+        }
+        return try perform(call, .write, destination) { () throws(FileSystemError) in
+            try base.writeTemporary(data, for: destination, permissionsFrom: model)
+        }
+    }
+
+    func publish(_ temporary: TemporaryFile, as destination: URL) throws(FileSystemError) {
+        try perform(.publish(name(destination)), .publish, destination) { () throws(FileSystemError) in
+            try base.publish(temporary, as: destination)
+        }
+    }
+
+    func discard(_ temporary: TemporaryFile) {
+        try? perform(.discard(name(temporary.url)), .write, temporary.url) { () throws(FileSystemError) in
+            base.discard(temporary)
         }
     }
 
@@ -99,21 +121,27 @@ final class FaultInjectingFileSystem: FileSystem {
         }
     }
 
+    private func isCrash(at call: Call) -> Bool {
+        state.withLock { state in
+            if case .crash(call) = state.fault { true } else { false }
+        }
+    }
+
     private func perform<T>(
-        _ call: Call, _ operation: FileSystemError.Operation, _ url: URL, partialData: Data? = nil,
+        _ call: Call, _ operation: FileSystemError.Operation, _ url: URL,
         _ body: () throws(FileSystemError) -> T
     ) throws(FileSystemError) -> T {
-        let (fault, debris) = state.withLock { state in
+        let fails = state.withLock { state in
             state.calls.append(call)
-            return (state.fault, state.debris)
+            switch state.fault {
+            case .fail(call): return true
+            case .crash(call): state.crashed = true
+            default: break
+            }
+            return state.crashed
         }
-        guard call == fault else { return try body() }
-        if case .partialTemporaryFile = debris, let partialData {
-            let temporary = url.deletingLastPathComponent()
-                .appending(path: ".\(url.lastPathComponent).crashed.tmp")
-            try? partialData.prefix(partialData.count / 2).write(to: temporary)
-        }
-        throw FileSystemError(operation, url, .other("injected fault"))
+        guard !fails else { throw FileSystemError(operation, url, .io) }
+        return try body()
     }
 
     private func name(_ url: URL) -> String {
@@ -154,9 +182,14 @@ struct DirectorySnapshot: Equatable {
         for case let path as String in enumerator {
             let url = root.appending(path: path)
             let attributes = try manager.attributesOfItem(atPath: url.path(percentEncoded: false))
-            let isDirectory = attributes[.type] as? FileAttributeType == .typeDirectory
+            let contents: Data? =
+                switch attributes[.type] as? FileAttributeType {
+                case .typeDirectory?: nil
+                case .typeSymbolicLink?: Data(try manager.destinationOfSymbolicLink(atPath: url.path()).utf8)
+                default: try Data(contentsOf: url)
+                }
             entries[path] = Entry(
-                contents: isDirectory ? nil : try Data(contentsOf: url),
+                contents: contents,
                 modified: attributes[.modificationDate] as? Date)
         }
         self.entries = entries

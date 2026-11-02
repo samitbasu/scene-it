@@ -6,7 +6,8 @@ import Testing
 @Suite struct LoadTests {
     enum Damage: CaseIterable, CustomTestStringConvertible {
         case truncated, empty, garbage, invalidBook, unsupportedFormat
-        case bookMissing, bookIsADirectory, packageIsAFile, packageMissing, missingExtension
+        case bookMissing, bookIsADirectory, bookIsASymlink, bookIsADanglingSymlink
+        case packageIsAFile, packageMissing, missingExtension
 
         /// Damages a full package at `url`; returns the URL to open.
         func apply(to url: URL) throws -> URL {
@@ -31,6 +32,15 @@ import Testing
             case .bookIsADirectory:
                 try FileManager.default.removeItem(at: book)
                 try FileManager.default.createDirectory(at: book, withIntermediateDirectories: false)
+            case .bookIsASymlink:
+                let target = url.deletingLastPathComponent().appending(path: "elsewhere.json")
+                try FileManager.default.moveItem(at: book, to: target)
+                try FileManager.default.createSymbolicLink(at: book, withDestinationURL: target)
+            case .bookIsADanglingSymlink:
+                try FileManager.default.removeItem(at: book)
+                try FileManager.default.createSymbolicLink(
+                    at: book,
+                    withDestinationURL: url.deletingLastPathComponent().appending(path: "nowhere.json"))
             case .packageIsAFile:
                 try FileManager.default.removeItem(at: url)
                 try bytes.write(to: url)
@@ -48,7 +58,8 @@ import Testing
             switch (self, problem) {
             case (.truncated, .undecodable), (.empty, .undecodable), (.garbage, .undecodable),
                 (.unsupportedFormat, .undecodable), (.invalidBook, .invalid), (.bookMissing, .bookMissing),
-                (.bookIsADirectory, .bookNotAFile), (.packageIsAFile, .notADirectory),
+                (.bookIsADirectory, .bookNotAFile), (.bookIsASymlink, .bookNotAFile),
+                (.bookIsADanglingSymlink, .bookNotAFile), (.packageIsAFile, .notADirectory),
                 (.packageMissing, .notFound), (.missingExtension, .missingPackageExtension):
                 true
             default: false
@@ -84,6 +95,22 @@ import Testing
             #expect(error.backups.map(\.slot) == (damage.backupsReachable ? BackupSlot.allCases : []))
             #expect(fileSystem.calls.allSatisfy { !$0.isMutation })
             #expect(try DirectorySnapshot(directory) == before)
+        }
+    }
+
+    @Test func anUnreadableBookGivesATypedErrorAndNoWrites() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            _ = try BookPackage.create(at: url, title: "Novel")
+            let path = url.layout.book.path(percentEncoded: false)
+            #expect(chmod(path, 0) == 0)
+            defer { chmod(path, 0o644) }
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let error = try #require(throws: LoadError.self) {
+                try BookPackage.open(at: url, fileSystem: fileSystem)
+            }
+            #expect(error.problem == .unreadable(FileSystemError(.read, url.layout.book, .permissionDenied)))
+            #expect(fileSystem.calls.allSatisfy { !$0.isMutation })
         }
     }
 

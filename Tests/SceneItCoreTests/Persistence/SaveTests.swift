@@ -6,8 +6,9 @@ import Testing
 /// Each step of a save that can fail, in pipeline order.
 enum SaveFault: CaseIterable, CustomTestStringConvertible {
     case encode, verify
-    case inspectBook, readBook, inspectBak1, readBak1, inspectBak2, shiftBak2, shiftBak1, backUpCurrent,
-        writeBook
+    case inspectBook, readBook, inspectBak1, readBak1
+    case writeBackupTemporary, writeBookTemporary
+    case shiftBak2, shiftBak1, publishBak1, publishBook
 
     /// The file-system call this step makes; `nil` for the in-memory steps.
     var call: FaultInjectingFileSystem.Call? {
@@ -17,20 +18,36 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
         case .readBook: .read("book.json")
         case .inspectBak1: .inspect("book.json.bak1")
         case .readBak1: .read("book.json.bak1")
-        case .inspectBak2: .inspect("book.json.bak2")
+        case .writeBackupTemporary: .writeTemporary("book.json.bak1")
+        case .writeBookTemporary: .writeTemporary("book.json")
         case .shiftBak2: .move("book.json.bak2", over: "book.json.bak3")
         case .shiftBak1: .move("book.json.bak1", over: "book.json.bak2")
-        case .backUpCurrent: .write("book.json.bak1")
-        case .writeBook: .write("book.json")
+        case .publishBak1: .publish("book.json.bak1")
+        case .publishBook: .publish("book.json")
         }
     }
 
-    /// Whether every backup is still in its slot if the save stops at this step.
-    var backupsUntouched: Bool {
+    /// Starting from `book.json` = draft 0 and `bak1`…`bak3` = drafts 1…3, what a save of
+    /// draft 9 that fails at this step leaves: the draft in `book.json`, then in each slot.
+    var expected: (saved: Bool, book: Int, backups: [Int?]) {
         switch self {
-        case .encode, .verify, .inspectBook, .readBook, .inspectBak1, .readBak1, .inspectBak2, .shiftBak2:
-            true
-        case .shiftBak1, .backUpCurrent, .writeBook: false
+        case .encode, .verify, .inspectBook, .readBook, .writeBackupTemporary, .writeBookTemporary:
+            (false, 0, [1, 2, 3])
+        // A failure to look at bak1 counts as "bak1 differs", so the save goes ahead normally.
+        case .inspectBak1, .readBak1: (true, 9, [0, 1, 2])
+        // Rotation is best effort; the later steps still run.
+        case .shiftBak2: (true, 9, [0, 1, 3])
+        case .shiftBak1: (true, 9, [0, nil, 2])
+        case .publishBak1: (true, 9, [nil, 1, 2])
+        // bak3 is gone, but bak1 already holds book.json, so retries don't rotate again.
+        case .publishBook: (false, 0, [0, 1, 2])
+        }
+    }
+
+    var degradesBackups: Bool {
+        switch self {
+        case .shiftBak2, .shiftBak1, .publishBak1: true
+        default: false
         }
     }
 
@@ -41,22 +58,22 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
 
 /// A package at `url` whose `book.json` is draft 0 and whose `bak1`…`bak3` are drafts 1…3.
 func makeFullPackage(at url: URL, fileSystem: any FileSystem) throws -> BookPackage {
-    var package = try BookPackage.create(at: url, title: "Untitled", fileSystem: fileSystem).package
+    let package = try BookPackage.create(at: url, title: "Untitled", fileSystem: fileSystem).package
     for number in [3, 2, 1, 0] {
-        #expect(try package.save(draft(number)) == .saved)
+        #expect(try package.save(draft(number)) == .saved(.intact))
     }
-    try expectStandardLayout(package.layout, book: draft(0), backups: [draft(1), draft(2), draft(3)])
+    try expectLayout(package.layout, book: 0, backups: [1, 2, 3])
     return package
 }
 
-func expectStandardLayout(
-    _ layout: PackageLayout, book: Book, backups: [Book], sourceLocation: SourceLocation = #_sourceLocation
+/// Expects `book.json` and `bak1`…`bak3` to hold these drafts (`nil`: the slot is empty).
+func expectLayout(
+    _ layout: PackageLayout, book: Int, backups: [Int?], sourceLocation: SourceLocation = #_sourceLocation
 ) throws {
     let (current, saved) = layout.contents()
-    #expect(current == (try encoded(book)), "book.json", sourceLocation: sourceLocation)
+    #expect(current == (try encoded(draft(book))), "book.json", sourceLocation: sourceLocation)
     for slot in BackupSlot.allCases {
-        let expected =
-            try backups.indices.contains(slot.rawValue - 1) ? encoded(backups[slot.rawValue - 1]) : nil
+        let expected = try backups[slot.rawValue - 1].map { try encoded(draft($0)) }
         #expect(saved[slot] == expected, "\(slot)", sourceLocation: sourceLocation)
     }
 }
@@ -71,10 +88,10 @@ func unstableEncoding(of book: Book) throws -> Data {
     @Test func fiveSavesKeepThePreviousThreeVersionsAsBackups() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            var package = try BookPackage.create(at: url, title: "Novel").package
+            let package = try BookPackage.create(at: url, title: "Novel").package
             var versions = [try #require(package.layout.contents().book)]
             for number in 1...5 {
-                #expect(try package.save(draft(number)) == .saved)
+                #expect(try package.save(draft(number)) == .saved(.intact))
                 versions.append(try encoded(draft(number)))
                 let (book, backups) = package.layout.contents()
                 #expect(book == versions.last)
@@ -92,11 +109,10 @@ func unstableEncoding(of book: Book) throws -> Data {
     @Test func anUnchangedSaveWritesNothing() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            var package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             let before = try DirectorySnapshot(url)
             #expect(try package.save(draft(0)) == .unchanged)
-            var reopened = try BookPackage.open(at: url).package
-            #expect(try reopened.save(draft(0)) == .unchanged)
+            #expect(try BookPackage.open(at: url).package.save(draft(0)) == .unchanged)
             #expect(try DirectorySnapshot(url) == before)
         }
     }
@@ -105,43 +121,50 @@ func unstableEncoding(of book: Book) throws -> Data {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
-            var package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             fileSystem.clearCalls()
-            #expect(try package.save(draft(9)) == .saved)
+            #expect(try package.save(draft(9)) == .saved(.intact))
             #expect(fileSystem.calls == SaveFault.fileSystemSteps.compactMap(\.call))
         }
     }
 
     @Test(arguments: SaveFault.allCases)
-    func aFailedSaveLeavesTheBookAndBackupsIntact(_ fault: SaveFault) throws {
+    func aFailedStepLosesAtMostWhatItsRowAllows(_ fault: SaveFault) throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
-            var package = try makeFullPackage(at: url, fileSystem: fileSystem)
-            let original = package.layout.contents()
-            let survivors = try Set([0, 1, 2].map { try encoded(draft($0)) })
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let expected = fault.expected
 
-            // Twice: a retry that fails the same way must not lose anything more.
-            for _ in 1...2 {
-                let error = try #require(throws: SaveError.self) {
-                    try attemptSave(&package, failing: fault, fileSystem)
+            if expected.saved {
+                let outcome = try attemptSave(package, failing: fault, fileSystem)
+                if fault.degradesBackups {
+                    guard case .saved(.degraded) = outcome else {
+                        Issue.record("expected degraded backups, got \(outcome)")
+                        return
+                    }
+                } else {
+                    #expect(outcome == .saved(.intact))
                 }
-                switch (fault, error) {
-                case (.encode, .encoding(.rejected)), (.verify, .encoding(.unstable)): break
-                case (_, .fileSystem) where fault.call != nil: break
-                default: Issue.record("unexpected error \(error)")
+                try expectLayout(package.layout, book: expected.book, backups: expected.backups)
+            } else {
+                // Twice: a retry that fails the same way must not lose anything more.
+                for _ in 1...2 {
+                    let error = try #require(throws: SaveError.self) {
+                        try attemptSave(package, failing: fault, fileSystem)
+                    }
+                    switch (fault, error) {
+                    case (.encode, .encoding(.rejected)), (.verify, .encoding(.unstable)): break
+                    case (_, .fileSystem) where fault.call != nil: break
+                    default: Issue.record("unexpected error \(error)")
+                    }
+                    try expectLayout(package.layout, book: expected.book, backups: expected.backups)
                 }
-                let (book, backups) = package.layout.contents()
-                #expect(book == original.book)
-                #expect(survivors.isSubset(of: Set(backups.values).union([book].compactMap { $0 })))
-                if fault.backupsUntouched {
-                    #expect(backups == original.backups)
-                }
+                fileSystem.clearFault()
+                #expect(try package.save(draft(9)) == .saved(.intact))
+                try expectLayout(package.layout, book: 9, backups: [0, 1, 2])
             }
-
-            fileSystem.clearFault()
-            #expect(try package.save(draft(9)) == .saved)
-            try expectStandardLayout(package.layout, book: draft(9), backups: [draft(0), draft(1), draft(2)])
+            #expect(try temporaryFiles(in: url).isEmpty, "every unpublished temporary file was discarded")
         }
     }
 
@@ -150,20 +173,19 @@ func unstableEncoding(of book: Book) throws -> Data {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
-            var package = try makeFullPackage(at: url, fileSystem: fileSystem)
-            fileSystem.inject(try #require(crash.call), leaving: .partialTemporaryFile)
-            #expect(throws: SaveError.self) { try package.save(draft(9)) }
-            if case .write(let name)? = crash.call {
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            fileSystem.inject(.crash(try #require(crash.call)))
+            _ = try? package.save(draft(9))
+            if case .writeTemporary? = crash.call {
                 #expect(
-                    FileManager.default.fileExists(
-                        atPath: url.appending(path: ".\(name).crashed.tmp").path()),
+                    try temporaryFiles(in: url).contains { $0.hasSuffix(".crashed.tmp") },
                     "precondition: the crash left a half-written temporary file")
             }
 
-            var restarted = try BookPackage.open(at: url)
+            let restarted = try BookPackage.open(at: url)
             #expect(restarted.book == (try draft(0)))
-            #expect(try restarted.package.save(draft(9)) == .saved)
-            try expectStandardLayout(url.layout, book: draft(9), backups: [draft(0), draft(1), draft(2)])
+            #expect(try restarted.package.save(draft(9)) == .saved(.intact))
+            try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
             #expect(try BookPackage.open(at: url).book == (try draft(9)))
         }
     }
@@ -171,8 +193,8 @@ func unstableEncoding(of book: Book) throws -> Data {
     @Test func aCrashAfterTheLastStepLoadsTheNewBook() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            var package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            #expect(try package.save(draft(9)) == .saved)
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            #expect(try package.save(draft(9)) == .saved(.intact))
             #expect(try BookPackage.open(at: url).book == (try draft(9)))
         }
     }
@@ -180,9 +202,11 @@ func unstableEncoding(of book: Book) throws -> Data {
     @Test func theFirstSaveOfANewBookBacksUpOnlyTheEmptyBook() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            var package = try BookPackage.create(at: url, title: "Novel").package
-            #expect(try package.save(draft(1)) == .saved)
-            try expectStandardLayout(package.layout, book: draft(1), backups: [Book(title: "Novel")])
+            let package = try BookPackage.create(at: url, title: "Novel").package
+            #expect(try package.save(draft(1)) == .saved(.intact))
+            let (book, backups) = package.layout.contents()
+            #expect(book == (try encoded(draft(1))))
+            #expect(backups == [.bak1: try encoded(Book(title: "Novel"))])
         }
     }
 
@@ -194,21 +218,27 @@ func unstableEncoding(of book: Book) throws -> Data {
     }
 }
 
-/// Runs a save that fails at `fault`.
+/// Runs a save of draft 9 that fails at `fault`.
 private func attemptSave(
-    _ package: inout BookPackage, failing fault: SaveFault, _ fileSystem: FaultInjectingFileSystem
-) throws {
+    _ package: BookPackage, failing fault: SaveFault, _ fileSystem: FaultInjectingFileSystem
+) throws -> SaveOutcome {
     switch fault {
     case .encode:
         var book = try draft(9)
         book.scenes.append(book.scenes[0])
-        _ = try package.save(book)
+        return try package.save(book)
     case .verify:
-        _ = try package.save(encoded: unstableEncoding(of: draft(9)))
+        return try package.save(encoded: unstableEncoding(of: draft(9)))
     default:
-        fileSystem.inject(try #require(fault.call))
-        _ = try package.save(draft(9))
+        fileSystem.inject(.fail(try #require(fault.call)))
+        return try package.save(draft(9))
     }
+}
+
+/// The hidden temporary files in a package's root.
+func temporaryFiles(in url: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))
+        .filter { $0.hasPrefix(".") && $0.hasSuffix(".tmp") }
 }
 
 extension URL {
