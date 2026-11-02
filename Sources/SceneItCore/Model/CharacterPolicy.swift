@@ -35,9 +35,11 @@ public enum CharacterPolicy {
     }
 
     /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
-    /// comment text, the book's title.
+    /// comment text, the book's title. Each line break (`Character.isLineBreak`) becomes
+    /// `\n` first.
     public static func admitted(_ text: String) -> String {
-        text.unicodeScalars.allSatisfy { $0 == "\n" || isAllowed($0) } ? text : admit(text).text
+        guard !text.unicodeScalars.allSatisfy({ $0 == "\n" || isAllowed($0) }) else { return text }
+        return admit(String(text.map { $0.isLineBreak ? "\n" : $0 })).text
     }
 
     /// `text` admitted as one line: each line break (`Character.isLineBreak`) becomes a

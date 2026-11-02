@@ -62,9 +62,13 @@ struct BookGenerator {
         return Paragraph(Self.merged(runs))
     }
 
+    /// Sometimes empty, which `Paragraph` drops.
     private mutating func text() -> String {
-        Bool.random(using: &random)
-            ? pick(Self.words) + string(Self.lineAlphabet, 0...6) : string(Self.lineAlphabet, 1...16)
+        switch int(0...8) {
+        case 0: ""
+        case 1...4: pick(Self.words) + string(Self.lineAlphabet, 0...6)
+        default: string(Self.lineAlphabet, 1...16)
+        }
     }
 
     static func merged(_ runs: [Run]) -> [Run] {

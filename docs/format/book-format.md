@@ -523,7 +523,10 @@ Every error entry is one line:
 - The tag is matched case-insensitively and written lowercase. A payload is written after one space; an empty payload
   is written as `- [<tag>]`.
 - A line in an Unparsed section that isn't `- [<one of the six tags>] …` is kept whole as a `[line]` entry, so
-  `- [foo] x` becomes `- [line] - [foo] x`. Continuation lines (§4.1) apply here too.
+  `- [foo] x` becomes `- [line] - [foo] x`. Continuation lines (§4.1) apply here too. That includes a line typed
+  directly under a well-formed entry: it's joined to that entry's payload, so `- [line] kept` followed by `stray`
+  reads as the entry `[line] kept stray`, and the next save writes it on one line. The text is kept, in the entry
+  above it; leave a blank line before a stray line to keep it as an entry of its own.
 - Payloads are **never re-parsed** on load: an entry stays an entry, unchanged, across any number of saves, until the
   writer deletes it or repairs it (§5.4). They need no escaping: a payload is a single line of already-filtered text.
 - Entries belong to the scene they were found in, and travel with it to and from the Boneyard. Entries found outside
@@ -645,12 +648,22 @@ The canonical form is exactly what §1.5, §1.7, §2, §3.5, §4 and §5.1 say t
 ADR 0022: `serialize(book) → parse → serialize` must produce identical bytes, with no error entries, or the save is
 refused. Precisely †:
 
-> Let `b = serialize(book)` and `p = parse(b)`. The save may proceed only if `serialize(p) == b` byte for byte **and**
-> `p`'s error entries are exactly `book`'s error entries: no new ones.
+> Let `b = serialize(book)` and `p = parse(b)`. The save may proceed only if
+>
+> 1. `p`'s error entries are exactly `book`'s error entries: no new ones;
+> 2. `p` **is** `book`, with neighbouring runs of the same format merged (the one change the canonical form makes,
+>    §7.3): every title, tag, paragraph, run, comment and entry compares equal; and
+> 3. `serialize(p) == b` byte for byte.
 
 A book can legitimately hold error entries it read earlier and the writer hasn't dealt with; those come back from
 `### Unparsed` unchanged, so they aren't new. Any other entry means the serializer wrote something the parser doesn't
 read back, which is a bug, so the save is refused (§10 Q6).
+
+The book comparison (2) catches what the bytes alone can't: something the model holds that the format can't write
+is simply left out, and the bytes are perfectly stable without it. The case that found this: a run carrying a comment
+id that the scene's comment list doesn't have. Its ranges are written from the list, so the id is dropped, and the save
+is refused instead (Scene It's `VerificationFailure.changed`). Comparing books is exact here because every string in
+the model is admitted Latin-1 (§1.2), where canonically equivalent text is identical text.
 
 ### 7.3 Accepted and silently canonicalized on the next save
 

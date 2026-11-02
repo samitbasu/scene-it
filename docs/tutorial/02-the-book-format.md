@@ -333,7 +333,13 @@ assigns to its own property doesn't trigger itself again, so the property stays 
 `book.md` can't hold. An emoji becomes `[?]`, `—` becomes `--`, and in one-line fields a
 line break becomes a space, which is what the parser would make of them on the next load
 anyway. An error entry's payload is normalized the same way, to a line as §1.3's trimming
-leaves it.
+leaves it. `Paragraph` drops empty runs the same way, so a stray empty run left behind by an
+edit can't make a save fail: it had nothing to write.
+
+The convenience has a cost, which the second review measured: `text += piece` re-admits the
+*whole* string, so merging 20,000 pieces one `+=` at a time took 11.6 s instead of 0.1 s.
+Code that builds text from pieces (merging runs, `RunCodec`) joins them first and admits
+once, and a scaling test pins that down.
 
 The alternative was a separate `AdmittedText` type for every field. That would have made the
 invariant visible in signatures, but it would have rippled through the editor bridge, the

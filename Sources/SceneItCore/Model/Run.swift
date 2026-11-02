@@ -48,14 +48,21 @@ public struct Run: Hashable, Sendable {
 
 /// A paragraph. One with no runs is empty: the writer pressed Return twice.
 public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
-    public var runs: [Run]
+    /// Never holds an empty run: the initializers and every assignment drop them, since an
+    /// empty run has nothing `book.md` could write. (Each assignment scans the runs once,
+    /// so build a paragraph's runs in an array rather than appending one at a time.)
+    public var runs: [Run] {
+        didSet {
+            if runs.contains(where: \.text.isEmpty) { runs.removeAll(where: \.text.isEmpty) }
+        }
+    }
 
     public init(_ runs: [Run]) {
-        self.runs = runs
+        self.runs = runs.filter { !$0.text.isEmpty }
     }
 
     public init(arrayLiteral runs: Run...) {
-        self.runs = runs
+        self.init(runs)
     }
 
     public var text: String {
@@ -70,13 +77,23 @@ public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
     /// The same text with neighbouring runs of the same format merged, as `book.md`
     /// writes it.
     var withMaximalRuns: Paragraph {
-        Paragraph(
-            runs.reduce(into: []) { merged, run in
-                if let last = merged.last, last.hasSameFormat(as: run) {
-                    merged[merged.count - 1].text += run.text
-                } else {
-                    merged.append(run)
-                }
-            })
+        var merged: [Run] = []
+        var start = runs.startIndex
+        while start < runs.endIndex {
+            var end = start + 1
+            while end < runs.endIndex, runs[end].hasSameFormat(as: runs[start]) {
+                end += 1
+            }
+            let first = runs[start]
+            merged.append(
+                end == start + 1
+                    ? first
+                    : Run(
+                        admitted: runs[start..<end].map(\.text).joined(), styles: first.styles,
+                        color: first.color,
+                        highlight: first.highlight, comments: first.comments))
+            start = end
+        }
+        return Paragraph(merged)
     }
 }

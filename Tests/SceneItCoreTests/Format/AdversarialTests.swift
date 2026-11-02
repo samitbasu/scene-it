@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -98,13 +99,13 @@ import Testing
             if int(0...6) == 0 { return Paragraph([]) }
             let runs = (0..<int(1...5)).map { _ in
                 Run(
-                    text(1...4),
+                    text(0...4),
                     styles: Set(TextStyle.allCases.filter { _ in bool() }),
                     color: bool() ? pick(TextColor.allCases) : nil,
                     highlight: int(0...3) == 0 ? pick(HighlightColor.allCases) : nil,
                     comments: Set(ids.filter { _ in int(0...3) == 0 }))
             }
-            return Paragraph(runs.filter { !$0.text.isEmpty }).withMaximalRuns
+            return Paragraph(runs).withMaximalRuns
         }
 
         mutating func scene(_ number: Int) -> BookScene {
@@ -172,25 +173,33 @@ import Testing
 }
 
 /// The paths the review found quadratic, now linear: doubling the input must not much
-/// more than double the time. The bounds are generous (3× plus slack) so they don't flake.
+/// more than double the time. The bounds are generous (3× plus slack, with retries) so they
+/// don't flake under load.
 @Suite(.serialized) struct ScalingTests {
     private static let head =
         "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n\n"
 
-    /// The fastest of three runs, to keep scheduling noise out.
-    private func fastest(_ body: () -> Void) -> Duration {
-        (0..<3).map { _ in ContinuousClock().measure(body) }.min()!
-    }
-
+    /// Times both sizes, interleaved so a burst of load from other suites hits both, and
+    /// keeps the fastest of three of each. A comparison gets three attempts: noise passes on
+    /// a retry, but a quadratic path (4×) fails every one.
     private func expectLinear(
         _ what: String, sizes: (Int, Int), sourceLocation: SourceLocation = #_sourceLocation,
         _ work: (Int) -> () -> Void
     ) {
-        let small = fastest(work(sizes.0))
-        let large = fastest(work(sizes.1))
-        #expect(
-            large < small * 3 + .milliseconds(30),
-            "\(what): \(sizes.0) took \(small), \(sizes.1) took \(large)",
+        let (smallWork, largeWork) = (work(sizes.0), work(sizes.1))
+        var attempts: [(Duration, Duration)] = []
+        for _ in 0..<3 {
+            var small: [Duration] = []
+            var large: [Duration] = []
+            for _ in 0..<3 {
+                small.append(ContinuousClock().measure(smallWork))
+                large.append(ContinuousClock().measure(largeWork))
+            }
+            attempts.append((small.min()!, large.min()!))
+            if large.min()! < small.min()! * 3 + .milliseconds(30) { return }
+        }
+        Issue.record(
+            "\(what) grew faster than linearly: \(sizes.0) vs \(sizes.1) took \(attempts)",
             sourceLocation: sourceLocation)
     }
 
@@ -255,6 +264,24 @@ import Testing
             scene.tags = [text]
             let book = Book(title: text, scenes: [scene])
             return { _ = BookFormat.serialize(book) }
+        }
+    }
+
+    /// Merging many neighbouring pieces of the same format admits the text once, not once
+    /// per piece.
+    @MainActor
+    @Test func manyPiecesOfOneFormat() {
+        expectLinear("RunCodec.body(from:)", sizes: (5000, 10_000)) { count in
+            let text = NSMutableAttributedString(string: String(repeating: "word ", count: count))
+            for piece in stride(from: 0, to: count, by: 2) {
+                text.addAttribute(.underlineStyle, value: 1, range: NSRange(location: piece * 5, length: 5))
+            }
+            return { _ = RunCodec.body(from: text) }
+        }
+        expectLinear("verifiedSerialization", sizes: (5000, 10_000)) { count in
+            let book = Book(
+                title: "T", scenes: [plainScene(body: [Paragraph((0..<count).map { _ in Run("word ") })])])
+            return { _ = try? BookFormat.verifiedSerialization(of: book) }
         }
     }
 

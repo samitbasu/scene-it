@@ -70,13 +70,32 @@ import Testing
         duplicate.boneyard.append(duplicate.scenes[1])
         #expect(throws: VerificationFailure.self) { try BookFormat.verifiedSerialization(of: duplicate) }
 
-        var emptyRun = try RichBook.make()
-        emptyRun.scenes[1].body = [[Run("Rain."), Run("", styles: [.bold])]]
-        #expect(throws: VerificationFailure.changed) { try BookFormat.verifiedSerialization(of: emptyRun) }
-
         var badID = try RichBook.make()
         badID.scenes[1].id = SceneID(rawValue: "has space")
         #expect(throws: VerificationFailure.self) { try BookFormat.verifiedSerialization(of: badID) }
+    }
+
+    /// An empty run has nothing to write, so `Paragraph` drops it and it can't block a save.
+    @Test(arguments: [
+        [Run("a"), Run("", styles: [.bold]), Run("b")],
+        [Run("")],
+        [Run("The "), Run("", comments: [CommentID(rawValue: "c1")]), Run("end")],
+    ])
+    func emptyRunsAreDroppedAndTheBookSaves(runs: [Run]) throws {
+        let paragraph = Paragraph(runs)
+        #expect(paragraph.runs.allSatisfy { !$0.text.isEmpty })
+        #expect(paragraph.text == runs.map(\.text).joined())
+        var scene = plainScene(body: [paragraph])
+        scene.comments = [Comment(id: CommentID(rawValue: "c1"), color: .red, text: "", created: openedAt)]
+        let book = Book(title: "T", scenes: [scene])
+        let bytes = try BookFormat.verifiedSerialization(of: book)
+        #expect(parse(bytes).book == book.withMaximalRuns)
+    }
+
+    @Test func runsThatBecomeEmptyAreDropped() {
+        var paragraph = Paragraph([Run("a"), Run("b", styles: [.bold])])
+        paragraph.runs[1].text = ""
+        #expect(paragraph.runs == [Run("a")])
     }
 
     /// The reviewer's case: a run's comment id that the scene doesn't list is written
@@ -97,12 +116,14 @@ import Testing
         book.scenes[1].title = "one\ntwo\u{2028}three 🌊"
         book.scenes[1].body = [[Run("wave 🌊\nline\t\u{201C}q\u{201D}")]]
         book.scenes[1].body[0].runs[0].text += "\u{2026}e\u{301}"
-        book.scenes[1].tags = ["", "α", "a\r\nb"]
+        book.scenes[1].tags = ["", "α", "a\r\nb", "c\u{2028}d\u{85}e"]
+        book.scenes[0].comments[0].text = "one\u{2029}two\u{0B}three\u{0C}four"
         book.scenes[1].errors = [ErrorEntry(.line, "  C:\\  "), ErrorEntry(.notice, "x\ny")]
         #expect(book.title == "Wave--\nnew")
         #expect(book.scenes[1].title == "one two three [?]")
         #expect(book.scenes[1].body[0].runs[0].text == "wave [?] line \"q\"...é")
-        #expect(book.scenes[1].tags == ["[?]", "a\nb"])
+        #expect(book.scenes[1].tags == ["[?]", "a\nb", "c\nd\ne"])
+        #expect(book.scenes[0].comments[0].text == "one\ntwo\nthree\nfour")
         #expect(book.scenes[1].errors.map(\.payload) == ["C:\\ ", "x y"])
         let bytes = try BookFormat.verifiedSerialization(of: book)
         #expect(parse(bytes).book == book)

@@ -64,7 +64,7 @@ public enum RunCodec {
         let string = text.string
         let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isLineBreak)
         let paragraphs = lines.map { line in
-            var runs: [Run] = []
+            var pieces: [(format: RunFormat, text: [String])] = []
             let lineRange = NSRange(line.startIndex..<line.endIndex, in: string)
             text.enumerateAttributes(in: lineRange) { attributes, range, _ in
                 // Slicing rounds an index inside a surrogate pair down, so a range that
@@ -74,13 +74,13 @@ public enum RunCodec {
                 piece.removeAll(where: \.isObjectReplacement)
                 guard !piece.isEmpty else { return }
                 let format = RunFormat(attributes)
-                if let last = runs.last, RunFormat(last) == format {
-                    runs[runs.count - 1].text += piece
+                if pieces.last?.format == format {
+                    pieces[pieces.count - 1].text.append(piece)
                 } else {
-                    runs.append(format.run(piece))
+                    pieces.append((format, [piece]))
                 }
             }
-            return Paragraph(runs)
+            return Paragraph(pieces.map { $0.format.run($0.text.joined()) })
         }
         return paragraphs == [[]] ? [] : paragraphs
     }
