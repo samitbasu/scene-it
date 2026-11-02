@@ -6,7 +6,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | # | Chapter | Status |
 | --- | --- | --- |
 | 00 | [Swift for Rustaceans](00-swift-for-rustaceans.md): value and reference types, protocols, errors, ARC, concurrency, macros | written |
-| 01 | Project anatomy: the SwiftPM package, the Xcode app target, build settings | planned, lands with #1 |
+| 01 | [Project anatomy](01-project-anatomy.md): the SwiftPM package, the Xcode app target, build settings | written |
 | 02 | The model and `Codable`: `Book`, `Scene`, `Run`, strict decoding, validation | planned, lands with #7 |
 | 03 | Saving safely: the `.sceneit` package, verify-then-atomic-write, backup rotation | planned, lands with #8 |
 | 04 | SwiftUI and Observation: the main window, `@Observable` `BookStore`, how views track state | planned, lands with #13 |
