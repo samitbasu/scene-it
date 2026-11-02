@@ -20,7 +20,7 @@ public enum ReportWording {
             } ?? ""
         return opened
             + "You can send a report to help fix the problem. "
-            + "You'll see everything in it before anything is sent, and it contains no text from your books."
+            + "You'll see what's included before anything is sent, and it contains no text from your books."
     }
     public static let crashAlertSend = "Send Report…"
     public static let crashAlertNotNow = "Not Now"
