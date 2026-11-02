@@ -63,6 +63,27 @@ public final class BookStore<C: Clock<Duration>> {
         await exclusively { await openExclusively(url, onLockRecord: .respect) }
     }
 
+    /// Books Finder or another launch asked for together. One book is open at a time
+    /// (ADR 0021): the first is opened, and the rest go to Recent Books, which the writer is told.
+    public func open(_ books: [URL]) async {
+        guard let first = books.first else { return }
+        let outcome = await open(first)
+        let others = Array(books.dropFirst())
+        guard !others.isEmpty else { return }
+        Log.store.info("asked to open several books; opened the first", ["count": .count(books.count)])
+        let isOpen: Bool =
+            switch outcome {
+            case .opened, .openedReadOnly, .alreadyOpen: true
+            case .failed, .stayed: false
+            }
+        await exclusively {
+            for book in others.reversed() { remember(book) }
+            if isOpen { remember(first) }
+            await prompts.tell(
+                StoreWording.oneBookAtATime(open: isOpen ? first : nil, addedToRecents: others))
+        }
+    }
+
     /// Opens the most recent book, if there is one and it still exists. One that fails to
     /// load is told once, then forgotten, so the next launch shows the start state.
     public func reopenLastBook() async {
@@ -152,7 +173,7 @@ public final class BookStore<C: Clock<Duration>> {
             await book.close()
             return .stayed
         }
-        await replaceCurrent(with: book)
+        await replaceCurrent(with: book, after: settled)
         remember(url)
         return .switched(opened)
     }
@@ -189,61 +210,100 @@ public final class BookStore<C: Clock<Duration>> {
             case .keepMyVersion:
                 book.keepMyVersion()
             case .openOtherVersion:
-                await openOtherVersion(of: book)
+                await openOtherVersion(of: book, after: paused.error)
             }
         }
     }
 
-    /// Saves my version as a new package, releases the original's lock, and reopens the
-    /// original from disk. If the copy can't be saved, nothing changes and autosave stays paused.
-    private func openOtherVersion(of book: OpenBook<C>) async {
+    /// How many times the copy is saved while the writer keeps typing; the last pass refuses edits.
+    static var copyPasses: Int { 5 }
+
+    /// Saves my version as a new package, then releases the original's lock and reopens the
+    /// original from disk, or, when the original can't be read (`.notAFile`), opens the copy.
+    /// If the copy can't be saved, it's removed, nothing else changes, and autosave stays paused.
+    ///
+    /// Typing continues while the copy is written, so the copy is saved again until it holds
+    /// exactly the open book, and the book is closed in the same main-actor turn as that check.
+    private func openOtherVersion(of book: OpenBook<C>, after error: SaveError) async {
         let original = book.layout.root
-        let mine = book.book
-        let copy: URL
-        do throws(CopyError) {
-            copy = try await BookWriter.saveCopy(
-                mine, nextTo: original,
-                named: { StoreWording.myEditsFileName(title: mine.title, original: original, attempt: $0) },
+        let title = book.book.title
+        let copy: BookWriter
+        do throws(CreateError) {
+            copy = try await BookWriter.createCopy(
+                titled: title, nextTo: original,
+                named: { StoreWording.myEditsFileName(title: title, original: original, attempt: $0) },
                 fileSystem: fileSystem, mirror: mirror)
         } catch {
-            await prompts.tell(StoreWording.copyFailed(error))
+            await prompts.tell(StoreWording.copyFailed(.create(error)))
             return
         }
-        Log.store.info("saved my version of a changed book as a separate book")
-        remember(copy)
+        var pass = 1
+        while true {
+            if pass == Self.copyPasses { book.setEdits(.refused) }
+            let mine = book.book
+            do throws(SaveError) {
+                _ = try await copy.save(mine, onExternalChange: .refuse)
+            } catch {
+                book.setEdits(.accepted)
+                await copy.discardCopy()
+                await prompts.tell(StoreWording.copyFailed(.save(error)))
+                return
+            }
+            if book.book == mine { break }
+            pass += 1
+        }
         current = nil
+        Log.store.info("saved my version of a changed book as a separate book", ["passes": .count(pass)])
+        let copyURL = copy.layout.root
+        remember(copyURL)
+        await copy.release()
         await book.close()
-        _ = await openExclusively(original, onLockRecord: .respect, myEditsSavedAs: copy)
+        if case .externallyModified(.notAFile) = error {
+            forget(original)
+            if case .opened = await openExclusively(copyURL, onLockRecord: .respect) {
+                await prompts.tell(StoreWording.openedMyVersion(copyURL))
+            }
+        } else {
+            _ = await openExclusively(original, onLockRecord: .respect, myEditsSavedAs: copyURL)
+        }
     }
 
     // MARK: Closing and quitting
 
-    /// Saves and closes the open book; `false` if the writer chose to keep it open.
+    public enum LeaveOutcome: Hashable, Sendable {
+        /// The book was saved (or the writer chose to discard its edits) and closed.
+        case left
+        /// The writer chose to keep the book open.
+        case stayed
+    }
+
+    /// Saves and closes the open book.
     @discardableResult
-    public func closeBook() async -> Bool {
+    public func closeBook() async -> LeaveOutcome {
         await exclusively {
-            guard await settleCurrent(before: .closeBook) != .stay else { return false }
-            await replaceCurrent(with: nil)
-            return true
+            let settled = await settleCurrent(before: .closeBook)
+            guard settled != .stay else { return .stayed }
+            await replaceCurrent(with: nil, after: settled)
+            return .left
         }
     }
 
     /// The `applicationShouldTerminate` path: saves, asking the writer whenever quitting would
-    /// lose edits, then releases the book. `false` means don't quit.
-    public func prepareToQuit() async -> Bool {
+    /// lose edits, then releases the book.
+    public func prepareToQuit() async -> LeaveOutcome {
         await exclusively {
-            guard let book = current else { return true }
+            guard let book = current else { return .left }
             switch await book.settle(before: .quit, asking: prompts) {
             case .stay:
-                return false
+                return .stayed
             case .saved:
                 current = nil
                 await book.close()
-                return true
+                return .left
             case .discarding:
                 current = nil
                 book.closeImmediately()
-                return true
+                return .left
             }
         }
     }
@@ -260,10 +320,15 @@ public final class BookStore<C: Clock<Duration>> {
         await current?.settle(before: leaving, asking: prompts) ?? .saved
     }
 
-    private func replaceCurrent(with book: OpenBook<C>?) async {
+    /// After the writer chose to discard edits, a save may be stuck, so the old book's release
+    /// isn't awaited: waiting here would hold every later operation, quitting included.
+    private func replaceCurrent(with book: OpenBook<C>?, after settled: OpenBook<C>.Settled) async {
         let old = current
         current = book
-        await old?.close()
+        switch settled {
+        case .discarding: old?.closeInBackground()
+        case .saved, .stay: await old?.close()
+        }
     }
 
     private func remember(_ book: URL) {

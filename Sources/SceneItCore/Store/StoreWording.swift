@@ -12,6 +12,7 @@ public enum StoreWording {
     public static let newBookPanelTitle = "New Book"
     public static let newBookPanelPrompt = "Create"
     public static let newBookDefaultName = "Untitled"
+    public static let windowTitle = "Scene It"
 
     // MARK: Status bar (PLAN §4.5)
 
@@ -33,61 +34,79 @@ public enum StoreWording {
     public static func externalChangeAlert(_ error: SaveError, myEditsName: String) -> WriterAlert<
         ExternalChangeChoice
     > {
-        let keep = WriterAlert<ExternalChangeChoice>.Button(choice: .keepMyVersion, label: "Keep My Version")
-        let other = WriterAlert<ExternalChangeChoice>.Button(
-            choice: .openOtherVersion, label: "Open Other Version")
+        let keepLabel = "Keep My Version"
+        let otherLabel = "Open Other Version"
+        let keep = WriterAlert<ExternalChangeChoice>.Button(choice: .keepMyVersion, label: keepLabel)
+        let other = WriterAlert<ExternalChangeChoice>.Button(choice: .openOtherVersion, label: otherLabel)
+        let separately = "saves your version as a separate book, “\(myEditsName)”, next to this one"
         let choices =
-            "Keep My Version saves your version here and keeps the other one as a backup. "
-            + "Open Other Version saves your version as a separate book, “\(myEditsName)”, "
-            + "next to this one, then opens the other version."
+            "\(keepLabel) saves your version here and keeps the other one as a backup. "
+            + "\(otherLabel) \(separately), then opens the other version."
+        let alert = { (message: String, buttons: [WriterAlert<ExternalChangeChoice>.Button]) in
+            WriterAlert(title: QuitWording.changedOnDiskTitle, message: message, buttons: buttons)
+        }
         switch error {
         case .externallyModified(.changed):
-            return WriterAlert(
-                title: changedTitle,
-                message: "Another program, such as a sync service or Scene It on another Mac, saved a "
-                    + "different version of this book while you were working. Scene It stopped saving so "
-                    + "neither version is lost.\n\n" + choices,
-                buttons: [keep, other])
+            return alert(
+                "Another program, such as a sync service or Scene It on another Mac, saved a different "
+                    + "version of this book while you were working. Scene It stopped saving so neither "
+                    + "version is lost.\n\n" + choices,
+                [keep, other])
         case .externallyModified(.removed):
-            return WriterAlert(
-                title: changedTitle,
-                message: "Another program removed this book's contents while you were working. Scene It "
-                    + "stopped saving.\n\nKeep My Version saves your version in its place. Open Other "
-                    + "Version saves your version as a separate book, “\(myEditsName)”, next to this one.",
-                buttons: [keep, other])
+            return alert(
+                "Another program removed this book's contents while you were working. Scene It stopped "
+                    + "saving.\n\n\(keepLabel) saves your version in its place. \(otherLabel) \(separately).",
+                [keep, other])
         case .externallyModified(.notAFile):
-            return WriterAlert(
-                title: changedTitle,
-                message: "Another program replaced this book's contents with something Scene It can't "
-                    + "save over. Scene It stopped saving.\n\nOpen Other Version saves your version as a "
-                    + "separate book, “\(myEditsName)”, next to this one.",
-                buttons: [other])
+            let openMine = "Open My Version"
+            return alert(
+                "Another program replaced this book's contents with something Scene It can't read or save "
+                    + "over. Scene It stopped saving.\n\n\(openMine) \(separately), and opens it.",
+                [.init(choice: .openOtherVersion, label: openMine)])
         case .externallyModified(.keptAsConflict(let fileName)):
-            return WriterAlert(
-                title: changedTitle,
-                message: "Another program changed this book while Scene It was saving it. Your version "
-                    + "was saved, and the other version was kept inside the book as “\(fileName)”. "
-                    + "Scene It stopped saving until you've seen this.",
-                buttons: [.init(choice: .keepMyVersion, label: "Continue")])
+            return alert(
+                "Another program changed this book while Scene It was saving it. Your version was saved, "
+                    + "and the other version was kept inside the book as “\(fileName)”. Scene It stopped "
+                    + "saving until you've seen this.",
+                [.init(choice: .keepMyVersion, label: "Continue")])
         case .couldNotBackUpTheirVersion(let fileSystemError):
-            return WriterAlert(
-                title: changedTitle,
-                message: "Scene It couldn't keep a backup of the other version (\(fileSystemError.cause)), "
-                    + "so it didn't save over it.\n\n" + choices,
-                buttons: [keep, other])
+            return alert(
+                "Scene It couldn't keep a backup of the other version (\(fileSystemError.cause)), so it "
+                    + "didn't save over it.\n\n" + choices,
+                [keep, other])
         case .encoding, .writeProtected, .fileSystem:
-            return WriterAlert(title: changedTitle, message: choices, buttons: [keep, other])
+            return alert(choices, [keep, other])
         }
     }
 
-    private static let changedTitle = "This book was changed by another program."
+    /// After "Open My Version", when the original can't be read.
+    public static func openedMyVersion(_ copy: URL) -> Notice {
+        Notice(
+            title: "Scene It opened your version.",
+            message: "Scene It saved your version as “\(bookName(copy))” and opened it, because the original "
+                + "can't be read.")
+    }
+
+    /// Books asked for together, beyond the one opened (ADR 0021).
+    public static func oneBookAtATime(open: URL?, addedToRecents others: [URL]) -> Notice {
+        let opened = open.map { "“\(bookName($0))” is open. " } ?? ""
+        return Notice(
+            title: "Scene It opens one book at a time.",
+            message: opened + "These books were added to Recent Books instead: "
+                + others.map { "“\(bookName($0))”" }.joined(separator: ", ") + ".")
+    }
+
+    /// A book's name as the writer sees it in Finder: the package name without `.sceneit`.
+    public static func bookName(_ package: URL) -> String {
+        package.deletingPathExtension().lastPathComponent
+    }
 
     /// "<Title> (my edits).sceneit", then "(my edits 2)", … when the name is taken. A title
     /// that can't name a file (empty, or only slashes and colons) uses the original's name.
     public static func myEditsFileName(title: String, original: URL, attempt: Int) -> String {
         let cleaned = title.map { "/:".contains($0) ? "-" : $0 }.reduce(into: "") { $0.append($1) }
             .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "-.")))
-        let base = cleaned.isEmpty ? original.deletingPathExtension().lastPathComponent : cleaned
+        let base = cleaned.isEmpty ? bookName(original) : cleaned
         let suffix = attempt > 1 ? "my edits \(attempt)" : "my edits"
         return "\(base) (\(suffix)).\(PackageLayout.pathExtension)"
     }
@@ -96,7 +115,7 @@ public enum StoreWording {
         let cause =
             switch error {
             case .create(let error): createReason(error)
-            case .save(_, let error): QuitWording.reason(error)
+            case .save(let error): QuitWording.reason(error)
             }
         return Notice(
             title: "Scene It couldn't save your version as a separate book.",
@@ -107,7 +126,7 @@ public enum StoreWording {
 
     public static func loadFailed(_ error: LoadError, myEditsSavedAs copy: URL? = nil) -> Notice {
         let saved = copy.map {
-            "Your version was saved as “\($0.deletingPathExtension().lastPathComponent)”.\n\n"
+            "Your version was saved as “\(bookName($0))”.\n\n"
         }
         let backups =
             error.backups.isEmpty
@@ -118,7 +137,7 @@ public enum StoreWording {
                 }
                 .joined(separator: "\n")
         return Notice(
-            title: "Scene It couldn't open “\(error.package.deletingPathExtension().lastPathComponent)”.",
+            title: "Scene It couldn't open “\(bookName(error.package))”.",
             message: (saved ?? "") + "\(error.problem).\n\n" + backups)
     }
 

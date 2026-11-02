@@ -27,7 +27,7 @@ struct BookStoreTests {
             #expect(snapshots.contains { $0.hasPrefix("book-") })
 
             let saved = book.book
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
             #expect(store.current == nil)
             #expect(await store.open(url) == .opened)
             #expect(store.current?.book == saved)
@@ -331,7 +331,6 @@ struct BookStoreTests {
             #expect(StoreWording.status(book.status) == "Read only")
             #expect(book.autosave == nil)
 
-            fileSystem.clearCalls()
             let before = book.book
             let scene = try #require(before.scenes.first?.id)
             book.replaceBody(of: scene, with: [[Run("Not allowed")]])
@@ -339,9 +338,11 @@ struct BookStoreTests {
             #expect(book.addScene(after: nil) == nil)
             store.saveNow()
             store.appDeactivated()
-            #expect(await store.prepareToQuit())
+            #expect(await store.prepareToQuit() == .left)
             #expect(book.book == before)
-            #expect(fileSystem.calls.filter(\.isMutation).isEmpty)
+            #expect(
+                fileSystem.calls.filter(\.isMutation) == [.lock("Held.sceneit/.lock")],
+                "only the lock attempt")
             _ = consume holder
         }
     }
@@ -370,11 +371,11 @@ struct BookStoreTests {
     @Test func quittingSavesReleasesAndTerminates() async throws {
         try await withTemporaryFolder { folder in
             let store = makeStore(in: folder)
-            #expect(await store.prepareToQuit(), "nothing open")
+            #expect(await store.prepareToQuit() == .left, "nothing open")
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Saved at quit")
-            #expect(await store.prepareToQuit())
+            #expect(await store.prepareToQuit() == .left)
             #expect(store.current == nil)
             #expect(try bookOnDisk(url) == book.book)
             #expect(try BookPackage.open(at: url).editable != nil)
@@ -391,12 +392,12 @@ struct BookStoreTests {
             book.write("Unsaved")
             fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.json"), cause: .noSpace))
 
-            #expect(await store.prepareToQuit() == false)
+            #expect(await store.prepareToQuit() == .stayed)
             #expect(store.current === book)
             #expect(prompts.labels == [["Retry", "Cancel", "Quit Anyway"]])
 
             prompts.answer([QuitAlertChoice.quitAnyway])
-            #expect(await store.prepareToQuit())
+            #expect(await store.prepareToQuit() == .left)
             #expect(store.current == nil)
         }
     }
@@ -410,7 +411,7 @@ struct BookStoreTests {
             try writeExternally(try draft(3), to: url)
             book.write("Mine")
 
-            #expect(await store.prepareToQuit() == false)
+            #expect(await store.prepareToQuit() == .stayed)
             #expect(prompts.labels.first == ["Cancel", "Quit Anyway"])
             await eventually { book.status == .saved }
             #expect(prompts.labels.last == ["Keep My Version", "Open Other Version"])
@@ -443,7 +444,7 @@ struct BookStoreTests {
             #expect(prompts.notices.count == 1)
 
             let good = try await createBook("Good", in: folder, store: store)
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
             store = makeStore(in: folder, prompts: prompts, memory: memory)
             await store.reopenLastBook()
             #expect(store.current?.layout.root.canonicalPath == good.canonicalPath)

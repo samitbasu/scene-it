@@ -74,7 +74,7 @@ property on `OpenBook`:
 ```swift
     public var status: BookStatus {
         switch access {
-        case .editing(let driver, _): BookStatus(autosave: driver.state, lastBackups: lastSave?.backups)
+        case .writable(let driver, _, _): BookStatus(autosave: driver.state, lastBackups: lastSave?.backups)
         case .readOnly(let reason): .readOnly(reason)
         case .closed: .closed
 ```
@@ -96,7 +96,7 @@ the `Book` directly. The store forbids that: `book` is `public private(set)`, an
 goes through a method that also tells autosave, **in the same main-actor turn**:
 
 ```swift
-        guard let driver = autosave else { return }
+        guard let driver = editingDriver else { return }
         for list in [\Book.scenes, \Book.boneyard] {
             guard let index = book[keyPath: list].firstIndex(where: { $0.id == id }) else { continue }
             var scene = book[keyPath: list][index]
@@ -161,7 +161,7 @@ The saver's job (chapter 03a §4) is to snapshot the book before its first suspe
 ```swift
     public func save(_ request: SaveRequest) async throws(SaveError) {
         // Unreachable in practice: closing a book drops its driver, the only caller.
-        guard case .editing(_, let writer) = access else {
+        guard case .writable(_, let writer, _) = access else {
             throw .fileSystem(FileSystemError(.write, layout.book, .notFound))
         }
         let snapshot = book
@@ -246,15 +246,18 @@ The read-only rule is enforced by shape, not by checks. `OpenBook.access` is
 
 ```swift
     private enum Access {
-        case editing(AutosaveDriver<C>, BookWriter)
+        case writable(AutosaveDriver<C>, BookWriter, Edits)
         case readOnly(ReadOnlyReason)
         case closed
     }
 ```
 
 so a read-only book has no `BookWriter` to save with. A test opens a book whose lock is
-held, tries every edit, Cmd+S, deactivation and quit, and checks that the file system saw no
-writes at all.
+held, tries every edit, Cmd+S, deactivation and quit, and checks that the only write the file
+system ever saw was the attempt to take the lock.
+
+`Edits` is `.accepted` or `.refused`. A writable book refuses edits only briefly, during the
+last pass of "Open Other Version" (§5), so nothing typed can miss the copy.
 
 ### Switching books (ADR 0021)
 
@@ -275,7 +278,7 @@ with the quit alert's choices (Retry / Cancel / Close Anyway). The order matters
             await book.close()
             return .stayed
         }
-        await replaceCurrent(with: book)
+        await replaceCurrent(with: book, after: settled)
 ```
 
 Loading the next book is an `await`, and the writer can type into the current book while it
@@ -350,7 +353,42 @@ which `save` throws; the new `Task` is queued behind it.
 - **Open Other Version** saves my in-memory book as a new package next to the original,
   "<Title> (my edits).sceneit" (then "(my edits 2)", …: `BookPackage.create` refusing an
   existing name is the collision check, so there's no race), closes the book, which `await`s
-  the release of the original's lock, then reopens the original. Both versions survive.
+  the release of the original's lock, then reopens the original. Both versions survive. If the
+  original can't be read at all (`.notAFile`), the copy is opened instead.
+
+The copy is written off the main actor, and the writer can keep typing meanwhile. Snapshot
+once and close afterwards, and the typing in between is lost. So the store saves the copy,
+then compares: if the open book changed during the save, it saves the copy again. The book
+is closed in the same main-actor turn as the comparison that finds them equal:
+
+```swift
+        var pass = 1
+        while true {
+            if pass == Self.copyPasses { book.setEdits(.refused) }
+            let mine = book.book
+            do throws(SaveError) {
+                _ = try await copy.save(mine, onExternalChange: .refuse)
+            } catch {
+                book.setEdits(.accepted)
+                await copy.discardCopy()
+                await prompts.tell(StoreWording.copyFailed(.save(error)))
+                return
+            }
+            if book.book == mine { break }
+            pass += 1
+        }
+        current = nil
+```
+
+The loop is bounded: someone who never stops typing would otherwise keep it going forever. For
+the last pass the book refuses edits, which disables the editor (`isEditable` is observed),
+so that pass is guaranteed to be the final one. A copy that can't be saved is removed rather
+than left as an empty "(my edits)" book that looks like the writer's version.
+
+The same care applies to Close Anyway. When the writer leaves without saving, a save may be
+stuck on a failing disk. The store doesn't `await` that book's release, which waits for the
+save: it would hold every later operation, quitting included. It starts the release in the
+background instead.
 
 ## 6. The app side
 
@@ -367,7 +405,7 @@ struct SceneItApp: App {
 
     /// One window, holding at most one book (ADR 0021).
     var body: some Scene {
-        Window("Scene It", id: "main") {
+        Window(StoreWording.windowTitle, id: "main") {
             ContentView(books: .shared)
         }
         .commands {
@@ -396,9 +434,13 @@ The delegate forwards to the store:
         case .running:
             phase = .quitting
             Task {
-                let quit = await books.store.prepareToQuit()
-                if !quit { phase = .running }
-                sender.reply(toApplicationShouldTerminate: quit)
+                switch await books.store.prepareToQuit() {
+                case .left:
+                    sender.reply(toApplicationShouldTerminate: true)
+                case .stayed:
+                    phase = .running
+                    sender.reply(toApplicationShouldTerminate: false)
+                }
             }
             return .terminateLater
 ```

@@ -52,9 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             phase = .handingOff(books: books + urls)
         case .starting(let lastSession, let books):
             phase = .starting(lastSession, books: books + urls)
-        case .running, .quitting:
+        case .running:
             Log.app.info("asked to open books", ["count": .count(urls.count)])
-            Task { await books.open(urls) }
+            Task { await books.store.open(urls) }
+        case .quitting:
+            Log.app.info(
+                "asked to open books while quitting; not opening them", ["count": .count(urls.count)])
         case .launching:
             Log.app.error("asked to open books before launching", ["count": .count(urls.count)])
         }
@@ -86,9 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .running:
             phase = .quitting
             Task {
-                let quit = await books.store.prepareToQuit()
-                if !quit { phase = .running }
-                sender.reply(toApplicationShouldTerminate: quit)
+                switch await books.store.prepareToQuit() {
+                case .left:
+                    sender.reply(toApplicationShouldTerminate: true)
+                case .stayed:
+                    phase = .running
+                    sender.reply(toApplicationShouldTerminate: false)
+                }
             }
             return .terminateLater
         case .quitting:

@@ -49,7 +49,7 @@ public enum QuitWording {
                 )
             case .changedOnDisk:
                 (
-                    "This book was changed by another program.",
+                    changedOnDiskTitle,
                     "Scene It stopped saving so it wouldn't overwrite the other version. "
                         + "\(ifYouLeave), the changes you made since the last save will be lost. "
                         + "Choose Cancel to go back and decide which version to keep.",
@@ -67,6 +67,9 @@ public enum QuitWording {
             title: title, message: message,
             buttons: choices.map { .init(choice: $0, label: label($0, leaving: leaving)) })
     }
+
+    /// Also the title of ADR 0018's alert (`StoreWording.externalChangeAlert`).
+    public static let changedOnDiskTitle = "This book was changed by another program."
 
     public static func label(_ choice: QuitAlertChoice, leaving: Leaving) -> String {
         switch (choice, leaving) {

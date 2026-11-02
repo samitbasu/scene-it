@@ -12,25 +12,33 @@ final class BookController {
     let store: AppBookStore
     let memory: any BookMemory
     let mirror: BackupMirror
+    let prompts: any StorePrompts
     private let role: ProcessRole
 
-    init(role: ProcessRole, prompts: any StorePrompts = AlertPrompts()) {
+    /// `prompts` replaces the role's own, for a test that answers from a script.
+    init(role: ProcessRole, prompts: (any StorePrompts)? = nil) {
         self.role = role
-        (memory, mirror) = Self.persistence(for: role)
-        store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: prompts)
+        let standard: any StorePrompts
+        (memory, mirror, standard) = Self.surroundings(for: role)
+        self.prompts = prompts ?? standard
+        store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: self.prompts)
     }
 
-    /// The writer's own defaults and backup mirror for the app; throwaway ones for the test
-    /// host and previews, which must never touch the writer's files.
-    private static func persistence(for role: ProcessRole) -> (any BookMemory, BackupMirror) {
+    /// The writer's own defaults, backup mirror and alerts for the app. The test host and
+    /// previews get throwaway ones that never touch the writer's files and never put up a
+    /// modal alert nobody can answer.
+    private static func surroundings(for role: ProcessRole) -> (
+        any BookMemory, BackupMirror, any StorePrompts
+    ) {
         switch role {
         case .app:
-            (DefaultsBookMemory(.standard), .standard)
+            (DefaultsBookMemory(.standard), .standard, AlertPrompts())
         case .testHost, .preview:
             (
                 TransientBookMemory(),
                 BackupMirror(
-                    root: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Mirror"))
+                    root: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Mirror")),
+                HeadlessPrompts()
             )
         }
     }
@@ -38,19 +46,10 @@ final class BookController {
     /// At launch: the books Finder or another launch asked for, or else the last book.
     func launch(opening books: [URL]) async {
         if !books.isEmpty {
-            await open(books)
+            await store.open(books)
         } else if role == .app {
             await store.reopenLastBook()
         }
-    }
-
-    /// One book at a time (ADR 0021): of several, only the first is opened.
-    func open(_ books: [URL]) async {
-        guard let first = books.first else { return }
-        if books.count > 1 {
-            Log.app.info("asked to open several books; opening the first", ["count": .count(books.count)])
-        }
-        await store.open(first)
     }
 
     func newBook() async {

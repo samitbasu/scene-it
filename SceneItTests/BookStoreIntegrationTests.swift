@@ -51,8 +51,15 @@ private func bookOnDisk(_ package: URL) throws -> Book {
 }
 
 /// These drive the app's own store (`BookController.shared`), so they run one at a time.
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct BookStoreIntegrationTests {
+    /// The app's own store answers without the writer here; any question it asked was unexpected.
+    private func expectNoQuestions(sourceLocation: SourceLocation = #_sourceLocation) {
+        let headless = BookController.shared.prompts as? HeadlessPrompts
+        #expect(headless != nil, sourceLocation: sourceLocation)
+        #expect(headless?.titles == [], sourceLocation: sourceLocation)
+    }
+
     @Test func theTestHostKeepsBooksAwayFromTheWritersFiles() {
         let books = BookController.shared
         #expect(books.memory is TransientBookMemory)
@@ -92,10 +99,11 @@ struct BookStoreIntegrationTests {
             #expect(snapshots.contains { $0.hasPrefix("book-") })
 
             let saved = book.book
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
             #expect(await store.open(url) == .opened)
             #expect(store.current?.book == saved)
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
+            expectNoQuestions()
         }
     }
 
@@ -115,7 +123,8 @@ struct BookStoreIntegrationTests {
                 ContinuousClock.now - start < AutosavePolicy.idleDelay.duration, "saved before the idle delay"
             )
             #expect(try bookOnDisk(url).scenes.first?.title == "Saved by the menu")
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
+            expectNoQuestions()
         }
     }
 
@@ -129,7 +138,29 @@ struct BookStoreIntegrationTests {
             let store = BookController.shared.store
             await eventually { store.current?.layout.root.canonicalPath == url.canonicalPath }
             #expect(store.current?.isEditable == true)
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    @Test func ofSeveralBooksAppKitAsksUsToOpenTheFirstOpensAndTheWriterIsTold() async throws {
+        try await withTemporaryFolder { folder in
+            let urls = ["One", "Two"].map {
+                folder.appending(path: "\($0).sceneit", directoryHint: .isDirectory)
+            }
+            for url in urls {
+                _ = try BookPackage.create(at: url, title: url.deletingPathExtension().lastPathComponent)
+            }
+            let headless = try #require(BookController.shared.prompts as? HeadlessPrompts)
+            let delegate = try #require(NSApp.delegate)
+            delegate.application?(NSApp, open: urls)
+            let store = BookController.shared.store
+            await eventually { headless.titles.count == 1 }
+            #expect(store.current?.layout.root.canonicalPath == urls[0].canonicalPath)
+            #expect(headless.takeTitles() == ["Scene It opens one book at a time."])
+            #expect(store.recentBooks.prefix(2).map(\.canonicalPath) == urls.map(\.canonicalPath))
+            #expect(await store.closeBook() == .left)
+            expectNoQuestions()
         }
     }
 
@@ -158,7 +189,7 @@ struct BookStoreIntegrationTests {
             prompts.answer()
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
-            #expect(await store.closeBook())
+            #expect(await store.closeBook() == .left)
         }
     }
 }

@@ -71,34 +71,38 @@ final class BookWriter: Sendable {
         _ = consume package
     }
 
-    /// Saves `book` as a new package next to `original`, named by `name(attempt)` with the
-    /// first attempt whose name is free (ADR 0018's "Open Other Version").
+    /// A new, empty package next to `original`, named by `name(attempt)` with the first attempt
+    /// whose name is free (ADR 0018's "Open Other Version"). `create` refusing an existing name
+    /// is the collision check, so two copies can't race for one name.
     @concurrent
-    static func saveCopy(
-        _ book: Book, nextTo original: URL, named name: @Sendable (Int) -> String, fileSystem: any FileSystem,
-        mirror: BackupMirror
-    ) async throws(CopyError) -> URL {
+    static func createCopy(
+        titled title: String, nextTo original: URL, named name: @Sendable (Int) -> String,
+        fileSystem: any FileSystem, mirror: BackupMirror
+    ) async throws(CreateError) -> BookWriter {
         let folder = original.deletingLastPathComponent()
         var attempt = 1
         while true {
             let url = folder.appending(path: name(attempt), directoryHint: .isDirectory)
-            let created: EditableBook
             do {
-                created = try BookPackage.create(at: url, title: book.title, fileSystem: fileSystem)
+                let created = try BookPackage.create(at: url, title: title, fileSystem: fileSystem)
+                return BookWriter(created.package, mirror: mirror)
             } catch .alreadyExists(let url) {
-                guard attempt < maximumCopyAttempts else { throw .create(.alreadyExists(url)) }
+                guard attempt < maximumCopyAttempts else { throw .alreadyExists(url) }
                 attempt += 1
-                continue
-            } catch {
-                throw .create(error)
             }
-            let keeper = BackupKeeper(package: created.package, mirror: mirror)
-            do {
-                _ = try write(book, .refuse, created.package, keeper)
-            } catch {
-                throw .save(url, error)
-            }
-            return url
+        }
+    }
+
+    /// Releases a copy that never received its book and removes it, so no empty "(my edits)"
+    /// book is left to be mistaken for the writer's version.
+    @concurrent
+    func discardCopy() async {
+        await release()
+        do {
+            try FileManager.default.removeItem(at: layout.root)
+        } catch {
+            Log.store.error(
+                "couldn't remove an unfinished copy of a book", ["error": .error(LoggedError(error))])
         }
     }
 
@@ -118,6 +122,6 @@ final class BookWriter: Sendable {
 
 public enum CopyError: Error, Hashable, Sendable {
     case create(CreateError)
-    /// The copy's package was created at this URL, holding an empty book, but saving into it failed.
-    case save(URL, SaveError)
+    /// The copy's package was created, but saving into it failed; it was removed again.
+    case save(SaveError)
 }

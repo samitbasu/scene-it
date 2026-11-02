@@ -1,3 +1,4 @@
+import SceneItCore
 import SwiftUI
 
 @main
@@ -6,7 +7,7 @@ struct SceneItApp: App {
 
     /// One window, holding at most one book (ADR 0021).
     var body: some Scene {
-        Window("Scene It", id: "main") {
+        Window(StoreWording.windowTitle, id: "main") {
             ContentView(books: .shared)
         }
         .commands {

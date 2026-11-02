@@ -22,9 +22,15 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @ObservationIgnored private var ids = IDGenerator<SystemRandomNumberGenerator>.system
 
     private enum Access {
-        case editing(AutosaveDriver<C>, BookWriter)
+        case writable(AutosaveDriver<C>, BookWriter, Edits)
         case readOnly(ReadOnlyReason)
         case closed
+    }
+
+    enum Edits {
+        case accepted
+        /// While the store writes this book's final copy elsewhere, so nothing typed can miss it.
+        case refused
     }
 
     init(_ opened: OpenedBook, clock: C, mirror: BackupMirror, store: BookStore<C>) {
@@ -34,8 +40,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         switch opened {
         case .editing(let editable):
             layout = editable.package.layout
-            access = .editing(
-                AutosaveDriver(clock: clock, saver: self), BookWriter(editable.package, mirror: mirror))
+            access = .writable(
+                AutosaveDriver(clock: clock, saver: self), BookWriter(editable.package, mirror: mirror),
+                .accepted)
         case .readOnly(let readOnly, let reason):
             layout = readOnly.layout
             access = .readOnly(reason)
@@ -45,18 +52,27 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     public var status: BookStatus {
         switch access {
-        case .editing(let driver, _): BookStatus(autosave: driver.state, lastBackups: lastSave?.backups)
+        case .writable(let driver, _, _): BookStatus(autosave: driver.state, lastBackups: lastSave?.backups)
         case .readOnly(let reason): .readOnly(reason)
         case .closed: .closed
         }
     }
 
     public var isEditable: Bool {
-        if case .editing = access { true } else { false }
+        editingDriver != nil
     }
 
     var autosave: AutosaveDriver<C>? {
-        if case .editing(let driver, _) = access { driver } else { nil }
+        if case .writable(let driver, _, _) = access { driver } else { nil }
+    }
+
+    /// The driver, while edits are accepted.
+    private var editingDriver: AutosaveDriver<C>? {
+        if case .writable(let driver, _, .accepted) = access { driver } else { nil }
+    }
+
+    func setEdits(_ edits: Edits) {
+        if case .writable(let driver, let writer, _) = access { access = .writable(driver, writer, edits) }
     }
 
     // MARK: Edits
@@ -76,7 +92,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Adds an untitled scene after `scene` (at the end if `nil` or not in the story) and opens it.
     @discardableResult
     public func addScene(after scene: SceneID?) -> SceneID? {
-        guard let driver = autosave else { return nil }
+        guard let driver = editingDriver else { return nil }
         let new = BookScene(id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "")
         let index = scene.flatMap { id in book.scenes.firstIndex { $0.id == id } }.map { $0 + 1 }
         book.scenes.insert(new, at: index ?? book.scenes.endIndex)
@@ -92,7 +108,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     private func edit(_ id: SceneID, _ change: (inout BookScene) -> Void) {
-        guard let driver = autosave else { return }
+        guard let driver = editingDriver else { return }
         for list in [\Book.scenes, \Book.boneyard] {
             guard let index = book[keyPath: list].firstIndex(where: { $0.id == id }) else { continue }
             var scene = book[keyPath: list][index]
@@ -109,7 +125,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     public func save(_ request: SaveRequest) async throws(SaveError) {
         // Unreachable in practice: closing a book drops its driver, the only caller.
-        guard case .editing(_, let writer) = access else {
+        guard case .writable(_, let writer, _) = access else {
             throw .fileSystem(FileSystemError(.write, layout.book, .notFound))
         }
         let snapshot = book
@@ -120,8 +136,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
                 case .unchanged: lastSave?.backups
                 case .saved(let backups): backups
                 }
-            lastSave = (.now, backups)
-            store?.bookSaved(at: .now)
+            let now = Date.now
+            lastSave = (now, backups)
+            store?.bookSaved(at: now)
         } catch {
             Log.store.error("a save failed", ["error": .error(LoggedError(error))])
             // Runs after the driver has handled this failure, so it sees the pause, if any.
@@ -182,6 +199,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         await writer?.release()
     }
 
+    /// After the writer chose to leave without saving: a save may be stuck, so nothing waits
+    /// for the release, which happens once that save ends.
+    func closeInBackground() {
+        guard let writer = detach() else { return }
+        Task { await writer.release() }
+    }
+
     /// For termination: releases the package now unless a save is still running.
     func closeImmediately() {
         detach()?.releaseUnlessSaving()
@@ -189,6 +213,6 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     private func detach() -> BookWriter? {
         defer { access = .closed }
-        if case .editing(_, let writer) = access { return writer } else { return nil }
+        if case .writable(_, let writer, _) = access { return writer } else { return nil }
     }
 }

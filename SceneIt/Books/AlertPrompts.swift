@@ -26,3 +26,26 @@ final class AlertPrompts: StorePrompts {
         return response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }
 }
+
+/// For the test host and previews, where a modal alert would hang the run: records every
+/// question and answers with its default button. Hosted tests assert that nothing was asked
+/// that they didn't expect.
+final class HeadlessPrompts: StorePrompts {
+    private(set) var titles: [String] = []
+
+    func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        Log.app.error("a question was answered without the writer (test host or preview)")
+        titles.append(alert.title)
+        return alert.choices[0]
+    }
+
+    func tell(_ notice: Notice) async {
+        titles.append(notice.title)
+    }
+
+    /// The titles so far, which are then forgotten.
+    func takeTitles() -> [String] {
+        defer { titles = [] }
+        return titles
+    }
+}
