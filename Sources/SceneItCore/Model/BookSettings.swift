@@ -20,7 +20,7 @@ public enum PanelVisibility: Hashable, Sendable, Codable {
     }
 }
 
-public struct Settings: Hashable, Sendable, Encodable {
+public struct BookSettings: Hashable, Sendable, Encodable {
     public var zoom: Zoom
     /// An `AVSpeechSynthesisVoice` identifier; `nil` means the system default voice.
     public var voice: String?
@@ -30,9 +30,9 @@ public struct Settings: Hashable, Sendable, Encodable {
     public var scenesView: ScenesView
 
     public init(
-        zoom: Zoom = Zoom(clamping: ZoomBounds.fallback),
+        zoom: Zoom = .standard,
         voice: String? = nil,
-        rate: SpeechRate = SpeechRate(clamping: SpeechRateBounds.fallback),
+        rate: SpeechRate = .standard,
         rightPanel: RightPanelTab = .comments,
         rightPanelOpen: PanelVisibility = .open,
         scenesView: ScenesView = .cards
@@ -46,7 +46,7 @@ public struct Settings: Hashable, Sendable, Encodable {
     }
 }
 
-extension Settings: Decodable {
+extension BookSettings: Decodable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case zoom, voice, rate, rightPanel, rightPanelOpen, scenesView
     }

@@ -15,10 +15,10 @@ Everything lives in [`Sources/SceneItCore/Model/`](../../Sources/SceneItCore/Mod
 | File | What it holds |
 | --- | --- |
 | [`Book.swift`](../../Sources/SceneItCore/Model/Book.swift) | `Book`, the format check |
-| [`Settings.swift`](../../Sources/SceneItCore/Model/Settings.swift) | `Settings`, `RightPanelTab`, `ScenesView`, `PanelVisibility` |
-| [`Scene.swift`](../../Sources/SceneItCore/Model/Scene.swift) | `Scene`, `Comment` |
+| [`BookSettings.swift`](../../Sources/SceneItCore/Model/BookSettings.swift) | `BookSettings`, `RightPanelTab`, `ScenesView`, `PanelVisibility` |
+| [`BookScene.swift`](../../Sources/SceneItCore/Model/BookScene.swift) | `BookScene`, `Comment` |
 | [`Run.swift`](../../Sources/SceneItCore/Model/Run.swift) | `Run`, `TextStyle`, `Paragraph` |
-| [`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift) | `TextColor`, `HighlightColor` |
+| [`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift) | `PaletteColor`, `TextColor`, `HighlightColor` |
 | [`Identifier.swift`](../../Sources/SceneItCore/Model/Identifier.swift) | `SceneID`, `CommentID` |
 | [`BoundedScalar.swift`](../../Sources/SceneItCore/Model/BoundedScalar.swift) | `Zoom`, `SpeechRate` |
 | [`Timestamp.swift`](../../Sources/SceneItCore/Model/Timestamp.swift) | dates with their UTC offset |
@@ -59,7 +59,7 @@ that. It declares `Encodable` on the type, so encoding is synthesized:
 ```swift
 public struct Comment: Identifiable, Hashable, Sendable, Encodable {
     public var id: CommentID
-    public var color: TextColor
+    public var color: PaletteColor
     public var text: String
     public var created: Timestamp
 ```
@@ -75,7 +75,7 @@ extension Comment: Decodable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
         id = try container.decode(CommentID.self, forKey: .id)
-        color = try container.decode(TextColor.self, forKey: .color)
+        color = try container.decode(PaletteColor.self, forKey: .color)
         text = try container.decode(String.self, forKey: .text)
         created = try container.decode(Timestamp.self, forKey: .created)
     }
@@ -154,17 +154,35 @@ so `null` reaches `decode` and fails there:
 
 ## 4. Enums with raw values
 
-`enum TextColor: String` gives each case a raw value, by default its name, and a
-failable `init?(rawValue:)`. The standard library makes any `RawRepresentable` type
-with a `Codable` raw value `Codable` itself, encoding the raw value. That's serde's
-`rename_all = "lowercase"` for free. The palette in
-[`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift):
+`enum PaletteColor: String` gives each case a raw value, by default its name, and a
+failable `init?(rawValue:)`. A `RawRepresentable` type whose raw value is `Codable`
+doesn't become `Codable` on its own. Once it *declares* `Codable`, though, the
+standard library supplies the implementation, which encodes the raw value. That's
+serde's `rename_all = "lowercase"` for free. The palette in
+[`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift) has all seven names:
 
 ```swift
-public enum TextColor: String, StrictStringEnum {
+public enum PaletteColor: String, StrictStringEnum {
     case black, purple, red, blue, green, gray, pink
 }
 ```
+
+A run's color has no `black`, because on the page black is the absence of a color
+([decision 0013](../decisions/0013-black-means-no-color.md)). With both `nil` and
+`.black`, two states would look identical on screen. So `TextColor` has six cases,
+and a failable conversion from the palette sends black to `nil`:
+
+```swift
+    /// `nil` for black, which a run expresses by having no color.
+    public init?(_ palette: PaletteColor) {
+        self.init(rawValue: palette.rawValue)
+    }
+```
+
+`Run` decodes a `PaletteColor` and maps it through that initializer, so a file
+saying `"color": "black"` loads as "no color", and the next save drops the
+attribute. That's the one place decoding normalizes instead of rejecting.
+Comments keep `PaletteColor`, because black is one of their seven swatches.
 
 `StrictStringEnum` replaces the standard library's `init(from:)` with one that
 names the valid values. A default implementation in a protocol extension wins over
@@ -197,13 +215,23 @@ public struct Identifier<Owner>: RawRepresentable, Codable, Hashable, Comparable
 ```
 
 ```swift
-public typealias SceneID = Identifier<Scene>
+public typealias SceneID = Identifier<BookScene>
 public typealias CommentID = Identifier<Comment>
 ```
 
 Unlike Rust, Swift doesn't complain about an unused type parameter, so no
 `PhantomData` field is needed. Being `RawRepresentable` with a `String` raw value
 makes it encode as a bare string, like `#[serde(transparent)]`.
+
+(The model types are `BookScene` and `BookSettings`, not PLAN's `Scene` and
+`Settings`, because SwiftUI has types with those names and Swift reports a name
+that two imported modules define as ambiguous. See
+[decision 0012](../decisions/0012-model-type-names.md).)
+
+`Identifier` writes its own `==`, `hash(into:)` and `<` over the UTF-8 bytes.
+`String`'s `==` uses Unicode canonical equivalence, so `"caf\u{E9}"` (é as one
+scalar) equals `"cafe\u{301}"` (e plus a combining accent) even though they encode
+differently. For ids, "the same" has to mean "the same bytes".
 
 **Bounded numbers.** CLAUDE.md forbids naked floats. `Zoom` (0.5–3.0) and
 `SpeechRate` (0–1) are the same idea with different bounds, so
@@ -215,14 +243,15 @@ public typealias Zoom = Bounded<ZoomBounds>
 
 public enum ZoomBounds: ScalarBounds {
     public static let range: ClosedRange<Double> = 0.5...3.0
-    public static let fallback = 1.0
+    public static let standard = 1.0
 }
 ```
 
 A protocol with a `Self` initializer would have been the obvious alternative, but
 a protocol requirement is as public as the protocol, so the unchecked initializer
 would have leaked. Here the only initializers are `init(clamping:)`, which maps NaN
-to the fallback, and `init?(exactly:)`, which decoding uses. Chapter 00 left open
+to the standard value, and `init?(exactly:)`, which decoding uses. Both store `-0`
+as `0`. Otherwise two values that compare equal would encode differently. Chapter 00 left open
 whether decoding should clamp or reject an out-of-range zoom. It rejects:
 `settings.zoom: 3.5 is outside the allowed range 0.5...3.0`.
 
@@ -244,12 +273,20 @@ public struct Run: Hashable, Sendable {
 `comments` is a `Set`, and the empty set means "no comments", so `[]` versus
 absent can't happen either. Since the in-memory shape differs from the JSON,
 `Run` writes both directions by hand (§2's excerpt). Encoding writes `true` for each
-style present and the comment ids **sorted**, because a `Set`'s iteration order is
-not stable across runs.
+style present and the comment ids **sorted** by their bytes, because a `Set`'s
+iteration order is not stable across runs.
 
 Decoding goes one step further and **rejects** `"bold": false`, `"comments": []` and
-repeated ids instead of normalizing them. Every file we accept therefore re-encodes
-to the same bytes, which means the app never silently rewrites what's in a file.
+repeated ids instead of normalizing them. The invariant this buys is narrower than it
+might look: **our encoder's output is a fixed point**. Anything we wrote decodes and
+re-encodes to the same bytes. A file from elsewhere can load and then be written back
+differently. Examples are different whitespace, `"format": 1.0`, `-00:00`, unsorted
+comment ids, `"zoom": 1.0` (written back as `1`) and `"color": "black"`.
+
+One gap can't be closed through `Codable`: **duplicate keys** in a JSON object.
+`JSONDecoder` keeps only one of them, and a keyed container never sees the other,
+so `strictContainer` can't report it. Detecting duplicates would take a separate
+pass with a tokenizer, which isn't worth it for a file only this app writes.
 
 **Dates** follow the same reasoning. A `Date` is an instant with no time zone, so
 encoding one with `JSONEncoder`'s `.iso8601` strategy picks an offset at encode
@@ -298,6 +335,11 @@ Some rules span values: a comment id in a run must exist in that scene's
 returns *every* problem as a typed `BookProblem`, in document order, rather than
 throwing at the first. Each prints the scene and the place, for example
 `scene "01JC4K…" (boneyard[0]), body[0][0]: comment "c404" is not in the scene's comments`.
+
+`BookCoding.encode` runs the validator first and throws
+`BookEncodingError.invalid(problems)` if anything is wrong. The rules then live in one
+place, and the app can't save a file that it would later refuse to open. A failed
+save fails before any backup is rotated.
 
 The format version is not checked here. `Book.init(from:)` reads `format` first and
 refuses anything but 1 before looking at anything else, because a future format may

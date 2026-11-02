@@ -4,17 +4,17 @@
 /// file in any other format is refused before the rest of it is interpreted.
 public struct Book: Hashable, Sendable {
     public var title: String
-    public var settings: Settings
+    public var settings: BookSettings
     /// Story order.
-    public var scenes: [Scene]
+    public var scenes: [BookScene]
     /// Cut scenes, most recently cut first.
-    public var boneyard: [Scene]
+    public var boneyard: [BookScene]
 
     public init(
         title: String,
-        settings: Settings = Settings(),
-        scenes: [Scene] = [],
-        boneyard: [Scene] = []
+        settings: BookSettings = BookSettings(),
+        scenes: [BookScene] = [],
+        boneyard: [BookScene] = []
     ) {
         self.title = title
         self.settings = settings
@@ -41,9 +41,9 @@ extension Book: Codable {
         }
         let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
-        settings = try container.decode(Settings.self, forKey: .settings)
-        scenes = try container.decode([Scene].self, forKey: .scenes)
-        boneyard = try container.decode([Scene].self, forKey: .boneyard)
+        settings = try container.decode(BookSettings.self, forKey: .settings)
+        scenes = try container.decode([BookScene].self, forKey: .scenes)
+        boneyard = try container.decode([BookScene].self, forKey: .boneyard)
     }
 
     public func encode(to encoder: any Encoder) throws {

@@ -13,8 +13,15 @@ public enum BookCoding {
         JSONDecoder()
     }
 
-    public static func encode(_ book: Book) throws -> Data {
-        try makeEncoder().encode(book)
+    /// Refuses a book that `BookValidator` rejects, so nothing writes a file that won't load.
+    public static func encode(_ book: Book) throws(BookEncodingError) -> Data {
+        let problems = BookValidator.problems(in: book)
+        guard problems.isEmpty else { throw .invalid(problems) }
+        do {
+            return try makeEncoder().encode(book)
+        } catch {
+            throw .encoderFailed(String(describing: error))
+        }
     }
 
     /// Decodes without validating; see `BookValidator`.
@@ -25,6 +32,20 @@ public enum BookCoding {
             throw BookDecodingError(error)
         } catch {
             throw BookDecodingError(path: [], reason: error.localizedDescription)
+        }
+    }
+}
+
+public enum BookEncodingError: Error, Hashable, Sendable, CustomStringConvertible {
+    case invalid([BookProblem])
+    case encoderFailed(String)
+
+    public var description: String {
+        switch self {
+        case .invalid(let problems):
+            "the book is invalid:\n" + problems.map { "- \($0)" }.joined(separator: "\n")
+        case .encoderFailed(let reason):
+            "encoding failed: \(reason)"
         }
     }
 }

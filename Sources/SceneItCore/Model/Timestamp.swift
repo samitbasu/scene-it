@@ -55,7 +55,8 @@ public struct Timestamp: Hashable, Sendable, Codable, CustomStringConvertible {
         let local = LocalDateTime(secondsSince1970: secondsSince1970 + Int64(offset.minutes * 60))
         let sign = offset.minutes < 0 ? "-" : "+"
         let magnitude = abs(offset.minutes)
-        return local.description + sign + twoDigits(magnitude / 60) + ":" + twoDigits(magnitude % 60)
+        return local.description + sign + zeroPadded(magnitude / 60, width: 2) + ":"
+            + zeroPadded(magnitude % 60, width: 2)
     }
 
     public init?(_ text: String) {
@@ -165,8 +166,9 @@ struct LocalDateTime: Equatable, CustomStringConvertible {
     }
 
     var description: String {
-        let date = [String(format: "%04d", year), twoDigits(month), twoDigits(day)].joined(separator: "-")
-        let time = [hour, minute, second].map(twoDigits).joined(separator: ":")
+        let date = [zeroPadded(year, width: 4), zeroPadded(month, width: 2), zeroPadded(day, width: 2)]
+            .joined(separator: "-")
+        let time = [hour, minute, second].map { zeroPadded($0, width: 2) }.joined(separator: ":")
         return date + "T" + time
     }
 
@@ -179,8 +181,10 @@ struct LocalDateTime: Equatable, CustomStringConvertible {
     }
 }
 
-private func twoDigits(_ value: Int) -> String {
-    value < 10 ? "0\(value)" : String(value)
+/// `value` must be non-negative.
+private func zeroPadded(_ value: Int, width: Int) -> String {
+    let digits = String(value)
+    return String(repeating: "0", count: max(0, width - digits.count)) + digits
 }
 
 private func digits(_ bytes: ArraySlice<UInt8>) -> Int? {

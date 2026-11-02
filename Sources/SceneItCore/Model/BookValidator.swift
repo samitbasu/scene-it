@@ -16,13 +16,13 @@ public enum BookValidator {
         return problems
     }
 
-    private static func problems(in scene: Scene, at place: ScenePlace) -> [BookProblem] {
+    private static func problems(in scene: BookScene, at place: ScenePlace) -> [BookProblem] {
         var problems: [BookProblem] = []
         var commentIDs: Set<CommentID> = []
         for comment in scene.comments where !commentIDs.insert(comment.id).inserted {
             problems.append(.duplicateCommentID(place, comment.id))
         }
-        let fields: [(TextField, [Paragraph])] = [
+        let fields: [(SceneTextPart, [Paragraph])] = [
             (.title, [scene.title]), (.body, scene.body), (.notes, scene.notes),
         ]
         for (field, paragraphs) in fields {
@@ -60,13 +60,13 @@ public struct ScenePlace: Hashable, Sendable, CustomStringConvertible {
     }
 }
 
-public enum TextField: String, Hashable, Sendable {
+public enum SceneTextPart: String, Hashable, Sendable {
     case title, body, notes
 }
 
 public struct TextLocation: Hashable, Sendable, CustomStringConvertible {
     public let scene: ScenePlace
-    public let field: TextField
+    public let field: SceneTextPart
     public let paragraph: Int
     public let run: Int
 

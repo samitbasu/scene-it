@@ -25,8 +25,8 @@ struct BookGenerator {
             title: string(Self.anyAlphabet, 0...12), settings: settings(), scenes: scenes, boneyard: boneyard)
     }
 
-    private mutating func settings() -> Settings {
-        Settings(
+    private mutating func settings() -> BookSettings {
+        BookSettings(
             zoom: Zoom(clamping: Double.random(in: ZoomBounds.range, using: &random)),
             voice: Bool.random(using: &random) ? string(Self.lineAlphabet, 1...20) : nil,
             rate: SpeechRate(clamping: Float.random(in: SpeechRateBounds.range, using: &random)),
@@ -35,14 +35,15 @@ struct BookGenerator {
             scenesView: pick(ScenesView.allCases))
     }
 
-    private mutating func scene() -> Scene {
+    private mutating func scene() -> BookScene {
         let comments = (0..<int(0...3)).map { _ in
             Comment(
-                id: ids.commentID(), color: pick(TextColor.allCases), text: string(Self.anyAlphabet, 0...30),
+                id: ids.commentID(), color: pick(PaletteColor.allCases),
+                text: string(Self.anyAlphabet, 0...30),
                 created: timestamp())
         }
         let commentIDs = comments.map(\.id)
-        return Scene(
+        return BookScene(
             id: ids.sceneID(),
             modified: timestamp(),
             title: paragraph(commentIDs),

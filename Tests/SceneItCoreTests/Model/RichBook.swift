@@ -10,7 +10,7 @@ enum RichBook {
         let c1 = CommentID(rawValue: "01JC4K0000000000000000C001")
         let c2 = CommentID(rawValue: "01JC4K0000000000000000C002")
         let c3 = CommentID(rawValue: "01JC4K0000000000000000C003")
-        let ferry = Scene(
+        let ferry = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000001"),
             modified: try timestamp("2026-10-31T20:54:00-07:00"),
             title: [Run("The ferry")],
@@ -39,12 +39,12 @@ enum RichBook {
                     id: c1, color: .purple, text: "Too early for this reveal?",
                     created: try timestamp("2026-10-31T20:40:00-07:00")),
             ])
-        let station = Scene(
+        let station = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000002"),
             modified: try timestamp("2026-11-01T09:15:07+05:30"),
             title: [Run("The "), Run("station", styles: [.italic])],
             body: [[Run("Rain.")]])
-        let cut = Scene(
+        let cut = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000003"),
             modified: try timestamp("2025-02-28T23:59:59+00:00"),
             title: [Run("A cut scene")],
@@ -57,7 +57,7 @@ enum RichBook {
             ])
         return Book(
             title: "My Novel",
-            settings: Settings(
+            settings: BookSettings(
                 zoom: try #require(Zoom(exactly: 1.25)),
                 voice: "com.apple.voice.premium.en-US.Zoe",
                 rate: try #require(SpeechRate(exactly: 0.5)),

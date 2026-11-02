@@ -1,11 +1,11 @@
 /// A comment's anchor is the set of runs whose `comments` list its id, so it isn't stored here.
 public struct Comment: Identifiable, Hashable, Sendable, Encodable {
     public var id: CommentID
-    public var color: TextColor
+    public var color: PaletteColor
     public var text: String
     public var created: Timestamp
 
-    public init(id: CommentID, color: TextColor, text: String, created: Timestamp) {
+    public init(id: CommentID, color: PaletteColor, text: String, created: Timestamp) {
         self.id = id
         self.color = color
         self.text = text
@@ -21,13 +21,13 @@ extension Comment: Decodable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
         id = try container.decode(CommentID.self, forKey: .id)
-        color = try container.decode(TextColor.self, forKey: .color)
+        color = try container.decode(PaletteColor.self, forKey: .color)
         text = try container.decode(String.self, forKey: .text)
         created = try container.decode(Timestamp.self, forKey: .created)
     }
 }
 
-public struct Scene: Identifiable, Hashable, Sendable, Encodable {
+public struct BookScene: Identifiable, Hashable, Sendable, Encodable {
     public var id: SceneID
     public var modified: Timestamp
     /// Exactly one line: `BookValidator` rejects a line break in it.
@@ -57,7 +57,7 @@ public struct Scene: Identifiable, Hashable, Sendable, Encodable {
     }
 }
 
-extension Scene: Decodable {
+extension BookScene: Decodable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case id, modified, title, tags, body, notes, comments
     }

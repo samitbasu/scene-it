@@ -1,23 +1,30 @@
-/// The range of a `Bounded` value. NaN is replaced by `fallback`, so ordering is total.
 public protocol ScalarBounds: Sendable {
     associatedtype Value: BinaryFloatingPoint & Codable & Sendable
     static var range: ClosedRange<Value> { get }
-    static var fallback: Value { get }
+    /// The value a new book starts with.
+    static var standard: Value { get }
 }
 
 /// A floating-point value confined to `Bounds.range`. Encoded as a bare number; decoding
 /// rejects a value outside the range instead of clamping it.
+///
+/// Clamping NaN gives `Bounds.standard`, so ordering is total. `-0` is stored as `0`, so
+/// values that compare equal also encode identically.
 public struct Bounded<Bounds: ScalarBounds>: Comparable, Hashable, Codable, Sendable {
     public let value: Bounds.Value
 
+    public static var standard: Self {
+        Self(clamping: Bounds.standard)
+    }
+
     public init(clamping value: Bounds.Value) {
         let range = Bounds.range
-        self.value = value.isNaN ? Bounds.fallback : min(max(value, range.lowerBound), range.upperBound)
+        self.value = value.isNaN ? Bounds.standard : min(max(value, range.lowerBound), range.upperBound) + 0
     }
 
     public init?(exactly value: Bounds.Value) {
         guard Bounds.range.contains(value) else { return nil }
-        self.value = value
+        self.value = value + 0
     }
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
@@ -45,7 +52,7 @@ public typealias Zoom = Bounded<ZoomBounds>
 
 public enum ZoomBounds: ScalarBounds {
     public static let range: ClosedRange<Double> = 0.5...3.0
-    public static let fallback = 1.0
+    public static let standard = 1.0
 }
 
 extension Double {
@@ -59,7 +66,7 @@ public typealias SpeechRate = Bounded<SpeechRateBounds>
 
 public enum SpeechRateBounds: ScalarBounds {
     public static let range: ClosedRange<Float> = 0...1
-    public static let fallback: Float = 0.5
+    public static let standard: Float = 0.5
 }
 
 extension Float {

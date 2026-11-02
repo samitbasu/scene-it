@@ -66,7 +66,7 @@ import Testing
         let book = Book(
             title: "T",
             scenes: [
-                Scene(
+                BookScene(
                     id: SceneID(rawValue: "s"), modified: try timestamp("2026-01-01T00:00:00+00:00"),
                     title: [Run("plain")])
             ])

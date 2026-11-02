@@ -6,8 +6,9 @@ public enum TextStyle: String, CaseIterable, Hashable, Sendable {
 ///
 /// In `book.json` each style is a `true` flag and `comments` is an id array, all omitted
 /// when absent. In memory, absence is the empty set, so "`false`" and "`[]`" can't exist.
-/// Decoding rejects them rather than normalizing, so every accepted file re-encodes to
-/// the same bytes.
+/// Decoding rejects them rather than normalizing, so the encoder's output is a fixed
+/// point: encode → decode → encode is byte-identical. The one normalization is
+/// `"color": "black"`, which decodes as no color (decision 0013).
 public struct Run: Hashable, Sendable {
     public var text: String
     public var styles: Set<TextStyle>
@@ -55,7 +56,7 @@ extension Run: Codable {
             case nil: break
             }
         }
-        color = try container.decodeUnlessAbsent(TextColor.self, forKey: .color)
+        color = try container.decodeUnlessAbsent(PaletteColor.self, forKey: .color).flatMap(TextColor.init)
         highlight = try container.decodeUnlessAbsent(HighlightColor.self, forKey: .highlight)
         let ids = try container.decodeUnlessAbsent([CommentID].self, forKey: .comments) ?? []
         comments = Set(ids)
