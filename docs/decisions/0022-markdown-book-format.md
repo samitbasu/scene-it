@@ -78,7 +78,7 @@ id: 01JC9Q
 ## Saving and verification
 `serialize(book) → parse → serialize` must give **identical bytes with zero error entries**, or the save is refused (this
 replaces BookCoding's encode-validate step). The parse and serialize pair is the format's executable spec; the precise
-grammar lives in `docs/format/book-format.md`, which is versioned with the code.
+grammar lives in [`docs/format/book-format.md`](../format/book-format.md), which is versioned with the code.
 
 ## Moved out of the book
 `settings` (zoom, voice, rate, right panel, Scenes view) become **app-wide preferences**, stored in UserDefaults (not the book).
