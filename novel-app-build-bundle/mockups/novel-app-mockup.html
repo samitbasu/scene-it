@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Novel App — Mockup</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f2ef; --surface: #fff; --ink: #1d1d1b; --quiet: #6b6a66; --line: #d9d7d1; --soft: #f0efeb;
+    --accent: #1e5bc6; --accent-tint: #e8effb; --desk: #e4e3df; --ro: #ecebe7;
+    --banner: #fdf3d8; --banner-line: #e6cf8f;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --serif: "Times New Roman", Tinos, Times, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.4 var(--ui); overflow: hidden; }
+  button { font: inherit; color: inherit; }
+  /* Always light: never let a dark system or viewer theme style the form fields */
+  input, textarea, select { background: var(--surface); color: var(--ink); color-scheme: light; }
+  input[type=search] { -webkit-appearance: none; appearance: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .quiet { color: var(--quiet); }
+  .spacer { flex: 1; }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  .app { display: grid; grid-template-rows: auto auto 1fr auto; height: 100vh; }
+
+  /* Top toolbar */
+  .top { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--line); min-height: 48px; flex-wrap: wrap; }
+  .book { font-weight: 650; margin-right: 6px; }
+  .crumb { color: var(--quiet); }
+  .tbtn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: none; border-radius: 6px; padding: 5px 9px; cursor: pointer; white-space: nowrap; }
+  .tbtn:hover { background: var(--soft); }
+  .tbtn.outline { border-color: var(--line); }
+  .tbtn.primary { background: var(--accent); color: #fff; font-weight: 600; }
+  .tbtn.primary:hover { background: #194fae; }
+  .tbtn:disabled { opacity: .4; cursor: default; background: none; }
+  .undo { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; margin-right: 6px; }
+  .undo button { border: 0; background: none; padding: 4px 7px; cursor: pointer; display: grid; place-items: center; }
+  .undo button + button { border-left: 1px solid var(--line); }
+  .undo button:hover { background: var(--soft); }
+  .undo button:disabled { opacity: .35; cursor: default; background: none; }
+  .readonly .undo { display: none; }
+  .zoom { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 6px; }
+  .zoom button { border: 0; background: none; padding: 4px 9px; cursor: pointer; }
+  .zoom span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; font-size: 13px; }
+
+  .banner { display: none; align-items: center; gap: 10px; padding: 8px 16px; background: var(--banner); border-bottom: 1px solid var(--banner-line); }
+  .readonly .banner { display: flex; }
+  .readonly #fileBtn { display: none; }
+
+  /* Main area */
+  .main { display: grid; grid-template-columns: 56px 1fr auto; min-height: 0; position: relative; }
+  .rail { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; z-index: 30; }
+  .rbtn { width: 44px; height: 44px; border-radius: 8px; border: 0; background: none; cursor: pointer; display: grid; place-items: center; color: var(--quiet); position: relative; }
+  .rbtn svg.i { width: 22px; height: 22px; }
+  .rbtn:hover { background: var(--soft); color: var(--ink); }
+  .rbtn[aria-pressed=true] { background: var(--accent-tint); color: var(--accent); }
+  .rbtn:disabled { opacity: .3; cursor: default; background: none; }
+  .badge { position: absolute; right: 3px; bottom: 3px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; line-height: 1; }
+  .rbtn:disabled .badge { display: none; }
+  .rsep { width: 28px; height: 1px; background: var(--line); margin: 2px 0; }
+  .tip { position: absolute; left: 52px; top: 50%; transform: translateY(-50%); background: #2b2a27; color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; }
+  .rbtn:hover .tip, .rbtn:focus-visible .tip { opacity: 1; }
+
+  .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .cbar { display: flex; align-items: center; gap: 2px; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--line); position: relative; flex-wrap: wrap; }
+  .cbtn { min-width: 32px; height: 30px; border: 1px solid transparent; background: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 2px; padding: 0 6px; }
+  .cbtn:hover { background: var(--soft); }
+  .cbtn:disabled { opacity: .35; cursor: default; background: none; }
+  .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
+  .colorA { font-weight: 700; font-size: 15px; display: inline-flex; flex-direction: column; align-items: center; line-height: 1; }
+  .colorA i { display: block; width: 16px; height: 3px; margin-top: 2px; border-radius: 1px; }
+  .hlA { font-weight: 700; font-size: 14px; padding: 1px 4px; border-radius: 3px; }
+  .caret { font-size: 10px; color: var(--quiet); }
+  .pop { position: absolute; top: 40px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 8px; display: none; gap: 6px; z-index: 25; flex-wrap: wrap; width: 196px; }
+  .pop.open { display: flex; }
+  .sw { width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); cursor: pointer; }
+  .sw.sq { border-radius: 5px; }
+  .pop .lbl { width: 100%; font-size: 11px; color: var(--quiet); }
+
+  .desk { flex: 1; overflow: auto; background: var(--desk); padding: 28px 20px 60px; }
+  .page { background: var(--surface); width: 6.5in; max-width: 100%; margin: 0 auto; padding: 0.9in 0.85in; min-height: 9in; box-shadow: 0 1px 3px rgba(0,0,0,.12); font-family: var(--serif); font-size: 16px; color: #111; transform-origin: top center; }
+  .readonly .page { background: var(--ro); }
+  .page h1 { font-size: 24px; line-height: 1.3; margin: 0 0 16px; font-weight: 700; outline: none; }
+  .page .body { line-height: 2; outline: none; }
+  .page .body p { margin: 0; text-indent: 0.5in; }
+  .cmt { border-bottom: 2px solid var(--c, var(--accent)); cursor: pointer; }
+  .cmt.flash { background: #fff1b8; }
+  mark.find { background: #ffe58a; color: inherit; }
+
+  /* Comments */
+  .comments { width: 290px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .comments.closed { width: 28px; }
+  .comments.closed > *:not(.chead) { display: none; }
+  .comments.closed .chead > *:not(#toggleComments) { display: none; }
+  .chead { display: flex; align-items: flex-end; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
+  .rtab { border: 0; background: none; padding: 8px 8px 7px; cursor: pointer; font-weight: 600; color: var(--quiet); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .rtab[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); }
+  .chead .collapse { align-self: center; }
+  .pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .pane[hidden] { display: none; }
+  .crow1 { display: flex; justify-content: flex-end; padding: 8px 12px 6px; }
+  .nbar { display: flex; align-items: center; gap: 1px; padding: 6px 8px; border-bottom: 1px solid var(--line); position: relative; flex-wrap: wrap; }
+  .notes { flex: 1; overflow-y: auto; padding: 12px 14px; font-family: var(--serif); font-size: 15px; line-height: 1.3; outline: none; }
+  .notes p { margin: 0 0 6px; }
+  .notes:empty::before { content: "Notes for this scene…"; color: var(--quiet); }
+  .readonly .nbar .cbtn { opacity: .35; pointer-events: none; }
+  .chead h2 { font-size: 14px; margin: 0; }
+  .comments.closed .chead { padding: 10px 2px; justify-content: center; border-bottom: 0; }
+  .addc { border: 1px solid var(--accent); background: var(--accent-tint); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .addc:disabled { opacity: .4; cursor: default; }
+  .collapse { border: 0; background: none; cursor: pointer; color: var(--quiet); font-size: 16px; padding: 0 4px; }
+  .cfilter { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .cfilter input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .dots { display: flex; gap: 6px; }
+  .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+  .dot[aria-pressed=false] { opacity: .25; }
+  .clist { flex: 1; overflow-y: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .card { border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 6px; padding: 8px 28px 8px 10px; position: relative; font-size: 13px; background: var(--surface); }
+  .card.sel { box-shadow: 0 0 0 2px var(--accent-tint), 0 0 0 1px var(--accent); }
+  .card .txt { outline: none; min-height: 18px; white-space: pre-wrap; user-select: text; }
+  .card .txt:empty::before { content: "Type a comment…"; color: var(--quiet); }
+  .card .x { position: absolute; top: 4px; right: 4px; border: 0; background: none; cursor: pointer; color: var(--quiet); font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
+  .card .x:hover { background: var(--soft); color: var(--ink); }
+  .readonly .card .x { display: none; }
+  .card .anchor { font-size: 11px; color: var(--quiet); margin-top: 4px; font-style: italic; }
+  .card .more { position: absolute; top: 4px; right: 4px; border: 0; background: none; cursor: pointer; color: var(--quiet); font-size: 16px; line-height: 1; padding: 1px 6px 5px; border-radius: 4px; opacity: 0; transition: opacity .1s; }
+  .card:hover .more, .card.sel .more, .card .more:focus-visible, .card .more[aria-expanded=true] { opacity: 1; }
+  .card .more:hover, .card .more[aria-expanded=true] { background: var(--soft); color: var(--ink); }
+  .readonly .card .more { display: none; }
+  .cmenu { position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.16); padding: 6px; width: 196px; }
+  .cmenu[hidden] { display: none; }
+  .cmenu .lbl { font-size: 11px; color: var(--quiet); padding: 2px 6px 4px; }
+  .cmenu .sws { display: flex; gap: 6px; padding: 2px 6px 8px; }
+  .cmenu .sws button { width: 20px; height: 20px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; outline-offset: 2px; }
+  .cmenu .sws button[aria-checked=true] { outline: 2px solid var(--ink); }
+  .cmenu hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0 4px; }
+  .cmenu .mi { display: flex; width: 100%; justify-content: space-between; border: 0; background: none; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; text-align: left; }
+  .cmenu .mi:hover { background: var(--accent-tint); }
+  .cmenu .mi kbd { font: inherit; color: var(--quiet); font-size: 12px; }
+  .cfilter { flex-direction: row !important; align-items: center; padding-top: 10px !important; }
+  .cfilter input { flex: 1; min-width: 0; }
+  .addsq { flex: none; width: 30px; height: 30px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; cursor: pointer; font-size: 18px; line-height: 1; color: var(--ink); }
+  .addsq:hover { background: var(--accent-tint); border-color: var(--accent); }
+  .addsq:disabled { opacity: .35; cursor: default; background: var(--surface); border-color: var(--line); }
+  .cfhint { padding: 0 12px 8px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--quiet); align-items: center; }
+  .cfhint[hidden] { display: none; }
+  .cfhint .cc { display: inline-flex; align-items: center; gap: 5px; background: var(--soft); border-radius: 999px; padding: 1px 8px 1px 5px; color: var(--ink); }
+  .cfhint .cc i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: block; }
+  .noc { color: var(--quiet); font-size: 13px; padding: 6px 0; }
+
+  .status { display: flex; gap: 14px; padding: 4px 14px; font-size: 12px; color: var(--quiet); background: var(--surface); border-top: 1px solid var(--line); }
+
+  /* Sheets */
+  .sheet { position: absolute; top: 0; bottom: 0; left: 56px; right: 0; background: var(--bg); z-index: 20; display: flex; flex-direction: column; transform: translateX(-102%); transition: transform .2s ease; box-shadow: 4px 0 20px rgba(0,0,0,.12); visibility: hidden; }
+  .sheet.open { transform: none; visibility: visible; }
+  .shead { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .shead h2 { margin: 0; font-size: 16px; }
+  .sclose { border: 0; background: none; font-size: 20px; cursor: pointer; color: var(--quiet); padding: 0 6px; border-radius: 4px; }
+  .sclose:hover { background: var(--soft); color: var(--ink); }
+  .sbody { flex: 1; overflow-y: auto; padding: 16px; min-height: 0; }
+  input.field { font: inherit; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: var(--surface); padding: 5px 11px; cursor: pointer; font-size: 13px; color: var(--quiet); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed=true] { background: var(--accent-tint); color: var(--ink); font-weight: 600; }
+
+  /* Scenes grid */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .scard { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 10px 10px 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+  .scard:hover { border-color: #b9b6ae; }
+  .scard.current { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+  .scard.placeholder { opacity: .35; border-style: dashed; }
+  .stop { display: flex; align-items: center; gap: 8px; }
+  .num { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 11px; font-weight: 650; background: var(--surface); }
+  .stitle { font-weight: 650; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grip { width: 22px; height: 26px; display: grid; place-items: center; color: #a9a69e; cursor: grab; border-radius: 4px; touch-action: none; }
+  .grip:hover { background: var(--soft); }
+  .readonly .grip { display: none; }
+  .smeta { display: flex; justify-content: space-between; font-size: 12px; color: var(--quiet); }
+  .sfirst { font-family: var(--serif); font-size: 15px; line-height: 1.35; margin: 0; color: #33322f; }
+  .grid.light { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .grid.light .scard { padding: 5px 6px 5px 8px; gap: 0; }
+  .grid.light .smeta, .grid.light .sfirst { display: none; }
+  .grid.light .stitle { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 13px; line-height: 1.25; }
+  .grid.light .stop { min-height: 34px; }
+  .addtile { border: 2px dashed var(--line); background: transparent; border-radius: 8px; color: var(--quiet); font: inherit; font-weight: 600; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 120px; }
+  .addtile span { font-size: 24px; line-height: 1; font-weight: 400; }
+  .addtile:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+  .grid.light .addtile { min-height: 46px; flex-direction: row; gap: 6px; }
+  .grid.light .addtile span { font-size: 18px; }
+  .stitle input { font: inherit; width: 100%; border: 1px solid var(--accent); border-radius: 4px; padding: 1px 4px; }
+  .slot { border: 2px dashed var(--accent); border-radius: 8px; background: var(--accent-tint); min-height: 46px; padding: 8px; display: flex; align-items: center; }
+  .slot .stop { gap: 8px; font-size: 13px; }
+  #sheet-scenes .sbody { flex: 1; }
+  .bone { flex: none; border-top: 1px solid var(--line); background: #ebe9e4; padding: 8px 16px 12px; transition: background .12s; }
+  .bone.over { background: #f6dede; box-shadow: inset 0 0 0 2px #C62828; }
+  .bone.ro .bhint { display: none; }
+  .bhead { display: flex; gap: 8px; align-items: baseline; font-size: 13px; margin-bottom: 8px; flex-wrap: wrap; }
+  .btitle { font-weight: 650; }
+  .bhint { font-size: 12px; }
+  .brow { display: flex; gap: 8px; overflow-x: auto; min-height: 40px; padding-bottom: 2px; }
+  .btile { flex: none; width: 180px; background: var(--surface); border: 1px dashed #b3afa6; border-radius: 6px; padding: 5px 6px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .btile .bt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; color: #4a4945; }
+  .btile .bw { font-size: 11px; color: var(--quiet); }
+  .btile .restore { border: 0; background: none; cursor: pointer; color: var(--quiet); padding: 0 4px; border-radius: 4px; visibility: hidden; }
+  .btile:hover .restore, .btile:focus-within .restore { visibility: visible; }
+  .btile .restore:hover { background: var(--accent-tint); color: var(--accent); }
+  .btile.current { border: 1px solid var(--accent); background: var(--accent-tint); }
+  .btile.placeholder { opacity: .35; }
+  .btile .grip { width: 18px; height: 22px; }
+  .bempty { color: var(--quiet); font-size: 13px; padding: 8px 0; }
+  .ghost { position: fixed; pointer-events: none; z-index: 70; box-shadow: 0 10px 28px rgba(0,0,0,.18); transform: rotate(1.5deg); }
+  body.dragging, body.dragging * { cursor: grabbing !important; user-select: none; }
+
+  /* Search sheet */
+  .sopts { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .sopts label { display: inline-flex; gap: 5px; align-items: center; }
+  .rgroup { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .rgroup h3 { margin: 0; font-size: 14px; padding: 8px 12px; background: var(--soft); display: flex; gap: 8px; align-items: center; }
+  .rgroup h3 .cnt { margin-left: auto; font-weight: 400; color: var(--quiet); font-size: 12px; }
+  .hit { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid #eeede9; background: none; padding: 7px 12px; cursor: pointer; font-family: var(--serif); font-size: 15px; }
+  .hit:hover { background: var(--accent-tint); }
+  .hit .where { font-family: var(--ui); font-size: 11px; color: var(--quiet); margin-right: 8px; text-transform: uppercase; letter-spacing: .04em; }
+  .hit mark { background: #ffe58a; }
+  .taghit { font-family: var(--ui); font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .tagchip { background: var(--soft); border-radius: 999px; padding: 1px 9px; }
+  #tagOpt[hidden] { display: none; }
+  .crange { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .crange[hidden] { display: none; }
+  .tagopt { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
+  .tagsec { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .tagsec.grow { flex: 1; overflow-y: auto; border-bottom: 0; }
+  .tsh { font-size: 12px; font-weight: 650; margin-bottom: 8px; }
+  .alltags { display: flex; flex-direction: column; gap: 2px; }
+  .atag { display: flex; align-items: center; gap: 8px; border: 0; background: none; text-align: left; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .atag:hover { background: var(--soft); }
+  .atag[aria-pressed=true] { background: var(--accent-tint); font-weight: 600; }
+  .atag .cnt { margin-left: auto; color: var(--quiet); font-size: 12px; font-weight: 400; }
+  .atag .find { color: var(--quiet); padding: 0 4px; border-radius: 4px; }
+  .atag .find:hover { background: var(--surface); color: var(--accent); }
+  .atag:disabled { cursor: default; }
+  .stags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
+  .stags .stl { font-weight: 600; color: var(--quiet); margin-right: 4px; }
+  .stags .tagchip button { border: 0; background: none; cursor: pointer; color: var(--quiet); padding: 0 0 0 3px; }
+  .stags input { font: inherit; font-size: 12px; border: 1px dashed var(--line); border-radius: 999px; padding: 2px 9px; width: 80px; }
+  .ctags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ctags .tagchip { font-size: 11.5px; padding: 0 7px; }
+  .ctags .tagchip button { border: 0; background: none; cursor: pointer; color: var(--quiet); padding: 0 0 0 3px; }
+  .addtag { border: 1px dashed var(--line); background: none; border-radius: 999px; font-size: 11px; color: var(--quiet); padding: 0 7px; cursor: pointer; }
+  .addtag:hover { border-color: var(--accent); color: var(--accent); }
+  .ctags input { font: inherit; font-size: 11.5px; border: 1px solid var(--accent); border-radius: 999px; padding: 0 7px; width: 90px; }
+  .grid.light .ctags { margin-top: 4px; }
+  .grid.light .ctags .tagchip { font-size: 11px; }
+  .grid.light .scard:not(:hover):not(:focus-within) .addtag { visibility: hidden; }
+  .grid.light .ctags:not(:has(.tagchip)) { margin-top: 0; }
+  .grid.light .scard:not(:hover):not(:focus-within) .ctags:not(:has(.tagchip)) { display: none; }
+  .copyhead { font-weight: 650; font-size: 14px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+  .copyhead:first-child { margin-top: 0; }
+  select.field { padding: 5px 8px; }
+  select.field[hidden] { display: none; }
+  .summary { color: var(--quiet); font-size: 13px; margin-bottom: 12px; }
+
+  /* Cabinet sheet */
+  .cgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+  .ccard { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+  .ccard:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .ccard .d { font-weight: 650; font-size: 15px; }
+  .ccard .m { font-size: 12px; color: var(--quiet); }
+  .ccard .note { font-size: 13px; color: #3b3a37; margin-top: 2px; }
+  .ccard .open { font-size: 12px; color: var(--accent); margin-top: 6px; }
+  .ccard .tagedit input { width: 90px; }
+  .cfil { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+  .chip[aria-pressed=true] { background: var(--accent-tint); border-color: var(--accent); font-weight: 600; }
+  .clistc { overflow-y: auto; padding: 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .crow { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; text-align: left; width: 100%; }
+  .crow[aria-selected=true] { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+  .crow .d { font-weight: 650; }
+  .crow .m { font-size: 12px; color: var(--quiet); margin: 2px 0 5px; }
+  .tag { display: inline-flex; align-items: center; gap: 2px; background: var(--soft); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin: 0 4px 4px 0; }
+  .tag button { border: 0; background: none; cursor: pointer; color: var(--quiet); padding: 0 0 0 3px; }
+  .cdetail { overflow-y: auto; padding: 20px 24px; }
+  .cdetail h2 { margin: 0; font-size: 19px; }
+  .stats { display: flex; gap: 22px; margin: 14px 0; }
+  .stats b { display: block; font-size: 18px; }
+  .stats span { font-size: 12px; color: var(--quiet); }
+  .tagedit { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 8px; }
+  .tagedit input { font: inherit; font-size: 12px; border: 1px dashed var(--line); border-radius: 999px; padding: 2px 9px; width: 110px; }
+  .slist { columns: 2 200px; column-gap: 22px; padding: 0; margin: 10px 0 0; list-style: none; font-size: 13px; }
+  .slist li { break-inside: avoid; padding: 3px 0; border-bottom: 1px solid #eeede9; display: flex; gap: 8px; }
+  .slist .n { color: var(--quiet); width: 22px; text-align: right; }
+  h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--quiet); margin: 18px 0 4px; }
+
+  /* Dialog */
+  .scrim { position: fixed; inset: 0; background: rgba(20,20,18,.35); display: none; place-items: center; z-index: 80; padding: 16px; }
+  .scrim.open { display: grid; }
+  .dialog { background: var(--surface); border-radius: 10px; width: 440px; max-width: 100%; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .dialog h2 { margin: 0 0 4px; font-size: 18px; }
+  .dialog label { display: block; font-size: 12px; font-weight: 600; color: var(--quiet); margin: 14px 0 4px; }
+  .kwbox { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+  .kwbox input { border: 0; flex: 1; min-width: 120px; padding: 3px; font: inherit; }
+  .kwbox input:focus { outline: none; }
+  .kwbox:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dialog textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; resize: vertical; }
+  .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .selpop { position: fixed; z-index: 40; border: 1px solid var(--accent); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.16); }
+  .selpop:hover { background: var(--accent-tint); }
+  .selpop[hidden] { display: none; }
+  .popts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .popt { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; text-align: center; font-size: 13px; }
+  .popt:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+  .popt input { position: absolute; opacity: 0; }
+  .dialog .popt { display: flex; margin: 0; color: var(--ink); font-weight: 400; font-size: 13px; }
+  .popt b, .popt .quiet { display: block; }
+  .popt b { margin-top: 4px; }
+  .pv { display: flex; gap: 6px; background: #fff; border: 1px solid #bbb; padding: 10px 9px; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+  .pv.portrait { width: 70px; height: 92px; flex-direction: column; gap: 5px; }
+  .pv.landscape { width: 132px; height: 92px; }
+  .pv .col { flex: 1.6; display: flex; flex-direction: column; gap: 5px; }
+  .pv .mcol { flex: 1; display: flex; flex-direction: column; gap: 6px; border-left: 1px dashed #ccc; padding-left: 5px; }
+  .pv i { display: block; height: 3px; background: #ccc; border-radius: 2px; }
+  .pv i.s { width: 60%; }
+  .pv i.u { background: linear-gradient(#ccc 0 0) top/100% 3px no-repeat; border-bottom: 2px solid #7B2FBE; height: 5px; background-color: transparent; }
+  .pv em { display: block; height: 14px; border-left: 3px solid var(--c); background: #f3f2ef; border-radius: 2px; }
+
+  .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%) translateY(20px); background: #2b2a27; color: #fff; padding: 9px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .18s, transform .18s; pointer-events: none; z-index: 90; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 820px) {
+    .comments { position: absolute; right: 0; top: 0; bottom: 0; z-index: 15; box-shadow: -4px 0 16px rgba(0,0,0,.1); }
+    .cab { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .clistc { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    .page { padding: 32px 22px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ic-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="ic-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></symbol>
+  <symbol id="ic-page" viewBox="0 0 24 24"><path d="M6 2.5h8.5L19 7v14.5H6z"/><path d="M14.5 2.5V7H19M9 11h7M9 14.5h7M9 18h4.5"/></symbol>
+  <symbol id="ic-scenes" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></symbol>
+  <symbol id="ic-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></symbol>
+  <symbol id="ic-cabinet" viewBox="0 0 24 24"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M4 12h16M10 7h4M10 16.5h4"/></symbol>
+  <symbol id="ic-print" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1.5"/><path d="M6 14h12v7H6z"/></symbol>
+  <symbol id="ic-word" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13l1.5 5 2.5-5 2.5 5L16 13"/></symbol>
+  <symbol id="ic-file" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></symbol>
+  <symbol id="ic-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
+  <symbol id="ic-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></symbol>
+  <symbol id="ic-grip" viewBox="0 0 12 16"><g fill="currentColor" stroke="none"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></g></symbol>
+</svg>
+
+<div class="app" id="app">
+  <div class="top">
+    <span class="book">My Novel</span><span class="crumb" id="crumb"></span>
+    <span class="spacer"></span>
+    <div class="undo" role="group" aria-label="Undo and redo"><button type="button" id="undoBtn" title="Undo (Cmd+Z)" aria-label="Undo"><svg class="i"><use href="#ic-undo"/></svg></button><button type="button" id="redoBtn" title="Redo (Shift+Cmd+Z)" aria-label="Redo"><svg class="i"><use href="#ic-redo"/></svg></button></div>
+    <div class="zoom" aria-label="Zoom"><button type="button" id="zout" aria-label="Zoom out">−</button><span id="zlvl">100%</span><button type="button" id="zin" aria-label="Zoom in">+</button></div>
+    <button class="tbtn" type="button" id="printBtn" title="Print"><svg class="i"><use href="#ic-print"/></svg>Print</button>
+    <button class="tbtn" type="button" id="wordBtn" title="Export this scene to Word"><svg class="i"><use href="#ic-word"/></svg>Export to Word</button>
+    <button class="tbtn primary" type="button" id="fileBtn" title="File a copy of the whole manuscript"><svg class="i"><use href="#ic-file"/></svg>File a copy…</button>
+  </div>
+  <div class="banner" role="status">
+    <strong>🔒 Filed copy</strong><span id="roInfo"></span><span class="quiet">— read only</span>
+    <span class="spacer"></span><button class="tbtn outline" type="button" id="roClose">Close</button>
+  </div>
+
+  <div class="main">
+    <nav class="rail" aria-label="Navigation">
+      <button class="rbtn" type="button" id="railScene" data-sheet="page" aria-pressed="true" aria-label="Current scene"><svg class="i"><use href="#ic-page"/></svg><span class="badge" id="railBadge">1</span><span class="tip" id="railSceneTip">Current scene</span></button>
+      <span class="rsep"></span>
+      <button class="rbtn" type="button" data-sheet="scenes" aria-pressed="false" aria-label="Scenes"><svg class="i"><use href="#ic-scenes"/></svg><span class="tip">Scenes (Cmd+1)</span></button>
+      <button class="rbtn" type="button" data-sheet="search" aria-pressed="false" aria-label="Search"><svg class="i"><use href="#ic-search"/></svg><span class="tip">Search (Cmd+Shift+F)</span></button>
+      <button class="rbtn" type="button" data-sheet="cabinet" aria-pressed="false" aria-label="File Cabinet"><svg class="i"><use href="#ic-cabinet"/></svg><span class="tip">File Cabinet</span></button>
+    </nav>
+
+    <section class="center">
+      <div class="cbar" id="cbar" aria-label="Formatting">
+        <button class="cbtn" type="button" data-cmd="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+        <button class="cbtn" type="button" data-cmd="italic" title="Italic (Ctrl/Cmd+I)"><i style="font-family:var(--serif);font-size:16px">I</i></button>
+        <button class="cbtn" type="button" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+        <span class="sep"></span>
+        <button class="cbtn" type="button" id="colorBtn" title="Text color"><span class="colorA">A<i id="colorBar"></i></span></button>
+        <button class="cbtn" type="button" id="colorMenu" title="Text color palette" style="min-width:18px;padding:0 3px"><span class="caret">▾</span></button>
+        <button class="cbtn" type="button" id="hlBtn" title="Highlight"><span class="hlA" id="hlChip">A</span></button>
+        <button class="cbtn" type="button" id="hlMenu" title="Highlight palette" style="min-width:18px;padding:0 3px"><span class="caret">▾</span></button>
+        <span class="sep"></span>
+        <button class="cbtn" type="button" id="readBtn" title="Read aloud (select text first)" disabled><svg class="i"><use href="#ic-play"/></svg></button>
+        <div class="pop" id="colorPop" style="left:110px"></div>
+        <div class="pop" id="hlPop" style="left:160px"></div>
+      </div>
+      <div class="desk" id="desk">
+        <article class="page" id="page">
+          <h1 id="ptitle" contenteditable="true" spellcheck="true"></h1>
+          <div class="body" id="pbody" contenteditable="true" spellcheck="true"></div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="comments" id="comments" aria-label="Comments and notes">
+      <div class="chead" role="tablist">
+        <button class="rtab" type="button" role="tab" id="tabComments" aria-selected="true">Comments</button>
+        <button class="rtab" type="button" role="tab" id="tabNotes" aria-selected="false">Notes</button>
+        <button class="rtab" type="button" role="tab" id="tabTags" aria-selected="false">Tags</button>
+        <span class="spacer"></span>
+        <button class="collapse" type="button" id="toggleComments" aria-label="Hide panel">»</button></div>
+      <div class="pane" id="paneComments" role="tabpanel" aria-labelledby="tabComments">
+        <div class="cfilter">
+          <input type="search" id="cq" placeholder="Search · try #green" aria-label="Search comments; type #color to filter by color" title="Type words to match comment text, and #color (e.g. #green, #grey) to filter by color">
+          <button class="addsq" type="button" id="addComment" title="New comment on the selected text (Cmd+Option+M)" aria-label="New comment">+</button>
+        </div>
+        <div class="cfhint" id="cfhint" hidden></div>
+        <div class="clist" id="clist"></div>
+      </div>
+      <div class="pane" id="paneTags" role="tabpanel" aria-labelledby="tabTags" hidden>
+        <div class="tagsec"><div class="tsh">This scene</div><div class="stags" id="stags" aria-label="This scene's tags"></div></div>
+        <div class="tagsec grow"><div class="tsh">All tags in the book <span class="quiet" style="font-weight:400">· click to add or remove on this scene</span></div><div class="alltags" id="alltags"></div></div>
+      </div>
+      <div class="pane" id="paneNotes" role="tabpanel" aria-labelledby="tabNotes" hidden>
+        <div class="nbar" id="nbar" aria-label="Notes formatting">
+          <button class="cbtn" type="button" data-ncmd="bold" title="Bold"><b>B</b></button>
+          <button class="cbtn" type="button" data-ncmd="italic" title="Italic"><i style="font-family:var(--serif);font-size:16px">I</i></button>
+          <button class="cbtn" type="button" data-ncmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+          <span class="sep"></span>
+          <button class="cbtn" type="button" id="nColorBtn" title="Text color"><span class="colorA">A<i id="nColorBar"></i></span></button>
+          <button class="cbtn" type="button" id="nColorMenu" title="Text color palette" style="min-width:18px;padding:0 3px"><span class="caret">▾</span></button>
+          <button class="cbtn" type="button" id="nHlBtn" title="Highlight"><span class="hlA" id="nHlChip">A</span></button>
+          <button class="cbtn" type="button" id="nHlMenu" title="Highlight palette" style="min-width:18px;padding:0 3px"><span class="caret">▾</span></button>
+          <div class="pop" id="nColorPop" style="left:8px"></div>
+          <div class="pop" id="nHlPop" style="left:40px"></div>
+        </div>
+        <div class="notes" id="notes" contenteditable="true" spellcheck="true" aria-label="Scene notes"></div>
+      </div>
+    </aside>
+
+    <!-- Sheets -->
+    <section class="sheet" id="sheet-scenes" aria-label="Scenes sheet">
+      <div class="shead"><h2>Scenes</h2><span class="quiet" id="sceneTotals"></span><span class="spacer"></span>
+        <button class="tbtn outline" type="button" id="newSceneBtn" title="Add a scene after the open one">+ New scene</button>
+        <div class="seg" role="group" aria-label="View"><button type="button" id="vCards" aria-pressed="true">Cards</button><button type="button" id="vLight" aria-pressed="false">Light table</button></div>
+        <input class="field" type="search" id="sfilter" placeholder="Filter scenes" aria-label="Filter scenes">
+        <button class="sclose" type="button" data-close aria-label="Close">×</button></div>
+      <div class="sbody"><div class="grid" id="sgrid"></div></div>
+      <section class="bone" id="bone" aria-label="Boneyard">
+        <div class="bhead"><span class="btitle">Boneyard</span><span class="quiet" id="boneCount"></span>
+          <span class="quiet bhint">Scenes cut from the manuscript, kept with their notes and comments. Drag a card here to cut it; drag a scene back onto the grid (or click ↩) to restore it.</span></div>
+        <div class="brow" id="brow"></div>
+      </section>
+    </section>
+
+    <section class="sheet" id="sheet-search" aria-label="Search sheet">
+      <div class="shead"><h2>Search</h2>
+        <input class="field" type="search" id="gq" placeholder="Find text, notes or comments" style="width:min(360px,100%)" aria-label="Search text">
+        <label class="tagopt" id="tagOpt" title="Also match scene tags, and filed-copy tags in the File Cabinet scope"><input type="checkbox" id="optTags"> Search tags</label>
+        <div class="seg" role="group" aria-label="Scope"><button type="button" class="scopeb" data-scope="scene" aria-pressed="false">This scene</button><button type="button" class="scopeb" data-scope="book" aria-pressed="true">Whole book</button><button type="button" class="scopeb" data-scope="cabinet" aria-pressed="false">File Cabinet</button></div>
+        <span class="crange" id="cRange" hidden><select class="field" id="copyPick" aria-label="Which filed copies"></select><span class="quiet">filed from</span><input class="field" type="date" id="sFrom" aria-label="Filed on or after"><span class="quiet">to</span><input class="field" type="date" id="sTo" aria-label="Filed on or before"></span>
+        <span class="sopts"><label><input type="checkbox" id="optCase"> Match case</label><label><input type="checkbox" id="optWord"> Whole word</label></span>
+        <span class="spacer"></span><button class="sclose" type="button" data-close aria-label="Close">×</button></div>
+      <div class="sbody"><div class="summary" id="gsummary"></div><div id="gresults"></div></div>
+    </section>
+
+    <section class="sheet" id="sheet-cabinet" aria-label="File Cabinet sheet">
+      <div class="shead"><h2>File Cabinet</h2><span class="quiet" id="cabCount"></span><span class="spacer"></span>
+        <button class="sclose" type="button" data-close aria-label="Close">×</button></div>
+      <div class="cfil">
+        <input class="field" type="search" id="kq" placeholder="Search tags, notes or text" aria-label="Search filed copies">
+        <span class="quiet" style="font-size:13px">From</span><input class="field" type="date" id="kfrom" aria-label="From date">
+        <span class="quiet" style="font-size:13px">to</span><input class="field" type="date" id="kto" aria-label="To date">
+        <div id="tagFilters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+      <div class="sbody"><div class="cgrid" id="cabList" aria-label="Filed copies, newest first"></div></div>
+    </section>
+  </div>
+
+  <div class="status"><span id="stScene"></span><span id="stBook"></span><span class="spacer"></span><span id="stSaved">Saved</span></div>
+</div>
+
+<div class="scrim" id="scrim">
+  <form class="dialog" id="fileForm" role="dialog" aria-modal="true" aria-labelledby="dlgT">
+    <h2 id="dlgT">File a copy</h2>
+    <div class="quiet" style="font-size:13px">Saves a read-only copy of the whole manuscript, with every scene's notes and comments, to the File Cabinet.</div>
+    <label for="kwIn">Tags</label>
+    <div class="kwbox" id="kwBox"><input id="kwIn" type="text" placeholder="Type a tag, press Enter"></div>
+    <label for="fDate">Date</label><input class="field" type="date" id="fDate">
+    <label for="fNote">Note</label><textarea id="fNote" placeholder="What state is the book in?"></textarea>
+    <div class="foot"><button class="tbtn outline" type="button" id="dCancel">Cancel</button><button class="tbtn primary" type="submit">File copy</button></div>
+  </form>
+</div>
+<div class="cmenu" id="cmenu" role="menu" aria-label="Comment options" hidden>
+  <div class="lbl">Color</div><div class="sws" id="cmenuSw" role="radiogroup" aria-label="Comment color"></div>
+  <hr><button type="button" class="mi" role="menuitem" id="cmenuDismiss">Dismiss <kbd>⌫</kbd></button>
+</div>
+<button type="button" class="selpop" id="selPop" title="Comment on selection (Cmd+Option+M)" hidden>💬 Comment</button>
+<div class="scrim" id="printScrim">
+  <form class="dialog" id="printForm" role="dialog" aria-modal="true" aria-labelledby="prT" style="width:520px">
+    <h2 id="prT">Print</h2>
+    <div class="popts">
+      <label class="popt"><input type="radio" name="pmode" value="text" checked>
+        <span class="pv portrait"><i></i><i></i><i></i><i></i><i class="s"></i><i></i><i></i></span>
+        <b>Text only</b><span class="quiet">Portrait · manuscript format</span></label>
+      <label class="popt"><input type="radio" name="pmode" value="comments">
+        <span class="pv landscape"><span class="col"><i></i><i></i><i class="u"></i><i></i><i class="s"></i><i></i></span><span class="mcol"><em style="--c:#7B2FBE"></em><em style="--c:#C62828"></em></span></span>
+        <b>Text with comments</b><span class="quiet">Landscape · comments in a margin column beside the lines they refer to</span></label>
+    </div>
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--quiet);margin:14px 0 4px">Range</label>
+    <div class="seg" role="group"><button type="button" class="prange" aria-pressed="true">This scene</button><button type="button" class="prange" aria-pressed="false">Whole manuscript</button></div>
+    <div class="foot"><button class="tbtn outline" type="button" id="pCancel">Cancel</button><button class="tbtn primary" type="submit">Print…</button></div>
+  </form>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = n => n.toLocaleString("en-US");
+  const M = 6e4, H = 36e5, D = 864e5, now0 = Date.now();
+  const PAL = [["black", "#000000"], ["purple", "#7B2FBE"], ["red", "#C62828"], ["blue", "#1E5BC6"], ["green", "#2E7D32"], ["gray", "#757575"], ["pink", "#D81B7A"]];
+  const HL = [["purple", "#E9DDF7"], ["red", "#F8D7D7"], ["blue", "#D7E4F8"], ["green", "#D9EDDA"], ["gray", "#E6E6E6"], ["pink", "#F8D5E7"]];
+  const hex = n => (PAL.find(p => p[0] === n) || PAL[3])[1];
+  let toastT; const toast = m => { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2000); };
+  const humanize = t => { const d = Date.now() - t; if (d < M) return "just now"; if (d < H) { const m = Math.round(d / M); return m + (m === 1 ? " minute ago" : " minutes ago"); }
+    if (d < D) { const h = Math.round(d / H); return h + (h === 1 ? " hour ago" : " hours ago"); } const days = Math.floor(d / D); if (days === 1) return "yesterday"; if (days < 7) return days + " days ago";
+    if (days < 30) { const w = Math.round(days / 7); return w + (w === 1 ? " week ago" : " weeks ago"); } const mo = Math.round(days / 30); return mo + (mo === 1 ? " month ago" : " months ago"); };
+  const iso = t => { const d = new Date(t); return new Date(d.getTime() - d.getTimezoneOffset() * M).toISOString().slice(0, 10); };
+  const longDate = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
+
+  // ---------- Sample book (placeholder prose) ----------
+  const seeds = [
+    ["The ferry", ["The ferry left at dawn, and Mara watched the harbor lights go out one by one behind her.", "She had packed in the dark, by feel, the way she used to as a girl when the house was asleep and leaving still seemed like a game.", "Halfway across, the engine coughed and the deckhand swore at it in a language she half remembered. He found the letter under the bench an hour later, but by then she was already ashore."]],
+    ["Arrival", ["Nobody met her at the landing, which she had half expected and wholly dreaded.", "The road up from the quay was the same road, narrower than in memory, and the gulls were louder.", "At the top of the hill she stopped to catch her breath and saw that the house had been painted blue."]],
+    ["The letter", ["He read it twice before he understood that the handwriting was his mother's.", "It had been folded and unfolded so many times that the creases had gone soft as cloth.", "There was no date, only the name of the island and a sentence he would spend the winter trying to forget."]],
+    ["Market day", ["By nine the square was loud with goats, gossip, and the smell of frying dough."]],
+    ["The lighthouse keeper", ["Old Tomas kept the lamp lit long after the shipping lanes had moved north."]],
+    ["A cold supper", ["They ate in silence, the bread already stale and the soup gone thin."]],
+    ["Storm warning", ["The radio crackled twice and then gave up entirely."]],
+    ["What the tide left", ["In the morning the beach was strewn with rope, glass, and one small shoe."]],
+    ["Inventory", ["Mara counted what she had: forty coins, a key, and no good reason to stay."]],
+    ["The second letter", ["This one was typed, which somehow made it worse."]],
+    ["Harbor master", ["He wore his authority like a coat a size too large."]],
+    ["Night crossing", ["There was no moon, only the slap of water and the captain's low cursing."]],
+    ["The island school", ["Eleven children, one teacher, and a map that still showed the old border."]],
+    ["Debts", ["Everyone on the island owed somebody something, and most of them owed Ilse."]],
+    ["Fog", ["For three days the fog sat on the island like a held breath."]],
+    ["The chapel bell", ["It rang at noon on a Tuesday, though no one had climbed the tower in years."]],
+    ["Confession", ["“I didn't come back for the house,” she said, and for once it was the truth."]],
+    ["Salt", ["Her hands were raw from the brine, and still she kept working."]],
+    ["The mainland call", ["The telephone in the post office rang for her at last."]],
+    ["Low water", ["At low water you could walk to the rock, if you knew where to step."]],
+    ["The keeper's log", ["The entries stopped on the ninth of March and began again in another hand."]],
+    ["Wedding", ["The whole island came, even the ones who had sworn they wouldn't."]],
+    ["Leaving, again", ["She packed less this time, and took longer doing it."]],
+    ["Last light", ["From the deck the lighthouse looked smaller than she remembered, and kinder."]]
+  ];
+  const filler = ["The rest of this scene is placeholder text for the mockup, double-spaced and indented as it would be on the manuscript page.", "Edit anything here: the page is a live editor, and the formatting bar, comments and read-aloud button all work on it."];
+  let uid = 1; const nid = p => p + (uid++);
+  function makeScene(title, paras, i) {
+    const ps = paras.length > 1 ? paras : paras.concat(filler);
+    return { id: nid("s"), title, html: ps.map(p => `<p>${esc(p)}</p>`).join(""), notes: "", tags: [], comments: [], modified: now0 - (i * 2.7 * H + i * i * 3 * H) };
+  }
+  const working = { scenes: seeds.map((s, i) => makeScene(s[0], s[1], i)) };
+  // A sample comment in scene 1 and scene 2
+  working.scenes[0].comments.push({ id: "c1", color: "purple", text: "Too early for this reveal?" });
+  working.scenes[0].html = working.scenes[0].html.replace("He found the letter", 'He found the <span class="cmt" data-c="c1" style="--c:#7B2FBE">letter</span>').replace("He found the <span", "He found the <span");
+  working.scenes[0].comments.push({ id: "c2", color: "red", text: "Check the ferry schedule for the 1950s." });
+  working.scenes[0].html = working.scenes[0].html.replace("The ferry left at dawn", '<span class="cmt" data-c="c2" style="--c:#C62828">The ferry left at dawn</span>');
+  working.scenes[0].notes = "<p>Check the tide tables: would a ferry really leave at dawn in March?</p><p>Who kept the mother's letter all these years? <span style=\"color:#C62828\">Decide before scene 3.</span></p><p>Mara should notice the blue house before she reaches it.</p>";
+  working.scenes[1].notes = "<p>Arrival should feel like the opposite of the ferry: loud, bright, nobody waiting.</p>";
+  working.scenes[1].comments.push({ id: "c3", color: "blue", text: "Blue house: set this up earlier?" });
+  working.scenes[1].html = working.scenes[1].html.replace("painted blue", '<span class="cmt" data-c="c3" style="--c:#1E5BC6">painted blue</span>');
+
+  [["opening", "Mara"], ["Mara", "island"], ["mother", "clue"], [], ["Tomas"], [], ["storm"], ["clue"], ["Mara"], ["mother", "clue"]]
+    .forEach((t, i) => working.scenes[i].tags = t);
+  working.scenes[21].tags = ["set piece"];
+  working.boneyard = [
+    makeScene("The brother's boat", ["Pieter had painted the boat the same blue as the house, which nobody mentioned."], 30),
+    makeScene("A second storm", ["The second storm was worse than the first, and shorter."], 34)
+  ];
+  const clone = o => JSON.parse(JSON.stringify(o));
+  // File cabinet: copies are full book snapshots; tags/notes live in file_cabinet.json (here: cabinet array)
+  const cabinet = [];
+  function snapshot(book, n) { const b = clone(book); b.scenes = b.scenes.slice(0, n ?? b.scenes.length); return b; }
+  [[2, ["beta readers", "draft 3"], "Sent to the four beta readers. Ending still soft.", 24],
+   [19, ["draft 3"], "After the big restructure: Fog moved before Debts.", 24],
+   [45, ["contest", "first 3 chapters"], "Version submitted to the regional fiction contest.", 21],
+   [110, ["draft 2"], "Before cutting the brother subplot.", 20],
+   [230, ["draft 1", "complete"], "First complete draft.", 16]].forEach(([days, tags, note, n], i) =>
+    cabinet.push({ id: nid("k"), file: `cabinet/${iso(now0 - days * D)}-${i}.book.json`, date: iso(now0 - days * D), tags, note, book: snapshot(working, n) }));
+
+  // ---------- State ----------
+  let book = working, curScene = working.scenes[0], workingCur = null, readOnly = false, roCopy = null;
+  let color = "purple", hl = "green", zoom = 1;
+
+  // ---------- Editor ----------
+  document.execCommand("styleWithCSS", false, true);
+  const scene = () => curScene;
+  const curIdx = () => book.scenes.indexOf(curScene); // -1 when the open scene is in the Boneyard
+  const findScene = id => book.scenes.find(x => x.id === id) || book.boneyard.find(x => x.id === id);
+  const textOf = s => { const d = document.createElement("div"); d.innerHTML = s.html; const ps = [...d.querySelectorAll("p")]; return ps.length ? ps.map(p => p.textContent).join("\n") : d.textContent; };
+  const words = s => (s.title + " " + textOf(s)).trim().split(/\s+/).filter(Boolean).length;
+  let loaded = false;
+  function saveCurrent() {
+    if (readOnly || !loaded) return; const s = scene();
+    s.title = $("ptitle").textContent.trim() || "Untitled"; s.html = $("pbody").innerHTML; s.notes = $("notes").innerHTML;
+  }
+  function loadScene(i) {
+    saveCurrent(); curScene = (typeof i === "number") ? book.scenes[i] : i; const s = scene();
+    $("ptitle").textContent = s.title; $("pbody").innerHTML = s.html; $("notes").innerHTML = s.notes || ""; loaded = true;
+    $("ptitle").contentEditable = $("pbody").contentEditable = $("notes").contentEditable = String(!readOnly);
+    renderComments(); status(); $("desk").scrollTop = 0;
+  }
+  function status() {
+    const s = scene(), ci = curIdx(); $("crumb").textContent = ci >= 0 ? ` › ${ci + 1}. ${s.title}` : ` › Boneyard › ${s.title}`; if (typeof updateRail === "function") updateRail();
+    $("stScene").textContent = (ci >= 0 ? `Scene ${ci + 1} of ${book.scenes.length}` : "In the Boneyard (not in the manuscript)") + ` · ${fmt(words(s))} words`;
+    $("stBook").textContent = `Book · ${fmt(book.scenes.reduce((a, x) => a + words(x), 0))} words`;
+    $("stSaved").textContent = readOnly ? "Read only" : "Saved";
+  }
+  let saveT;
+  function edited() {
+    if (readOnly) return; scene().modified = Date.now(); $("stSaved").textContent = "Unsaved changes";
+    clearTimeout(saveT); saveT = setTimeout(() => { saveCurrent(); status(); $("stSaved").textContent = "Saved just now"; }, 2000);
+  }
+  $("pbody").addEventListener("input", edited);
+  $("notes").addEventListener("input", edited);
+
+  // Right panel tabs: Comments | Notes
+  function showTab(which) {
+    [["comments", "tabComments", "paneComments"], ["notes", "tabNotes", "paneNotes"], ["tags", "tabTags", "paneTags"]].forEach(([n, t, p]) => {
+      $(t).setAttribute("aria-selected", String(n === which)); $(p).hidden = n !== which;
+    });
+    if ($("comments").classList.contains("closed")) $("toggleComments").click();
+  }
+  // Only the formatting bar of the editor that has focus is active; the other is shown disabled.
+  let activeEd = "page";
+  function updateBars() {
+    document.querySelectorAll("#cbar .cbtn").forEach(b => { if (b.id !== "readBtn") b.disabled = readOnly || activeEd !== "page"; });
+    document.querySelectorAll("#nbar .cbtn").forEach(b => b.disabled = readOnly || activeEd !== "notes");
+    $("cbar").title = activeEd === "page" ? "" : "Click in the page to format the scene text";
+    $("nbar").title = activeEd === "notes" ? "" : "Click in the notes to format them";
+  }
+  ["ptitle", "pbody"].forEach(id => $(id).addEventListener("focusin", () => { activeEd = "page"; updateBars(); }));
+  $("notes").addEventListener("focusin", () => { activeEd = "notes"; updateBars(); });
+  $("tabComments").addEventListener("click", () => showTab("comments"));
+  $("tabNotes").addEventListener("click", () => showTab("notes"));
+  $("tabTags").addEventListener("click", () => showTab("tags"));
+  $("ptitle").addEventListener("input", edited);
+  $("ptitle").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("pbody").focus(); } });
+
+  // Formatting bar
+  const inBody = () => { const sel = getSelection(); return sel.rangeCount && $("pbody").contains(sel.anchorNode) && $("pbody").contains(sel.focusNode); };
+  const hasSel = () => inBody() && !getSelection().isCollapsed;
+  $("cbar").addEventListener("mousedown", e => { if (e.target.closest(".cbtn,.sw")) e.preventDefault(); });
+  document.querySelectorAll("[data-cmd]").forEach(b => b.addEventListener("click", () => { if (readOnly) return; document.execCommand(b.dataset.cmd); edited(); }));
+  function closePops() { ["colorPop", "hlPop", "nColorPop", "nHlPop"].forEach(id => $(id).classList.remove("open")); }
+  $("colorPop").innerHTML = '<span class="lbl">Text color</span>' + PAL.map(([n, h]) => `<button type="button" class="sw" data-c="${n}" title="${n[0].toUpperCase() + n.slice(1)}" style="background:${h}"></button>`).join("");
+  $("hlPop").innerHTML = '<span class="lbl">Highlight</span><button type="button" class="sw sq" data-h="none" title="None" style="background:#fff;background-image:linear-gradient(135deg,transparent 45%,#c62828 45%,#c62828 55%,transparent 55%)"></button>' + HL.map(([n, h]) => `<button type="button" class="sw sq" data-h="${n}" title="${n[0].toUpperCase() + n.slice(1)}" style="background:${h}"></button>`).join("");
+  const applyColor = () => { if (readOnly) return; document.execCommand("foreColor", false, color === "black" ? "#000000" : hex(color)); edited(); };
+  const applyHl = () => { if (readOnly) return; document.execCommand("hiliteColor", false, hl === "none" ? "transparent" : HL.find(x => x[0] === hl)[1]); edited(); };
+  function paintTools() {
+    const h = hl === "none" ? "transparent" : HL.find(x => x[0] === hl)[1];
+    $("colorBar").style.background = $("nColorBar").style.background = hex(color);
+    $("hlChip").style.background = $("nHlChip").style.background = h;
+  }
+  $("colorBtn").addEventListener("click", applyColor);
+  $("hlBtn").addEventListener("click", applyHl);
+  $("colorMenu").addEventListener("click", e => { e.stopPropagation(); $("hlPop").classList.remove("open"); $("colorPop").classList.toggle("open"); });
+  $("hlMenu").addEventListener("click", e => { e.stopPropagation(); $("colorPop").classList.remove("open"); $("hlPop").classList.toggle("open"); });
+  $("colorPop").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (!b) return; color = b.dataset.c; paintTools(); closePops(); applyColor(); });
+  $("hlPop").addEventListener("click", e => { const b = e.target.closest("[data-h]"); if (!b) return; hl = b.dataset.h; paintTools(); closePops(); applyHl(); });
+  document.addEventListener("click", e => { if (!e.target.closest(".pop,#colorMenu,#hlMenu,#nColorMenu,#nHlMenu")) closePops(); });
+  // Notes formatting bar (same palette, applies to the notes selection)
+  $("nbar").addEventListener("mousedown", e => { if (e.target.closest(".cbtn,.sw")) e.preventDefault(); });
+  document.querySelectorAll("[data-ncmd]").forEach(b => b.addEventListener("click", () => { if (readOnly) return; document.execCommand(b.dataset.ncmd); edited(); }));
+  $("nColorPop").innerHTML = $("colorPop").innerHTML; $("nHlPop").innerHTML = $("hlPop").innerHTML;
+  $("nColorBtn").addEventListener("click", applyColor);
+  $("nHlBtn").addEventListener("click", applyHl);
+  $("nColorMenu").addEventListener("click", e => { e.stopPropagation(); $("nHlPop").classList.remove("open"); $("nColorPop").classList.toggle("open"); });
+  $("nHlMenu").addEventListener("click", e => { e.stopPropagation(); $("nColorPop").classList.remove("open"); $("nHlPop").classList.toggle("open"); });
+  $("nColorPop").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (!b) return; color = b.dataset.c; paintTools(); closePops(); applyColor(); });
+  $("nHlPop").addEventListener("click", e => { const b = e.target.closest("[data-h]"); if (!b) return; hl = b.dataset.h; paintTools(); closePops(); applyHl(); });
+  paintTools();
+
+  // Read aloud (selection only, text tab only)
+  let speaking = false;
+  document.addEventListener("selectionchange", () => { if (!speaking) $("readBtn").disabled = !hasSel(); $("addComment").disabled = readOnly || !inBody(); });
+  $("readBtn").addEventListener("click", () => {
+    const synth = window.speechSynthesis;
+    if (speaking) { try { synth.cancel(); } catch (e) {} return; }
+    const text = getSelection().toString().trim(); if (!text) return;
+    if (!synth) { toast("Speech isn't available in this browser; the app uses the OS voice"); return; }
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = u.onerror = () => { speaking = false; $("readBtn").innerHTML = '<svg class="i"><use href="#ic-play"/></svg>'; $("readBtn").title = "Read aloud (select text first)"; $("readBtn").disabled = !hasSel(); };
+      speaking = true; $("readBtn").innerHTML = '<svg class="i"><use href="#ic-stop"/></svg>'; $("readBtn").title = "Stop reading"; synth.speak(u);
+    } catch (e) { speaking = false; toast("Speech isn't available here; the app uses the OS voice"); }
+  });
+
+  // Zoom
+  const setZoom = z => { zoom = Math.min(3, Math.max(.5, Math.round(z * 10) / 10)); $("page").style.zoom = zoom; $("zlvl").textContent = Math.round(zoom * 100) + "%"; };
+  // Undo / Redo: act on the editor you were last in (page or notes), like Cmd+Z / Shift+Cmd+Z
+  ["undoBtn", "redoBtn"].forEach(id => $(id).addEventListener("mousedown", e => e.preventDefault()));
+  function runUndo(cmd) {
+    if (readOnly) return;
+    const el = activeEd === "notes" ? $("notes") : $("pbody");
+    if (!el.contains(document.activeElement) && document.activeElement !== el) el.focus();
+    const ok = document.execCommand(cmd);
+    if (!ok) toast(cmd === "undo" ? "Nothing to undo" : "Nothing to redo"); else edited();
+  }
+  $("undoBtn").addEventListener("click", () => runUndo("undo"));
+  $("redoBtn").addEventListener("click", () => runUndo("redo"));
+  $("zin").addEventListener("click", () => setZoom(zoom + .1)); $("zout").addEventListener("click", () => setZoom(zoom - .1));
+  $("printBtn").addEventListener("click", () => $("printScrim").classList.add("open"));
+  $("pCancel").addEventListener("click", () => $("printScrim").classList.remove("open"));
+  $("printScrim").addEventListener("click", e => { if (e.target === $("printScrim")) $("printScrim").classList.remove("open"); });
+  document.querySelectorAll(".prange").forEach(b => b.addEventListener("click", () => document.querySelectorAll(".prange").forEach(x => x.setAttribute("aria-pressed", String(x === b)))));
+  $("printForm").addEventListener("submit", e => {
+    e.preventDefault(); const withC = $("printForm").pmode.value === "comments"; $("printScrim").classList.remove("open");
+    toast(withC ? "Opens the macOS print dialog in landscape, with a comments column" : "Opens the macOS print dialog in portrait");
+  });
+  $("wordBtn").addEventListener("click", () => toast(`Exports “${scene().title}” as .docx in Times New Roman 12 pt`));
+
+  // ---------- Comments ----------
+  // Comment search: plain words match the text; #color tokens filter by color (#grey = #gray)
+  const COLOR_ALIASES = { grey: "gray" };
+  function parseCommentQuery(raw) {
+    const colors = new Set(), words = [], unknown = [];
+    raw.trim().toLowerCase().split(/\s+/).filter(Boolean).forEach(t => {
+      if (t.startsWith("#")) {
+        const n = COLOR_ALIASES[t.slice(1)] || t.slice(1);
+        if (PAL.some(p => p[0] === n)) colors.add(n); else if (t.length > 1) unknown.push(t);
+      } else words.push(t);
+    });
+    return { colors, words, unknown };
+  }
+  $("cq").addEventListener("input", renderComments);
+  function anchorText(id) { return [...$("pbody").querySelectorAll(`.cmt[data-c="${id}"]`)].map(n => n.textContent).join(" "); }
+  function renderSceneTags() {
+    const s = scene(), t = s.tags || (s.tags = []);
+    $("stags").innerHTML = t.map((x, i) => `<span class="tagchip">#${esc(x)}${readOnly ? "" : `<button type="button" data-rmt="${i}" aria-label="Remove tag ${esc(x)}">×</button>`}</span>`).join("") +
+      (readOnly ? (t.length ? "" : '<span class="quiet">none</span>') : '<input type="text" id="newSTag" placeholder="+ tag" aria-label="Add a tag to this scene">');
+    renderAllTags();
+  }
+  function renderAllTags() {
+    const counts = new Map();
+    [...book.scenes, ...book.boneyard].forEach(sc => (sc.tags || []).forEach(t => counts.set(t, (counts.get(t) || 0) + 1)));
+    const mine = new Set(scene().tags || []);
+    $("alltags").innerHTML = counts.size ? [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { sensitivity: "base" })).map(([t, n]) =>
+      `<button type="button" class="atag" data-t="${esc(t)}" aria-pressed="${mine.has(t)}" ${readOnly ? "disabled" : ""} title="${mine.has(t) ? "Remove from" : "Add to"} this scene"><span>#${esc(t)}</span><span class="cnt">${n}</span><span class="find" data-find="${esc(t)}" title="Find scenes tagged #${esc(t)}">⌕</span></button>`).join("")
+      : '<div class="quiet" style="font-size:13px">No tags yet. Add one above, or on a scene card.</div>';
+  }
+  $("alltags").addEventListener("click", e => {
+    const f = e.target.closest("[data-find]");
+    if (f) { showSheet("search"); $("gq").value = f.dataset.find; $("optTags").checked = true; document.querySelector('.scopeb[data-scope="book"]').click(); return; }
+    const b = e.target.closest(".atag"); if (!b || readOnly) return; const t = b.dataset.t, tags = scene().tags;
+    const i = tags.indexOf(t); if (i >= 0) tags.splice(i, 1); else tags.push(t); edited(); renderSceneTags();
+  });
+  $("stags").addEventListener("click", e => { const b = e.target.closest("[data-rmt]"); if (!b || readOnly) return; scene().tags.splice(+b.dataset.rmt, 1); edited(); renderSceneTags(); });
+  $("stags").addEventListener("keydown", e => {
+    if (e.target.id !== "newSTag" || e.key !== "Enter") return; e.preventDefault();
+    const v = e.target.value.trim().replace(/^#/, ""); if (!v || scene().tags.includes(v)) return;
+    scene().tags.push(v); edited(); renderSceneTags(); setTimeout(() => $("newSTag")?.focus(), 0);
+  });
+  function renderComments() {
+    renderSceneTags();
+    const { colors, words, unknown } = parseCommentQuery($("cq").value);
+    const hint = $("cfhint");
+    if (colors.size || unknown.length) {
+      hint.hidden = false;
+      hint.innerHTML = "Showing " + [...colors].map(n => `<span class="cc" style="--c:${hex(n)}"><i></i>${n}</span>`).join("") +
+        (unknown.length ? ` <span>· unknown color ${unknown.map(esc).join(", ")} (try #black #purple #red #blue #green #gray #pink)</span>` : "");
+    } else hint.hidden = true;
+    const list = scene().comments.filter(c => (!colors.size || colors.has(c.color)) && words.every(w => c.text.toLowerCase().includes(w)));
+    if (!scene().comments.length) { $("clist").innerHTML = '<div class="noc">No comments in this scene. Select text, then click \u{1F4AC} Comment beside it or +.</div>'; return; }
+    $("clist").innerHTML = list.map(c => `<div class="card" data-id="${c.id}" style="--c:${hex(c.color)}">
+      <div class="txt" contenteditable="${!readOnly}" spellcheck="true">${esc(c.text)}</div>
+      <div class="anchor">on “${esc(anchorText(c.id).slice(0, 40))}”</div>
+      <button type="button" class="more" aria-haspopup="menu" aria-expanded="false" title="Color and dismiss" aria-label="Comment options">⋯</button></div>`).join("") || '<div class="noc">No comments match.</div>';
+  }
+  // Per-comment menu: color swatches + Dismiss
+  let menuFor = null;
+  $("cmenuSw").innerHTML = PAL.map(([n, h]) => `<button type="button" role="radio" data-set="${n}" title="${n[0].toUpperCase() + n.slice(1)}" aria-label="${n}" style="background:${h}"></button>`).join("");
+  function openCMenu(id, btn) {
+    const c = scene().comments.find(x => x.id === id); menuFor = id;
+    $("cmenuSw").querySelectorAll("button").forEach(b => b.setAttribute("aria-checked", String(b.dataset.set === c.color)));
+    const m = $("cmenu"); m.hidden = false; const r = btn.getBoundingClientRect();
+    m.style.left = Math.min(window.innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth) + "px";
+    m.style.top = (r.bottom + 4 + m.offsetHeight > window.innerHeight ? r.top - m.offsetHeight - 4 : r.bottom + 4) + "px";
+    btn.setAttribute("aria-expanded", "true"); m.querySelector(`[data-set="${c.color}"]`).focus();
+  }
+  function closeCMenu() { $("cmenu").hidden = true; menuFor = null; document.querySelectorAll(".card .more[aria-expanded=true]").forEach(b => b.setAttribute("aria-expanded", "false")); }
+  function dismissComment(id) {
+    $("pbody").querySelectorAll(`.cmt[data-c="${id}"]`).forEach(s => s.replaceWith(...s.childNodes));
+    scene().comments = scene().comments.filter(c => c.id !== id); edited(); renderComments(); toast("Comment dismissed (Cmd+Z in the app brings it back)");
+  }
+  $("cmenuSw").addEventListener("click", e => {
+    const b = e.target.closest("[data-set]"); if (!b || !menuFor) return;
+    const c = scene().comments.find(x => x.id === menuFor); c.color = b.dataset.set; color = c.color; paintTools();
+    $("pbody").querySelectorAll(`.cmt[data-c="${menuFor}"]`).forEach(s => s.style.setProperty("--c", hex(c.color)));
+    const id = menuFor; closeCMenu(); edited(); renderComments(); $("clist").querySelector(`[data-id="${id}"]`)?.classList.add("sel");
+  });
+  $("cmenuDismiss").addEventListener("click", () => { const id = menuFor; closeCMenu(); if (id) dismissComment(id); });
+  document.addEventListener("mousedown", e => { if (!$("cmenu").hidden && !e.target.closest("#cmenu,.more")) closeCMenu(); });
+  $("cmenu").addEventListener("keydown", e => {
+    if (e.key === "Escape") { e.stopPropagation(); closeCMenu(); }
+    if ((e.key === "Backspace" || e.key === "Delete") && menuFor) { const id = menuFor; closeCMenu(); dismissComment(id); }
+  });
+  $("addComment").addEventListener("mousedown", e => e.preventDefault());
+  $("addComment").addEventListener("click", () => {
+    if (readOnly) return; const sel = getSelection(); if (!inBody()) { toast("Click in the text first"); return; }
+    let r = sel.getRangeAt(0);
+    if (r.collapsed) { // expand to the word at the cursor
+      const n = r.startContainer; if (n.nodeType !== 3) { toast("Select some text first"); return; }
+      const t = n.textContent; let a = r.startOffset, b = r.startOffset;
+      while (a > 0 && /\w/.test(t[a - 1])) a--; while (b < t.length && /\w/.test(t[b])) b++;
+      if (a === b) { toast("Select some text first"); return; } r = document.createRange(); r.setStart(n, a); r.setEnd(n, b);
+    }
+    const id = nid("c");
+    // wrap each text node in the range
+    const walker = document.createTreeWalker(r.commonAncestorContainer.nodeType === 3 ? r.commonAncestorContainer.parentNode : r.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+    const nodes = []; while (walker.nextNode()) if (r.intersectsNode(walker.currentNode)) nodes.push(walker.currentNode);
+    nodes.forEach(n => {
+      let s = 0, e = n.textContent.length;
+      if (n === r.startContainer) s = r.startOffset; if (n === r.endContainer) e = r.endOffset;
+      if (s >= e) return; const mid = n.splitText(s); mid.splitText(e - s);
+      const span = document.createElement("span"); span.className = "cmt"; span.dataset.c = id; span.style.setProperty("--c", hex(color));
+      mid.parentNode.insertBefore(span, mid); span.appendChild(mid);
+    });
+    sel.removeAllRanges();
+    scene().comments.push({ id, color, text: "" }); edited(); renderComments();
+    const t = $("clist").querySelector(`[data-id="${id}"] .txt`); if (t) t.focus();
+  });
+  // Floating "Comment" button next to the end of a text selection on the page
+  function placeSelPop() {
+    const pop = $("selPop");
+    if (readOnly || !hasSel() || openSheet) { pop.hidden = true; return; }
+    const rects = getSelection().getRangeAt(0).getClientRects(); const r = rects[rects.length - 1]; if (!r) { pop.hidden = true; return; }
+    pop.hidden = false;
+    const w = pop.offsetWidth, x = Math.min(window.innerWidth - w - 8, r.right + 6), y = r.bottom + 6 + 28 > window.innerHeight ? r.top - 34 : r.bottom + 6;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+  }
+  document.addEventListener("mouseup", () => setTimeout(placeSelPop, 0));
+  document.addEventListener("keyup", e => { if (e.shiftKey || e.key === "Shift") placeSelPop(); });
+  document.addEventListener("selectionchange", () => { if (!hasSel()) $("selPop").hidden = true; });
+  $("desk").addEventListener("scroll", () => $("selPop").hidden = true);
+  $("selPop").addEventListener("mousedown", e => e.preventDefault());
+  $("selPop").addEventListener("click", () => { $("selPop").hidden = true; showTab("comments"); $("addComment").click(); });
+  document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === "m" || e.key === "µ" || e.code === "KeyM")) { e.preventDefault(); showTab("comments"); $("addComment").click(); } });
+
+  $("clist").addEventListener("input", e => { const card = e.target.closest(".card"); if (!card) return; const c = scene().comments.find(x => x.id === card.dataset.id); c.text = e.target.textContent; edited(); });
+  $("clist").addEventListener("click", e => {
+    const card = e.target.closest(".card"); if (!card) return; const id = card.dataset.id;
+    const more = e.target.closest(".more");
+    if (more) { if (menuFor === id) closeCMenu(); else { closeCMenu(); openCMenu(id, more); } return; }
+    flash(id, card);
+  });
+  function flash(id, card) {
+    document.querySelectorAll(".card.sel").forEach(c => c.classList.remove("sel")); if (card) card.classList.add("sel");
+    const spans = $("pbody").querySelectorAll(`.cmt[data-c="${id}"]`); if (!spans.length) return;
+    spans[0].scrollIntoView({ block: "center", behavior: "smooth" });
+    spans.forEach(s => { s.classList.add("flash"); setTimeout(() => s.classList.remove("flash"), 1200); });
+  }
+  $("pbody").addEventListener("click", e => {
+    const s = e.target.closest(".cmt"); if (!s) return;
+    const card = $("clist").querySelector(`[data-id="${s.dataset.c}"]`);
+    document.querySelectorAll(".card.sel").forEach(c => c.classList.remove("sel")); if (card) { card.classList.add("sel"); card.scrollIntoView({ block: "nearest" }); }
+  });
+  $("toggleComments").addEventListener("click", () => {
+    const closed = $("comments").classList.toggle("closed");
+    $("toggleComments").textContent = closed ? "«" : "»"; $("toggleComments").setAttribute("aria-label", closed ? "Show comments" : "Hide comments");
+  });
+
+  // ---------- Sheets ----------
+  let openSheet = null;
+  function showSheet(name) {
+    saveCurrent();
+    document.querySelectorAll(".sheet").forEach(s => s.classList.toggle("open", s.id === "sheet-" + name));
+    document.querySelectorAll(".rbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.sheet === name)));
+    openSheet = name;
+    if (name === "scenes") renderScenes();
+    if (name === "search") { renderSearch(); setTimeout(() => $("gq").focus(), 60); }
+    if (name === "cabinet") { renderTagFilters(); renderCabinet(); }
+  }
+  function hideSheets() { document.querySelectorAll(".sheet").forEach(s => s.classList.remove("open")); document.querySelectorAll(".rbtn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.sheet === "page"))); openSheet = null; }
+  document.querySelectorAll(".rbtn").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.sheet === "page") { hideSheets(); $("pbody").focus(); return; }
+    openSheet === b.dataset.sheet ? hideSheets() : showSheet(b.dataset.sheet);
+  }));
+  function updateRail() {
+    const has = book.scenes.length > 0;
+    $("railScene").disabled = !has;
+    const ci = curIdx(); $("railBadge").textContent = has ? (ci >= 0 ? ci + 1 : "B") : "";
+    $("railSceneTip").textContent = has ? `Current scene: ${ci >= 0 ? (ci + 1) + ". " : "Boneyard · "}${scene().title} — Esc returns here from a sheet` : "No scene open";
+  }
+  document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", hideSheets));
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { if ($("scrim").classList.contains("open")) closeDialog(); else if (openSheet) hideSheets(); else closePops(); }
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === "1") { e.preventDefault(); openSheet === "scenes" ? hideSheets() : showSheet("scenes"); }
+    if (mod && e.shiftKey && (e.key === "F" || e.key === "f")) { e.preventDefault(); showSheet("search"); }
+  });
+
+  // Scenes sheet
+  const clip = (s, n = 120) => s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
+  const firstSentence = s => { const t = textOf(s).trim(); const m = t.match(/^[^\n]*?[.!?]["”]?(?=\s|$)/); return clip(m ? m[0].trim() : t.split("\n")[0]); };
+  const GRIP = '<span class="grip" title="Drag"><svg width="12" height="16"><use href="#ic-grip"/></svg></span>';
+  function renderScenes() {
+    const q = $("sfilter").value.trim().toLowerCase();
+    $("sceneTotals").textContent = `${book.scenes.length} scenes · ${fmt(book.scenes.reduce((a, x) => a + words(x), 0))} words`;
+    $("sgrid").innerHTML = book.scenes.map((s, i) => {
+      const hide = q && !(s.title.toLowerCase().includes(q) || textOf(s).toLowerCase().includes(q) || (s.tags || []).some(t => t.toLowerCase().includes(q.replace(/^#/, ""))));
+      return `<article class="scard${s === curScene ? " current" : ""}" data-id="${s.id}" tabindex="0" style="${hide ? "display:none" : ""}" title="Click to open · drag to reorder or into the Boneyard · Delete key cuts it">
+        <div class="stop"><span class="num">${i + 1}</span><span class="stitle" title="${esc(s.title)}">${esc(s.title)}</span>${readOnly ? "" : GRIP}</div>
+        <div class="smeta"><span>${fmt(words(s))} words</span><span>${humanize(s.modified)}</span></div>
+        <p class="sfirst">${esc(firstSentence(s))}</p><div class="ctags">${(s.tags || []).map((t, ti) => `<span class="tagchip">#${esc(t)}${readOnly ? "" : `<button type="button" data-rmtag="${ti}" aria-label="Remove tag ${esc(t)}">×</button>`}</span>`).join("")}${readOnly ? "" : '<button type="button" class="addtag" title="Add a tag to this scene">+ tag</button>'}</div></article>`; }).join("") +
+      (readOnly || q ? "" : `<button type="button" class="addtile" id="addTile" title="Add a scene at the end"><span>+</span>New scene</button>`);
+    renderBone();
+  }
+  function renderBone() {
+    $("boneCount").textContent = `(${book.boneyard.length})`;
+    $("bone").classList.toggle("ro", readOnly);
+    $("brow").innerHTML = book.boneyard.length ? book.boneyard.map(s => `<article class="btile${s === curScene ? " current" : ""}" data-id="${s.id}" tabindex="0" title="${esc(s.title)} · click to open · drag onto the grid to restore">
+        ${readOnly ? "" : GRIP}<span class="bt">${esc(s.title)}</span><span class="bw">${fmt(words(s))} w</span>${readOnly ? "" : '<button type="button" class="restore" title="Restore to the end of the manuscript" aria-label="Restore">↩</button>'}</article>`).join("")
+      : `<div class="bempty">Empty. Drag a scene card here to cut it from the manuscript.</div>`;
+  }
+  $("sfilter").addEventListener("input", renderScenes);
+  const setView = light => { $("sgrid").classList.toggle("light", light); $("vCards").setAttribute("aria-pressed", String(!light)); $("vLight").setAttribute("aria-pressed", String(light)); };
+  $("vCards").addEventListener("click", () => setView(false)); $("vLight").addEventListener("click", () => setView(true));
+  function openScene(x) { hideSheets(); loadScene(x); }
+
+  // New scenes: header button inserts after the open scene; the + tile adds at the end. Title is edited in place.
+  function newScene(at) {
+    if (readOnly) return; saveCurrent();
+    const s = { id: nid("s"), title: "Untitled scene", html: "<p><br></p>", notes: "", tags: [], comments: [], modified: Date.now() };
+    book.scenes.splice(at, 0, s); edited(); status(); renderScenes();
+    const card = $("sgrid").querySelector(`[data-id="${s.id}"]`); card.scrollIntoView({ block: "nearest" });
+    const t = card.querySelector(".stitle"); t.innerHTML = `<input type="text" value="Untitled scene" aria-label="Scene title">`;
+    const inp = t.querySelector("input"); inp.focus(); inp.select();
+    const commit = () => { s.title = inp.value.trim() || "Untitled scene"; edited(); renderScenes(); toast(`Added scene ${book.scenes.indexOf(s) + 1}: “${s.title}”`); };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } if (e.key === "Escape") { e.stopPropagation(); inp.blur(); } });
+    inp.addEventListener("blur", commit, { once: true });
+  }
+  $("newSceneBtn").addEventListener("click", () => { const ci = curIdx(); newScene(ci >= 0 ? ci + 1 : book.scenes.length); });
+
+  // Boneyard: cut and restore
+  function cutScene(id) {
+    const i = book.scenes.findIndex(x => x.id === id); if (i < 0) return; const [s] = book.scenes.splice(i, 1);
+    book.boneyard.unshift(s); edited(); status(); renderScenes();
+    toast(`“${s.title}” moved to the Boneyard`);
+  }
+  function restoreScene(id, at) {
+    const i = book.boneyard.findIndex(x => x.id === id); if (i < 0) return; const [s] = book.boneyard.splice(i, 1);
+    at = Math.max(0, Math.min(at, book.scenes.length)); book.scenes.splice(at, 0, s); edited(); status(); renderScenes();
+    toast(`“${s.title}” restored as scene ${at + 1}`);
+  }
+
+  $("sgrid").addEventListener("click", e => {
+    if (e.target.closest(".grip,input")) return;
+    const card0 = e.target.closest(".scard");
+    if (card0 && e.target.closest("[data-rmtag]")) { const sc = findScene(card0.dataset.id); sc.tags.splice(+e.target.closest("[data-rmtag]").dataset.rmtag, 1); edited(); renderScenes(); renderSceneTags(); return; }
+    if (card0 && e.target.closest(".addtag")) {
+      const sc = findScene(card0.dataset.id), btn = e.target.closest(".addtag");
+      btn.outerHTML = '<input type="text" placeholder="tag" aria-label="New tag">';
+      const inp = card0.querySelector(".ctags input"); inp.focus();
+      const done = add => { const v = inp.value.trim().replace(/^#/, ""); if (add && v && !sc.tags.includes(v)) { sc.tags.push(v); edited(); renderSceneTags(); } renderScenes(); };
+      inp.addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); done(true); setTimeout(() => $("sgrid").querySelector(`[data-id="${sc.id}"] .addtag`)?.click(), 0); } if (ev.key === "Escape") { ev.stopPropagation(); done(false); } });
+      inp.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== inp && inp.isConnected) done(true); }, 0));
+      return;
+    }
+    if (e.target.closest(".ctags")) return;
+    if (e.target.closest("#addTile")) { newScene(book.scenes.length); return; }
+    const c = e.target.closest(".scard"); if (c) openScene(findScene(c.dataset.id));
+  });
+  $("brow").addEventListener("click", e => {
+    const t = e.target.closest(".btile"); if (!t || e.target.closest(".grip")) return;
+    if (e.target.closest(".restore")) { restoreScene(t.dataset.id, book.scenes.length); return; }
+    openScene(findScene(t.dataset.id));
+  });
+  $("sgrid").addEventListener("keydown", e => {
+    const c = e.target.closest(".scard"); if (!c || e.target.closest("input")) return; const i = book.scenes.findIndex(x => x.id === c.dataset.id);
+    if (e.key === "Enter") { openScene(book.scenes[i]); return; }
+    if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) { e.preventDefault(); cutScene(c.dataset.id); return; }
+    if (!e.altKey || readOnly) return;
+    const j = (e.key === "ArrowLeft" || e.key === "ArrowUp") ? i - 1 : (e.key === "ArrowRight" || e.key === "ArrowDown") ? i + 1 : -1;
+    if (j < 0 || j >= book.scenes.length) return; e.preventDefault();
+    const [s] = book.scenes.splice(i, 1); book.scenes.splice(j, 0, s); edited(); status(); renderScenes();
+    $("sgrid").querySelector(`[data-id="${s.id}"]`).focus();
+  });
+
+  // Pointer drag: grid cards reorder or drop into the Boneyard; Boneyard tiles drop onto the grid to restore.
+  let drag = null;
+  function gridItems() { return [...$("sgrid").querySelectorAll(".scard, .slot")]; }
+  function renumber() { let n = 0; gridItems().forEach(c => { n++; const num = c.querySelector(".num"); if (num) num.textContent = n; }); }
+  $("sheet-scenes").addEventListener("pointerdown", e => {
+    const g = e.target.closest(".grip"); if (!g || readOnly || $("sfilter").value) return;
+    const el = g.closest(".scard, .btile"); if (!el) return;
+    const kind = el.classList.contains("btile") ? "bone" : "grid";
+    const r = el.getBoundingClientRect(), ghost = el.cloneNode(true);
+    ghost.classList.add("ghost"); ghost.classList.remove("current"); ghost.style.width = r.width + "px"; ghost.style.height = r.height + "px";
+    ghost.style.left = r.left + "px"; ghost.style.top = r.top + "px";
+    document.body.appendChild(ghost); el.classList.add("placeholder"); document.body.classList.add("dragging");
+    drag = { el, kind, ghost, id: el.dataset.id, dx: e.clientX - r.left, dy: e.clientY - r.top, y: e.clientY, overBone: false, slot: null };
+    g.setPointerCapture(e.pointerId); e.preventDefault(); scrollTick();
+  });
+  $("sheet-scenes").addEventListener("pointermove", e => {
+    if (!drag) return; drag.y = e.clientY;
+    drag.ghost.style.left = (e.clientX - drag.dx) + "px"; drag.ghost.style.top = (e.clientY - drag.dy) + "px";
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    drag.overBone = !!under?.closest("#bone");
+    $("bone").classList.toggle("over", drag.overBone && drag.kind === "grid");
+    if (drag.overBone) { if (drag.slot) { drag.slot.remove(); drag.slot = null; renumber(); } return; }
+    const t = under?.closest("#sgrid > .scard"); if (!t || t === drag.el) return;
+    const tr = t.getBoundingClientRect(), before = e.clientX > tr.left + tr.width / 2 ? t.nextElementSibling : t;
+    if (drag.kind === "grid") $("sgrid").insertBefore(drag.el, before);
+    else { if (!drag.slot) { drag.slot = document.createElement("div"); drag.slot.className = "slot"; drag.slot.innerHTML = '<div class="stop"><span class="num"></span><span class="quiet">Restore here</span></div>'; } $("sgrid").insertBefore(drag.slot, before); }
+    renumber();
+  });
+  function scrollTick() { if (!drag) return; const sc = $("sheet-scenes").querySelector(".sbody"), r = sc.getBoundingClientRect(); if (drag.y < r.top + 50) sc.scrollTop -= 12; else if (drag.y > r.bottom - 50 && drag.y < r.bottom) sc.scrollTop += 12; requestAnimationFrame(scrollTick); }
+  function endDrag() {
+    if (!drag) return; const d = drag; drag = null;
+    d.ghost.remove(); d.el.classList.remove("placeholder"); document.body.classList.remove("dragging"); $("bone").classList.remove("over");
+    if (d.kind === "grid") {
+      if (d.overBone) { cutScene(d.id); return; }
+      const ids = [...$("sgrid").querySelectorAll(".scard")].map(c => c.dataset.id), before = book.scenes.map(x => x.id).join();
+      book.scenes = ids.map(id => book.scenes.find(x => x.id === id));
+      if (ids.join() !== before) { edited(); status(); const s = findScene(d.id); toast(`“${s.title}” moved to position ${book.scenes.indexOf(s) + 1}`); }
+      renderScenes();
+    } else {
+      if (d.slot) { const at = gridItems().indexOf(d.slot); d.slot.remove(); restoreScene(d.id, at); } else renderScenes();
+    }
+  }
+  $("sheet-scenes").addEventListener("pointerup", endDrag); $("sheet-scenes").addEventListener("pointercancel", endDrag);
+
+  // Search sheet
+  let scope = "book";
+  document.querySelectorAll(".scopeb").forEach(b => b.addEventListener("click", () => {
+    scope = b.dataset.scope; document.querySelectorAll(".scopeb").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    $("cRange").hidden = scope !== "cabinet"; if (scope === "cabinet") fillCopyPick(); renderSearch();
+  }));
+  const inRange = list => list.filter(c => (!$("sFrom").value || c.date >= $("sFrom").value) && (!$("sTo").value || c.date <= $("sTo").value));
+  function fillCopyPick() {
+    const v = $("copyPick").value;
+    $("copyPick").innerHTML = `<option value="all">All filed copies${$("sFrom").value || $("sTo").value ? " in range" : ""} (${inRange(cabinet).length})</option>` +
+      inRange(cabinet).sort((a, b) => b.date.localeCompare(a.date)).map(c => `<option value="${c.id}">${longDate(c.date)} · ${esc(c.tags.join(", "))}</option>`).join("");
+    if ([...$("copyPick").options].some(o => o.value === v)) $("copyPick").value = v;
+  }
+  $("copyPick").addEventListener("change", renderSearch);
+  ["sFrom", "sTo"].forEach(id => $(id).addEventListener("input", () => { fillCopyPick(); renderSearch(); }));
+  // Tags only exist on filed copies, so ticking "Search tags" switches to the File Cabinet scope.
+
+  ["gq", "optCase", "optWord", "optTags"].forEach(id => $(id).addEventListener("input", renderSearch));
+  function finder() {
+    const q = $("gq").value.trim(); if (!q) return null;
+    const src = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp($("optWord").checked ? `\\b${src}\\b` : src, $("optCase").checked ? "g" : "gi");
+  }
+  function snippet(text, idx, len) {
+    const a = Math.max(0, idx - 50), b = Math.min(text.length, idx + len + 60);
+    return (a > 0 ? "…" : "") + esc(text.slice(a, idx)) + "<mark>" + esc(text.slice(idx, idx + len)) + "</mark>" + esc(text.slice(idx + len, b)) + (b < text.length ? "…" : "");
+  }
+  function scanScene(s, re) {
+    const hits = [];
+    const scan = (where, text, key) => { re.lastIndex = 0; let m, k = 0; while ((m = re.exec(text)) && hits.length < 50) { hits.push({ where, sn: snippet(text, m.index, m[0].length), key, k: k++ }); if (!m[0].length) re.lastIndex++; } };
+    if ($("optTags").checked && (s.tags || []).length) {
+      const th = s.tags.filter(t => { re.lastIndex = 0; return re.test(t); });
+      if (th.length) hits.push({ where: "Tags", sn: s.tags.map(t => { re.lastIndex = 0; const m = re.exec(t); return `<span class="tagchip">#${m ? esc(t.slice(0, m.index)) + "<mark>" + esc(t.slice(m.index, m.index + m[0].length)) + "</mark>" + esc(t.slice(m.index + m[0].length)) : esc(t)}</span>`; }).join(" "), key: "g", k: 0 });
+    }
+    scan("Title", s.title, "t"); scan("Text", textOf(s), "b"); scan("Notes", textOf({ html: s.notes || "" }), "n"); s.comments.forEach(c => scan("Comment", c.text, "c:" + c.id));
+    return hits;
+  }
+  function renderSearch() {
+    const re = finder();
+    const what = { scene: "this scene", book: "every scene in the book, including the Boneyard", cabinet: "the filed copies in the File Cabinet" }[scope];
+    if (!re) { $("gsummary").textContent = `Type to search titles, text, notes and comments in ${what}.`; $("gresults").innerHTML = ""; return; }
+    // Sources: [{ copy (or null for the open book), bk, scenes }]
+    let sources;
+    if (scope === "cabinet") {
+      const pick = $("copyPick").value || "all";
+      sources = inRange(cabinet).filter(c => pick === "all" || c.id === pick).sort((a, b) => b.date.localeCompare(a.date)).map(c => ({ copy: c, bk: c.book, scenes: [...c.book.scenes, ...(c.book.boneyard || [])] }));
+    } else sources = [{ copy: null, bk: book, scenes: scope === "book" ? [...book.scenes, ...book.boneyard] : [curScene] }];
+    let total = 0, groups = 0, tagTotal = 0, tagCopies = 0, html = "";
+    sources.forEach(src => {
+      let part = "";
+      if (scope === "cabinet" && $("optTags").checked) {
+        const tagHits = src.copy.tags.filter(t => { re.lastIndex = 0; return re.test(t); });
+        if (tagHits.length) {
+          tagTotal += tagHits.length; tagCopies++;
+          part += `<div class="rgroup"><h3>Tags<span class="cnt">${tagHits.length} ${tagHits.length === 1 ? "match" : "matches"}</span></h3><button type="button" class="hit taghit" data-copy="${src.copy.id}" data-tagonly="1"><span class="where">Tags</span>` +
+            src.copy.tags.map(t => { re.lastIndex = 0; const m = re.exec(t); return `<span class="tagchip">${m ? esc(t.slice(0, m.index)) + "<mark>" + esc(t.slice(m.index, m.index + m[0].length)) + "</mark>" + esc(t.slice(m.index + m[0].length)) : esc(t)}</span>`; }).join("") + `</button></div>`;
+        }
+      }
+      src.scenes.forEach(s => {
+        const hits = scanScene(s, re); if (!hits.length) return;
+        const i = src.bk.scenes.indexOf(s); total += hits.length; groups++;
+        part += `<div class="rgroup"><h3><span class="num">${i >= 0 ? i + 1 : "B"}</span>${esc(s.title)}${i < 0 ? ' <span class="quiet" style="font-weight:400">· Boneyard</span>' : ""}<span class="cnt">${hits.length} ${hits.length === 1 ? "match" : "matches"}</span></h3>` +
+          hits.map(h => `<button type="button" class="hit" data-copy="${src.copy ? src.copy.id : ""}" data-id="${s.id}" data-key="${h.key}" data-k="${h.k}"><span class="where">${h.where}</span>${h.sn}</button>`).join("") + "</div>";
+      });
+      if (part && src.copy) html += `<div class="copyhead">\u{1F5C4} ${longDate(src.copy.date)} <span class="quiet">· ${esc(src.copy.tags.join(", "))} · opens read-only</span></div>`;
+      html += part;
+    });
+    const where = scope === "cabinet" ? ` across ${sources.length} filed ${sources.length === 1 ? "copy" : "copies"}` : "";
+    const parts = [];
+    if (total) parts.push(`${total} ${total === 1 ? "match" : "matches"} in ${groups} ${groups === 1 ? "scene" : "scenes"}${where}`);
+    if (tagTotal) parts.push(`tags match on ${tagCopies} ${tagCopies === 1 ? "copy" : "copies"}`);
+    $("gsummary").textContent = parts.length ? parts.join(" · ") : "No matches.";
+    $("gresults").innerHTML = html;
+  }
+  $("gresults").addEventListener("click", e => {
+    const h = e.target.closest(".hit"); if (!h) return; const key = h.dataset.key, k = +h.dataset.k;
+    const re = finder();
+    if (h.dataset.copy) openCopy(h.dataset.copy);
+    if (h.dataset.tagonly) return;
+    openScene(findScene(h.dataset.id));
+    if (key.startsWith("c:")) { showTab("comments"); const id = key.slice(2); const card = $("clist").querySelector(`[data-id="${id}"]`); flash(id, card); return; }
+    if (key === "n") { showTab("notes"); markIn($("notes"), re, k); return; }
+    if (key === "g") { showTab("tags"); return; }
+    markIn(key === "t" ? $("ptitle") : $("pbody"), re, k);
+  });
+  function markIn(root, re, k) {
+    // highlight the k-th match inside root's text nodes
+    const nodes = []; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); while (w.nextNode()) nodes.push(w.currentNode);
+    const full = nodes.map(n => n.textContent).join(""); re.lastIndex = 0; let m, n = 0; while ((m = re.exec(full)) && n < k) { n++; if (!m[0].length) re.lastIndex++; }
+    if (!m) return; let pos = 0;
+    for (const node of nodes) {
+      const len = node.textContent.length;
+      if (m.index >= pos && m.index < pos + len) {
+        const r = document.createRange(); r.setStart(node, m.index - pos); r.setEnd(node, Math.min(len, m.index - pos + m[0].length));
+        const mk = document.createElement("mark"); mk.className = "find"; r.surroundContents(mk);
+        mk.scrollIntoView({ block: "center" }); setTimeout(() => { mk.replaceWith(...mk.childNodes); }, 2500); return;
+      }
+      pos += len;
+    }
+  }
+
+  // ---------- File Cabinet ----------
+  const tagOn = new Set();
+  const daysAgo = s => {
+    const [y, m, d] = s.split("-").map(Number), t = new Date(); t.setHours(0, 0, 0, 0);
+    const days = Math.round((t - new Date(y, m - 1, d)) / D);
+    if (days <= 0) return "today"; if (days === 1) return "yesterday"; if (days < 7) return days + " days ago";
+    if (days < 30) { const w = Math.round(days / 7); return w + (w === 1 ? " week ago" : " weeks ago"); }
+    if (days < 365) { const mo = Math.round(days / 30); return mo + (mo === 1 ? " month ago" : " months ago"); }
+    const yr = Math.round(days / 365); return yr + (yr === 1 ? " year ago" : " years ago");
+  };
+  const allTags = () => [...new Set(cabinet.flatMap(c => c.tags))].sort();
+  function renderTagFilters() {
+    $("tagFilters").innerHTML = allTags().map(t => `<button type="button" class="chip" data-t="${esc(t)}" aria-pressed="${tagOn.has(t)}">${esc(t)}</button>`).join("");
+  }
+  $("tagFilters").addEventListener("click", e => { const b = e.target.closest("[data-t]"); if (!b) return; const t = b.dataset.t; tagOn.has(t) ? tagOn.delete(t) : tagOn.add(t); renderTagFilters(); renderCabinet(); });
+  ["kq", "kfrom", "kto"].forEach(id => $(id).addEventListener("input", renderCabinet));
+  const copyWords = c => c.book.scenes.reduce((a, s) => a + words(s), 0);
+  const copyComments = c => c.book.scenes.reduce((a, s) => a + s.comments.length, 0);
+  function cabMatch(c) {
+    const q = $("kq").value.trim().toLowerCase();
+    if ($("kfrom").value && c.date < $("kfrom").value) return false;
+    if ($("kto").value && c.date > $("kto").value) return false;
+    for (const t of tagOn) if (!c.tags.includes(t)) return false;
+    if (!q) return true;
+    return c.tags.some(t => t.toLowerCase().includes(q)) || c.note.toLowerCase().includes(q) ||
+      c.book.scenes.some(s => s.title.toLowerCase().includes(q) || textOf(s).toLowerCase().includes(q));
+  }
+  function renderCabinet() {
+    const list = cabinet.filter(cabMatch).sort((a, b) => b.date.localeCompare(a.date));
+    $("cabCount").textContent = `${cabinet.length} filed ${cabinet.length === 1 ? "copy" : "copies"} · click one to open it read-only`;
+    if (!list.length) { $("cabList").innerHTML = '<div class="noc" style="padding:20px">No copies match.</div>'; return; }
+    $("cabList").innerHTML = list.map(c => `<article class="ccard" data-id="${c.id}" tabindex="0" aria-label="Filed copy ${longDate(c.date)}">
+      <div class="d">${longDate(c.date)}</div>
+      <div class="m">${daysAgo(c.date)} ·${c.book.scenes.length} scenes · ${fmt(copyWords(c))} words · ${copyComments(c)} comments</div>
+      <div class="tagedit">${c.tags.map((t, i) => `<span class="tag">${esc(t)}<button type="button" data-rm="${i}" aria-label="Remove tag ${esc(t)}">×</button></span>`).join("")}
+        <input type="text" class="newTag" placeholder="+ tag" aria-label="Add tag"></div>
+      ${c.note ? `<div class="note">${esc(c.note)}</div>` : ""}</article>`).join("");
+  }
+  $("cabList").addEventListener("click", e => {
+    const card = e.target.closest(".ccard"); if (!card) return; const c = cabinet.find(x => x.id === card.dataset.id);
+    const rm = e.target.closest("[data-rm]");
+    if (rm) { c.tags.splice(+rm.dataset.rm, 1); renderTagFilters(); renderCabinet(); toast("Tag removed (saved to file_cabinet.json)"); return; }
+    if (e.target.closest(".tagedit")) return;
+    openCopy(c.id);
+  });
+  $("cabList").addEventListener("keydown", e => {
+    const card = e.target.closest(".ccard"); if (!card) return; const c = cabinet.find(x => x.id === card.dataset.id);
+    if (e.target.classList.contains("newTag")) {
+      if (e.key !== "Enter") return; e.preventDefault(); const v = e.target.value.trim(); if (!v || c.tags.includes(v)) return;
+      c.tags.push(v); renderTagFilters(); renderCabinet(); toast(`Tag “${v}” added (saved to file_cabinet.json)`);
+      setTimeout(() => $("cabList").querySelector(`[data-id="${c.id}"] .newTag`)?.focus(), 0); return;
+    }
+    if (e.key === "Enter" && e.target === card) openCopy(c.id);
+  });
+
+  function setReadOnly(on) {
+    readOnly = on; $("app").classList.toggle("readonly", on);
+    ["fileBtn"].forEach(id => $(id).disabled = on);
+    updateBars();
+    $("readBtn").disabled = !hasSel();
+    $("addComment").disabled = on;
+  }
+  function openCopy(id) {
+    saveCurrent(); roCopy = cabinet.find(x => x.id === id);
+    $("roInfo").textContent = `· ${longDate(roCopy.date)} · ${roCopy.tags.join(", ")}`;
+    workingCur = curScene; book = roCopy.book; curScene = book.scenes[0]; setReadOnly(true); hideSheets();
+    $("ptitle").textContent = scene().title; $("pbody").innerHTML = scene().html; $("notes").innerHTML = scene().notes || "";
+    $("ptitle").contentEditable = $("pbody").contentEditable = $("notes").contentEditable = "false"; renderComments(); status();
+  }
+  $("roClose").addEventListener("click", () => {
+    book = working; curScene = workingCur || working.scenes[0]; setReadOnly(false); roCopy = null;
+    $("ptitle").textContent = scene().title; $("pbody").innerHTML = scene().html; $("notes").innerHTML = scene().notes || "";
+    $("ptitle").contentEditable = $("pbody").contentEditable = $("notes").contentEditable = "true"; renderComments(); status(); showSheet("cabinet");
+  });
+
+  // ---------- File a copy (main page only) ----------
+  let newTags = [];
+  function renderKw() {
+    $("kwBox").querySelectorAll(".tag").forEach(n => n.remove());
+    newTags.forEach((t, i) => { const s = document.createElement("span"); s.className = "tag"; s.innerHTML = `${esc(t)}<button type="button" data-i="${i}" aria-label="Remove ${esc(t)}">×</button>`; $("kwBox").insertBefore(s, $("kwIn")); });
+  }
+  $("kwBox").addEventListener("click", e => { const b = e.target.closest("[data-i]"); if (b) { newTags.splice(+b.dataset.i, 1); renderKw(); } else $("kwIn").focus(); });
+  $("kwIn").addEventListener("keydown", e => {
+    const v = $("kwIn").value.trim();
+    if ((e.key === "Enter" || e.key === ",") && v) { e.preventDefault(); if (!newTags.includes(v)) newTags.push(v); $("kwIn").value = ""; renderKw(); }
+    else if (e.key === "Enter") e.preventDefault();
+    else if (e.key === "Backspace" && !v && newTags.length) { newTags.pop(); renderKw(); }
+  });
+  function openDialog() { if (readOnly) return; saveCurrent(); newTags = []; renderKw(); $("fDate").value = iso(Date.now()); $("fNote").value = ""; $("scrim").classList.add("open"); $("kwIn").focus(); }
+  function closeDialog() { $("scrim").classList.remove("open"); }
+  $("fileBtn").addEventListener("click", openDialog);
+  $("dCancel").addEventListener("click", closeDialog);
+  $("scrim").addEventListener("click", e => { if (e.target === $("scrim")) closeDialog(); });
+  $("fileForm").addEventListener("submit", e => {
+    e.preventDefault(); const p = $("kwIn").value.trim(); if (p && !newTags.includes(p)) newTags.push(p);
+    const date = $("fDate").value || iso(Date.now());
+    cabinet.push({ id: nid("k"), file: `cabinet/${date}-${uid}.book.json`, date, tags: newTags.slice(), note: $("fNote").value.trim(), book: snapshot(working) });
+    closeDialog(); toast(`Filed a copy of all ${working.scenes.length} scenes`);
+  });
+
+  // ---------- Start ----------
+  loadScene(0); setReadOnly(false);
+})();
+</script>
+</body>
+</html>
