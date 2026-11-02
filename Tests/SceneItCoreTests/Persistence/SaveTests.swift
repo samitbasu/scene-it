@@ -15,17 +15,17 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
     var call: FaultInjectingFileSystem.Call? {
         switch self {
         case .encode, .verify: nil
-        case .inspectBook: .inspect("book.json")
-        case .readBook: .read("book.json")
-        case .inspectBak1: .inspect("book.json.bak1")
-        case .readBak1: .read("book.json.bak1")
-        case .writeBackupTemporary: .writeTemporary("book.json.bak1")
-        case .writeBookTemporary: .writeTemporary("book.json")
-        case .shiftBak2: .move("book.json.bak2", over: "book.json.bak3")
-        case .shiftBak1: .move("book.json.bak1", over: "book.json.bak2")
-        case .publishBak1: .publish("book.json.bak1")
-        case .exchangeBook: .exchange("book.json")
-        case .readDisplaced: .read("temporary book.json")
+        case .inspectBook: .inspect("book.md")
+        case .readBook: .read("book.md")
+        case .inspectBak1: .inspect("book.md.bak1")
+        case .readBak1: .read("book.md.bak1")
+        case .writeBackupTemporary: .writeTemporary("book.md.bak1")
+        case .writeBookTemporary: .writeTemporary("book.md")
+        case .shiftBak2: .move("book.md.bak2", over: "book.md.bak3")
+        case .shiftBak1: .move("book.md.bak1", over: "book.md.bak2")
+        case .publishBak1: .publish("book.md.bak1")
+        case .exchangeBook: .exchange("book.md")
+        case .readDisplaced: .read("temporary book.md")
         }
     }
 
@@ -39,9 +39,9 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
         case previousVersionNotBackedUp(OlderBackups)
     }
 
-    /// ADR 0019, as a table. Starting from `book.json` = draft 0 (our own last save) and
+    /// ADR 0019, as a table. Starting from `book.md` = draft 0 (our own last save) and
     /// `bak1`…`bak3` = drafts 1…3, what a save of draft 9 that fails at this step does, and
-    /// which drafts are left in `book.json` and each slot.
+    /// which drafts are left in `book.md` and each slot.
     var expected: (result: Result, book: Int, backups: [Int?]) {
         switch self {
         case .encode, .verify, .inspectBook, .readBook, .writeBackupTemporary, .writeBookTemporary:
@@ -52,7 +52,7 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
         case .shiftBak2: (.saved(.previousVersionNotBackedUp(.untouched)), 9, [1, 2, 3])
         case .shiftBak1: (.saved(.previousVersionNotBackedUp(.oldestRetired)), 9, [1, nil, 2])
         case .publishBak1: (.saved(.previousVersionNotBackedUp(.oldestRetired)), 9, [nil, 1, 2])
-        // bak1 already holds book.json, so retries don't rotate again.
+        // bak1 already holds book.md, so retries don't rotate again.
         case .exchangeBook: (.refused, 0, [0, 1, 2])
         // The displaced file can't be confirmed as ours, so it's swapped back.
         case .readDisplaced: (.refused, 0, [0, 1, 2])
@@ -65,7 +65,7 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
     static let rotationSteps: [SaveFault] = [.shiftBak2, .shiftBak1, .publishBak1]
 }
 
-/// A package at `url` whose `book.json` is draft 0 and whose `bak1`…`bak3` are drafts 1…3.
+/// A package at `url` whose `book.md` is draft 0 and whose `bak1`…`bak3` are drafts 1…3.
 func makeFullPackage(at url: URL, fileSystem: any FileSystem) throws -> BookPackage {
     let package = try BookPackage.create(at: url, title: "Untitled", fileSystem: fileSystem).package
     for number in [3, 2, 1, 0] {
@@ -75,12 +75,12 @@ func makeFullPackage(at url: URL, fileSystem: any FileSystem) throws -> BookPack
     return package
 }
 
-/// Expects `book.json` and `bak1`…`bak3` to hold these drafts (`nil`: the slot is empty).
+/// Expects `book.md` and `bak1`…`bak3` to hold these drafts (`nil`: the slot is empty).
 func expectLayout(
     _ layout: PackageLayout, book: Int, backups: [Int?], sourceLocation: SourceLocation = #_sourceLocation
 ) throws {
     let (current, saved) = layout.contents()
-    #expect(current == (try encoded(draft(book))), "book.json", sourceLocation: sourceLocation)
+    #expect(current == (try encoded(draft(book))), "book.md", sourceLocation: sourceLocation)
     for slot in BackupSlot.allCases {
         let expected = try backups[slot.rawValue - 1].map { try encoded(draft($0)) }
         #expect(saved[slot] == expected, "\(slot)", sourceLocation: sourceLocation)
@@ -146,7 +146,7 @@ func bookWithNewEntries(_ number: Int) throws -> Book {
             fileSystem.clearCalls()
             #expect(try package.save(draft(9)).backupStatus == .intact)
             let steps = SaveFault.fileSystemSteps.compactMap(\.call)
-            #expect(fileSystem.calls == steps + [.discard("temporary book.json"), .list("")])
+            #expect(fileSystem.calls == steps + [.discard("temporary book.md"), .list("")])
         }
     }
 
@@ -221,7 +221,7 @@ func bookWithNewEntries(_ number: Int) throws -> Book {
             let fileSystem = FaultInjectingFileSystem(root: url)
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             try encoded(draft(7)).write(to: url.layout.book)
-            fileSystem.inject(.fail(.exchange("book.json")))
+            fileSystem.inject(.fail(.exchange("book.md")))
             for _ in 1...3 {
                 #expect(throws: SaveError.self) {
                     try package.save(draft(9), onExternalChange: overwriting(7))
@@ -321,7 +321,7 @@ func temporaryFiles(in url: URL) throws -> [String] {
         .filter { $0.hasPrefix(".") && $0.hasSuffix(".tmp") }
 }
 
-/// Whether `book.json` or any backup slot holds `data`.
+/// Whether `book.md` or any backup slot holds `data`.
 func packageKeeps(_ data: Data, _ layout: PackageLayout) -> Bool {
     let (book, backups) = layout.contents()
     return book == data || backups.values.contains(data)

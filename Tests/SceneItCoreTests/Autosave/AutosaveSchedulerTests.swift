@@ -10,7 +10,7 @@ func at(_ offset: Duration) -> ManualClock.Instant {
 }
 
 let diskFull = SaveError.fileSystem(
-    FileSystemError(.write, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace))
+    FileSystemError(.write, URL(filePath: "/Books/Novel.sceneit/book.md"), .noSpace))
 let theirVersion = ContentDigest(Data("their version".utf8))
 let changedOnDisk = SaveError.externallyModified(.changed(theirs: theirVersion))
 
@@ -202,7 +202,7 @@ func anImmediateRequestDuringASaveWaitsForIt(event: AutosaveEvent) {
     (.externallyModified(.notAFile), .refuse),
     (
         .couldNotBackUpTheirVersion(
-            FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace)),
+            FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.md"), .noSpace)),
         .refuse
     ),
 ])

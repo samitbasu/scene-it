@@ -135,6 +135,31 @@ public protocol SceneIDSource {
 
 extension IDGenerator: SceneIDSource {}
 
+/// Where opening a book gets the defaults its file leaves out (book format §5.3, §10 Q8): the
+/// time it was opened, for a missing `modified`, and fresh ids for missing or duplicate ones.
+/// The store injects them, so tests can make them deterministic.
+public struct ParseDefaults: Sendable {
+    private let opened: @Sendable () -> Timestamp
+    private let ids: @Sendable () -> any SceneIDSource
+
+    /// Each parse calls `opened` once, and draws its ids from one new `ids()`.
+    public init(
+        opened: @escaping @Sendable () -> Timestamp, ids: @escaping @Sendable () -> any SceneIDSource
+    ) {
+        self.opened = opened
+        self.ids = ids
+    }
+
+    /// The clock in the current time zone, and ULIDs.
+    public static let system = ParseDefaults(
+        opened: { Timestamp(.now, in: .current) }, ids: { IDGenerator.system })
+
+    func parse(_ data: Data) -> ParsedBook {
+        var ids = ids()
+        return BookFormat.parse(data, opened: opened(), ids: &ids)
+    }
+}
+
 /// For re-reading a book's own serialization, which needs no fresh ids: if it did, the
 /// accompanying notice fails verification anyway.
 private struct UnusedSceneIDs: SceneIDSource {

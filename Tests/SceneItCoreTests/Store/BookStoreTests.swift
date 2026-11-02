@@ -112,7 +112,7 @@ struct BookStoreTests {
             #expect(prompts.titles == ["This book was changed by another program."])
             #expect(prompts.labels == [["Keep My Version", "Open Other Version"]])
             #expect(try bookOnDisk(url) == book.book)
-            #expect(try bookOnDisk(url, file: "book.json.bak1") == theirs)
+            #expect(try bookOnDisk(url, file: "book.md.bak1") == theirs)
         }
     }
 
@@ -228,7 +228,7 @@ struct BookStoreTests {
             let first = try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Precious")
-            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.json"), cause: .noSpace))
+            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.md"), cause: .noSpace))
 
             #expect(await store.open(second) == .stayed)
             #expect(store.current === book)
@@ -238,7 +238,7 @@ struct BookStoreTests {
             #expect(
                 book.status
                     == .failed(
-                        .fileSystem(FileSystemError(.write, first.appending(path: "book.json"), .noSpace))))
+                        .fileSystem(FileSystemError(.write, first.appending(path: "book.md"), .noSpace))))
 
             fileSystem.clearFault()
             #expect(await store.open(second) == .opened)
@@ -256,7 +256,7 @@ struct BookStoreTests {
             let first = try await createBook("First", in: folder, store: store)
             let onDisk = try bookOnDisk(first)
             try #require(store.current).write("Lost by choice")
-            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.json")))
+            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.md")))
 
             #expect(await store.open(second) == .opened)
             #expect(prompts.titles.count == 1)
@@ -273,7 +273,7 @@ struct BookStoreTests {
             let broken = folder.appending(path: "Broken.sceneit")
             try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: false)
             try FileManager.default.createDirectory(
-                at: broken.appending(path: "book.json"), withIntermediateDirectories: false)
+                at: broken.appending(path: "book.md"), withIntermediateDirectories: false)
 
             guard case .failed(let error) = await store.open(broken) else {
                 Issue.record("the broken book opened")
@@ -325,8 +325,8 @@ struct BookStoreTests {
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
 
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
-            #expect(prompts.titles == [LockWording.readOnlyTitle])
-            #expect(prompts.labels == [[LockWording.keepReadOnly]])
+            #expect(prompts.titles == [ReadOnlyWording.readOnlyTitle])
+            #expect(prompts.labels == [[ReadOnlyWording.keepReadOnly]])
             let book = try #require(store.current)
             #expect(book.status == .readOnly(.openElsewhere))
             #expect(StoreWording.status(book.status) == "Read only")
@@ -362,7 +362,7 @@ struct BookStoreTests {
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
 
             #expect(await store.open(url) == .opened)
-            #expect(prompts.labels == [[LockWording.keepReadOnly, LockWording.openAnyway]])
+            #expect(prompts.labels == [[ReadOnlyWording.keepReadOnly, ReadOnlyWording.openAnyway]])
             #expect(store.current?.isEditable == true)
         }
     }
@@ -391,7 +391,7 @@ struct BookStoreTests {
             try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Unsaved")
-            fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.json"), cause: .noSpace))
+            fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.md"), cause: .noSpace))
 
             #expect(await store.prepareToQuit() == .stayed)
             #expect(store.current === book)
@@ -417,7 +417,7 @@ struct BookStoreTests {
             await eventually { book.status == .saved }
             #expect(prompts.labels.last == ["Keep My Version", "Open Other Version"])
             #expect(try bookOnDisk(url) == book.book)
-            #expect(try bookOnDisk(url, file: "book.json.bak1") == draft(3))
+            #expect(try bookOnDisk(url, file: "book.md.bak1") == draft(3))
         }
     }
 

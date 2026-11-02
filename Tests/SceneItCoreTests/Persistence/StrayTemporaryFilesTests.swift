@@ -11,32 +11,34 @@ import Testing
 
     @Test func theNameMatchesExactlyWhatWriteTemporaryWrites() throws {
         try withTemporaryDirectory { directory in
-            let destination = directory.appending(path: "book.json")
+            let destination = directory.appending(path: "book.md")
             let temporary = try LocalFileSystem().writeTemporary(
                 Data("x".utf8), for: destination, permissionsFrom: destination)
-            #expect(TemporaryFile.destination(ofName: temporary.url.lastPathComponent) == "book.json")
+            #expect(TemporaryFile.destination(ofName: temporary.url.lastPathComponent) == "book.md")
         }
         let id = UUID().uuidString
-        #expect(TemporaryFile.destination(ofName: ".book.json.\(id).tmp") == "book.json")
-        #expect(TemporaryFile.destination(ofName: ".book.json.bak1.\(id).tmp") == "book.json.bak1")
+        #expect(TemporaryFile.destination(ofName: ".book.md.\(id).tmp") == "book.md")
+        #expect(TemporaryFile.destination(ofName: ".book.md.bak1.\(id).tmp") == "book.md.bak1")
         for nearMiss in Self.nearMisses(id) {
             let destination = TemporaryFile.destination(ofName: nearMiss)
             #expect(
-                destination == nil || !["book.json", "book.json.bak1"].contains(destination), "\(nearMiss)")
+                destination == nil || !["book.md", "book.md.bak1"].contains(destination), "\(nearMiss)")
         }
     }
 
-    /// Names a save never gives a temporary `book.json` or `bak1`.
+    /// Names a save never gives a temporary `book.md` or `bak1`.
     static func nearMisses(_ id: String) -> [String] {
         [
-            ".book.json.\(id.lowercased()).tmp", ".BOOK.JSON.\(id).tmp", ".Book.json.\(id).tmp",
-            ".book.json.\(id).TMP", ".book.JSON.\(id).tmp", "book.json.\(id).tmp", ".book.json.\(id).tmp.bak",
-            "..book.json.\(id).tmp", ".book.json.\(id).tmp ", " .book.json.\(id).tmp",
-            ".book.json.\(id.replacingOccurrences(of: "-", with: "")).tmp", ".book.json.\(id)0.tmp",
-            ".book.json.\(id.dropLast()).tmp", ".book.json.bak2.\(id).tmp", ".book.json.bak3.\(id).tmp",
-            ".book.json.bak4.\(id).tmp", ".book.jsonx.\(id).tmp", ".index.json.\(id).tmp",
-            ".book.json.crashed.tmp",
-            ".book.json\(id).tmp", ".book.json.\(id)tmp", ".book.json.\(id).tmp\n", ".lock",
+            ".book.md.\(id.lowercased()).tmp", ".BOOK.MD.\(id).tmp", ".Book.md.\(id).tmp",
+            ".book.md.\(id).TMP", ".book.MD.\(id).tmp", "book.md.\(id).tmp", ".book.md.\(id).tmp.bak",
+            "..book.md.\(id).tmp", ".book.md.\(id).tmp ", " .book.md.\(id).tmp",
+            ".book.md.\(id.replacingOccurrences(of: "-", with: "")).tmp", ".book.md.\(id)0.tmp",
+            ".book.md.\(id.dropLast()).tmp", ".book.md.bak2.\(id).tmp", ".book.md.bak3.\(id).tmp",
+            ".book.md.bak4.\(id).tmp", ".book.mdx.\(id).tmp", ".index.md.\(id).tmp",
+            ".book.md.crashed.tmp",
+            ".book.md\(id).tmp", ".book.md.\(id)tmp", ".book.md.\(id).tmp\n", ".lock",
+            "book.md.original-20261101T143005Z.md", "book.md.original-20261101T143005Z-2.md",
+            ".book.md.original-20261101T143005Z.md.\(id).tmp",
         ]
     }
 
@@ -87,7 +89,7 @@ import Testing
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             let stray = Self.temporaryName()
-            let bakStray = Self.temporaryName(for: "book.json.bak1")
+            let bakStray = Self.temporaryName(for: "book.md.bak1")
             try plant(try encoded(draft(number)), as: stray, in: url)
             try plant(try encoded(draft(number)), as: bakStray, in: url)
 
@@ -131,7 +133,7 @@ import Testing
             let recovered = package.layout.recovered(modified: Self.longAgo, attempt: 1)
             #expect(
                 recovered.lastPathComponent
-                    == "book.json.recovered-\(UTCStamp.string(for: Self.longAgo)).json")
+                    == "book.md.recovered-\(UTCStamp.string(for: Self.longAgo)).md")
             #expect(!exists(stray, in: url))
             #expect(try Data(contentsOf: recovered) == theirs)
             #expect(try recoveredFiles(in: url) == [recovered.lastPathComponent])
@@ -165,7 +167,7 @@ import Testing
             }
             #expect(Set(renamed) == Set(contents))
             #expect(
-                layout.recovered(modified: Self.longAgo, attempt: 3).lastPathComponent.hasSuffix("Z-3.json"))
+                layout.recovered(modified: Self.longAgo, attempt: 3).lastPathComponent.hasSuffix("Z-3.md"))
             #expect(strays.allSatisfy { !exists($0, in: url) })
         }
     }
@@ -201,9 +203,9 @@ import Testing
             let call: FaultInjectingFileSystem.Call =
                 switch fault {
                 case .list: .list("")
-                case .open: .open("temporary book.json")
-                case .moveAside: .publish("temporary book.json")
-                case .remove: .remove("temporary book.json")
+                case .open: .open("temporary book.md")
+                case .moveAside: .publish("temporary book.md")
+                case .remove: .remove("temporary book.md")
                 case .rename: .publish(recovered)
                 }
             if fault == .list {
@@ -229,11 +231,11 @@ import Testing
             let stray = url.appending(path: Self.temporaryName())
             try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
             let theirs = Data("written by another program between the comparison and the removal".utf8)
-            fileSystem.before(.remove("temporary book.json")) { try? Self.replace(stray, with: theirs) }
+            fileSystem.before(.remove("temporary book.md")) { try? Self.replace(stray, with: theirs) }
 
             #expect(try package.save(draft(9)).backupStatus == .intact)
 
-            #expect(fileSystem.calls.contains(.remove("temporary book.json")), "precondition: the hook ran")
+            #expect(fileSystem.calls.contains(.remove("temporary book.md")), "precondition: the hook ran")
             #expect(try Data(contentsOf: stray) == theirs)
             #expect(try temporaryContents(in: url) == [theirs])
         }
@@ -247,12 +249,12 @@ import Testing
             let stray = url.appending(path: Self.temporaryName())
             try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
             let theirs = Data("written by another program after the comparison".utf8)
-            fileSystem.before(.publish("temporary book.json")) { try? Self.replace(stray, with: theirs) }
+            fileSystem.before(.publish("temporary book.md")) { try? Self.replace(stray, with: theirs) }
 
             #expect(try package.save(draft(9)).backupStatus == .intact)
 
-            #expect(fileSystem.calls.contains(.publish("temporary book.json")), "precondition: the hook ran")
-            #expect(!fileSystem.calls.contains(.remove("temporary book.json")))
+            #expect(fileSystem.calls.contains(.publish("temporary book.md")), "precondition: the hook ran")
+            #expect(!fileSystem.calls.contains(.remove("temporary book.md")))
             #expect(try temporaryContents(in: url).isEmpty)
             let recovered = try recoveredFiles(in: url)
             #expect(recovered.count == 1)
@@ -268,14 +270,14 @@ import Testing
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             let stray = url.appending(path: Self.temporaryName())
             try plant(try encoded(draft(0)), as: stray.lastPathComponent, in: url)
-            fileSystem.before(.open("temporary book.json")) {
+            fileSystem.before(.open("temporary book.md")) {
                 try? FileManager.default.removeItem(at: stray)
                 _ = stray.withUnsafeFileSystemRepresentation { mkfifo($0!, 0o600) }
             }
 
             #expect(try package.save(draft(9)).backupStatus == .intact)
 
-            #expect(fileSystem.calls.contains(.open("temporary book.json")), "precondition: the hook ran")
+            #expect(fileSystem.calls.contains(.open("temporary book.md")), "precondition: the hook ran")
             #expect(try LocalFileSystem().item(at: stray) == .other)
             #expect(try recoveredFiles(in: url).isEmpty)
         }
@@ -293,7 +295,7 @@ import Testing
             #expect(try package.save(draft(9)).backupStatus == .intact)
 
             let sweep = fileSystem.calls.drop { $0 != .list("") }
-            #expect(sweep.contains(.open("temporary book.json")), "precondition: the sweep found the stray")
+            #expect(sweep.contains(.open("temporary book.md")), "precondition: the sweep found the stray")
             #expect(!sweep.contains { if case .read = $0 { true } else { false } })
             let recovered = try recoveredFiles(in: url).map { try Data(contentsOf: url.appending(path: $0)) }
             #expect(recovered == [theirs])
@@ -361,7 +363,7 @@ import Testing
         }
     }
 
-    static func temporaryName(for destination: String = "book.json") -> String {
+    static func temporaryName(for destination: String = "book.md") -> String {
         TemporaryFile.name(for: destination, id: UUID())
     }
 
@@ -394,6 +396,6 @@ import Testing
 
     private func recoveredFiles(in url: URL) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))
-            .filter { $0.hasPrefix("book.json.recovered-") }
+            .filter { $0.hasPrefix("book.md.recovered-") }
     }
 }

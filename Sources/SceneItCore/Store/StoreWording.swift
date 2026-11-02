@@ -2,7 +2,7 @@ import Foundation
 
 /// Every string the writer sees from opening, creating and saving books, in one place so the
 /// owner can review the wording as a whole. Drafts awaiting the owner's approval. The quit and
-/// read-only alerts are in `QuitWording` and `LockWording`.
+/// read-only alerts are in `QuitWording` and `ReadOnlyWording`.
 public enum StoreWording {
     // MARK: Menus and panels
 
@@ -130,7 +130,7 @@ public enum StoreWording {
         }
         let backups =
             error.backups.isEmpty
-            ? "There are no backups (book.json.bak1…3) in the book."
+            ? "There are no backups (book.md.bak1…3) in the book."
             : "Backups in the book, newest first:\n"
                 + error.backups.map {
                     "• \($0.slot), saved \($0.modified.formatted(date: .abbreviated, time: .shortened))"

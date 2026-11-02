@@ -120,7 +120,7 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
             }
             let archive = try FileManager.default.contentsOfDirectory(
                 atPath: fixture.layout.archive.path(percentEncoded: false))
-            #expect(archive == ["index.json"])
+            #expect(archive == ["index.md"])
         }
     }
 
@@ -434,12 +434,12 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
             let outsideFile = directory.appending(path: "outside.txt")
             try Data("outside".utf8).write(to: outsideFile)
             let decoys = [
-                "notes.txt", "book-20261028T090000Z.json.bak", "book-20261028T100000Z.JSON",
-                "Book-20261028T113000Z.json", "book-2026-10-28T12:00:00Z.json", "book-20261028T1300Z.json",
-                ".book-20261028T140000Z.json.tmp", "book-20261028T150000Z.json~",
-                "book-20261028T150000Z.json ",
-                "book-٢٠٢٦١٠٢٨T090000Z.json", "book-２０２６1028T090000Z.json", "book-20261028t093400Z.json",
-                "book-20270229T000000Z.json",
+                "notes.txt", "book-20261028T090000Z.md.bak", "book-20261028T100000Z.MD",
+                "Book-20261028T113000Z.md", "book-2026-10-28T12:00:00Z.md", "book-20261028T1300Z.md",
+                ".book-20261028T140000Z.md.tmp", "book-20261028T150000Z.md~",
+                "book-20261028T150000Z.md ",
+                "book-٢٠٢٦١٠٢٨T090000Z.md", "book-２０２６1028T090000Z.md", "book-20261028t093400Z.md",
+                "book-20270229T000000Z.md", "book.md.original-20261028T090000Z.md",
             ]
             let manager = FileManager.default
             for folder in [fixture.layout.snapshots, try fixture.mirrorFolder()] {
@@ -470,7 +470,7 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
                     fixture.relative(fixture.layout.snapshots.appending(path: redundant)),
                     fixture.relative(try fixture.mirrorFolder().appending(path: redundant)),
                 ], "pruning ran, and removed only the redundant snapshot")
-            let saved: Set = ["Novel.sceneit/book.json", "Novel.sceneit/book.json.bak1"]
+            let saved: Set = ["Novel.sceneit/book.md", "Novel.sceneit/book.md.bak1"]
             for (path, entry) in before.entries where !removed.contains(path) && !saved.contains(path) {
                 #expect(after.entries[path]?.contents == entry.contents, "\(path)")
             }
@@ -483,7 +483,7 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
     }
 }
 
-/// Every way a snapshot can fail: the save still succeeds, `book.json` holds the new book,
+/// Every way a snapshot can fail: the save still succeeds, `book.md` holds the new book,
 /// and the failure is reported.
 @Suite struct BackupKeeperFailureTests {
     enum Fault: CaseIterable, CustomTestStringConvertible {

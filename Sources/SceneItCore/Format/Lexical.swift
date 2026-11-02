@@ -140,6 +140,58 @@ enum Lexical {
         return result
     }
 
+    /// §1.5: the numbers of the front matter's non-blank lines, and of the first line after
+    /// it. It's open from a `---` that's the first non-blank line until another `---` or, if
+    /// that never comes, the first heading-shaped line.
+    static func frontMatter(_ lines: [[UInt8]]) -> (lines: [Int], end: Int) {
+        guard let first = lines.firstIndex(where: { !$0.isEmpty }), lines[first] == frontMatterFence else {
+            return ([], 0)
+        }
+        var inside: [Int] = []
+        for number in (first + 1)..<lines.count {
+            let line = lines[number]
+            if line == frontMatterFence { return (inside, number + 1) }
+            if case .heading = kind(of: line) { return (inside, number) }
+            if !line.isEmpty { inside.append(number) }
+        }
+        return (inside, lines.count)
+    }
+
+    static let frontMatterFence = Array("---".utf8)
+
+    /// A `tags:` value (§2.2): comma-separated, each trimmed, one leading `#` dropped, field
+    /// escapes read, and empty items dropped.
+    static func tags(_ value: ArraySlice<UInt8>) -> [String] {
+        var pieces: [ArraySlice<UInt8>] = []
+        var start = value.startIndex
+        var index = value.startIndex
+        while index < value.endIndex {
+            if value[index] == backslash {
+                index += 2
+                continue
+            }
+            if value[index] == comma {
+                pieces.append(value[start..<index])
+                start = index + 1
+            }
+            index += 1
+        }
+        pieces.append(value[min(start, value.endIndex)...])
+        return pieces.compactMap { piece in
+            var tag = trim(piece)[...]
+            if tag.first == hash { tag = tag.dropFirst() }
+            let unescaped = fieldUnescaped(tag)
+            return unescaped.isEmpty ? nil : string(unescaped)
+        }
+    }
+
+    /// A non-negative decimal number of ASCII digits; `nil` for anything else, or one too
+    /// large for `Int`.
+    static func decimal(_ digits: some Collection<UInt8>) -> Int? {
+        guard !digits.isEmpty, digits.allSatisfy({ (0x30...0x39).contains($0) }) else { return nil }
+        return Int(String(decoding: digits, as: UTF8.self))
+    }
+
     /// Whether a trimmed line starts an entry: `-` then a space, or `-` alone (§4.1).
     static func isEntryStart(_ line: [UInt8]) -> Bool {
         line.first == dash && (line.count == 1 || line[1] == space)

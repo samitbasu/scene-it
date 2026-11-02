@@ -30,7 +30,7 @@ private func textFields(in view: NSView?) -> [NSTextField] {
 
 @Suite(.timeLimit(.minutes(1)))
 struct SceneTitleFieldTests {
-    @Test func typingInTheTitleFieldReachesBookJsonOnOneLine() async throws {
+    @Test func typingInTheTitleFieldReachesBookMdOnOneLine() async throws {
         try await withTemporaryFolder { folder in
             let store = BookController(role: .testHost).store
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
@@ -51,6 +51,57 @@ struct SceneTitleFieldTests {
             #expect(book.status == .unsaved)
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.title == "The ferry at dawn")
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    /// ADR 0024 through the app's store: a book repaired as it opened is read-only (the test
+    /// host's alerts answer Keep Read-Only), and Make Editable makes the page editable.
+    @Test func aDamagedBookOpensReadOnlyAndMakeEditableLetsTheWriterType() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Damaged.sceneit", directoryHint: .isDirectory)
+            var draft = Book(title: "Damaged")
+            var ids = IDGenerator<SystemRandomNumberGenerator>.system
+            draft.scenes = [
+                BookScene(id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "Kept")
+            ]
+            _ = try BookPackage.create(at: url, title: "Damaged")
+            let damaged = Data("A line a sync tool left\n".utf8) + BookFormat.serialize(draft)
+            try damaged.write(to: url.appending(path: "book.md"))
+            let books = BookController(role: .testHost)
+            let store = books.store
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(url) else {
+                Issue.record("expected the book to open read-only, repaired")
+                return
+            }
+            #expect((books.prompts as? HeadlessPrompts)?.takeTitles() == [ReadOnlyWording.readOnlyTitle])
+            let book = try #require(store.current)
+            let scene = try #require(book.openScene)
+            do {
+                let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+                defer { window.close() }
+                let fields = textFields(in: window.contentView)
+                try #require(!fields.isEmpty)
+                #expect(fields.allSatisfy { !$0.isEditable || !$0.isEnabled })
+            }
+
+            #expect(await store.makeEditable() == .editable)
+            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            defer { window.close() }
+            let fields = textFields(in: window.contentView).filter(\.isEditable)
+            try #require(fields.count == 1, "the title is editable now")
+            #expect(window.makeFirstResponder(fields[0]))
+            let editor = try #require(fields[0].currentEditor() as? NSTextView)
+            editor.selectAll(nil)
+            editor.insertText("Repaired", replacementRange: editor.selectedRange())
+            await eventually { book.status == .saved }
+            #expect(try bookOnDisk(url).scenes.first?.title == "Repaired")
+            let originals = try FileManager.default.contentsOfDirectory(
+                atPath: url.path(percentEncoded: false)
+            )
+            .filter { $0.hasPrefix("book.md.original-") }
+            #expect(originals.count == 1)
+            #expect(try originals.map { try Data(contentsOf: url.appending(path: $0)) } == [damaged])
             #expect(await store.closeBook() == .left)
         }
     }

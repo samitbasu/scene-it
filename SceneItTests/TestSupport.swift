@@ -25,7 +25,7 @@ func withTemporaryFolder(_ body: (URL) async throws -> Void) async throws {
 func bookOnDisk(_ package: URL) throws -> Book {
     var ids = IDGenerator.system
     return BookFormat.parse(
-        try Data(contentsOf: package.appending(path: "book.json")), opened: Timestamp(.now, in: .current),
+        try Data(contentsOf: package.appending(path: "book.md")), opened: Timestamp(.now, in: .current),
         ids: &ids
     ).book
 }

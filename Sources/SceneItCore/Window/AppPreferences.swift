@@ -44,7 +44,7 @@ public enum RightPanelTab: String, CaseIterable, Hashable, Sendable {
     case comments, notes, tags
 }
 
-/// Whether the right panel is open. Format 1's `book.json` also stores it, as the Boolean
+/// Whether the right panel is open. Format 1 also stored it, as the Boolean
 /// `rightPanelOpen`, which the window no longer reads (ADR 0022).
 public enum PanelVisibility: Hashable, Sendable, Codable {
     case open, closed

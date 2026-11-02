@@ -58,7 +58,7 @@ extension Scheduler {
 @Test func aNewPauseNeedsANewChoice() {
     var scheduler = Scheduler.resolvingExternalChange()
     let theirsNotBackedUp = SaveError.couldNotBackUpTheirVersion(
-        FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.json"), .noSpace))
+        FileSystemError(.move, URL(filePath: "/Books/Novel.sceneit/book.md"), .noSpace))
     #expect(scheduler.handle(.saveFailed(theirsNotBackedUp), at: at(.seconds(3))) == .idle)
     #expect(scheduler.isPaused)
     for event in [AutosaveEvent.saveCommand, .tick, .sceneSwitched] {

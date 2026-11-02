@@ -31,6 +31,23 @@ struct BookGenerator {
             title: string(Self.anyAlphabet, 0...12), scenes: scenes, boneyard: boneyard, errors: errors())
     }
 
+    /// An archive index (book format §8): copies in ascending order, each number once.
+    mutating func index() -> ArchiveIndex {
+        let numbers = Set((0..<int(0...5)).map { _ in int(0...20_000) }).sorted()
+        let copies = numbers.map { number in
+            FiledCopy(
+                number: FiledCopyNumber(number)!,
+                filed: CalendarDay(year: int(0...9999), month: int(1...12), day: int(1...28))!,
+                tags: (0..<int(0...3)).map { _ in string(Self.anyAlphabet, 1...8) },
+                note: string(Self.anyAlphabet, 0...30),
+                counts: Bool.random(using: &random)
+                    ? FiledCopyCounts(scenes: int(0...500), words: int(0...Int.max), comments: int(0...900))
+                    : nil,
+                errors: errors())
+        }
+        return ArchiveIndex(copies: copies, errors: errors())
+    }
+
     private mutating func scene() -> BookScene {
         let comments = (0..<int(0...3)).map { _ in
             Comment(

@@ -2,10 +2,10 @@ import CryptoKit
 import Foundation
 import Synchronization
 
-/// An open `.sceneit` package, editable: creates, opens and saves `book.json`, rotating
-/// `book.json.bak1…3` on each save that changes it.
+/// An open `.sceneit` package, editable: creates, opens and saves `book.md`, rotating
+/// `book.md.bak1…3` on each save that changes it.
 ///
-/// It remembers a digest of the `book.json` it last read or wrote, and won't silently save
+/// It remembers a digest of the `book.md` it last read or wrote, and won't silently save
 /// over a different one. A class, so that two copies can't disagree about that; saves are
 /// serialized by its mutex.
 ///
@@ -44,10 +44,10 @@ public final class BookPackage: Sendable {
         }
     }
 
-    static let emptyArchiveIndex = Data(#"{"copies":[]}"#.utf8)
+    static let emptyArchiveIndex = ArchiveIndexFormat.serialize(ArchiveIndex())
 
     /// A new package holding an empty book: no scenes, as PLAN §4.2 allows.
-    /// `book.json` is written last, so a package left half-made by a failure won't open.
+    /// `book.md` is written last, so a package left half-made by a failure won't open.
     /// The new package is locked before anything is written into it.
     public static func create(
         at url: URL, title: String, fileSystem: any FileSystem = LocalFileSystem()
@@ -96,70 +96,142 @@ public final class BookPackage: Sendable {
         return EditableBook(package: package, book: book)
     }
 
-    /// Reads and parses `book.json` (the parse never fails; see `BookFormat`), then locks the book for
+    /// Reads and parses `book.md` (the parse never fails; see `BookFormat`), then locks the book for
     /// editing; if it can't, the book opens read-only. A failure writes nothing and holds no
     /// lock. A success writes nothing but `.lock` (created empty, and where the `flock` can't
     /// be trusted, given a `LockRecord`).
     ///
     /// The lock is taken after the read, so a book that won't load gains no `.lock`. If
-    /// `book.json` changed in between, it's read again under the lock.
+    /// `book.md` changed in between, it's read again under the lock.
+    ///
+    /// A book whose parse made new error entries opens read-only with `.repairedOnOpen`
+    /// (ADR 0024), and one in a newer format with `.newerFormat` (book format §10 Q7); neither
+    /// takes the lock. `defaults` supplies what the file leaves out.
     ///
     /// The lock belongs to the package, not the process: opening a book that this process
     /// already has open gives `.readOnly(_, .openElsewhere)`. To open it again (ADR 0018's
     /// "Open Other Version"), reuse the existing package or release it first.
     public static func open(
-        at url: URL, onLockRecord policy: LockRecordPolicy = .respect,
+        at url: URL, onLockRecord policy: LockRecordPolicy = .respect, defaults: ParseDefaults = .system,
         fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
-        try open(at: url, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
+        try open(at: url, onLockRecord: policy, defaults: defaults, fileSystem: fileSystem, opener: .current)
     }
 
     static func open(
-        at url: URL, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem, opener: Opener
+        at url: URL, onLockRecord policy: LockRecordPolicy, defaults: ParseDefaults,
+        fileSystem: any FileSystem, opener: Opener
     ) throws(LoadError) -> OpenedBook {
         let layout = PackageLayout(root: url)
-        var book: Book
-        var data: Data
-        do {
-            (book, data) = try load(layout, fileSystem)
-        } catch {
-            throw loadFailure(error, layout, fileSystem)
-        }
+        var read = try load(layout, defaults, fileSystem)
+        if let reason = read.readOnlyReason { return readOnly(read, layout, reason) }
         switch access(layout, fileSystem, policy, opener) {
         case .editing(let lock):
-            if (try? fileSystem.read(layout.book)) != data {
-                Log.store.info("book.json changed while the book was being locked; reading it again")
-                do {
-                    (book, data) = try load(layout, fileSystem)
-                } catch {
-                    throw loadFailure(error, layout, fileSystem)
-                }
+            if (try? fileSystem.read(layout.book)) != read.data {
+                Log.store.info("book.md changed while the book was being locked; reading it again")
+                read = try load(layout, defaults, fileSystem)
+            }
+            let package = BookPackage(
+                layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(read.data), lock: lock)
+            if let reason = read.readOnlyReason {
+                // Dropping `package` releases the lock: a book that opens read-only holds none.
+                return readOnly(read, layout, reason)
             }
             Log.store.info(
-                "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
-            let package = BookPackage(
-                layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data), lock: lock)
-            return .editing(EditableBook(package: package, book: book))
+                "opened a book",
+                ["bytes": .bytes(Int64(read.data.count)), "scenes": .count(read.parsed.book.scenes.count)])
+            return .editing(EditableBook(package: package, book: read.parsed.book))
         case .readOnly(let reason):
-            Log.store.info(
-                "opened a book read-only",
-                [
-                    "bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count),
-                    "reason": .symbol(reason.logSymbol),
-                ])
-            return .readOnly(ReadOnlyBook(layout: layout, book: book), reason)
+            return readOnly(read, layout, reason)
         }
     }
 
-    private static func loadFailure(
-        _ problem: LoadProblem, _ layout: PackageLayout, _ fileSystem: any FileSystem
-    )
-        -> LoadError
+    private static func readOnly(_ read: ReadBook, _ layout: PackageLayout, _ reason: ReadOnlyReason)
+        -> OpenedBook
     {
-        let backups = existingBackups(layout, fileSystem)
-        Log.store.error(
-            "couldn't open a book", ["problem": .symbol(problem.logSymbol), "backups": .count(backups.count)])
-        return LoadError(package: layout.root, problem: problem, backups: backups)
+        Log.store.info(
+            "opened a book read-only",
+            [
+                "bytes": .bytes(Int64(read.data.count)), "scenes": .count(read.parsed.book.scenes.count),
+                "reason": .symbol(reason.logSymbol),
+            ])
+        return .readOnly(ReadOnlyBook(layout: layout, book: read.parsed.book), reason)
+    }
+
+    /// The bytes of `book.md` and what they parsed to.
+    private struct ReadBook {
+        let data: Data
+        let parsed: ParsedBook
+
+        /// Why the contents alone make the book read-only. A newer format can't be made
+        /// editable, so it wins over a repair.
+        var readOnlyReason: ReadOnlyReason? {
+            if parsed.isNewerThanSupported, let format = parsed.declaredFormat { return .newerFormat(format) }
+            guard parsed.wasRepaired else { return nil }
+            return .repairedOnOpen(Repair(newEntries: parsed.newEntries, original: data))
+        }
+    }
+
+    // MARK: Make Editable (ADR 0024)
+
+    /// Make Editable's first step: writes the bytes a repaired book was read from, exactly as
+    /// they were read, to a new `book.md.original-<UTC time>.md` in its package, flushed to the
+    /// drive. It never replaces a file, and nothing ever removes the one it writes.
+    ///
+    /// The bytes are the ones the open parsed, never a second read of `book.md`, so what's
+    /// kept is exactly what the writer was shown repaired.
+    public static func keepOriginal(
+        of book: ReadOnlyBook, _ repair: Repair, now: Date = .now,
+        fileSystem: any FileSystem = LocalFileSystem()
+    ) throws(FileSystemError) -> KeptOriginal {
+        let layout = book.layout
+        let temporary = try fileSystem.writeTemporary(
+            repair.original, for: layout.original(at: now, attempt: 1), permissionsFrom: layout.book)
+        let kept: URL?
+        do {
+            kept = try fileSystem.publishUnderFreeName(temporary) { layout.original(at: now, attempt: $0) }
+        } catch {
+            fileSystem.discard(temporary.url)
+            throw error
+        }
+        guard let kept else {
+            fileSystem.discard(temporary.url)
+            throw FileSystemError(
+                .publish, layout.original(at: now, attempt: freeNameAttempts), .alreadyExists)
+        }
+        Log.store.info(
+            "kept the original of a book repaired as it opened",
+            ["bytes": .bytes(Int64(repair.original.count))])
+        return KeptOriginal(url: kept, book: book, original: ContentDigest(repair.original))
+    }
+
+    /// Make Editable's second step: locks the book for editing, as `open` does. `book.md`
+    /// isn't read again: the book is the one shown read-only, and the package takes the kept
+    /// original as what it last read, so a save finds any change since then and stops
+    /// (ADR 0018). If the lock can't be had, the book stays read-only for that reason.
+    public static func edit(
+        _ kept: KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
+        fileSystem: any FileSystem = LocalFileSystem()
+    ) -> OpenedBook {
+        edit(kept, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
+    }
+
+    static func edit(
+        _ kept: KeptOriginal, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem,
+        opener: Opener
+    ) -> OpenedBook {
+        let layout = kept.book.layout
+        switch access(layout, fileSystem, policy, opener) {
+        case .editing(let lock):
+            Log.store.info("made a repaired book editable")
+            let package = BookPackage(
+                layout: layout, fileSystem: fileSystem, lastSeen: kept.original, lock: lock)
+            return .editing(EditableBook(package: package, book: kept.book.book))
+        case .readOnly(let reason):
+            Log.store.info(
+                "couldn't make a repaired book editable", ["reason": .symbol(reason.logSymbol)])
+            return .readOnly(kept.book, reason)
+        }
     }
 
     private enum Access: ~Copyable {
@@ -202,11 +274,11 @@ public final class BookPackage: Sendable {
         return .editing(EditingLock(lock: lock, record: ours))
     }
 
-    /// Writes `book` unless `book.json` already holds exactly its encoding.
+    /// Writes `book` unless `book.md` already holds exactly its encoding.
     ///
     /// The backup policy is ADR 0019: another program's version is never replaced unless it's
     /// safely in `bak1`; this package's own previous save is replaced even if it couldn't be
-    /// backed up, and the outcome says so. When this throws, `book.json` is unchanged.
+    /// backed up, and the outcome says so. When this throws, `book.md` is unchanged.
     ///
     /// A save that writes also clears away stray temporary files (`StrayTemporaryFiles`),
     /// never failing because of them.
@@ -234,7 +306,7 @@ public final class BookPackage: Sendable {
         }
     }
 
-    /// What `book.json` holds now, and whose it is.
+    /// What `book.md` holds now, and whose it is.
     private struct Current {
         let data: Data
         let owner: Owner
@@ -246,7 +318,7 @@ public final class BookPackage: Sendable {
         case theirs
     }
 
-    /// `nil` if `book.json` was removed and `policy` allows recreating it.
+    /// `nil` if `book.md` was removed and `policy` allows recreating it.
     private func readCurrent(_ lastSeen: ContentDigest, _ policy: ExternalChangePolicy) throws(SaveError)
         -> Current?
     {
@@ -274,11 +346,11 @@ public final class BookPackage: Sendable {
     }
 
     private func refusal(_ change: ExternalChange) -> SaveError {
-        Log.store.error("refused to save over a book.json changed by another program")
+        Log.store.error("refused to save over a book.md changed by another program")
         return .externallyModified(change)
     }
 
-    /// The refusal for a `book.json` that changed during the save, naming what's there now.
+    /// The refusal for a `book.md` that changed during the save, naming what's there now.
     private func changedDuringSave() -> SaveError {
         let item: FileItem?
         do {
@@ -301,7 +373,7 @@ public final class BookPackage: Sendable {
     }
 
     /// Writes both temporary files first, so every failure that leaves the disk unchanged
-    /// happens before any rename. Then the renames: the backup rotation, then `book.json`.
+    /// happens before any rename. Then the renames: the backup rotation, then `book.md`.
     private func replaceBook(
         with data: Data, current: Current?, _ lastSeen: inout ContentDigest
     ) throws(SaveError) -> BackupStatus {
@@ -393,13 +465,13 @@ public final class BookPackage: Sendable {
         let olderBackups: OlderBackups
     }
 
-    /// Replaces `book.json` with `replacement` (which holds `data`) only if it still holds
+    /// Replaces `book.md` with `replacement` (which holds `data`) only if it still holds
     /// `expected` (or, for `nil`, nothing), and disposes of `replacement`.
     ///
     /// With `exchange`, the check happens after the swap: if the displaced file isn't
     /// `expected`, another program renamed a new version into place after `readCurrent`, and
     /// it's swapped back. That closes the window for writers that rename into place, as sync
-    /// services and most editors do. A writer that already had `book.json` open and edits it
+    /// services and most editors do. A writer that already had `book.md` open and edits it
     /// in place can still write to the displaced file after the comparison, and that write is
     /// lost when the file is discarded. Volumes that can't swap get a re-check just before a
     /// plain rename.
@@ -453,7 +525,7 @@ public final class BookPackage: Sendable {
         }
     }
 
-    /// `book.json` now holds `published` and the other program's version sits at the temporary
+    /// `book.md` now holds `published` and the other program's version sits at the temporary
     /// name, which nothing reads; give it a visible name so it isn't lost.
     ///
     /// `lastSeen` becomes the digest of what this save wrote, not of a fresh read: a third
@@ -468,11 +540,11 @@ public final class BookPackage: Sendable {
                 displaced, { layout.conflict(at: now, attempt: $0) })
             {
                 Log.store.fault(
-                    "another program changed book.json during a save; kept its version separately")
+                    "another program changed book.md during a save; kept its version separately")
                 return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
             }
         } catch {
-            Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
+            Log.store.fault("couldn't rename another program's version of book.md", error.logMetadata)
         }
         guard case .file? = try? fileSystem.item(at: displaced.url) else { return changedDuringSave() }
         return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
@@ -486,9 +558,25 @@ public final class BookPackage: Sendable {
         try fileSystem.publish(temporary, as: url)
     }
 
-    private static func load(_ layout: PackageLayout, _ fileSystem: any FileSystem) throws(LoadProblem) -> (
-        Book, Data
-    ) {
+    private static func load(_ layout: PackageLayout, _ defaults: ParseDefaults, _ fileSystem: any FileSystem)
+        throws(LoadError) -> ReadBook
+    {
+        let data: Data
+        do {
+            data = try read(layout, fileSystem)
+        } catch {
+            let backups = existingBackups(layout, fileSystem)
+            Log.store.error(
+                "couldn't open a book",
+                ["problem": .symbol(error.logSymbol), "backups": .count(backups.count)])
+            throw LoadError(package: layout.root, problem: error, backups: backups)
+        }
+        return ReadBook(data: data, parsed: defaults.parse(data))
+    }
+
+    private static func read(_ layout: PackageLayout, _ fileSystem: any FileSystem) throws(LoadProblem)
+        -> Data
+    {
         guard layout.hasPackageExtension else { throw .missingPackageExtension }
         let unreadable = LoadProblem.unreadable
         switch try wrapping(
@@ -501,14 +589,13 @@ public final class BookPackage: Sendable {
         switch try wrapping(
             unreadable, { () throws(FileSystemError) in try fileSystem.item(at: layout.book) })
         {
-        case nil: throw .bookMissing
+        case nil:
+            if case .file? = try? fileSystem.item(at: layout.legacyBook) { throw .legacyJSONBook }
+            throw .bookMissing
         case .directory, .symbolicLink, .other: throw .bookNotAFile
         case .file: break
         }
-        let data = try wrapping(unreadable) { () throws(FileSystemError) in try fileSystem.read(layout.book) }
-        var ids = IDGenerator.system
-        let parsed = BookFormat.parse(data, opened: Timestamp(.now, in: .current), ids: &ids)
-        return (parsed.book, data)
+        return try wrapping(unreadable) { () throws(FileSystemError) in try fileSystem.read(layout.book) }
     }
 
     private static func existingBackups(_ layout: PackageLayout, _ fileSystem: any FileSystem) -> [Backup] {
@@ -541,7 +628,7 @@ private func wrapping<T, E: Error>(
     }
 }
 
-/// The verified bytes a save just put in `book.json`. Only `BookPackage` makes one, so a
+/// The verified bytes a save just put in `book.md`. Only `BookPackage` makes one, so a
 /// snapshot can't hold anything else.
 public struct PublishedBook: Hashable, Sendable {
     let data: Data
@@ -576,7 +663,7 @@ public struct ReadOnlyBook: Sendable {
     public let book: Book
 }
 
-/// Why a book opened read-only. `LockWording` has the message for each.
+/// Why a book opened read-only. `ReadOnlyWording` has the message for each.
 public enum ReadOnlyReason: Hashable, Sendable {
     /// Its `flock` is held: by this process's own package for the book, Scene It in another
     /// user account, or a copy that didn't go through the app lock. Never two writers, so
@@ -592,6 +679,13 @@ public enum ReadOnlyReason: Hashable, Sendable {
     /// `.lock` couldn't be created or locked: typically a read-only volume or a folder
     /// without write permission, where a save would fail anyway.
     case lockUnavailable(FileSystemError)
+    /// Parsing `book.md` made new error entries: the file was damaged or hand-edited, and the
+    /// book shown is a repair of it (ADR 0024). Make Editable (`BookPackage.keepOriginal`,
+    /// then `edit`) keeps the original and opens it for editing.
+    case repairedOnOpen(Repair)
+    /// `book.md` says it's in this newer format, which this version would save as its own,
+    /// losing what it doesn't understand (book format §10 Q7). There's no way to edit it here.
+    case newerFormat(FormatVersion)
 
     var logSymbol: StaticString {
         switch self {
@@ -599,6 +693,32 @@ public enum ReadOnlyReason: Hashable, Sendable {
         case .openOnAnotherMac: "openOnAnotherMac"
         case .openInAnotherProcess: "openInAnotherProcess"
         case .lockUnavailable: "lockUnavailable"
+        case .repairedOnOpen: "repairedOnOpen"
+        case .newerFormat: "newerFormat"
         }
+    }
+}
+
+/// What a parse repaired in `book.md` as the book opened, and the bytes it read.
+public struct Repair: Hashable, Sendable {
+    /// The error entries the parse made, in the Errors tab's order (`ParsedBook.newEntries`).
+    public let newEntries: [ErrorEntry]
+    /// Exactly the bytes that were parsed: what Make Editable keeps.
+    let original: Data
+}
+
+/// A repaired book whose original bytes are safely in its package (ADR 0024). Only
+/// `BookPackage.keepOriginal` makes one, so only a book whose original is kept can be edited
+/// through `BookPackage.edit`.
+public struct KeptOriginal: Sendable {
+    /// The `book.md.original-<UTC time>.md` holding the original.
+    public let url: URL
+    let book: ReadOnlyBook
+    let original: ContentDigest
+
+    fileprivate init(url: URL, book: ReadOnlyBook, original: ContentDigest) {
+        self.url = url
+        self.book = book
+        self.original = original
     }
 }

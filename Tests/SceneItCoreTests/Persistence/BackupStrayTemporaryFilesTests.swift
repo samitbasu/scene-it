@@ -64,7 +64,7 @@ private func exists(_ name: String, in folder: URL) -> Bool {
 
 private func recoveredFiles(in folder: URL) throws -> [String] {
     try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
-        .filter { $0.hasPrefix("book.json.recovered-") }
+        .filter { $0.hasPrefix("book.md.recovered-") }
 }
 
 private func strayContents(in folder: URL) throws -> [Data] {
@@ -109,7 +109,7 @@ private func replace(_ url: URL, with data: Data) throws {
         }
     }
 
-    /// A version only in `book.json`'s backups counts as kept in the package, but the mirror
+    /// A version only in `book.md`'s backups counts as kept in the package, but the mirror
     /// must outlive the package, so there only its own snapshots count.
     @Test(arguments: SnapshotFolder.allCases)
     func aStrayHoldingOnlyABackupIsRemovedFromThePackageAndRecoveredInTheMirror(
@@ -152,7 +152,7 @@ private func replace(_ url: URL, with data: Data) throws {
             #expect(try fixture.save(draft(2), at: due) == bothWritten)
 
             let recovered = PackageLayout.recovered(in: folder, modified: start, attempt: 1)
-            #expect(recovered.lastPathComponent == "book.json.recovered-\(UTCStamp.string(for: start)).json")
+            #expect(recovered.lastPathComponent == "book.md.recovered-\(UTCStamp.string(for: start)).md")
             #expect(SnapshotName(fileName: recovered.lastPathComponent) == nil)
             #expect(!exists(stray, in: folder))
             #expect(try Data(contentsOf: recovered) == theirs)
@@ -223,11 +223,11 @@ private func replace(_ url: URL, with data: Data) throws {
             var decoys = [
                 ".\(missed).\(UUID().uuidString.lowercased()).tmp", ".\(missed).\(UUID().uuidString).TMP",
                 "\(missed).\(UUID().uuidString).tmp", ".\(missed).\(UUID().uuidString).tmp.bak",
-                ".\(missed).crashed.tmp", ".Book-\(stamp).json.\(UUID().uuidString).tmp",
+                ".\(missed).crashed.tmp", ".Book-\(stamp).md.\(UUID().uuidString).tmp",
                 ".book-\(stamp).JSON.\(UUID().uuidString).tmp",
-                ".book-20261328T090000Z.json.\(UUID().uuidString).tmp",
-                ".book-\(stamp.lowercased()).json.\(UUID().uuidString).tmp",
-                ".book.json.\(UUID().uuidString).tmp", ".book.json.bak1.\(UUID().uuidString).tmp",
+                ".book-20261328T090000Z.md.\(UUID().uuidString).tmp",
+                ".book-\(stamp.lowercased()).md.\(UUID().uuidString).tmp",
+                ".book.md.\(UUID().uuidString).tmp", ".book.md.bak1.\(UUID().uuidString).tmp",
                 ".notes.txt.\(UUID().uuidString).tmp", strayName(for: snapshotFolder.foreignMetadata),
                 ".\(snapshotFolder.metadata)x.\(UUID().uuidString).tmp",
             ]

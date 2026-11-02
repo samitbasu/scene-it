@@ -26,8 +26,14 @@ enum BookSerializer {
         value.isEmpty ? key + ":" : key + ": " + value
     }
 
-    private static func unparsed(_ entries: [ErrorEntry]) -> [String] {
+    /// An `### Unparsed` block (§5.1), or none for no entries.
+    static func unparsed(_ entries: [ErrorEntry]) -> [String] {
         section("### Unparsed", entries.map { "- " + $0.description })
+    }
+
+    /// §2.2's `tags:` line, for at least one tag.
+    static func tagsLine(_ tags: [String]) -> String {
+        "tags: " + tags.map(FieldEscaping.tag.escape).joined(separator: ", ")
     }
 
     private static func section(_ heading: String, _ lines: [String]) -> [String] {
@@ -41,7 +47,7 @@ enum BookSerializer {
             "modified: \(scene.modified)",
         ]
         if !scene.tags.isEmpty {
-            header.append("tags: " + scene.tags.map(FieldEscaping.tag.escape).joined(separator: ", "))
+            header.append(tagsLine(scene.tags))
         }
         var blocks = [header.joined(separator: "\n")]
         blocks += scene.body.map(Inline.write)

@@ -5,12 +5,12 @@ import Foundation
 /// folder.
 ///
 /// Only regular files named exactly as `FileSystem.writeTemporary` names a temporary file for
-/// one of the folder's destinations (`.book.json.<UUID>.tmp`, `.book-<stamp>.json.<UUID>.tmp`,
+/// one of the folder's destinations (`.book.md.<UUID>.tmp`, `.book-<stamp>.md.<UUID>.tmp`,
 /// `.book-id.<UUID>.tmp`, …) are touched, and only once they're `minimumAge` old, so a write
 /// still in progress is left alone. What happens next depends on what the destination holds
 /// (`Contents`):
 ///
-/// - A version of `book.json` holding the same bytes as a kept version is removed. Any other
+/// - A version of `book.md` holding the same bytes as a kept version is removed. Any other
 ///   holds a version found nowhere else, such as another program's version that a save
 ///   couldn't put back (ADR 0019), so it's renamed to `PackageLayout.recovered(in:modified:attempt:)`
 ///   in the same folder, never removed.
@@ -42,7 +42,7 @@ struct StrayTemporaryFiles {
     private let keptFiles: [URL]
     private let keptSnapshots: URL
 
-    /// A save's temporary `book.json` and `bak1`, compared with the book, its backups and the
+    /// A save's temporary `book.md` and `bak1`, compared with the book, its backups and the
     /// snapshots in `Backups/`.
     init(packageRoot layout: PackageLayout, fileSystem: any FileSystem) {
         let destinations = [layout.book, layout.backup(.bak1)].map(\.lastPathComponent)
@@ -86,7 +86,7 @@ struct StrayTemporaryFiles {
         self.keptSnapshots = keptSnapshots
     }
 
-    /// `book.json` and its rotated backups.
+    /// `book.md` and its rotated backups.
     static func packageVersions(_ layout: PackageLayout) -> [URL] {
         [layout.book] + BackupSlot.allCases.map(layout.backup)
     }

@@ -17,6 +17,7 @@ public final class BookStore<C: Clock<Duration>> {
     @ObservationIgnored private let mirror: BackupMirror
     @ObservationIgnored private let memory: any BookMemory
     @ObservationIgnored private let prompts: any StorePrompts
+    @ObservationIgnored private let parseDefaults: ParseDefaults
     @ObservationIgnored private var operation = Operation.idle
 
     private enum Operation {
@@ -27,10 +28,10 @@ public final class BookStore<C: Clock<Duration>> {
 
     public init(
         clock: C, fileSystem: any FileSystem = LocalFileSystem(), mirror: BackupMirror,
-        memory: any BookMemory,
-        prompts: any StorePrompts
+        memory: any BookMemory, prompts: any StorePrompts, parseDefaults: ParseDefaults = .system
     ) {
         self.clock = clock
+        self.parseDefaults = parseDefaults
         self.fileSystem = fileSystem
         self.mirror = mirror
         self.memory = memory
@@ -124,7 +125,7 @@ public final class BookStore<C: Clock<Duration>> {
         }
         let switched = await switchBooks(to: url) { () async -> Result<OpenedBook, LoadError> in
             do throws(LoadError) {
-                return .success(try await Self.load(url, policy, fileSystem))
+                return .success(try await Self.load(url, policy, parseDefaults, fileSystem))
             } catch {
                 return .failure(error)
             }
@@ -139,11 +140,73 @@ public final class BookStore<C: Clock<Duration>> {
         case .switched(.editing):
             return .opened
         case .switched(.readOnly(_, let reason)):
-            switch await prompts.ask(LockWording.alert(for: reason)) {
+            switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
             case .keepReadOnly:
                 return .openedReadOnly(reason)
             case .openAnyway(let record):
                 return await openExclusively(url, onLockRecord: .openAnyway(record))
+            case .makeEditable:
+                switch await makeEditableExclusively() {
+                case .editable: return .opened
+                case .readOnly(let reason): return .openedReadOnly(reason)
+                case .failed, .notRepaired: return .openedReadOnly(reason)
+                }
+            }
+        }
+    }
+
+    // MARK: Make Editable (ADR 0024)
+
+    public enum MakeEditableOutcome: Hashable, Sendable {
+        case editable
+        /// The original was kept, but the book couldn't be locked for editing.
+        case readOnly(ReadOnlyReason)
+        /// The original couldn't be kept, so nothing changed.
+        case failed(FileSystemError)
+        /// No book is open, or it isn't read-only because it was repaired as it opened.
+        case notRepaired
+    }
+
+    /// Keeps the original of a book that opened read-only because it was repaired, then
+    /// opens it for editing. The book's first save comes after the original is on disk.
+    @discardableResult
+    public func makeEditable() async -> MakeEditableOutcome {
+        await exclusively { await makeEditableExclusively() }
+    }
+
+    private func makeEditableExclusively() async -> MakeEditableOutcome {
+        guard let book = current, case .readOnly(.repairedOnOpen(let repair)) = book.status else {
+            return .notRepaired
+        }
+        let kept: KeptOriginal
+        do throws(FileSystemError) {
+            kept = try await Self.keepOriginal(
+                of: ReadOnlyBook(layout: book.layout, book: book.book), repair, fileSystem)
+        } catch {
+            await prompts.tell(ReadOnlyWording.makeEditableFailed(error))
+            return .failed(error)
+        }
+        return await edit(book, keeping: kept, onLockRecord: .respect)
+    }
+
+    private func edit(
+        _ book: OpenBook<C>, keeping kept: KeptOriginal, onLockRecord policy: LockRecordPolicy
+    ) async -> MakeEditableOutcome {
+        switch await Self.edit(kept, policy, fileSystem) {
+        case .editing(let editable):
+            let writer = BookWriter(editable.package, mirror: mirror)
+            guard book === current else {
+                await writer.release()
+                return .notRepaired
+            }
+            book.becomeEditable(writer, clock: clock)
+            return .editable
+        case .readOnly(_, let reason):
+            switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
+            case .openAnyway(let record):
+                return await edit(book, keeping: kept, onLockRecord: .openAnyway(record))
+            case .keepReadOnly, .makeEditable:
+                return .readOnly(reason)
             }
         }
     }
@@ -375,9 +438,23 @@ public final class BookStore<C: Clock<Duration>> {
 
     @concurrent
     private nonisolated static func load(
-        _ url: URL, _ policy: LockRecordPolicy, _ fileSystem: any FileSystem
+        _ url: URL, _ policy: LockRecordPolicy, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
     ) async throws(LoadError) -> OpenedBook {
-        try BookPackage.open(at: url, onLockRecord: policy, fileSystem: fileSystem)
+        try BookPackage.open(at: url, onLockRecord: policy, defaults: defaults, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func keepOriginal(
+        of book: ReadOnlyBook, _ repair: Repair, _ fileSystem: any FileSystem
+    ) async throws(FileSystemError) -> KeptOriginal {
+        try BookPackage.keepOriginal(of: book, repair, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func edit(
+        _ kept: KeptOriginal, _ policy: LockRecordPolicy, _ fileSystem: any FileSystem
+    ) async -> OpenedBook {
+        BookPackage.edit(kept, onLockRecord: policy, fileSystem: fileSystem)
     }
 
     @concurrent

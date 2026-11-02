@@ -259,20 +259,20 @@ private enum RetentionModel {
     @Test func namesAreUTCSecondsAndRoundTrip() throws {
         let date = Date(timeIntervalSince1970: 1_793_543_405.75)
         let name = try #require(SnapshotName(date: date))
-        #expect(name.fileName == "book-20261101T143005Z.json")
+        #expect(name.fileName == "book-20261101T143005Z.md")
         #expect(name.date == Date(timeIntervalSince1970: 1_793_543_405))
         #expect(SnapshotName(fileName: name.fileName) == name)
     }
 
     @Test(arguments: [
-        "book-20261102T143005Z.json.bak", "book-20261102T143005Z.JSON", "Book-20261102T143005Z.json",
-        "book-20261102T143005.json", "book-2026-11-02T14:30:05Z.json", "book-20261302T143005Z.json",
-        "book-20260231T143005Z.json", "book-20261102T246005Z.json", "book-20261102T143060Z.json",
-        ".book-20261102T143005Z.json.0000.tmp", "book-٢٠٢٦1102T143005Z.json", "book-id", "package.json",
-        "notes.txt", "", "book-20270229T000000Z.json", "book-20261028T240000Z.json",
-        "book-２０２６1028T000000Z.json", "book-20261028T000000Z.json\n", " book-20261028T000000Z.json",
-        "book-20261028t000000Z.json", "book-+2026102T000000Z.json", "book-20261028T000000Z.json\u{0}",
-        "book-2026\u{200B}1028T000000Z.json", "book-00001028T000000Z.json", "book-19691231T235959Z.json",
+        "book-20261102T143005Z.md.bak", "book-20261102T143005Z.MD", "Book-20261102T143005Z.md",
+        "book-20261102T143005.md", "book-2026-11-02T14:30:05Z.md", "book-20261302T143005Z.md",
+        "book-20260231T143005Z.md", "book-20261102T246005Z.md", "book-20261102T143060Z.md",
+        ".book-20261102T143005Z.md.0000.tmp", "book-٢٠٢٦1102T143005Z.md", "book-id", "package.json",
+        "notes.txt", "", "book-20270229T000000Z.md", "book-20261028T240000Z.md",
+        "book-２０２６1028T000000Z.md", "book-20261028T000000Z.md\n", " book-20261028T000000Z.md",
+        "book-20261028t000000Z.md", "book-+2026102T000000Z.md", "book-20261028T000000Z.md\u{0}",
+        "book-2026\u{200B}1028T000000Z.md", "book-00001028T000000Z.md", "book-19691231T235959Z.md",
     ])
     func onlyExactNamesParse(_ name: String) {
         #expect(SnapshotName(fileName: name) == nil)
@@ -280,9 +280,9 @@ private enum RetentionModel {
 
     @Test(
         arguments: [
-            (Int64(0), "book-19700101T000000Z.json"), (1_835_395_200 - 1, "book-20280228T235959Z.json"),
-            (1_835_395_200, "book-20280229T000000Z.json"), (1_835_481_600, "book-20280301T000000Z.json"),
-            (2_147_483_648, "book-20380119T031408Z.json"), (253_402_300_799, "book-99991231T235959Z.json"),
+            (Int64(0), "book-19700101T000000Z.md"), (1_835_395_200 - 1, "book-20280228T235959Z.md"),
+            (1_835_395_200, "book-20280229T000000Z.md"), (1_835_481_600, "book-20280301T000000Z.md"),
+            (2_147_483_648, "book-20380119T031408Z.md"), (253_402_300_799, "book-99991231T235959Z.md"),
         ] as [(Int64, String)])
     func namesAcrossEras(_ example: (Int64, String)) throws {
         let name = try #require(SnapshotName(date: Date(timeIntervalSince1970: TimeInterval(example.0))))
@@ -300,9 +300,9 @@ private enum RetentionModel {
         let layout = PackageLayout(root: URL(filePath: "/Books/Novel.sceneit"))
         let date = Date(timeIntervalSince1970: 1_793_543_405.75)
         #expect(
-            layout.conflict(at: date, attempt: 1).lastPathComponent == "book.json.conflict-20261101T143005Z")
+            layout.conflict(at: date, attempt: 1).lastPathComponent == "book.md.conflict-20261101T143005Z")
         #expect(
-            layout.conflict(at: date, attempt: 2).lastPathComponent == "book.json.conflict-20261101T143005Z-2"
+            layout.conflict(at: date, attempt: 2).lastPathComponent == "book.md.conflict-20261101T143005Z-2"
         )
     }
 }

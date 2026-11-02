@@ -54,7 +54,7 @@ struct BookStoreIntegrationTests {
         #expect(menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)?.keyEquivalent == "s")
     }
 
-    @Test func anEditReachesBookJsonThroughAutosaveAndReopensTheSame() async throws {
+    @Test func anEditReachesBookMdThroughAutosaveAndReopensTheSame() async throws {
         try await withTemporaryFolder { folder in
             let store = BookController.shared.store
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
@@ -152,7 +152,7 @@ struct BookStoreIntegrationTests {
 
             var theirs = try bookOnDisk(url)
             theirs.title = "Their version"
-            try BookFormat.serialize(theirs).write(to: url.appending(path: "book.json"), options: .atomic)
+            try BookFormat.serialize(theirs).write(to: url.appending(path: "book.md"), options: .atomic)
             book.setTitle(of: scene, to: "My version")
             store.saveNow()
             await eventually { prompts.titles == ["This book was changed by another program."] }

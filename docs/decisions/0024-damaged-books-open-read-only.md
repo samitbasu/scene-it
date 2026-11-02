@@ -21,3 +21,20 @@ versions, and snapshots copy only what Scene It wrote.
 ## Not chosen
 Keeping the original silently and opening normally (an emptied file would open as an empty book the writer might type into), or
 asking only in catastrophic cases.
+
+## Details settled in the implementation (#62)
+- **The UI is, for now, the existing read-only alert** (ADR 0020's), not a banner: it offers Keep Read-Only (the default) and
+  Make Editable. Choosing Keep Read-Only and opening the book again shows it again. Whether a persistent banner replaces or
+  joins it is the owner's aesthetic call; `BookStore.makeEditable()` is the operation either one calls.
+- **The kept bytes are the ones that were parsed**, carried from the open (`Repair`), never a second read of `book.md`. Make
+  Editable writes them durably, *then* takes the lock, and the package treats them as what it last read: if `book.md` changed
+  after the open, the first save stops with ADR 0018's "changed on disk".
+- `BookPackage.keepOriginal` returns a `KeptOriginal`, and `BookPackage.edit` needs one, so no code can make a repaired book
+  editable without keeping its original first.
+- **After Make Editable the repaired book counts as unsaved**, so autosave replaces the damaged file and the notices go into
+  `### Unparsed`; the next open finds them already there and opens for editing. Otherwise every open would ask again and
+  keep another identical original.
+- **A newer format wins over a repair.** Such a file always gets a notice (a new entry), and Make Editable must never be
+  offered for it. Neither content reason takes the book's lock.
+- If the lock is held elsewhere when the writer chooses Make Editable, the original is still kept and the book stays
+  read-only with `.repairedOnOpen`, so it can be tried again.
