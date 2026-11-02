@@ -338,9 +338,7 @@ public struct BackupMirror: Hashable, Sendable {
     }
 
     public static var standard: BackupMirror {
-        BackupMirror(
-            root: URL.applicationSupportDirectory.appending(path: "Scene It", directoryHint: .isDirectory)
-                .appending(path: "Backups", directoryHint: .isDirectory))
+        BackupMirror(root: SupportFolder.root.appending(path: "Backups", directoryHint: .isDirectory))
     }
 
     public func folder(for id: UUID) -> URL {

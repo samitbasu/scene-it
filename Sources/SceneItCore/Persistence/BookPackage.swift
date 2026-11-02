@@ -2,30 +2,62 @@ import CryptoKit
 import Foundation
 import Synchronization
 
-/// An open `.sceneit` package: creates, opens and saves `book.json`, rotating
+/// An open `.sceneit` package, editable: creates, opens and saves `book.json`, rotating
 /// `book.json.bak1…3` on each save that changes it.
 ///
 /// It remembers a digest of the `book.json` it last read or wrote, and won't silently save
 /// over a different one. A class, so that two copies can't disagree about that; saves are
-/// serialized by its lock.
+/// serialized by its mutex.
+///
+/// It holds the book's `.lock` (ADR 0020) for as long as it lives, so another `open`
+/// finds the book read-only until the last reference to this package is dropped. That
+/// release does file I/O (clearing a `LockRecord`, flushed to the drive), so drop the last
+/// reference off the main actor.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
     let fileSystem: any FileSystem
     private let lastSeen: Mutex<ContentDigest>
+    private let lock: ExclusiveFileLock
+    /// What this package wrote into `.lock`, where the `flock` alone can't be trusted.
+    private let record: LockRecord?
 
-    private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest) {
+    private init(
+        layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest,
+        lock: consuming EditingLock
+    ) {
         self.layout = layout
         self.fileSystem = fileSystem
         self.lastSeen = Mutex(lastSeen)
+        self.record = lock.record
+        self.lock = lock.lock
+    }
+
+    /// Takes the record back out of `.lock` while the `flock` is still held. A record that
+    /// isn't ours (someone chose "Open Anyway") is left alone. The file itself stays: see
+    /// `ExclusiveFileLock`.
+    deinit {
+        guard let record, (try? lock.contents()).flatMap(LockRecord.decode) == record else { return }
+        do {
+            try lock.replaceContents(with: Data())
+        } catch {
+            Log.store.error("couldn't clear this Mac's record from a book's lock file", error.logMetadata)
+        }
     }
 
     static let emptyArchiveIndex = Data(#"{"copies":[]}"#.utf8)
 
     /// A new package holding an empty book: no scenes, as PLAN §4.2 allows.
     /// `book.json` is written last, so a package left half-made by a failure won't open.
+    /// The new package is locked before anything is written into it.
     public static func create(
         at url: URL, title: String, fileSystem: any FileSystem = LocalFileSystem()
-    ) throws(CreateError) -> OpenedBook {
+    ) throws(CreateError) -> EditableBook {
+        try create(at: url, title: title, fileSystem: fileSystem, opener: .current)
+    }
+
+    static func create(
+        at url: URL, title: String, fileSystem: any FileSystem, opener: Opener
+    ) throws(CreateError) -> EditableBook {
         let layout = PackageLayout(root: url)
         guard layout.hasPackageExtension else { throw .missingPackageExtension(url) }
         let book = Book(title: title)
@@ -42,38 +74,132 @@ public final class BookPackage: Sendable {
         } catch {
             throw .fileSystem(error)
         }
+        let lock: EditingLock
+        switch access(layout, fileSystem, .respect, opener) {
+        case .editing(let editing):
+            lock = editing
+        case .readOnly(let reason):
+            if case .lockUnavailable(let error) = reason { throw .fileSystem(error) }
+            throw .alreadyExists(url)
+        }
         do {
             try fileSystem.createDirectory(at: layout.archive)
             try writeNewFile(emptyArchiveIndex, at: layout.archiveIndex, fileSystem)
             try fileSystem.createDirectory(at: layout.snapshots)
             try writeNewFile(data, at: layout.book, fileSystem)
-            let package = BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data))
-            return OpenedBook(package: package, book: book)
         } catch {
             Log.store.error("couldn't create a book package", error.logMetadata)
             throw .fileSystem(error)
         }
+        let package = BookPackage(
+            layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data), lock: lock)
+        return EditableBook(package: package, book: book)
     }
 
-    /// Reads, decodes and validates `book.json`, all or nothing. Never writes.
+    /// Reads, decodes and validates `book.json`, all or nothing, then locks the book for
+    /// editing; if it can't, the book opens read-only. A failure writes nothing and holds no
+    /// lock. A success writes nothing but `.lock` (created empty, and where the `flock` can't
+    /// be trusted, given a `LockRecord`).
+    ///
+    /// The lock is taken after the read, so a book that won't load gains no `.lock`. If
+    /// `book.json` changed in between, it's read again under the lock.
+    ///
+    /// The lock belongs to the package, not the process: opening a book that this process
+    /// already has open gives `.readOnly(_, .openElsewhere)`. To open it again (ADR 0018's
+    /// "Open Other Version"), reuse the existing package or release it first.
     public static func open(
-        at url: URL, fileSystem: any FileSystem = LocalFileSystem()
+        at url: URL, onLockRecord policy: LockRecordPolicy = .respect,
+        fileSystem: any FileSystem = LocalFileSystem()
+    ) throws(LoadError) -> OpenedBook {
+        try open(at: url, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
+    }
+
+    static func open(
+        at url: URL, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem, opener: Opener
     ) throws(LoadError) -> OpenedBook {
         let layout = PackageLayout(root: url)
+        var book: Book
+        var data: Data
         do {
-            let (book, data) = try load(layout, fileSystem)
+            (book, data) = try load(layout, fileSystem)
+        } catch {
+            throw loadFailure(error, layout, fileSystem)
+        }
+        switch access(layout, fileSystem, policy, opener) {
+        case .editing(let lock):
+            if (try? fileSystem.read(layout.book)) != data {
+                Log.store.info("book.json changed while the book was being locked; reading it again")
+                do {
+                    (book, data) = try load(layout, fileSystem)
+                } catch {
+                    throw loadFailure(error, layout, fileSystem)
+                }
+            }
             Log.store.info(
                 "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
-            return OpenedBook(
-                package: BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data)),
-                book: book)
-        } catch {
-            let backups = existingBackups(layout, fileSystem)
-            Log.store.error(
-                "couldn't open a book",
-                ["problem": .symbol(error.logSymbol), "backups": .count(backups.count)])
-            throw LoadError(package: url, problem: error, backups: backups)
+            let package = BookPackage(
+                layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data), lock: lock)
+            return .editing(EditableBook(package: package, book: book))
+        case .readOnly(let reason):
+            Log.store.info(
+                "opened a book read-only",
+                [
+                    "bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count),
+                    "reason": .symbol(reason.logSymbol),
+                ])
+            return .readOnly(ReadOnlyBook(layout: layout, book: book), reason)
         }
+    }
+
+    private static func loadFailure(
+        _ problem: LoadProblem, _ layout: PackageLayout, _ fileSystem: any FileSystem
+    )
+        -> LoadError
+    {
+        let backups = existingBackups(layout, fileSystem)
+        Log.store.error(
+            "couldn't open a book", ["problem": .symbol(problem.logSymbol), "backups": .count(backups.count)])
+        return LoadError(package: layout.root, problem: problem, backups: backups)
+    }
+
+    private enum Access: ~Copyable {
+        case editing(EditingLock)
+        case readOnly(ReadOnlyReason)
+    }
+
+    /// The book's lock, and the record that tells others about it where the lock alone can't.
+    private struct EditingLock: ~Copyable {
+        let lock: ExclusiveFileLock
+        let record: LockRecord?
+    }
+
+    private static func access(
+        _ layout: PackageLayout, _ fileSystem: any FileSystem, _ policy: LockRecordPolicy, _ opener: Opener
+    ) -> Access {
+        let lock: ExclusiveFileLock
+        switch fileSystem.lock(layout.lock) {
+        case .acquired(let acquired): lock = acquired
+        case .heldElsewhere: return .readOnly(.openElsewhere)
+        case .failed(let error): return .readOnly(.lockUnavailable(error))
+        }
+        guard lock.enforcement == .none || fileSystem.locality(of: layout.lock) == .network else {
+            return .editing(EditingLock(lock: lock, record: nil))
+        }
+        let existing = (try? lock.contents()).flatMap(LockRecord.decode)
+        if let other = LockRecord.blocking(existing, opener: opener, policy: policy) {
+            return .readOnly(
+                other.hostID == opener.mac.id ? .openInAnotherProcess(other) : .openOnAnotherMac(other))
+        }
+        let ours = LockRecord(opener, since: .now)
+        do {
+            try lock.replaceContents(with: ours.encoded())
+        } catch {
+            Log.store.error(
+                "couldn't record this process in a book's lock file; others may not see it's open",
+                ["error": .error(LoggedError(error))])
+            return .editing(EditingLock(lock: lock, record: nil))
+        }
+        return .editing(EditingLock(lock: lock, record: ours))
     }
 
     /// Writes `book` unless `book.json` already holds exactly its encoding.
@@ -475,7 +601,54 @@ public struct PublishedBook: Hashable, Sendable {
     }
 }
 
-public struct OpenedBook: Sendable {
+/// A book as `open` found it. Only the editable form has a `BookPackage`, and so a way to save.
+public enum OpenedBook: Sendable {
+    case editing(EditableBook)
+    case readOnly(ReadOnlyBook, ReadOnlyReason)
+
+    public var book: Book {
+        switch self {
+        case .editing(let editable): editable.book
+        case .readOnly(let readOnly, _): readOnly.book
+        }
+    }
+}
+
+public struct EditableBook: Sendable {
+    /// Holds the book's lock until the last reference to it is dropped.
     public let package: BookPackage
     public let book: Book
+}
+
+/// A book open for reading only: there's no `BookPackage`, so nothing can save it.
+public struct ReadOnlyBook: Sendable {
+    public let layout: PackageLayout
+    public let book: Book
+}
+
+/// Why a book opened read-only. `LockWording` has the message for each.
+public enum ReadOnlyReason: Hashable, Sendable {
+    /// Its `flock` is held: by this process's own package for the book, Scene It in another
+    /// user account, or a copy that didn't go through the app lock. Never two writers, so
+    /// there's no "Open Anyway".
+    case openElsewhere
+    /// Where the `flock` can't be trusted (a network volume, or one without `flock`),
+    /// another Mac's `LockRecord` is in `.lock`. `LockRecordPolicy.openAnyway(record)`
+    /// opens it for editing.
+    case openOnAnotherMac(LockRecord)
+    /// As `.openOnAnotherMac`, but the record names a live process on this Mac: another
+    /// user account or another copy of Scene It, on a volume without `flock`.
+    case openInAnotherProcess(LockRecord)
+    /// `.lock` couldn't be created or locked: typically a read-only volume or a folder
+    /// without write permission, where a save would fail anyway.
+    case lockUnavailable(FileSystemError)
+
+    var logSymbol: StaticString {
+        switch self {
+        case .openElsewhere: "openElsewhere"
+        case .openOnAnotherMac: "openOnAnotherMac"
+        case .openInAnotherProcess: "openInAnotherProcess"
+        case .lockUnavailable: "lockUnavailable"
+        }
+    }
 }

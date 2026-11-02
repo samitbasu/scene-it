@@ -156,8 +156,9 @@ import Testing
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.rewritten.apply(to: url.layout.book)
             #expect(throws: try changed(to: 7)) { try package.save(draft(9)) }
+            _ = consume package
 
-            let reopened = try BookPackage.open(at: url)
+            let reopened = try #require(BookPackage.open(at: url).editable)
             #expect(reopened.book == (try draft(7)))
             #expect(try reopened.package.save(draft(9)).backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])

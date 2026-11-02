@@ -34,17 +34,10 @@ public struct LocalFileSystem: FileSystem {
         }
         guard descriptor >= 0 else { throw FileSystemError(.read, file, .init(errno: errno)) }
         defer { close(descriptor) }
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 1 << 16)
-        while true {
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress!, $0.count) }
-            if count > 0 {
-                data.append(contentsOf: buffer[..<count])
-            } else if count == 0 {
-                return data
-            } else if errno != EINTR {
-                throw FileSystemError(.read, file, .init(errno: errno))
-            }
+        do {
+            return try Self.readAll(from: descriptor)
+        } catch {
+            throw FileSystemError(.read, file, error)
         }
     }
 
@@ -168,6 +161,17 @@ public struct LocalFileSystem: FileSystem {
         return FileIdentity(volume: volume, file: UInt64(info.st_ino))
     }
 
+    public func lock(_ file: URL) -> LockAttempt {
+        ExclusiveFileLock.acquire(file)
+    }
+
+    /// Asks about the directory holding `url`, so `url` itself needn't exist yet.
+    public func locality(of url: URL) -> VolumeLocality {
+        let fresh = URL(filePath: url.deletingLastPathComponent().path(percentEncoded: false))
+        let values = try? fresh.resourceValues(forKeys: [.volumeIsLocalKey])
+        return values?.volumeIsLocal == true ? .local : .network
+    }
+
     private static func cause(of error: any Error) -> FileSystemError.Cause {
         let bridged = error as NSError
         let posix =
@@ -194,7 +198,23 @@ public struct LocalFileSystem: FileSystem {
         }
     }
 
-    private static func writeAll(_ data: Data, to descriptor: Int32) throws(FileSystemError.Cause) {
+    /// Reads from the descriptor's offset to the end of the file.
+    static func readAll(from descriptor: Int32) throws(FileSystemError.Cause) -> Data {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress!, $0.count) }
+            if count > 0 {
+                data.append(contentsOf: buffer[..<count])
+            } else if count == 0 {
+                return data
+            } else if errno != EINTR {
+                throw errnoCause()
+            }
+        }
+    }
+
+    static func writeAll(_ data: Data, to descriptor: Int32) throws(FileSystemError.Cause) {
         let failure: Int32? = data.withUnsafeBytes { buffer in
             var offset = 0
             while offset < buffer.count {
@@ -228,7 +248,7 @@ public struct LocalFileSystem: FileSystem {
     /// `fsync` on macOS only hands the data to the drive, which may keep it in a volatile
     /// cache; `F_FULLFSYNC` also flushes that cache. File systems that don't implement it
     /// (SMB, some FUSE volumes) report ENOTSUP, ENOTTY or EINVAL, and get `fsync` instead.
-    private static func flushToDrive(_ descriptor: Int32) throws(FileSystemError.Cause) {
+    static func flushToDrive(_ descriptor: Int32) throws(FileSystemError.Cause) {
         if fcntl(descriptor, F_FULLFSYNC) == 0 { return }
         guard [ENOTSUP, ENOTTY, EINVAL].contains(errno) else { throw errnoCause() }
         guard fsync(descriptor) == 0 else { throw errnoCause() }

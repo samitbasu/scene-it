@@ -100,7 +100,7 @@ extension DiagnosticsDirectory {
     /// Application Support, except under the test runner and SwiftUI previews, which get a
     /// temporary folder (emptied at each launch) so they never touch the user's real files.
     static func forThisProcess() -> DiagnosticsDirectory {
-        if !usesTemporaryDiagnostics {
+        if ProcessRole.current == .app {
             do {
                 return try applicationSupport()
             } catch {
@@ -113,9 +113,3 @@ extension DiagnosticsDirectory {
             at: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Diagnostics"))
     }
 }
-
-let usesTemporaryDiagnostics: Bool = {
-    let environment = ProcessInfo.processInfo.environment
-    return environment["XCTestConfigurationFilePath"] != nil
-        || environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
-}()
