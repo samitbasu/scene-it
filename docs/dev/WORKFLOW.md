@@ -23,8 +23,9 @@ gh pr list                                                    # awaiting review/
 3. Branch: `git switch -c issue-N-short-name` (or work in a git worktree).
 4. Implement, with tests. Run `scripts/check.sh` until it's green.
 5. Add or extend a tutorial chapter if the issue introduced a new Swift/macOS concept (see the issue's "Tutorial" line).
-6. Open a PR with `Closes #N` in the body. List any intentional behaviour changes or deviations from PLAN.
-7. An independent reviewer (a fresh agent or the owner) reviews it against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings, then merge with a squash.
+6. If you added or changed a script, update its section in the top-level `README.md` (usage, example arguments, output products).
+7. Open a PR with `Closes #N` in the body. List any intentional behaviour changes or deviations from PLAN.
+8. An independent reviewer (a fresh agent or the owner) reviews it against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings, then merge with a squash.
 
 ## Labels
 - `decision`: needs the owner's choice. Ask, don't guess. Record the answer in `docs/decisions/`.
