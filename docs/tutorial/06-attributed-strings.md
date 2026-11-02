@@ -307,8 +307,8 @@ single empty paragraph (empty text, or only a U+FFFC) saves as no paragraphs (`[
 because loading `[]` and `[[]]` both give an empty string.
 
 One rule is beyond the codec: every comment id in a run must be in the scene's
-`comments`, because `book.md` writes a comment's ranges from that list, so an id
-missing from it is lost on the next save. The codec doesn't know the scene, so it
+`comments`, because `book.md` writes a comment's ranges from that list, so save
+verification refuses a book with an id missing from it. The codec doesn't know the scene, so it
 passes ids through untouched. Whoever accepts an edit (the store, for a
 paste) must remap or strip ids it can't resolve
 ([decision 0017](../decisions/0017-paste-carries-comments.md)).
@@ -342,6 +342,11 @@ so the half becomes U+FFFD REPLACEMENT CHARACTER (�) when it's read into one. 
 `String::from_utf16_lossy` makes the same repair. The replacement is still one UTF-16
 unit, so offsets don't shift. `aLoneSurrogateBecomesTheReplacementCharacter` pins
 this down.
+
+Neither the emoji nor the U+FFFD survives into the model, though. `Run` applies the
+character policy to its text (chapter 02 §6), so both are saved as `[?]`, the placeholder
+for anything `book.md` can't store. The surrogate handling still matters: it decides that
+the emoji is *one* character, and so one `[?]`, not two.
 
 ## 7. How the tests prove it
 

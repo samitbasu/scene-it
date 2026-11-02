@@ -50,18 +50,24 @@ enum BookSerializer {
         }
         let body = WrittenText(scene.body)
         let notes = WrittenText(scene.notes)
-        blocks += section("### Comments", scene.comments.map { comment(body, notes, $0) })
+        let anchors = (body: body.commentRanges(), notes: notes.commentRanges())
+        blocks += section(
+            "### Comments",
+            scene.comments.map { comment in
+                let ranges =
+                    anchors.body[comment.id, default: []].map { (TextPart.body, $0) }
+                    + anchors.notes[comment.id, default: []].map { (TextPart.notes, $0) }
+                return self.comment(comment, ranges, body, notes)
+            })
         blocks += section("### Marks", marks(body, notes))
         blocks += unparsed(scene.errors)
         return blocks
     }
 
     /// §4.4, §4.5.
-    private static func comment(_ body: WrittenText, _ notes: WrittenText, _ comment: Comment) -> String {
-        let covered = { (run: Run) in run.comments.contains(comment.id) }
-        let ranges =
-            body.ranges(where: covered).map { (TextPart.body, $0) }
-            + notes.ranges(where: covered).map { (.notes, $0) }
+    private static func comment(
+        _ comment: Comment, _ ranges: [(TextPart, Range<Int>)], _ body: WrittenText, _ notes: WrittenText
+    ) -> String {
         let fields = [comment.id.rawValue, comment.color.rawValue, comment.created.description]
         let anchor: [String]
         if ranges.isEmpty {
@@ -155,6 +161,25 @@ private struct WrittenText {
             }
         }
         if let open { ranges.append(open) }
+        return ranges
+    }
+
+    /// Every comment's maximal ranges (as `ranges(where:)` would find them), in one pass.
+    func commentRanges() -> [CommentID: [Range<Int>]] {
+        var ranges: [CommentID: [Range<Int>]] = [:]
+        var lastRun: [CommentID: Int] = [:]
+        var number = 0
+        for (range, run) in runs where !range.isEmpty {
+            for id in run.comments {
+                if lastRun[id] == number - 1, let open = ranges[id]?.popLast() {
+                    ranges[id, default: []].append(open.lowerBound..<range.upperBound)
+                } else {
+                    ranges[id, default: []].append(range)
+                }
+                lastRun[id] = number
+            }
+            number += 1
+        }
         return ranges
     }
 

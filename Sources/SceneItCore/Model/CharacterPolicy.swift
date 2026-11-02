@@ -34,6 +34,19 @@ public enum CharacterPolicy {
             replaced: distinct(admitted.replacements.map(\.scalar)))
     }
 
+    /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
+    /// comment text, the book's title.
+    public static func admitted(_ text: String) -> String {
+        text.unicodeScalars.allSatisfy { $0 == "\n" || isAllowed($0) } ? text : admit(text).text
+    }
+
+    /// `text` admitted as one line: each line break (`Character.isLineBreak`) becomes a
+    /// space first. For run text and scene titles.
+    public static func admittedLine(_ text: String) -> String {
+        guard !text.unicodeScalars.allSatisfy(isAllowed) else { return text }
+        return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
+    }
+
     /// `admit`, as Latin-1 bytes, recording the line each replaced character was on.
     static func admitLatin1(_ text: String) -> Latin1Text {
         let normalized =

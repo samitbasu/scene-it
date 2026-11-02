@@ -15,14 +15,15 @@ import AppKit
 ///   without an `.attachment` (decision 0016).
 /// - A lone UTF-16 surrogate, which `NSString` allows but `String` can't hold, becomes
 ///   U+FFFD.
+/// - `Run` applies `CharacterPolicy` to its text, so what's saved is what `book.md` can
+///   store: an emoji (or that U+FFFD) becomes `[?]`, `—` becomes `--`, a tab a space.
 /// - Text with no line breaks and nothing left to save is no paragraphs, so `[[]]` (one
 ///   empty paragraph) saves as `[]`.
 ///
-/// Two of the model's rules (book format §7.5) are beyond the codec. Text may only hold
-/// the characters `CharacterPolicy` allows, which the editor ensures as text is typed or
-/// pasted. And comment ids must exist in the scene's `comments`: `book.md` writes a
-/// comment's ranges from that list, so an id missing from it is lost on the next save.
-/// Whoever accepts the edit must remap or strip unknown ids (decision 0017);
+/// One of the model's rules (book format §7.5) is beyond the codec: comment ids must
+/// exist in the scene's `comments`. `book.md` writes a comment's ranges from that list,
+/// so save verification refuses a book with an id missing from it. Whoever accepts the
+/// edit must remap or strip unknown ids (decision 0017);
 /// `Paragraph.commentIDs(in:)` lists the ids to check.
 ///
 /// Main-actor isolated, because the `NSTextStorage` it reads and fills is.

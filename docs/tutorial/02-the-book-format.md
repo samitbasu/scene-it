@@ -212,10 +212,11 @@ facts that cross are:
 - the ids already used, because a duplicate scene id gets a fresh one (§2.2). Fresh ids are
   assigned after the whole file is read, avoiding every id that appears anywhere in it.
 
-The fuzz suite (§7) found one more, which the spec allows: a `# Boneyard` typed early
+The fuzz suite (§7) found that the Boneyard heading is a third: a `# Boneyard` typed early
 makes the real one a "second Boneyard heading", which becomes an error entry in the scene
-it used to end. That's the kind of thing a property test is for: the rule was in the spec
-all along, and the test made its reach visible.
+it used to end, and a damaged real one sends the Boneyard's scenes back into the story.
+That's the kind of thing a property test is for: the rules were in the spec all along, and
+the test made their reach visible. The spec's §6 now lists all three exceptions.
 
 ## 5. Inline markup: toggles
 
@@ -255,8 +256,8 @@ comments and marks as ranges over plain text, while the model keeps them as attr
 runs, so the serializer turns runs back into ranges. One observation makes that short. In
 the flattened list of a body's runs, two consecutive runs are separated by nothing, or only
 by paragraph breaks, because runs are non-empty and contiguous within a paragraph. And a
-range may bridge paragraph breaks (§4.2). So "the maximal ranges of runs with this comment"
-is just grouping consecutive runs:
+range may bridge paragraph breaks (§4.2). So "the maximal ranges of runs with this color"
+is just grouping consecutive runs (comments use the same grouping, for all of them in one pass):
 
 ```swift
     func ranges(where predicate: (Run) -> Bool) -> [Range<Int>] {
@@ -290,6 +291,7 @@ spec:
         guard reread.errorEntries == book.errorEntries else {
             throw .newEntries(newEntries(in: reread, comparedWith: book))
         }
+        guard reread == book.withMaximalRuns else { throw .changed }
         guard serialize(reread) == bytes else { throw .unstable }
         return bytes
     }
@@ -299,15 +301,44 @@ spec:
 `Result<Data, VerificationFailure>`: the caller's `catch` gets a `VerificationFailure`, not
 an `any Error`.
 
-Why both checks? A book may legitimately carry error entries from an earlier load, so "no
+Why three checks? A book may legitimately carry error entries from an earlier load, so "no
 entries" would make such a book unsaveable. What must not happen is a *new* entry: that
-means the serializer wrote something the parser reads differently. And the byte comparison
-catches the changes that don't produce entries: a paragraph whose run contains a line
-break, say, is written on two lines and read back as one paragraph joined by a space. The
-model forbids that state, but the type can't prevent it, so verification is the backstop:
-it shows up as a refused save, never as a silently different file.
+means the serializer wrote something the parser reads differently.
 
-The comparison is on bytes, not on `Book ==`, for the canonical-equivalence reason in §2.
+The book comparison is the one the adversarial review added. Comparing bytes alone missed a
+lossy save: a run carrying a comment id that the scene's comment list doesn't have is
+written without it, so the bytes are perfectly stable, and the id is simply gone. Comparing
+the re-read book with the original (after merging neighbouring runs, which is the one
+change the format makes on purpose) catches that whole class: whatever the file can't
+hold shows up as a refused save, never as a silently different book. Comparing `Book`s is
+safe here, despite `String ==`'s canonical equivalence (§2), because every string in the
+model is admitted Latin-1, where equivalent means identical.
+
+### Making bad text unrepresentable
+
+The model's strings would be a hole in that argument if anything could go into them. So
+the types apply the character policy themselves. `Run.text`, `SceneTitle.text`, tags,
+comment text and the book's title admit their text in the initializer and on every
+assignment:
+
+```swift
+    public var text: String {
+        didSet { text = CharacterPolicy.admittedLine(text) }
+    }
+```
+
+This is Rust's private field plus a smart constructor, with one Swift twist: a `didSet` that
+assigns to its own property doesn't trigger itself again, so the property stays a plain
+`var` at every call site (`run.text += "…"` still works) while no path can store text that
+`book.md` can't hold. An emoji becomes `[?]`, `—` becomes `--`, and in one-line fields a
+line break becomes a space, which is what the parser would make of them on the next load
+anyway. An error entry's payload is normalized the same way, to a line as §1.3's trimming
+leaves it.
+
+The alternative was a separate `AdmittedText` type for every field. That would have made the
+invariant visible in signatures, but it would have rippled through the editor bridge, the
+word counts and every test that writes `Run("…")`, for no extra guarantee: the property
+observer makes the invalid state just as unreachable.
 
 ## 7. How it's tested
 
@@ -327,7 +358,9 @@ separate test asserts that the generator really produces overlapping comments, d
 comments, empty paragraphs and every error tag, so the property can't quietly test less
 than it claims.
 
-**Fuzzing.** Three seeded suites:
+**Fuzzing.** Every seed is XORed with `FUZZ_SALT` from the environment, so
+`FUZZ_SALT=7 swift test` explores fresh cases and a failure reproduces with the same salt.
+The suites:
 
 - random bytes, and random lines of structure (headings, entries, fences), thousands of
   each: the parse must always produce a book whose `verifiedSerialization` succeeds. That's
@@ -338,11 +371,27 @@ than it claims.
   scene's bytes are, so it knows which scenes a mutation touched. Every scene that wasn't
   touched (and isn't the one before a touched one, since breaking a `##` line merges a scene
   into its predecessor) must parse exactly as before, apart from the two non-local effects
-  the spec defines (§4). About 16,000 untouched scenes are compared per run.
+  the spec defines (§4). Each must also keep its list (story or Boneyard) unless a
+  `# Boneyard` line changed, and the untouched scenes must keep their order. About 16,000
+  untouched scenes are compared per run;
+- **conservation**: unique words scattered through files full of structure and damage must
+  all survive parse → serialize: the parser may put a word in an error entry, but never
+  drops one;
+- **books built through the API**: random books over the whole of Latin-1 and every token
+  that looks like structure must read back as themselves and pass verification.
 
 **Performance.** A 120,000-word novel (about 700 KB) parses in about 0.37 s and serializes
 in about 0.09 s in a debug build, and in about 30 ms each in a release build. The test
 asserts under a second in debug.
+
+**Scaling.** The review found five paths that were quadratic in the worst case:
+appending to a `String.UnicodeScalarView` in a loop, rebuilding the set of earlier comment
+ids for every comment line, scanning every run once per comment when writing, and hashing a
+growing array per character to track overlapping comments. Each now builds into one
+pre-sized buffer, keeps one growing set, or sweeps the comments' endpoints once. The
+scaling tests double each input and require the time to grow by less than 3× (linear growth
+is 2×, quadratic 4×), taking the fastest of three runs so scheduling noise doesn't flake
+them.
 
 Debug Swift is slow in ways that matter here. Each array subscript is bounds-checked and
 each closure call is real, so a per-character `zip(…).map { … }` that's free in release can

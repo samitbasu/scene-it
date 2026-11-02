@@ -61,3 +61,7 @@ func plainScene(body: [Paragraph] = [], notes: [Paragraph] = []) -> BookScene {
         id: SceneID(rawValue: "s1"), modified: Timestamp(secondsSince1970: 0, offset: .zero), title: "S",
         body: body, notes: notes)
 }
+
+/// Mixed into every fuzz and property seed. `FUZZ_SALT=<n> swift test` explores new cases;
+/// a failure reproduces with the same salt.
+let fuzzSalt = UInt64(ProcessInfo.processInfo.environment["FUZZ_SALT"] ?? "0") ?? 0

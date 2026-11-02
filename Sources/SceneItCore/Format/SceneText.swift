@@ -10,18 +10,15 @@ struct TextRange: Hashable {
 }
 
 /// A scene's body or notes while it's parsed: the plain text (§3.6) and every character's
-/// styles, color, highlight and comments, which marks and comments are applied to before
-/// it becomes runs.
+/// styles, color and highlight, plus the comments' ranges, which become runs at the end.
 struct SceneText {
     private(set) var text: [UInt8] = []
     private var styles: [StyleBits] = []
     private var colors: [UInt8] = []
     private var highlights: [UInt8] = []
     private var paragraphs: [Range<Int>] = []
-    /// Each character's comments, as an index into `commentSets`; 0 is none.
-    private var commentSlots: [Int32] = []
-    private var commentSets: [[Int]] = [[]]
-    private var commentSetIndex: [[Int]: Int32] = [[]: 0]
+    /// Each comment's ranges, by the comment's number.
+    private var comments: [(comment: Int, range: Range<Int>)] = []
 
     init(_ paragraphs: [StyledText]) {
         for (index, paragraph) in paragraphs.enumerated() {
@@ -35,7 +32,6 @@ struct SceneText {
         }
         colors = Array(repeating: 0, count: text.count)
         highlights = Array(repeating: 0, count: text.count)
-        commentSlots = Array(repeating: 0, count: text.count)
     }
 
     /// §4.2's validity: in bounds, not empty or backwards, and covering more than `\n`.
@@ -52,32 +48,22 @@ struct SceneText {
         set(&highlights, Self.code(of: highlight, in: HighlightColor.allCases), in: range)
     }
 
-    /// Covers `range` with the comment numbered `comment`; comments are added in ascending order.
+    /// Covers `range` with the comment numbered `comment`. Paragraph breaks inside it carry
+    /// nothing, since no run holds them.
     mutating func addComment(_ comment: Int, in range: Range<Int>) {
-        for index in range where text[index] != Lexical.newline {
-            let current = commentSets[Int(commentSlots[index])]
-            guard current.last != comment else { continue }
-            let next = current + [comment]
-            if let slot = commentSetIndex[next] {
-                commentSlots[index] = slot
-            } else {
-                let slot = Int32(commentSets.count)
-                commentSets.append(next)
-                commentSetIndex[next] = slot
-                commentSlots[index] = slot
-            }
-        }
+        comments.append((comment, range))
     }
 
     /// The paragraphs as maximal runs; `comments` maps a comment's number to its id.
-    func paragraphs(comments: [CommentID]) -> [Paragraph] {
+    func paragraphs(comments ids: [CommentID]) -> [Paragraph] {
+        let (slots, sets) = commentSlots()
         var formats = [UInt64](repeating: 0, count: text.count)
         formats.withUnsafeMutableBufferPointer { formats in
             for index in formats.indices {
                 formats[index] =
                     UInt64(styles[index].rawValue) | UInt64(colors[index]) << 8 | UInt64(highlights[index])
                     << 16
-                    | UInt64(UInt32(bitPattern: commentSlots[index])) << 32
+                    | UInt64(slots[index]) << 32
             }
         }
         return paragraphs.map { range in
@@ -90,15 +76,53 @@ struct SceneText {
                 }
                 runs.append(
                     Run(
-                        Lexical.string(text[start..<end]),
+                        admitted: Lexical.string(text[start..<end]),
                         styles: styles[start].styles,
                         color: Self.value(colors[start], in: TextColor.allCases),
                         highlight: Self.value(highlights[start], in: HighlightColor.allCases),
-                        comments: Set(commentSets[Int(commentSlots[start])].map { comments[$0] })))
+                        comments: Set(sets[Int(slots[start])].map { ids[$0] })))
                 start = end
             }
             return Paragraph(runs)
         }
+    }
+
+    /// Each character's set of comments, as an index into `sets`, found by sweeping the
+    /// ranges' endpoints: the set changes only where a range starts or ends.
+    private func commentSlots() -> (slots: [UInt32], sets: [[Int]]) {
+        var slots = [UInt32](repeating: 0, count: text.count)
+        guard !comments.isEmpty else { return (slots, [[]]) }
+        var events: [(offset: Int, comment: Int, delta: Int)] = []
+        for (comment, range) in comments {
+            events.append((range.lowerBound, comment, 1))
+            events.append((range.upperBound, comment, -1))
+        }
+        events.sort { $0.offset < $1.offset }
+        var sets: [[Int]] = [[]]
+        var slotOfSet: [[Int]: UInt32] = [[]: 0]
+        var active: [Int: Int] = [:]
+        var slot: UInt32 = 0
+        var next = 0
+        for offset in 0..<text.count {
+            if next < events.count, events[next].offset <= offset {
+                while next < events.count, events[next].offset <= offset {
+                    let comment = events[next].comment
+                    active[comment, default: 0] += events[next].delta
+                    if active[comment] == 0 { active[comment] = nil }
+                    next += 1
+                }
+                let set = active.keys.sorted()
+                if let known = slotOfSet[set] {
+                    slot = known
+                } else {
+                    sets.append(set)
+                    slot = UInt32(sets.count - 1)
+                    slotOfSet[set] = slot
+                }
+            }
+            slots[offset] = slot
+        }
+        return (slots, sets)
     }
 
     private func set(_ values: inout [UInt8], _ value: UInt8, in range: Range<Int>) {

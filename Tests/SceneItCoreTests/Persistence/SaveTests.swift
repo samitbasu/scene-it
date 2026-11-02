@@ -87,12 +87,12 @@ func expectLayout(
     }
 }
 
-/// Bytes that decode to a valid book but aren't what the encoder writes.
-/// A book the serializer writes but the parser reads back differently, with no new error
-/// entries: a paragraph holding a line break, which the model forbids (book format §7.5).
-func unstableBook(_ number: Int) throws -> Book {
+/// A book whose serialization reads back as a different book, with no new error entries:
+/// a run carries a comment id the scene doesn't list (book format §7.5), so the save
+/// would lose it.
+func lossyBook(_ number: Int) throws -> Book {
     var book = try draft(number)
-    book.scenes[0].body.append([Run("one\ntwo")])
+    book.scenes[0].body.append([Run("ghost", comments: [CommentID(rawValue: "ghost")])])
     return book
 }
 
@@ -178,7 +178,7 @@ func bookWithNewEntries(_ number: Int) throws -> Book {
                         try attemptSave(package, failing: fault, fileSystem)
                     }
                     switch (fault, error) {
-                    case (.encode, .encoding(.newEntries)), (.verify, .encoding(.unstable)),
+                    case (.encode, .encoding(.newEntries)), (.verify, .encoding(.changed)),
                         (.readDisplaced, .externallyModified(.changed)):
                         break
                     case (_, .fileSystem) where fault.call != nil: break
@@ -275,8 +275,8 @@ func bookWithNewEntries(_ number: Int) throws -> Book {
     }
 
     @Test func verificationRejectsBooksThatDontReadBack() throws {
-        #expect(throws: VerificationFailure.unstable) {
-            try BookFormat.verifiedSerialization(of: unstableBook(1))
+        #expect(throws: VerificationFailure.changed) {
+            try BookFormat.verifiedSerialization(of: lossyBook(1))
         }
         #expect(throws: VerificationFailure.self) {
             try BookFormat.verifiedSerialization(of: bookWithNewEntries(1))
@@ -308,7 +308,7 @@ private func attemptSave(
     case .encode:
         return try package.save(bookWithNewEntries(9))
     case .verify:
-        return try package.save(unstableBook(9))
+        return try package.save(lossyBook(9))
     default:
         fileSystem.inject(.fail(try #require(fault.call)))
         return try package.save(draft(9))

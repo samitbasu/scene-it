@@ -43,6 +43,7 @@ private enum SceneList {
 private struct Positioned {
     let line: Int
     let entry: ErrorEntry
+    var origin = EntryOrigin.new
 }
 
 private final class SceneDraft {
@@ -248,13 +249,16 @@ private final class Reader {
         guard let logical = entry else { return }
         entry = nil
         guard let scene = current else {
-            bookEntries.append(Positioned(line: logical.line, entry: Entries.unparsed(logical.text)))
+            let (entry, origin) = Entries.unparsed(logical.text)
+            bookEntries.append(Positioned(line: logical.line, entry: entry, origin: origin))
             return
         }
         switch scene.section {
         case .comments: scene.commentLines.append(logical)
         case .marks: scene.markLines.append(logical)
-        default: scene.entries.append(Positioned(line: logical.line, entry: Entries.unparsed(logical.text)))
+        default:
+            let (entry, origin) = Entries.unparsed(logical.text)
+            scene.entries.append(Positioned(line: logical.line, entry: entry, origin: origin))
         }
     }
 
@@ -327,8 +331,9 @@ private final class Reader {
         current = nil
         var body = SceneText(scene.body)
         var notes = SceneText(scene.notes)
+        var context = EntryContext(body: body, notes: notes, commentIDs: [])
         let marks = scene.markLines.compactMap { logical -> ParsedMark? in
-            switch Entries.mark(logical.text, in: EntryContext(body: body, notes: notes, commentIDs: [])) {
+            switch Entries.mark(logical.text, in: context) {
             case .success(let mark): return mark
             case .failure: record(.marks, logical.text, logical.line, in: scene)
             }
@@ -336,9 +341,10 @@ private final class Reader {
         }
         var comments: [ParsedComment] = []
         for logical in scene.commentLines {
-            let context = EntryContext(body: body, notes: notes, commentIDs: Set(comments.map(\.comment.id)))
             switch Entries.comment(logical.text, in: context) {
-            case .success(let comment): comments.append(comment)
+            case .success(let comment):
+                comments.append(comment)
+                context.commentIDs.insert(comment.comment.id)
             case .failure: record(.comments, logical.text, logical.line, in: scene)
             }
         }
@@ -398,6 +404,7 @@ private final class Reader {
         var kept: Set<SceneID> = []
         var story: [BookScene] = []
         var boneyard: [BookScene] = []
+        var newInScenes: [ErrorEntry] = []
         for draft in scenes {
             var notices: [RepairNotice] = []
             let id: SceneID
@@ -412,10 +419,12 @@ private final class Reader {
                 notices.append(.missingModified(setTo: opened))
             }
             notices += replacedNotice(draft.replaced)
+            let entries = Self.inFileOrder(draft.entries)
+            newInScenes += Self.new(entries) + notices.map(\.entry)
             let scene = BookScene(
                 id: id, modified: draft.modified ?? opened, title: SceneTitle(draft.title), tags: draft.tags,
                 body: draft.paragraphs.body, notes: draft.paragraphs.notes, comments: draft.comments,
-                errors: Self.inFileOrder(draft.entries) + notices.map(\.entry))
+                errors: entries.map(\.entry) + notices.map(\.entry))
             switch draft.list {
             case .story: story.append(scene)
             case .boneyard: boneyard.append(scene)
@@ -430,19 +439,26 @@ private final class Reader {
             notices.append(.missingFormat)
         }
         notices += replacedNotice(bookReplaced)
+        let entries = Self.inFileOrder(bookEntries)
         let book = Book(
             title: title ?? BookFormat.untitled, scenes: story, boneyard: boneyard,
-            errors: Self.inFileOrder(bookEntries) + notices.map(\.entry))
-        return ParsedBook(book: book, declaredFormat: format.map(FormatVersion.init))
+            errors: entries.map(\.entry) + notices.map(\.entry))
+        return ParsedBook(
+            book: book, declaredFormat: format.map(FormatVersion.init),
+            newEntries: Self.new(entries) + notices.map(\.entry) + newInScenes)
     }
 
     private func replacedNotice(_ scalars: [Unicode.Scalar]) -> [RepairNotice] {
         scalars.isEmpty ? [] : [.replacedCharacters(CharacterPolicy.distinct(scalars))]
     }
 
-    private static func inFileOrder(_ entries: [Positioned]) -> [ErrorEntry] {
+    private static func inFileOrder(_ entries: [Positioned]) -> [Positioned] {
         entries.enumerated().sorted { ($0.element.line, $0.offset) < ($1.element.line, $1.offset) }.map(
-            \.element.entry)
+            \.element)
+    }
+
+    private static func new(_ entries: [Positioned]) -> [ErrorEntry] {
+        entries.filter { $0.origin == .new }.map(\.entry)
     }
 
     /// A fresh id that no scene in the file uses. A source that keeps repeating itself gets

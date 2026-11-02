@@ -17,11 +17,17 @@ struct EntryContext {
     let body: SceneText
     let notes: SceneText
     /// The ids of the comments already read in this scene.
-    let commentIDs: Set<CommentID>
+    var commentIDs: Set<CommentID>
 
     func text(_ part: TextPart) -> SceneText {
         part == .body ? body : notes
     }
+}
+
+/// Whether an error entry was already in the file, in an `### Unparsed` section, or this
+/// parse made it (ADR 0024).
+enum EntryOrigin {
+    case preserved, new
 }
 
 struct ParsedComment: Equatable {
@@ -103,9 +109,9 @@ enum Entries {
         return .success(ParsedMark(kind: kind, ranges: ranges))
     }
 
-    /// An `### Unparsed` entry line (§5.1): `- [<tag>] <payload>`, or else the whole line
-    /// kept as a `[line]` entry.
-    static func unparsed(_ line: [UInt8]) -> ErrorEntry {
+    /// An `### Unparsed` entry line (§5.1): `- [<tag>] <payload>`, which the file already
+    /// held, or else the whole line kept as a new `[line]` entry.
+    static func unparsed(_ line: [UInt8]) -> (entry: ErrorEntry, origin: EntryOrigin) {
         let content = Lexical.entryContent(line)
         if content.first == Lexical.openBracket, let close = content.firstIndex(of: Lexical.closeBracket),
             let tag = ErrorTag.allCases.first(where: {
@@ -113,9 +119,12 @@ enum Entries {
             }),
             close + 1 == content.endIndex || content[close + 1] == Lexical.space
         {
-            return ErrorEntry(tag, Lexical.string(Lexical.withoutLeadingSpaces(content[(close + 1)...])))
+            return (
+                ErrorEntry(tag, Lexical.string(Lexical.withoutLeadingSpaces(content[(close + 1)...]))),
+                .preserved
+            )
         }
-        return ErrorEntry(.line, Lexical.string(line))
+        return (ErrorEntry(.line, Lexical.string(line)), .new)
     }
 
     /// Palette names are case-insensitive, and `grey` is `gray`.
@@ -221,7 +230,7 @@ private struct FieldReader {
                 end += bytes[end] == Lexical.backslash ? 2 : 1
             }
             guard end < bytes.endIndex else { return .failure(.quoteSyntax) }
-            quotes.append(Lexical.fieldUnescaped(bytes[start..<end]))
+            quotes.append(Lexical.quoteUnescaped(bytes[start..<end]))
             position = end + 1
             skipSpaces()
         } while consume(Lexical.comma)

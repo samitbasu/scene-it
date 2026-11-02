@@ -9,7 +9,7 @@ import Testing
 
     @Test(arguments: 0..<300)
     func generatedBooksRoundTrip(seed: UInt64) throws {
-        var generator = BookGenerator(seed: seed)
+        var generator = BookGenerator(seed: seed ^ fuzzSalt)
         let book = generator.book()
         let bytes = BookFormat.serialize(book)
         let parsed = parse(bytes)
@@ -22,7 +22,7 @@ import Testing
     @Test func theGeneratorCoversTheFormat() {
         var books: [Book] = []
         for seed in UInt64(0)..<300 {
-            var generator = BookGenerator(seed: seed)
+            var generator = BookGenerator(seed: seed ^ fuzzSalt)
             books.append(generator.book())
         }
         let scenes = books.flatMap { $0.scenes + $0.boneyard }
@@ -64,24 +64,48 @@ import Testing
 
     // MARK: §7.2, refusals
 
+    /// What the model's types can't rule out is refused, never saved differently.
     @Test func aBookBreakingAnInvariantIsRefused() throws {
-        var lineBreak = try RichBook.make()
-        lineBreak.scenes[1].body = [[Run("one\ntwo")]]
-        #expect(throws: VerificationFailure.unstable) { try BookFormat.verifiedSerialization(of: lineBreak) }
-
-        var emoji = try RichBook.make()
-        emoji.scenes[1].body = [[Run("wave 🌊")]]
-        #expect(throws: VerificationFailure.newEntries([RepairNotice.replacedCharacters(["🌊"]).entry])) {
-            try BookFormat.verifiedSerialization(of: emoji)
-        }
-
         var duplicate = try RichBook.make()
         duplicate.boneyard.append(duplicate.scenes[1])
         #expect(throws: VerificationFailure.self) { try BookFormat.verifiedSerialization(of: duplicate) }
 
-        var multiline = try RichBook.make()
-        multiline.scenes[1].title = "one\ntwo"
-        #expect(throws: VerificationFailure.self) { try BookFormat.verifiedSerialization(of: multiline) }
+        var emptyRun = try RichBook.make()
+        emptyRun.scenes[1].body = [[Run("Rain."), Run("", styles: [.bold])]]
+        #expect(throws: VerificationFailure.changed) { try BookFormat.verifiedSerialization(of: emptyRun) }
+
+        var badID = try RichBook.make()
+        badID.scenes[1].id = SceneID(rawValue: "has space")
+        #expect(throws: VerificationFailure.self) { try BookFormat.verifiedSerialization(of: badID) }
+    }
+
+    /// The reviewer's case: a run's comment id that the scene doesn't list is written
+    /// without it, so the bytes are stable but the id is lost. Verification compares books
+    /// too, so the save is refused.
+    @Test func aLossySerializationIsRefused() throws {
+        let commented = Run("letter", comments: [CommentID(rawValue: "ghost")])
+        let book = Book(title: "T", scenes: [plainScene(body: [Paragraph([Run("The "), commented])])])
+        #expect(parse(BookFormat.serialize(book)).book != book, "precondition: the save would lose the id")
+        #expect(throws: VerificationFailure.changed) { try BookFormat.verifiedSerialization(of: book) }
+    }
+
+    /// Text the format can't store can't get into the model: the types apply the
+    /// character policy, the way the parser does on reading.
+    @Test func theModelOnlyHoldsTextTheFormatCanStore() throws {
+        var book = try RichBook.make()
+        book.title = "Wave\u{2014}\r\nnew"
+        book.scenes[1].title = "one\ntwo\u{2028}three 🌊"
+        book.scenes[1].body = [[Run("wave 🌊\nline\t\u{201C}q\u{201D}")]]
+        book.scenes[1].body[0].runs[0].text += "\u{2026}e\u{301}"
+        book.scenes[1].tags = ["", "α", "a\r\nb"]
+        book.scenes[1].errors = [ErrorEntry(.line, "  C:\\  "), ErrorEntry(.notice, "x\ny")]
+        #expect(book.title == "Wave--\nnew")
+        #expect(book.scenes[1].title == "one two three [?]")
+        #expect(book.scenes[1].body[0].runs[0].text == "wave [?] line \"q\"...é")
+        #expect(book.scenes[1].tags == ["[?]", "a\nb"])
+        #expect(book.scenes[1].errors.map(\.payload) == ["C:\\ ", "x y"])
+        let bytes = try BookFormat.verifiedSerialization(of: book)
+        #expect(parse(bytes).book == book)
     }
 
     @Test func entriesTheBookAlreadyHadAreNotNew() throws {

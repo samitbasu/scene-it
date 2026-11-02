@@ -106,6 +106,16 @@ enum Lexical {
     /// §4.1, reading: `\n` is a newline, `\` before ASCII punctuation or a space is that
     /// character, and any other `\` is itself.
     static func fieldUnescaped(_ bytes: ArraySlice<UInt8>) -> [UInt8] {
+        unescaped(bytes, escaping: isEscapable)
+    }
+
+    /// §4.3, reading a quote: only `\"`, `\\` and `\n` are escapes, so a quote copied from
+    /// the text keeps every other backslash.
+    static func quoteUnescaped(_ bytes: ArraySlice<UInt8>) -> [UInt8] {
+        unescaped(bytes) { $0 == quote || $0 == backslash }
+    }
+
+    private static func unescaped(_ bytes: ArraySlice<UInt8>, escaping isEscape: (UInt8) -> Bool) -> [UInt8] {
         var result: [UInt8] = []
         result.reserveCapacity(bytes.count)
         var index = bytes.startIndex
@@ -118,7 +128,7 @@ enum Lexical {
                     index += 2
                     continue
                 }
-                if isEscapable(next) {
+                if isEscape(next) {
                     result.append(next)
                     index += 2
                     continue
@@ -177,22 +187,48 @@ struct FieldEscaping: OptionSet {
     static let quoted: FieldEscaping = [.quoteMarks]
 
     func escape(_ text: String) -> String {
-        var result = String.UnicodeScalarView()
-        let scalars = Array(text.unicodeScalars)
-        for (index, scalar) in scalars.enumerated() {
+        var result = WrittenLine(capacity: text.utf8.count)
+        let last = text.unicodeScalars.count - 1
+        for (index, scalar) in text.unicodeScalars.enumerated() {
             switch scalar {
-            case "\\": result.append(contentsOf: "\\\\".unicodeScalars)
-            case "\n": result.append(contentsOf: "\\n".unicodeScalars)
+            case "\\": result.append("\\\\")
+            case "\n": result.append("\\n")
             case "\"" where contains(.quoteMarks), "," where contains(.commas):
                 result.append("\\")
                 result.append(scalar)
             case "#" where index == 0 && contains(.leadingHash):
-                result.append(contentsOf: "\\#".unicodeScalars)
-            case " " where (index == 0 || index == scalars.count - 1) && contains(.edgeSpaces):
-                result.append(contentsOf: "\\ ".unicodeScalars)
+                result.append("\\#")
+            case " " where (index == 0 || index == last) && contains(.edgeSpaces):
+                result.append("\\ ")
             default: result.append(scalar)
             }
         }
-        return String(result)
+        return result.string
+    }
+}
+
+/// Text being written, as UTF-8 bytes: appending is amortized O(1), and the `String` is
+/// made once at the end.
+struct WrittenLine {
+    private(set) var bytes: [UInt8] = []
+
+    init(capacity: Int) {
+        bytes.reserveCapacity(capacity)
+    }
+
+    mutating func append(_ scalar: Unicode.Scalar) {
+        if scalar.isASCII {
+            bytes.append(UInt8(scalar.value))
+        } else {
+            UTF8.encode(scalar) { bytes.append($0) }
+        }
+    }
+
+    mutating func append(_ text: String) {
+        bytes += text.utf8
+    }
+
+    var string: String {
+        String(decoding: bytes, as: UTF8.self)
     }
 }

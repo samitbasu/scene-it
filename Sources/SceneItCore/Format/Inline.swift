@@ -205,7 +205,7 @@ enum Inline {
     static func write(_ paragraph: Paragraph) -> String {
         guard !paragraph.runs.isEmpty else { return "<br>" }
         let count = paragraph.runs.reduce(0) { $0 + $1.text.unicodeScalars.count }
-        var line = String.UnicodeScalarView()
+        var line = WrittenLine(capacity: count + count / 8)
         var position = 0
         var current: StyleBits = []
         var previousWasSpace = false
@@ -214,8 +214,8 @@ enum Inline {
             let delimiters = Self.delimiters(from: current, to: next)
             current = next
             guard !delimiters.isEmpty else { return }
-            delimiterFollowedSpace = line.isEmpty || previousWasSpace
-            line.append(contentsOf: delimiters.unicodeScalars)
+            delimiterFollowedSpace = line.bytes.isEmpty || previousWasSpace
+            line.append(delimiters)
             previousWasSpace = false
         }
         for run in paragraph.runs {
@@ -229,21 +229,22 @@ enum Inline {
             }
         }
         transition(to: [])
-        return needsLineStartEscape(String(line)) ? "\\" + String(line) : String(line)
+        let written = line.string
+        return needsLineStartEscape(line.bytes) ? "\\" + written : written
     }
 
     /// A title, for a `## ` heading: characters escaped as in a paragraph, no delimiters.
     static func writeTitle(_ title: String) -> String {
-        var line = String.UnicodeScalarView()
+        var line = WrittenLine(capacity: title.utf8.count)
         let count = title.unicodeScalars.count
         for (position, scalar) in title.unicodeScalars.enumerated() {
             append(scalar, to: &line, spaces: position == 0 || position == count - 1 ? .escaped : .plain)
         }
-        return String(line)
+        return line.string
     }
 
     private static func append(
-        _ scalar: Unicode.Scalar, to line: inout String.UnicodeScalarView, spaces: SpaceWriting
+        _ scalar: Unicode.Scalar, to line: inout WrittenLine, spaces: SpaceWriting
     ) {
         switch scalar {
         case "\\", "*", "_", "~":
@@ -270,8 +271,8 @@ enum Inline {
         return (closed + opened).joined()
     }
 
-    private static func needsLineStartEscape(_ line: String) -> Bool {
-        line.hasPrefix("#") || line.hasPrefix("- ") || line.hasPrefix("---") || line == "-"
-            || ["<br>", "<br/>", "<br />"].contains(line.lowercased())
+    private static func needsLineStartEscape(_ line: [UInt8]) -> Bool {
+        line.starts(with: "#".utf8) || line.starts(with: "- ".utf8) || line.starts(with: "---".utf8)
+            || line.elementsEqual("-".utf8) || (line.count <= 6 && isEmptyParagraphMarker(line))
     }
 }

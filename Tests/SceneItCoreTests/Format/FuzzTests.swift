@@ -11,7 +11,7 @@ import Testing
         "##  -|\"\\*~_:c0123456789[]\n\n\r\t---Boneyard Notes Comments Marks Unparsed".utf8)
 
     @Test func randomBytesAlwaysParseToASaveableBook() throws {
-        var random = SplitMix64(seed: 0xB0_0C)
+        var random = SplitMix64(seed: fuzzSalt ^ 0xB0_0C)
         for round in 0..<3000 {
             let length = Int.random(in: 0...300, using: &random)
             let bytes = (0..<length).map { _ in
@@ -35,7 +35,7 @@ import Testing
             "- [foo] y", "<br>",
             "continued", "\\", "- ", "-", "*", "~~", "\u{1F30A}",
         ]
-        var random = SplitMix64(seed: 0x11_E5)
+        var random = SplitMix64(seed: fuzzSalt ^ 0x11_E5)
         for round in 0..<3000 {
             let text = (0..<Int.random(in: 0...30, using: &random)).map { _ in
                 pieces.randomElement(using: &random)!
@@ -49,7 +49,7 @@ import Testing
     // MARK: Mutations of valid files
 
     @Test func severalMutationsAlwaysParseToASaveableBook() throws {
-        var random = SplitMix64(seed: 0x5E_7E4A1)
+        var random = SplitMix64(seed: fuzzSalt ^ 0x5E_7E4A1)
         for base in try Self.bases() {
             for _ in 0..<250 {
                 var bytes = [UInt8](base)
@@ -132,18 +132,38 @@ import Testing
     private static func bases() throws -> [Data] {
         var bases = [try Fixture.data("complete-example"), try Fixture.data("demo-book")]
         for seed in UInt64(1000)..<1006 {
-            var generator = BookGenerator(seed: seed)
+            var generator = BookGenerator(seed: seed ^ fuzzSalt)
             bases.append(BookFormat.serialize(generator.book()))
         }
         return bases
     }
 
-    /// Whether `candidate` is `original` as it should read after damage elsewhere. The spec
-    /// lets that damage reach an untouched scene in exactly two ways:
+    private enum List {
+        case story, boneyard
+    }
+
+    /// The book's scenes in file order, each with the list it's in.
+    private static func placed(_ book: Book) -> [(list: List, scene: BookScene)] {
+        book.scenes.map { (List.story, $0) } + book.boneyard.map { (List.boneyard, $0) }
+    }
+
+    /// How many lines are a `# Boneyard` heading, as §1.8 recognizes one.
+    private static func boneyardHeadings(_ bytes: [UInt8]) -> Int {
+        BookParser.lines(CharacterPolicy.admitLatin1(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
+            line in
+            if case .heading(1, let name) = Lexical.kind(of: line) {
+                return Lexical.equalsIgnoringCase(name, "boneyard")
+            }
+            return false
+        }
+    }
+
+    /// Whether `candidate` is `original` as it should read after damage elsewhere. Apart
+    /// from moving between the lists, the spec lets that damage reach an untouched scene in
+    /// exactly two ways (§6):
     /// - an earlier scene took its id, so it gets a fresh one and a notice (§2.2);
     /// - an earlier `# Boneyard` made the real one a second Boneyard heading, which is a
-    ///   `[line]` entry of the scene it ends (§1.8). The scenes after it move to the
-    ///   Boneyard, but read the same.
+    ///   `[line]` entry of the scene it ends (§1.8).
     private static func isUndamaged(_ candidate: BookScene, original: BookScene) -> Bool {
         guard candidate != original else { return true }
         var restored = candidate
@@ -163,15 +183,14 @@ import Testing
     /// scene's heading can merge the scene into the one before, so that one counts as
     /// touched too; so does a scene whose first or last byte is next to the damage.
     @Test func damageStaysLocal() throws {
-        var random = SplitMix64(seed: 0xDA_4A6E)
+        var random = SplitMix64(seed: fuzzSalt ^ 0xDA_4A6E)
         var checked = 0
         var mutatedFiles = 0
         for base in try Self.bases() {
             let original = [UInt8](base)
             let spans = Self.sceneSpans(original)
-            let before = parse(base).book
-            let scenes = before.scenes + before.boneyard
-            try #require(scenes.count == spans.count, "precondition: every scene found")
+            let placedScenes = Self.placed(parse(base).book)
+            try #require(placedScenes.count == spans.count, "precondition: every scene found")
             for _ in 0..<500 {
                 var bytes = original
                 let mutation = Mutation.allCases.randomElement(using: &random)!
@@ -179,7 +198,7 @@ import Testing
                 mutatedFiles += 1
                 let after = parse(Data(bytes)).book
                 #expect(throws: Never.self) { try BookFormat.verifiedSerialization(of: after) }
-                let afterScenes = after.scenes + after.boneyard
+                let afterScenes = Self.placed(after)
                 var affected = Set<Int>()
                 for (index, span) in spans.enumerated() {
                     let widened = (span.lowerBound - 1)..<(span.upperBound + 1)
@@ -188,11 +207,21 @@ import Testing
                         affected.formUnion([index - 1, index])
                     }
                 }
-                for (index, scene) in scenes.enumerated() where !affected.contains(index) {
+                // Adding, removing or breaking a `# Boneyard` line moves scenes between the
+                // lists (§6's locality exceptions); otherwise each keeps its list.
+                let listsMayChange = Self.boneyardHeadings(bytes) != Self.boneyardHeadings(original)
+                var next = 0
+                for (index, (list, scene)) in placedScenes.enumerated() where !affected.contains(index) {
                     checked += 1
+                    let found = afterScenes[next...].firstIndex { candidate in
+                        (listsMayChange || candidate.list == list)
+                            && Self.isUndamaged(candidate.scene, original: scene)
+                    }
                     #expect(
-                        afterScenes.contains { Self.isUndamaged($0, original: scene) },
-                        "scene \(index) changed though \(mutation) at \(touched) didn't touch it")
+                        found != nil,
+                        "scene \(index) changed, moved or was reordered though \(mutation) at \(touched) didn't touch it"
+                    )
+                    next = found.map { $0 + 1 } ?? next
                 }
             }
         }

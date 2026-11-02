@@ -322,11 +322,17 @@ Input: the paragraph's runs. Only the styles matter here; colors, highlights and
    writes nothing; adjacent runs that differ only in color or comments merge.
 3. **Characters.** `\` → `\\`, `*` → `\*`, `_` → `\_`, `~` → `\~`. A space is written `\␠` when it is (a) the
    paragraph's first or last character, or (b) written immediately after a delimiter run that itself immediately
-   follows a space or the start of the line. Rule (b) guarantees that no delimiter the serializer writes is
-   free-standing (§3.4 step 2). Every other character is written as itself.
+   follows a space or the start of the line. In (b), "a space" is the paragraph's character, however it was
+   written: a delimiter run right after an escaped `\␠` counts as following a space, so `" "`, `bold " x"` is
+   written `\␠**\␠x**`. Rule (b) guarantees that no delimiter the serializer writes is free-standing (§3.4
+   step 2). Every other character is written as itself.
 4. **Line-start escapes.** If the resulting line starts with `#`, starts with `- `, starts with `---`, is exactly `-`,
    or is (case-insensitively) `<br>`, `<br/>` or `<br />`, a `\` is put in front of it. Unescaped, these could read
    as structure: a heading, an entry, front matter, an empty paragraph.
+
+ADR 0022 also lists `key:` directly under a heading as structure to escape. No escape is needed: the serializer
+always writes a blank line between a scene's metadata block and its first paragraph (§1.7), so a paragraph is never
+directly under a heading and a body line like `Mara: hello` can't be read as metadata.
 
 `_` is escaped although Scene It doesn't read it as markup, because other Markdown viewers would. Unescaped `_`, a lone
 `~`, a free-standing `*` and an unescaped `- ` or `---` at the start of a paragraph line all read as **literal text**,
@@ -359,6 +365,16 @@ Comments and marks address text by character offsets into a **plain text**:
 Example: `He found the **letter**.` followed by the paragraph `Mara *watched*.` has the plain text
 `He found the letter.\nMara watched.`; `letter` is `c13-19` and `Mara` is `c21-25`.
 
+### 3.7 Hand-editing gotchas
+
+Three things that surprise writers typing in another editor. Scene It never writes them this way itself.
+
+| You type | Scene It reads | To get what you meant |
+| --- | --- | --- |
+| `C:\` at the end of a paragraph line | `C:` and a space: a trailing `\` is an escaped space whose space an editor stripped (§1.3) | `C:\\` |
+| `see C:\new` in a comment's text | `see C:`, a line break, `ew`: `\n` is a line break in comment text, tags and the book title (§4.1) | `see C:\\new` |
+| `## Chapter 2*3*4` | the title `Chapter 234`: `*3*` is italic, and formatting in a title is dropped (§2.1) | `## Chapter 2\*3\*4` |
+
 ---
 
 ## 4. Comments and marks
@@ -372,7 +388,7 @@ These rules are shared by Comments, Marks and Unparsed sections (and by the arch
 | Entry | A line starting `-` followed by a space (or a line that is exactly `-`). Written `- ` + fields. |
 | Continuation † | A non-blank, non-heading line that doesn't start with `- `, directly after an entry line (no blank line between), continues it: it's joined to the entry with a single space. This undoes an editor's hard wrap. A non-entry line with no entry directly above it is a stray line (§4.8). |
 | Separator | `|`, with any number of spaces either side. Written ` | `. |
-| Field escapes (read) | `\n` → a newline. `\` + ASCII punctuation or space → that character (`\\`, `\"`, `\,`, `\|`, `\␠` …). `\` + anything else → a literal backslash. |
+| Field escapes (read) | `\n` → a newline. `\` + ASCII punctuation or space → that character (`\\`, `\"`, `\,`, `\|`, `\␠` …). `\` + anything else → a literal backslash. Quotes are the exception: they have only three escapes (§4.3). |
 | Field escapes (write) | `\` → `\\`; newline → `\n`; inside a quote also `"` → `\"`; in a free-text field also a space at its first or last position → `\␠`. Nothing else is escaped: `|` in a comment's text is literal because the text is the last field. |
 
 ### 4.2 Ranges
@@ -390,7 +406,9 @@ These rules are shared by Comments, Marks and Unparsed sections (and by the arch
 
 Each range is followed by its **quote**: the exact plain text at the range, in double quotes. With several ranges
 the quotes are a matching list, separated by `,` (written `, `). Inside a quote, `\"` is a quote mark, `\\` a
-backslash and `\n` a paragraph break; everything else, including `|`, `*` and `,`, is literal.
+backslash and `\n` a paragraph break; everything else, including `|`, `*` and `,`, is literal. That includes any
+other backslash: `"a\,b"` is the four characters `a\,b`, not `a,b`, so a quote copied from the text keeps what it
+copied.
 
 The quote must equal the plain text at the range **exactly**, character for character after unescaping. There is no
 re-anchoring (ADR 0022): if you edit the text a comment points at, fix its range and quote too, or mark the comment
@@ -562,6 +580,19 @@ deterministic.
 ## 6. The parser never fails: damage and its result
 
 Every byte sequence parses to a book. Damage costs what it touches, at most the scene it's in, never the book.
+(Breaking a scene's `##` line merges the scene into the one before it, so that one is touched too.)
+
+Three rules reach further, and they're the only exceptions:
+
+1. **A duplicate id renames a later scene.** If damage gives an earlier scene the id of a later one, the later one
+   (in file order) gets a fresh id and a notice (§2.2), though its own lines are untouched.
+2. **An early `# Boneyard` moves scenes.** A `# Boneyard` heading typed or pasted before the real one starts the
+   Boneyard there: the story scenes after it move to the Boneyard, and the real heading becomes a second one, a
+   `[line]` entry of the scene it used to end (§1.8).
+3. **A broken `# Boneyard` moves scenes back.** If the real `# Boneyard` line is damaged (`# Boneyrd`), it's an unknown
+   heading, a `[line]` entry, and the Boneyard scenes after it are read as story scenes.
+
+In every case the scenes' text, notes, comments and marks are read exactly as before.
 
 | Damage | Result |
 | --- | --- |
@@ -660,7 +691,10 @@ store maintain them; a violation shows up as a refused save, never as a silently
 - No empty runs (an empty paragraph has no runs). No empty tags.
 - Scene ids are unique in the book; comment ids are unique in their scene; every id matches §2.2's character set.
 - Every comment id on a run is in the scene's comment list.
-- Error entries have one of the six tags and a single-line payload with no leading or trailing spaces.
+- Error entries have one of the six tags and a payload that is a line as §1.3 leaves it: a single line, no leading
+  spaces, no trailing space unless it's escaped (`\␠`), and **never ending in an odd run of `\`** (§1.3 would read
+  it back with a space added). That's exactly what reading `- [<tag>] <payload>` produces, so any such payload is
+  written and read back unchanged.
 
 ---
 

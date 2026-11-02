@@ -347,10 +347,10 @@ import Testing
             ([Run("never", styles: [.bold, .italic, .strike])], "***~~never~~***"),
             (
                 [
-                    Run("when "), Run("the house… and ", styles: [.bold]),
+                    Run("when "), Run("the house was asleep and ", styles: [.bold]),
                     Run("leaving", styles: [.bold, .italic]),
-                    Run(" still… game.", styles: [.italic]),
-                ], "when **the house… and *leaving** still… game.*"
+                    Run(" still seemed like a game.", styles: [.italic]),
+                ], "when **the house was asleep and *leaving** still seemed like a game.*"
             ),
             ([Run("Wait "), Run(" for", styles: [.bold]), Run(" it.")], #"Wait **\ for** it."#),
             ([Run("He said. ")], #"He said.\ "#),
@@ -436,6 +436,22 @@ import Testing
         )
         #expect(scene.errors.isEmpty, "\(scene.errors)")
         #expect(file(scene).contains("| c3-5, c9-20 | \"fo\", \"the letter.\" |"))
+    }
+
+    /// §4.3: only `\"`, `\\` and `\n` are escapes in a quote; any other backslash is text.
+    @Test func quotesKeepOtherBackslashes() throws {
+        let scene = try onlyScene(
+            file(
+                scene: "a\\\\,b \\\\| \"q\"\n\n### Comments\n"
+                    + "- c1 | red | 2026-01-01T00:00:00Z | c0-4 | \"a\\,b\" |\n"
+                    + "- c2 | red | 2026-01-01T00:00:00Z | c5-11 | \"\\| \\\"q\\\"\" |"))
+        #expect(scene.body.map(\.text) == ["a\\,b \\| \"q\""], "precondition")
+        #expect(scene.errors.isEmpty, "\(scene.errors)")
+        #expect(scene.comments.count == 2)
+        #expect(
+            file(scene).contains(
+                "| c0-4 | \"a\\\\,b\" |\n- c2 | red | 2026-01-01T00:00:00+00:00 | c5-11 | \"\\\\| \\\"q\\\"\" |"
+            ))
     }
 
     @Test func aCommentAcrossParagraphsIsOneRange() throws {

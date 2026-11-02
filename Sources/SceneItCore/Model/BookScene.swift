@@ -3,13 +3,17 @@
 public struct Comment: Identifiable, Hashable, Sendable {
     public var id: CommentID
     public var color: PaletteColor
-    public var text: String
+    /// Text `CharacterPolicy` admits, which may hold line breaks; every assignment
+    /// applies the policy.
+    public var text: String {
+        didSet { text = CharacterPolicy.admitted(text) }
+    }
     public var created: Timestamp
 
     public init(id: CommentID, color: PaletteColor, text: String, created: Timestamp) {
         self.id = id
         self.color = color
-        self.text = text
+        self.text = CharacterPolicy.admitted(text)
         self.created = created
     }
 }
@@ -18,8 +22,11 @@ public struct BookScene: Identifiable, Hashable, Sendable {
     public var id: SceneID
     public var modified: Timestamp
     public var title: SceneTitle
-    /// Stored without the leading `#`.
-    public var tags: [String]
+    /// Stored without the leading `#`. Each is text `CharacterPolicy` admits, and none is
+    /// empty: every assignment applies the policy and drops empty tags.
+    public var tags: [String] {
+        didSet { tags = Self.admitted(tags) }
+    }
     public var body: [Paragraph]
     public var notes: [Paragraph]
     public var comments: [Comment]
@@ -40,11 +47,15 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         self.id = id
         self.modified = modified
         self.title = title
-        self.tags = tags
+        self.tags = Self.admitted(tags)
         self.body = body
         self.notes = notes
         self.comments = comments
         self.errors = errors
+    }
+
+    private static func admitted(_ tags: [String]) -> [String] {
+        tags.map(CharacterPolicy.admitted).filter { !$0.isEmpty }
     }
 
     /// Whether no run in the body or the notes carries the comment.

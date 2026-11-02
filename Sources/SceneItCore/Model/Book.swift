@@ -1,6 +1,9 @@
 /// A whole book, as `book.md` holds it (docs/format/book-format.md).
 public struct Book: Hashable, Sendable {
-    public var title: String
+    /// Text `CharacterPolicy` admits; every assignment applies the policy.
+    public var title: String {
+        didSet { title = CharacterPolicy.admitted(title) }
+    }
     /// Story order.
     public var scenes: [BookScene]
     /// Cut scenes, most recently cut first.
@@ -15,7 +18,7 @@ public struct Book: Hashable, Sendable {
         boneyard: [BookScene] = [],
         errors: [ErrorEntry] = []
     ) {
-        self.title = title
+        self.title = CharacterPolicy.admitted(title)
         self.scenes = scenes
         self.boneyard = boneyard
         self.errors = errors

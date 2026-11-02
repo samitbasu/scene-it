@@ -68,16 +68,7 @@ struct BookGenerator {
     }
 
     static func merged(_ runs: [Run]) -> [Run] {
-        runs.reduce(into: []) { merged, run in
-            if var last = merged.last, last.styles == run.styles, last.color == run.color,
-                last.highlight == run.highlight, last.comments == run.comments
-            {
-                last.text += run.text
-                merged[merged.count - 1] = last
-            } else {
-                merged.append(run)
-            }
-        }
+        Paragraph(runs).withMaximalRuns.runs
     }
 
     private mutating func errors() -> [ErrorEntry] {

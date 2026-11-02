@@ -23,8 +23,13 @@ public enum BookFormat {
     }
 
     /// The bytes to save for `book`, after checking that they read back as the same book
-    /// (book format §7.2): serializing what they parse to gives the same bytes, and the
-    /// parse found exactly the error entries `book` already had.
+    /// (book format §7.2): the parse finds exactly the error entries `book` already had,
+    /// it gives back `book` itself (up to merging neighbouring runs of the same format),
+    /// and serializing it again gives the same bytes.
+    ///
+    /// Comparing books, not only bytes, is what catches a lossy save: a run carrying a
+    /// comment id the scene doesn't list is written without it, so the bytes are stable
+    /// but the id is gone.
     public static func verifiedSerialization(of book: Book) throws(VerificationFailure) -> Data {
         let bytes = serialize(book)
         var ids = UnusedSceneIDs()
@@ -32,6 +37,7 @@ public enum BookFormat {
         guard reread.errorEntries == book.errorEntries else {
             throw .newEntries(newEntries(in: reread, comparedWith: book))
         }
+        guard reread == book.withMaximalRuns else { throw .changed }
         guard serialize(reread) == bytes else { throw .unstable }
         return bytes
     }
@@ -51,6 +57,15 @@ public struct ParsedBook: Hashable, Sendable {
     /// The file's `format:` value; `nil` if it had none (or not a number). The book was read
     /// as the current format either way, with a notice if this isn't it.
     public var declaredFormat: FormatVersion?
+    /// The error entries this parse made, in the Errors tab's order: notices, and lines it
+    /// couldn't read. Entries the file already held in `### Unparsed` sections aren't
+    /// among them. A book with any opens read-only until the writer confirms (ADR 0024).
+    public var newEntries: [ErrorEntry]
+
+    /// Whether the parse repaired anything (ADR 0024's `.repairedOnOpen`).
+    public var wasRepaired: Bool {
+        !newEntries.isEmpty
+    }
 
     /// Whether the file says it's a format newer than this version reads. Such a book
     /// should open read-only, so a downgraded copy can't be saved over it (book format §10 Q7).
@@ -82,6 +97,9 @@ public struct FormatVersion: Hashable, Comparable, Sendable, CustomStringConvert
 public enum VerificationFailure: Error, Hashable, Sendable, CustomStringConvertible {
     /// Reading the bytes back produced error entries the book didn't have.
     case newEntries([ErrorEntry])
+    /// Reading the bytes back gave a different book: something the book holds can't be
+    /// written, like a run's comment id that the scene's comments don't list.
+    case changed
     /// Reading the bytes back and serializing again gave different bytes.
     case unstable
 
@@ -90,8 +108,23 @@ public enum VerificationFailure: Error, Hashable, Sendable, CustomStringConverti
         case .newEntries(let entries):
             "the serialized book reads back with new error entries:\n"
                 + entries.map { "- \($0.tag.rawValue)" }.joined(separator: "\n")
+        case .changed: "the serialized book reads back as a different book"
         case .unstable: "the serialized book changes when it's read and serialized again"
         }
+    }
+}
+
+extension Book {
+    /// The book as `book.md` holds it: neighbouring runs of the same format merged.
+    var withMaximalRuns: Book {
+        var book = self
+        for list in [\Book.scenes, \Book.boneyard] {
+            for index in book[keyPath: list].indices {
+                book[keyPath: list][index].body = book[keyPath: list][index].body.map(\.withMaximalRuns)
+                book[keyPath: list][index].notes = book[keyPath: list][index].notes.map(\.withMaximalRuns)
+            }
+        }
+        return book
     }
 }
 
