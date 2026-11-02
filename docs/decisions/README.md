@@ -25,3 +25,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0016](0016-text-only-no-images.md) | Text only; the editors refuse images | Accepted |
 | [0017](0017-paste-carries-comments.md) | Pasting commented text copies its comments into the destination scene | Accepted |
 | [0018](0018-external-change-ux.md) | External change on disk: ask Keep Mine / Open Theirs; both versions survive | Accepted |
+| [0019](0019-backup-failure-policy.md) | Backup can't be written: refuse for external versions, save-and-warn for our own | Accepted |
