@@ -66,6 +66,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var hooks: [(call: Call, action: @Sendable () -> Void)] = []
         var identities: [String: FileIdentity?] = [:]
         var locality: VolumeLocality?
+        var enforcement = LockEnforcement.kernel
     }
 
     private let base = LocalFileSystem()
@@ -181,7 +182,20 @@ final class FaultInjectingFileSystem: FileSystem {
         } catch {
             return .failed(error)
         }
-        return base.lock(file)
+        switch state.withLock({ $0.enforcement }) {
+        case .kernel:
+            return base.lock(file)
+        case .none:
+            return ExclusiveFileLock.acquire(file) { _ in
+                errno = ENOTSUP
+                return -1
+            }
+        }
+    }
+
+    /// `.none` makes every `flock` fail with `ENOTSUP`, as on NFS mounted `nolocks`.
+    func override(enforcement: LockEnforcement) {
+        state.withLock { $0.enforcement = enforcement }
     }
 
     /// Makes every volume answer `locality`, such as `.network` on a local test directory.

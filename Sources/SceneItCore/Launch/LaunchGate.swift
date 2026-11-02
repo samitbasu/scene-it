@@ -72,11 +72,38 @@ public enum LaunchGate {
         return .proceed(lock, session: startSession())
     }
 
-    /// Locks `file`, creating its folder first if this is the first launch.
-    public static func acquire(_ file: URL) -> LockAttempt {
+    /// Locks `file`, creating its folder first if this is the first launch, and records this
+    /// process's id in it so a later launch knows which instance to hand off to.
+    public static func acquire(_ file: URL, processID: Int32 = getpid()) -> LockAttempt {
         try? FileManager.default.createDirectory(
             at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return ExclusiveFileLock.acquire(file)
+        switch ExclusiveFileLock.acquire(file) {
+        case .acquired(let lock):
+            do {
+                try lock.replaceContents(with: Data("\(processID)\n".utf8))
+            } catch {
+                Log.app.error("couldn't record this instance in the app lock file", error.logMetadata)
+            }
+            return .acquired(lock)
+        case .heldElsewhere:
+            return .heldElsewhere
+        case .failed(let error):
+            return .failed(error)
+        }
+    }
+
+    /// The process id recorded in the app lock file, if it holds one.
+    public static func recordedHolder(in contents: Data) -> Int32? {
+        Int32(String(decoding: contents, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Which running process to hand off to: the one recorded in the lock file if it's
+    /// still Scene It, otherwise any other instance with our bundle id.
+    public static func handOffTarget(
+        recorded: Int32?, ours: Int32, isRunningSceneIt: (Int32) -> Bool, sameBundle: [Int32]
+    ) -> Int32? {
+        if let recorded, recorded != ours, isRunningSceneIt(recorded) { return recorded }
+        return sameBundle.first { $0 != ours }
     }
 }
 

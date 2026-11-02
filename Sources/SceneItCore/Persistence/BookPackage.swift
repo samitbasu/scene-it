@@ -10,13 +10,15 @@ import Synchronization
 /// serialized by its mutex.
 ///
 /// It holds the book's `.lock` (ADR 0020) for as long as it lives, so another `open`
-/// finds the book read-only until the last reference to this package is dropped.
+/// finds the book read-only until the last reference to this package is dropped. That
+/// release does file I/O (clearing a `LockRecord`, flushed to the drive), so drop the last
+/// reference off the main actor.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
     let fileSystem: any FileSystem
     private let lastSeen: Mutex<ContentDigest>
     private let lock: ExclusiveFileLock
-    /// What this package wrote into `.lock`, on a network volume.
+    /// What this package wrote into `.lock`, where the `flock` alone can't be trusted.
     private let record: LockRecord?
 
     private init(
@@ -30,9 +32,9 @@ public final class BookPackage: Sendable {
         self.lock = lock.lock
     }
 
-    /// Takes the record back out of `.lock` while the `flock` is still held, so other Macs
-    /// don't have to wait for it to go stale. A record that isn't ours (another Mac chose
-    /// "Open Anyway") is left alone. The file itself stays: see `ExclusiveFileLock`.
+    /// Takes the record back out of `.lock` while the `flock` is still held. A record that
+    /// isn't ours (someone chose "Open Anyway") is left alone. The file itself stays: see
+    /// `ExclusiveFileLock`.
     deinit {
         guard let record, (try? lock.contents()).flatMap(LockRecord.decode) == record else { return }
         do {
@@ -49,6 +51,12 @@ public final class BookPackage: Sendable {
     /// The new package is locked before anything is written into it.
     public static func create(
         at url: URL, title: String, fileSystem: any FileSystem = LocalFileSystem()
+    ) throws(CreateError) -> EditableBook {
+        try create(at: url, title: title, fileSystem: fileSystem, opener: .current)
+    }
+
+    static func create(
+        at url: URL, title: String, fileSystem: any FileSystem, opener: Opener
     ) throws(CreateError) -> EditableBook {
         let layout = PackageLayout(root: url)
         guard layout.hasPackageExtension else { throw .missingPackageExtension(url) }
@@ -67,7 +75,7 @@ public final class BookPackage: Sendable {
             throw .fileSystem(error)
         }
         let lock: EditingLock
-        switch access(layout, fileSystem, .respect) {
+        switch access(layout, fileSystem, .respect, opener) {
         case .editing(let editing):
             lock = editing
         case .readOnly(let reason):
@@ -89,31 +97,44 @@ public final class BookPackage: Sendable {
     }
 
     /// Reads, decodes and validates `book.json`, all or nothing, then locks the book for
-    /// editing; if it can't, the book opens read-only. A failure writes nothing. A success
-    /// writes nothing but `.lock` (created empty, and on a network volume given a
-    /// `LockRecord` naming this Mac).
+    /// editing; if it can't, the book opens read-only. A failure writes nothing and holds no
+    /// lock. A success writes nothing but `.lock` (created empty, and where the `flock` can't
+    /// be trusted, given a `LockRecord`).
     ///
-    /// The lock is taken after the read, so a book that won't load gains no `.lock`. A save
-    /// by another writer between the two would only make this package's first save refuse,
-    /// as for any external change (ADR 0018).
+    /// The lock is taken after the read, so a book that won't load gains no `.lock`. If
+    /// `book.json` changed in between, it's read again under the lock.
+    ///
+    /// The lock belongs to the package, not the process: opening a book that this process
+    /// already has open gives `.readOnly(_, .openElsewhere)`. To open it again (ADR 0018's
+    /// "Open Other Version"), reuse the existing package or release it first.
     public static func open(
-        at url: URL, onAnotherMac policy: OtherMacPolicy = .respect,
+        at url: URL, onLockRecord policy: LockRecordPolicy = .respect,
         fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
+        try open(at: url, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
+    }
+
+    static func open(
+        at url: URL, onLockRecord policy: LockRecordPolicy, fileSystem: any FileSystem, opener: Opener
+    ) throws(LoadError) -> OpenedBook {
         let layout = PackageLayout(root: url)
-        let book: Book
-        let data: Data
+        var book: Book
+        var data: Data
         do {
             (book, data) = try load(layout, fileSystem)
         } catch {
-            let backups = existingBackups(layout, fileSystem)
-            Log.store.error(
-                "couldn't open a book",
-                ["problem": .symbol(error.logSymbol), "backups": .count(backups.count)])
-            throw LoadError(package: url, problem: error, backups: backups)
+            throw loadFailure(error, layout, fileSystem)
         }
-        switch access(layout, fileSystem, policy) {
+        switch access(layout, fileSystem, policy, opener) {
         case .editing(let lock):
+            if (try? fileSystem.read(layout.book)) != data {
+                Log.store.info("book.json changed while the book was being locked; reading it again")
+                do {
+                    (book, data) = try load(layout, fileSystem)
+                } catch {
+                    throw loadFailure(error, layout, fileSystem)
+                }
+            }
             Log.store.info(
                 "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
             let package = BookPackage(
@@ -130,19 +151,30 @@ public final class BookPackage: Sendable {
         }
     }
 
+    private static func loadFailure(
+        _ problem: LoadProblem, _ layout: PackageLayout, _ fileSystem: any FileSystem
+    )
+        -> LoadError
+    {
+        let backups = existingBackups(layout, fileSystem)
+        Log.store.error(
+            "couldn't open a book", ["problem": .symbol(problem.logSymbol), "backups": .count(backups.count)])
+        return LoadError(package: layout.root, problem: problem, backups: backups)
+    }
+
     private enum Access: ~Copyable {
         case editing(EditingLock)
         case readOnly(ReadOnlyReason)
     }
 
-    /// The book's `flock`, and on a network volume the record that tells other Macs about it.
+    /// The book's lock, and the record that tells others about it where the lock alone can't.
     private struct EditingLock: ~Copyable {
         let lock: ExclusiveFileLock
         let record: LockRecord?
     }
 
     private static func access(
-        _ layout: PackageLayout, _ fileSystem: any FileSystem, _ policy: OtherMacPolicy, now: Date = .now
+        _ layout: PackageLayout, _ fileSystem: any FileSystem, _ policy: LockRecordPolicy, _ opener: Opener
     ) -> Access {
         let lock: ExclusiveFileLock
         switch fileSystem.lock(layout.lock) {
@@ -150,19 +182,20 @@ public final class BookPackage: Sendable {
         case .heldElsewhere: return .readOnly(.openElsewhere)
         case .failed(let error): return .readOnly(.lockUnavailable(error))
         }
-        guard fileSystem.locality(of: layout.lock) == .network else {
+        guard lock.enforcement == .none || fileSystem.locality(of: layout.lock) == .network else {
             return .editing(EditingLock(lock: lock, record: nil))
         }
         let existing = (try? lock.contents()).flatMap(LockRecord.decode)
-        if let other = LockRecord.blocking(existing, thisMac: .current, now: now, policy: policy) {
-            return .readOnly(.openOnAnotherMac(other))
+        if let other = LockRecord.blocking(existing, opener: opener, policy: policy) {
+            return .readOnly(
+                other.hostID == opener.mac.id ? .openInAnotherProcess(other) : .openOnAnotherMac(other))
         }
-        let ours = LockRecord(.current, processID: getpid(), since: now)
+        let ours = LockRecord(opener, since: .now)
         do {
             try lock.replaceContents(with: ours.encoded())
         } catch {
             Log.store.error(
-                "couldn't record this Mac in a book's lock file; other Macs won't see it's open",
+                "couldn't record this process in a book's lock file; others may not see it's open",
                 ["error": .error(LoggedError(error))])
             return .editing(EditingLock(lock: lock, record: nil))
         }
@@ -595,12 +628,17 @@ public struct ReadOnlyBook: Sendable {
 
 /// Why a book opened read-only. `LockWording` has the message for each.
 public enum ReadOnlyReason: Hashable, Sendable {
-    /// Its `flock` is held: by Scene It in another user account, or a copy that didn't go
-    /// through the app lock. Never two writers, so there's no "Open Anyway".
+    /// Its `flock` is held: by this process's own package for the book, Scene It in another
+    /// user account, or a copy that didn't go through the app lock. Never two writers, so
+    /// there's no "Open Anyway".
     case openElsewhere
-    /// On a network volume, another Mac's `LockRecord` is in `.lock` and isn't stale.
-    /// `OtherMacPolicy.openAnyway(record)` opens it for editing.
+    /// Where the `flock` can't be trusted (a network volume, or one without `flock`),
+    /// another Mac's `LockRecord` is in `.lock`. `LockRecordPolicy.openAnyway(record)`
+    /// opens it for editing.
     case openOnAnotherMac(LockRecord)
+    /// As `.openOnAnotherMac`, but the record names a live process on this Mac: another
+    /// user account or another copy of Scene It, on a volume without `flock`.
+    case openInAnotherProcess(LockRecord)
     /// `.lock` couldn't be created or locked: typically a read-only volume or a folder
     /// without write permission, where a save would fail anyway.
     case lockUnavailable(FileSystemError)
@@ -609,6 +647,7 @@ public enum ReadOnlyReason: Hashable, Sendable {
         switch self {
         case .openElsewhere: "openElsewhere"
         case .openOnAnotherMac: "openOnAnotherMac"
+        case .openInAnotherProcess: "openInAnotherProcess"
         case .lockUnavailable: "lockUnavailable"
         }
     }

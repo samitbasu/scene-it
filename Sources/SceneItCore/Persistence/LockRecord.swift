@@ -1,45 +1,48 @@
 import Foundation
 import SystemConfiguration
 
-/// Which Mac and process hold a book on a network volume, written into its `.lock` while
-/// they have it open (ADR 0020). A `flock` there only keeps out processes on the same Mac,
-/// so this record is how another Mac finds out. It's advisory: nothing enforces it, and it
-/// can be overridden with `OtherMacPolicy.openAnyway`.
+/// Which Mac, user and process hold a book whose `flock` can't be trusted, written into its
+/// `.lock` while they have it open (ADR 0020). On a network volume a `flock` only keeps out
+/// processes on the same Mac; on a volume without `flock` it keeps out nobody. This record
+/// is how others find out. It's advisory: nothing enforces it, and
+/// `LockRecordPolicy.openAnyway` overrides it.
 public struct LockRecord: Hashable, Sendable, Codable {
     /// The Mac's name from Sharing settings, for messages.
     public let host: String
     /// Tells apart two Macs with the same name.
     public let hostID: String
+    public let userID: UInt32
     public let processID: Int32
     /// Whole seconds, as the record stores it, so a record equals itself read back.
     public let since: Date
 
-    public init(host: String, hostID: String, processID: Int32, since: Date) {
+    public init(host: String, hostID: String, userID: UInt32, processID: Int32, since: Date) {
         self.host = host
         self.hostID = hostID
+        self.userID = userID
         self.processID = processID
         self.since = Date(timeIntervalSince1970: since.timeIntervalSince1970.rounded(.down))
     }
 
-    init(_ mac: ThisMac, processID: Int32, since: Date) {
-        self.init(host: mac.name, hostID: mac.id, processID: processID, since: since)
+    init(_ opener: Opener, since: Date) {
+        self.init(
+            host: opener.mac.name, hostID: opener.mac.id, userID: opener.userID, processID: opener.processID,
+            since: since)
     }
 
-    /// A Mac that crashed, slept or lost the network with the book open leaves its record
-    /// behind. After this long it's assumed gone; before then, "Open Anyway" is the way past it.
-    public static let staleAfter = Interval.hours(12)
-
-    /// The record that keeps this Mac from editing, if any.
+    /// The record that keeps `opener` from editing, if any.
     ///
-    /// A record from this Mac never does: whoever wrote it no longer holds the `flock`, or
-    /// this Mac's kernel wouldn't have granted it to us. So that's a leftover from a crash,
-    /// and needs no process-liveness check.
-    public static func blocking(
-        _ record: LockRecord?, thisMac: ThisMac, now: Date, policy: OtherMacPolicy
-    ) -> LockRecord? {
-        guard let record, record.hostID != thisMac.id, record.since > now - staleAfter,
-            policy != .openAnyway(record)
-        else { return nil }
+    /// A record never expires on its own: a writer can leave a book open for days, and a
+    /// crashed Mac's leftover costs one "Open Anyway". On this Mac, where the process can be
+    /// checked, a record whose process has died is a leftover and is ignored, and so is one
+    /// naming the opener's own process.
+    static func blocking(_ record: LockRecord?, opener: Opener, policy: LockRecordPolicy) -> LockRecord? {
+        guard let record, policy != .openAnyway(record) else { return nil }
+        if record.hostID == opener.mac.id
+            && (record.processID == opener.processID || !opener.isAlive(record.processID))
+        {
+            return nil
+        }
         return record
     }
 
@@ -48,8 +51,14 @@ public struct LockRecord: Hashable, Sendable, Codable {
         try? decoder.decode(LockRecord.self, from: data)
     }
 
-    func encoded() throws -> Data {
-        try Self.encoder.encode(self)
+    func encoded() throws(EncodingError) -> Data {
+        do {
+            return try Self.encoder.encode(self)
+        } catch let error as EncodingError {
+            throw error
+        } catch {
+            throw EncodingError.invalidValue(self, .init(codingPath: [], debugDescription: "\(error)"))
+        }
     }
 
     private static let encoder: JSONEncoder = {
@@ -66,13 +75,29 @@ public struct LockRecord: Hashable, Sendable, Codable {
     }()
 }
 
-/// What to do about another Mac's `LockRecord`.
-public enum OtherMacPolicy: Hashable, Sendable {
+/// What to do about another holder's `LockRecord`.
+public enum LockRecordPolicy: Hashable, Sendable {
     /// Open read-only.
     case respect
     /// "Open Anyway": edit despite exactly this record. A different record, such as one
     /// written after the writer saw this one, is respected again.
     case openAnyway(LockRecord)
+}
+
+/// The process opening a book, as `LockRecord`s describe it.
+struct Opener: Sendable {
+    let mac: ThisMac
+    let userID: UInt32
+    let processID: Int32
+    let isAlive: @Sendable (Int32) -> Bool
+
+    static let current = Opener(
+        mac: .current, userID: getuid(), processID: getpid(), isAlive: Opener.processIsAlive)
+
+    /// `EPERM` means the process exists but belongs to another user.
+    static func processIsAlive(_ processID: Int32) -> Bool {
+        kill(processID, 0) == 0 || errno == EPERM
+    }
 }
 
 /// This Mac, as a `LockRecord` names it.

@@ -33,9 +33,15 @@ enum InstanceHandoff {
     }
 
     private static func runningInstance() -> NSRunningApplication? {
-        let us = NSRunningApplication.current
-        return NSRunningApplication.runningApplications(withBundleIdentifier: SceneItCore.bundleIdentifier)
-            .first { $0.processIdentifier != us.processIdentifier && !$0.isTerminated }
+        let recorded = (try? Data(contentsOf: SupportFolder.instanceLock)).flatMap(LaunchGate.recordedHolder)
+        let target = LaunchGate.handOffTarget(
+            recorded: recorded, ours: NSRunningApplication.current.processIdentifier,
+            isRunningSceneIt: { DiagnosticsController.isRunningSceneIt($0) },
+            sameBundle: NSRunningApplication.runningApplications(
+                withBundleIdentifier: SceneItCore.bundleIdentifier
+            )
+            .filter { !$0.isTerminated }.map(\.processIdentifier))
+        return target.flatMap(NSRunningApplication.init(processIdentifier:))
     }
 
     private static func activate(_ running: NSRunningApplication) {

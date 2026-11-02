@@ -27,7 +27,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 | [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
-| [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the network-volume record, `OtherMacPolicy`, `ThisMac` |
+| [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the advisory record, `LockRecordPolicy`, `ThisMac` |
 | [`LockWording.swift`](../../Sources/SceneItCore/Persistence/LockWording.swift) | what the writer is told when a book opens read-only |
 | [`Launch/LaunchGate.swift`](../../Sources/SceneItCore/Launch/LaunchGate.swift) | the app-wide lock at launch, `ProcessRole` |
 
@@ -590,7 +590,7 @@ writable" state to handle.
 
 ```swift
     public static func open(
-        at url: URL, onAnotherMac policy: OtherMacPolicy = .respect,
+        at url: URL, onLockRecord policy: LockRecordPolicy = .respect,
         fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
 ```
@@ -941,10 +941,22 @@ package goes. Swift may release a reference as early as its last use, not at the
 scope, which is why the tests write `_ = consume package` (Swift's explicit `drop`) or
 `withExtendedLifetime` when the timing matters.
 
+The release clears a `LockRecord` (below) and flushes it to the drive, so the store
+should drop its last reference off the main actor.
+
+The lock belongs to the package, not to the process. Opening a book this process already
+has open gives `.openElsewhere`, so the store must reuse the package it has (or release it
+first), for example for ADR 0018's "Open Other Version".
+
+`open` reads `book.json` before taking the lock, then reads it once more under the lock;
+if it changed in between, it's loaded again, and if it no longer loads, the lock is
+released and the open fails like any other load.
+
 `ReadOnlyReason` says why: `.openElsewhere` (the `flock` is held: another user account, or
 a copy that didn't go through the app lock), `.lockUnavailable(error)` (a read-only disk,
 or a folder without write permission, where a save would fail anyway), or
-`.openOnAnotherMac(record)` (below). The words the writer sees are in `LockWording`.
+`.openOnAnotherMac(record)` and `.openInAnotherProcess(record)` (below). The words the
+writer sees are in `LockWording`.
 
 ### The app-wide lock
 
@@ -963,36 +975,48 @@ marker. The marker's own `anotherInstanceRunning` check stays as a backstop. If 
 is held, the launch collects the books AppKit hands it (`application(_:open:)` arrives
 before `applicationDidFinishLaunching`), passes them on with
 `NSWorkspace.open(_:withApplicationAt:configuration:)` naming the *running* app's bundle,
-which makes Launch Services deliver them to that process, activates it, and quits.
+which makes Launch Services deliver them to that process, activates it, and quits. The
+running instance is found by the process id the holder wrote into `instance.lock`, or, if
+that isn't a running Scene It, by bundle id (`LaunchGate.handOffTarget`, a pure function).
 
 `ProcessRole` reads the environment: under XCTest or a SwiftUI preview the gate never asks
 for the lock, so `scripts/check.sh` works while the writer has Scene It open. The same
 predicate keeps diagnostics in a temporary folder.
 
-### Network volumes
+### Network volumes, and volumes without `flock`
 
-On SMB and NFS shares, a `flock` taken on one Mac isn't reliably seen by another. So on a
-volume whose `volumeIsLocalKey` is false (or can't be read), the book lock also writes a
-`LockRecord` into `.lock`:
+On SMB and NFS shares, a `flock` taken on one Mac isn't reliably seen by another. Some
+volumes (NFS mounted `nolocks`, some FUSE file systems) don't support `flock` at all and
+fail it with `ENOTSUP`; `ExclusiveFileLock` then reports `enforcement == .none` instead of
+failing, because forcing every book on such a volume read-only would make it unusable. In
+both cases the book lock also writes a `LockRecord` into `.lock`:
 
 ```json
-{ "host" : "Samit's MacBook Pro", "hostID" : "…hardware UUID…", "processID" : 812, "since" : "2026-11-01T14:30:05Z" }
+{ "host" : "Samit's MacBook Pro", "hostID" : "…hardware UUID…", "userID" : 501, "processID" : 812, "since" : "2026-11-01T14:30:05Z" }
 ```
 
-Opening checks it with a pure function, `LockRecord.blocking(_:thisMac:now:policy:)`:
+Opening checks it with a pure function, `LockRecord.blocking(_:opener:policy:)`. The
+`Opener` (this Mac, user, process, and a liveness check) is injected, so tests can play
+several processes:
 
 - no record, or one that isn't valid JSON: free;
-- a record from **this** Mac: free. Its writer doesn't hold the `flock`, or this Mac's
-  kernel wouldn't have granted it to us, so it's a crash leftover. No PID check needed;
-- a record **12 hours** old or more: free. A Mac that crashed or left the network with the
-  book open can't clear its record, and must not lock the book forever;
-- otherwise: read-only, `.openOnAnotherMac(record)`. The store can offer "Open Anyway",
-  which reopens with `OtherMacPolicy.openAnyway(record)`. That overrides exactly the record
-  the writer saw; a newer one is respected again, the same pattern as §7's
-  `overwriteKeepingTheirsAsBackup(theirs:)`.
+- a record from **this** Mac: blocks while its process is alive and isn't the opener's own
+  (`kill(pid, 0)` succeeding, or failing with `EPERM` because the process is another
+  user's). A dead process's record is a crash leftover: free. That's
+  `.openInAnotherProcess(record)`;
+- a record from another Mac: read-only, `.openOnAnotherMac(record)`, however old it is. A
+  writer may keep a book open for days, so a record never expires on its own; a crashed
+  Mac's leftover costs one "Open Anyway".
 
-A package that wrote a record clears it again when it's released, while it still holds the
-`flock`, and only if the record is still its own. The file itself is never deleted.
+"Open Anyway" reopens with `LockRecordPolicy.openAnyway(record)`. That overrides exactly
+the record the writer saw; a newer one is respected again, the same pattern as §7's
+`overwriteKeepingTheirsAsBackup(theirs:)`.
+
+The record is written over the old contents and then truncated to its length, so another
+reader never finds the file empty in between. A package that wrote a record clears it
+again when it's released, while it still holds the lock, and only if the record is still
+its own. If `.lock` can't be opened for writing, it's locked through a read-only
+descriptor (`flock` doesn't need write access), and only the record is skipped.
 
 This is advisory twice over, so §7's digest check remains the backstop: if two Macs both
 end up editing, each save still refuses to replace a `book.json` it didn't write.

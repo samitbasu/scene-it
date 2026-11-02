@@ -15,13 +15,27 @@ public enum LockWording {
                 + "\(record.since.formatted(date: .abbreviated, time: .shortened))). To make changes, "
                 + "close it on that Mac, then open it again here. If that Mac isn't using it any more, "
                 + "choose \(openAnyway)."
+        case .openInAnotherProcess(let record):
+            "This book is already open in Scene It on this Mac, \(holder(record)) (since "
+                + "\(record.since.formatted(date: .abbreviated, time: .shortened))). To make changes, "
+                + "close it there, then open it again here. If it isn't open there any more, "
+                + "choose \(openAnyway)."
         case .lockUnavailable(let error):
             "Scene It can't make changes to this book: it couldn't mark the book as in use "
                 + "(\(error.cause))."
         }
     }
 
-    /// Offered only for `.openOnAnotherMac`.
+    private static func holder(_ record: LockRecord) -> String {
+        guard record.userID != getuid() else { return "in another copy of the app" }
+        guard let entry = getpwuid(record.userID), let name = entry.pointee.pw_gecos ?? entry.pointee.pw_name
+        else {
+            return "in another user account"
+        }
+        return "in \(String(cString: name))’s user account"
+    }
+
+    /// Offered only for `.openOnAnotherMac` and `.openInAnotherProcess`.
     public static let openAnyway = "Open Anyway"
     public static let openAnywayWarning =
         "If the book is still open on that Mac, each Mac will stop and ask before saving over "

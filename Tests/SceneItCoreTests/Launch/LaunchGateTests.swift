@@ -81,3 +81,25 @@ func theTestHostAndPreviewsNeverAskForTheLock(_ role: ProcessRole) {
         Issue.record("the first instance should run")
     }
 }
+
+@Test func theHolderRecordsItsProcessIDForTheNextLaunch() throws {
+    let directory = try TemporaryDirectory()
+    let file = directory.url.appending(path: "instance.lock")
+    let lock = try LaunchGate.acquire(file, processID: 4321).lock()
+    #expect(LaunchGate.recordedHolder(in: try Data(contentsOf: file)) == 4321)
+    lock.release()
+    #expect(LaunchGate.recordedHolder(in: Data()) == nil)
+    #expect(LaunchGate.recordedHolder(in: Data("garbage".utf8)) == nil)
+}
+
+@Test func theHandOffPrefersTheRecordedHolder() {
+    func target(_ recorded: Int32?, running: Set<Int32>, sameBundle: [Int32]) -> Int32? {
+        LaunchGate.handOffTarget(
+            recorded: recorded, ours: 10, isRunningSceneIt: running.contains, sameBundle: sameBundle)
+    }
+    #expect(target(20, running: [20, 30], sameBundle: [10, 30, 20]) == 20)
+    #expect(target(20, running: [30], sameBundle: [10, 30]) == 30, "the recorded holder is gone")
+    #expect(target(10, running: [10, 30], sameBundle: [10, 30]) == 30, "never ourselves")
+    #expect(target(nil, running: [], sameBundle: [10, 30]) == 30)
+    #expect(target(nil, running: [], sameBundle: [10]) == nil)
+}
