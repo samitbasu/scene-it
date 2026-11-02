@@ -13,10 +13,9 @@ struct WindowCommands: Commands {
                     .keyboardShortcut(Self.shortcut(for: sheet))
                     .disabled(mode == nil)
             }
-            // Not disabled without a book: a Commands body isn't re-evaluated when the store
-            // changes, so a disabled state here could go stale.
-            Button(WindowWording.toggleRightPanel) { books.store.current?.toggleRightPanel() }
+            Button(WindowWording.toggleRightPanel) { books.preferences.toggleRightPanel() }
                 .keyboardShortcut("]")
+                .disabled(books.store.current == nil)
             Divider()
         }
     }

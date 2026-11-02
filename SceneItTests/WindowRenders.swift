@@ -27,98 +27,46 @@ struct WindowRenders {
             .appending(path: "novel-app-build-bundle/mockups/screenshots/01-main-window.png")
     }
 
-    @Test func candidates() async throws {
+    /// The window as it ships, in each of its states.
+    @Test func window() async throws {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try await withSampleBook { book in
-            var looks: [(String, String, WindowLook)] = []
-            let base = WindowLook.recommended
-            for (name, icons) in [
-                ("a1-rail-document", WindowLook.RailIcons.document), ("a2-rail-cabinet", .cabinet),
-                ("a3-rail-text", .text),
-            ] {
-                var look = base
-                look.railIcons = icons
-                for item in WindowMode.allCases {
-                    #expect(
-                        NSImage(systemSymbolName: look.symbol(for: item), accessibilityDescription: nil)
-                            != nil, "\(look.symbol(for: item))")
-                }
-                looks.append(
-                    (
-                        name,
-                        "Rail icons: "
-                            + WindowMode.allCases.map { look.symbol(for: $0) }.joined(separator: " / "), look
-                    ))
+        try await withSampleBook { book, preferences in
+            let window = { (mode: WindowMode) in BookWindow(book: book, preferences: preferences, mode: mode)
             }
-            for (name, placement, label) in [
-                ("b1-title-strip-Title", WindowLook.TitlePlacement.strip, WindowLook.TitleLabel.title),
-                ("b1-title-strip-SceneTitle", .strip, .sceneTitle),
-                ("b2-title-controlbar-Title", .controlBar, .title),
-                ("b3-title-heading-Title", .heading, .title),
-                ("b3-title-heading-SceneTitle", .heading, .sceneTitle),
-            ] {
-                var look = base
-                look.titlePlacement = placement
-                look.titleLabel = label
-                looks.append((name, "Title field: \(placement), label “\(label.text)”", look))
-            }
-            for (name, toolbar) in [
-                ("c1-toolbar-native", WindowLook.Toolbar.native), ("c2-toolbar-custom", .custom),
-            ] {
-                var look = base
-                look.toolbar = toolbar
-                looks.append((name, "Toolbar: \(toolbar)", look))
-            }
-            for (name, tabs, status) in [
-                ("d1-tabs-text-status-plain", WindowLook.PanelTabs.text, WindowLook.StatusBar.plain),
-                ("d2-tabs-segmented-status-divided", .segmented, .divided),
-            ] {
-                var look = base
-                look.panelTabs = tabs
-                look.statusBar = status
-                looks.append((name, "Panel tabs: \(tabs); status bar: \(status)", look))
-            }
-            var rails: [NSBitmapImageRep] = []
-            for (name, caption, look) in looks {
-                let reps = try await Self.render(BookWindow(book: book), look: look)
-                try Self.write(reps, name: name, caption: caption, to: output)
-                if name.hasPrefix("a") { rails.append(reps.double) }
-            }
-            try Self.writeRailCloseup(rails, to: output)
-
-            let recommended = WindowLook.recommended
             try Self.write(
-                try await Self.render(BookWindow(book: book, mode: .scenes), look: recommended),
-                name: "s4-state-scenes-sheet", caption: "State: Scenes sheet open (temporary list until #28)",
+                try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",
                 to: output)
-            book.setRightPanel(.closed)
             try Self.write(
-                try await Self.render(BookWindow(book: book), look: recommended),
-                name: "s5-state-panel-collapsed", caption: "State: right panel collapsed", to: output)
-            book.setRightPanel(.open)
-            let boneyardScene = try #require(book.book.boneyard.first?.id)
-            book.select(boneyardScene)
+                try await Self.render(window(.scenes)), name: "final-scenes-sheet",
+                caption: "Scenes sheet open (temporary list until #28)", to: output)
+            preferences.setRightPanel(.closed)
             try Self.write(
-                try await Self.render(BookWindow(book: book), look: recommended),
-                name: "s2-state-boneyard-scene", caption: "State: a Boneyard scene open", to: output)
+                try await Self.render(window(.page)), name: "final-panel-collapsed",
+                caption: "Right panel collapsed", to: output)
+            preferences.setRightPanel(.open)
+            book.select(try #require(book.book.boneyard.first?.id))
+            try Self.write(
+                try await Self.render(window(.page)), name: "final-boneyard-scene",
+                caption: "A Boneyard scene open", to: output)
             book.select(nil)
             try Self.write(
-                try await Self.render(BookWindow(book: book), look: recommended),
-                name: "s3-state-no-scene", caption: "State: no scene open", to: output)
+                try await Self.render(window(.page)), name: "final-no-scene", caption: "No scene open",
+                to: output)
         }
         try await withStartState { books in
             try Self.write(
-                try await Self.render(MainWindow(books: books), look: .recommended),
-                name: "s1-state-start", caption: "State: no book open", to: output)
+                try await Self.render(MainWindow(books: books)), name: "final-start", caption: "No book open",
+                to: output)
         }
     }
 
     // MARK: Sample books
 
-    private func withSampleBook(_ body: (AppOpenBook) async throws -> Void) async throws {
+    private func withSampleBook(_ body: (AppOpenBook, AppPreferences) async throws -> Void) async throws {
         try await withTemporaryFolder { folder in
-            let store = BookController(role: .testHost).store
+            let books = BookController(role: .testHost)
+            let store = books.store
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
@@ -126,7 +74,7 @@ struct WindowRenders {
                 to: url.appending(path: "book.json"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)
-            try await body(book)
+            try await body(book, books.preferences)
             #expect(await store.closeBook() == .left)
         }
     }
@@ -192,20 +140,17 @@ struct WindowRenders {
     }
 
     /// The whole window, title bar and toolbar included, at 1× and 2×.
-    static func render(_ view: some View, look: WindowLook) async throws -> Renders {
-        let controller = NSHostingController(rootView: view.environment(\.windowLook, look))
+    static func render(_ view: some View) async throws -> Renders {
+        let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
-        controller.sceneBridgingOptions = look.toolbar == .native ? [.toolbars, .title] : []
-        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
-        if look.toolbar == .custom { style.insert(.fullSizeContentView) }
+        controller.sceneBridgingOptions = [.toolbars, .title]
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: windowSize), styleMask: style, backing: .buffered,
-            defer: false)
+            contentRect: NSRect(origin: .zero, size: windowSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
-        if look.toolbar == .custom { window.titlebarAppearsTransparent = true }
         window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: windowSize), display: false)
         window.orderFront(nil)
         defer {
@@ -273,49 +218,5 @@ struct WindowRenders {
         mockup.draw(in: NSRect(origin: NSPoint(x: windowSize.width + gap, y: 0), size: windowSize))
         NSGraphicsContext.restoreGraphicsState()
         return rep
-    }
-
-    /// The top of each rail candidate at 2×, side by side with the mockup's rail scaled to match.
-    static func writeRailCloseup(_ rails: [NSBitmapImageRep], to folder: URL) throws {
-        let mockup = try #require(NSImage(contentsOf: mockup))
-        let crop = CGSize(width: 120, height: 300)
-        let gap: CGFloat = 16
-        let header: CGFloat = 30
-        let columns = CGFloat(rails.count + 1)
-        let size = CGSize(
-            width: columns * crop.width * 2 + (columns - 1) * gap, height: crop.height * 2 + header)
-        let rep = blankBitmap(width: Int(size.width), height: Int(size.height))
-        rep.size = size
-        let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        NSColor(white: 0.8, alpha: 1).setFill()
-        NSRect(origin: .zero, size: size).fill()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 15, weight: .medium)
-        ]
-        let target = { (column: Int) in
-            NSRect(
-                x: CGFloat(column) * (crop.width * 2 + gap), y: 0, width: crop.width * 2,
-                height: crop.height * 2)
-        }
-        for (column, rail) in rails.enumerated() {
-            let image = NSImage(size: rail.size)
-            image.addRepresentation(rail)
-            image.draw(
-                in: target(column),
-                from: NSRect(x: 0, y: rail.size.height - crop.height, width: crop.width, height: crop.height),
-                operation: .copy, fraction: 1)
-            NSAttributedString(string: "a\(column + 1)", attributes: attributes)
-                .draw(at: NSPoint(x: target(column).minX + 6, y: size.height - 24))
-        }
-        mockup.draw(
-            in: target(rails.count),
-            from: NSRect(x: 0, y: windowSize.height - crop.height, width: crop.width, height: crop.height),
-            operation: .copy, fraction: 1)
-        NSAttributedString(string: "mockup", attributes: attributes)
-            .draw(at: NSPoint(x: target(rails.count).minX + 6, y: size.height - 24))
-        NSGraphicsContext.restoreGraphicsState()
-        try png(rep).write(to: folder.appending(path: "a0-rail-closeup-2x.png"))
     }
 }

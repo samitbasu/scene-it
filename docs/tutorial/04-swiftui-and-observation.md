@@ -498,10 +498,17 @@ Menus reach the window's state through **focused values**: `BookWindow` publishe
 `@FocusedBinding(\.windowMode)`. It's `nil` when no book window is focused, which disables the
 items.
 
-One trap: a `Commands` body isn't reliably re-evaluated when an `@Observable` it reads changes.
-A `.disabled(store.current == nil)` on Toggle Right Panel stayed disabled after a book opened,
-which the hosted test that toggles the panel through the real View menu caught. The item is
-now always enabled and does nothing without a book.
+Toggle Right Panel is greyed out with no book open: `.disabled(books.store.current == nil)`.
+SwiftUI refreshes its menu items **lazily**, when AppKit asks a menu to update (the writer
+opening it, or a shortcut), not when the store changes. So a test that reads `isEnabled` right
+after opening a book sees the old value forever. The hosted test does what opening the menu
+does, `menu.delegate?.menuNeedsUpdate?(menu)`, and then looks the item up again, because SwiftUI
+may have replaced it.
+
+The right panel's open state and tab are **app preferences**, not book data (ADR 0022):
+`AppPreferences`, also `@Observable`, kept in `UserDefaults` for the app and in memory for the
+test host and previews (chosen by `ProcessRole`, like `BookMemory`). Toggling the panel never
+marks the book unsaved.
 
 ### Remembering the last book
 

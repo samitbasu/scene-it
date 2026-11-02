@@ -89,34 +89,6 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         edit(scene) { $0.notes = notes }
     }
 
-    public func showRightPanelTab(_ tab: RightPanelTab) {
-        changeSettings { $0.rightPanel = tab }
-    }
-
-    public func setRightPanel(_ visibility: PanelVisibility) {
-        changeSettings { $0.rightPanelOpen = visibility }
-    }
-
-    public func toggleRightPanel() {
-        setRightPanel(book.settings.rightPanelOpen == .open ? .closed : .open)
-    }
-
-    /// The window's own state, so a read-only book follows it too, in memory only.
-    private func changeSettings(_ change: (inout BookSettings) -> Void) {
-        var settings = book.settings
-        change(&settings)
-        guard settings != book.settings else { return }
-        switch access {
-        case .writable(let driver, _, .accepted):
-            book.settings = settings
-            driver.send(.edited)
-        case .readOnly:
-            book.settings = settings
-        case .writable(_, _, .refused), .closed:
-            return
-        }
-    }
-
     /// Adds an untitled scene after `scene` (at the end if `nil` or not in the story) and opens it.
     @discardableResult
     public func addScene(after scene: SceneID?) -> SceneID? {

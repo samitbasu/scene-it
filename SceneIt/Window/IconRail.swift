@@ -39,7 +39,6 @@ private struct RailButton: View {
     let item: WindowMode
     @Binding var mode: WindowMode
     let badge: String?
-    @Environment(\.windowLook) private var look
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
@@ -47,7 +46,7 @@ private struct RailButton: View {
         Button {
             mode = mode.choosing(item)
         } label: {
-            Image(systemName: look.symbol(for: item))
+            Image(systemName: Self.symbol(for: item))
                 .font(.system(size: 17))
                 .frame(width: 40, height: 40)
                 .foregroundStyle(highlighted ? Color.accentColor : .secondary)
@@ -70,5 +69,14 @@ private struct RailButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(WindowWording.railName(item))
+    }
+
+    private static func symbol(for item: WindowMode) -> String {
+        switch item {
+        case .page: "doc.text"
+        case .scenes: "square.grid.2x2"
+        case .search: "magnifyingglass"
+        case .fileCabinet: "archivebox"
+        }
     }
 }

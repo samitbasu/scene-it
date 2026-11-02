@@ -114,7 +114,7 @@ private func sampleBook() throws -> Book {
         )
         #expect(
             WindowWording.breadcrumb(book: book, openScene: SceneID(rawValue: "b1")) == [
-                "Boneyard", "The brother",
+                "My Novel", "Boneyard", "The brother",
             ])
         #expect(WindowWording.breadcrumb(book: book, openScene: nil) == ["My Novel"])
     }

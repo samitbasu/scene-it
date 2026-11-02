@@ -26,13 +26,13 @@ public enum WindowWording {
     public static let boneyard = "Boneyard"
     public static let untitledScene = "Untitled scene"
 
-    /// The breadcrumb's parts, left to right: "My Novel › 1. The ferry", or "Boneyard › Title"
-    /// for a scene in the Boneyard (PLAN §4.1), or just the book's title with no scene open.
+    /// The breadcrumb's parts, left to right: "My Novel › 1. The ferry", "My Novel › Boneyard ›
+    /// Title" for a scene in the Boneyard, or just the book's title with no scene open.
     public static func breadcrumb(book: Book, openScene: SceneID?) -> [String] {
         guard let scene = book.scene(openScene) else { return [book.title] }
         switch SceneLocation(of: openScene, in: book) {
         case .story(let number, _): return [book.title, "\(number). \(sceneName(scene))"]
-        case .boneyard: return [boneyard, sceneName(scene)]
+        case .boneyard: return [book.title, boneyard, sceneName(scene)]
         case .noScene: return [book.title]
         }
     }
@@ -71,6 +71,7 @@ public enum WindowWording {
 
     // MARK: Page (PLAN §4.3, ADR 0015)
 
+    public static let titleLabel = "Title"
     public static let noSceneOpen = "No scene open"
     public static let formattedSceneNotEditable =
         "This scene has formatting or comments, which this temporary editor would lose, so it can't be "

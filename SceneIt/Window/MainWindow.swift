@@ -10,7 +10,7 @@ struct MainWindow: View {
             if let book = books.store.current {
                 // A new identity per book, so window state such as an open sheet never
                 // outlives the book it was opened over.
-                BookWindow(book: book)
+                BookWindow(book: book, preferences: books.preferences)
                     .id(ObjectIdentifier(book))
             } else {
                 StartView(books: books)

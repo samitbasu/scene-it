@@ -99,19 +99,37 @@ extension BookStoreIntegrationTests {
         }
     }
 
-    @Test func toggleRightPanelInTheViewMenuIsSavedInTheBook() async throws {
+    /// SwiftUI refreshes a menu's items when AppKit asks the menu to update, as it does when
+    /// the writer opens it or presses a shortcut, and may replace them; so each look asks for
+    /// that update and then finds the item again.
+    private var toggleRightPanel: NSMenuItem? {
+        if let menu = menuItem(titled: WindowWording.toggleRightPanel, in: NSApp.mainMenu)?.menu {
+            menu.delegate?.menuNeedsUpdate?(menu)
+            menu.update()
+        }
+        return menuItem(titled: WindowWording.toggleRightPanel, in: NSApp.mainMenu)
+    }
+
+    @Test func toggleRightPanelIsAPreferenceAndNeedsABook() async throws {
         try await withTemporaryFolder { folder in
-            let store = BookController.shared.store
+            let books = BookController.shared
+            let store = books.store
+            try #require(store.current == nil)
+            await eventually { toggleRightPanel?.isEnabled == false }
+
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             let book = try #require(store.current)
-            #expect(book.book.settings.rightPanelOpen == .open)
-            let item = try #require(menuItem(titled: WindowWording.toggleRightPanel, in: NSApp.mainMenu))
-            try perform(item)
-            #expect(book.book.settings.rightPanelOpen == .closed)
-            await eventually { book.status == .saved }
-            #expect(try bookOnDisk(url).settings.rightPanelOpen == .closed)
+            await eventually { toggleRightPanel?.isEnabled == true }
+            let before = books.preferences.rightPanel
+            try perform(try #require(toggleRightPanel))
+            #expect(books.preferences.rightPanel != before)
+            #expect(book.status == .saved, "the panel isn't part of the book (ADR 0022)")
+            try perform(try #require(toggleRightPanel))
+            #expect(books.preferences.rightPanel == before)
+
             #expect(await store.closeBook() == .left)
+            await eventually { toggleRightPanel?.isEnabled == false }
             expectNoQuestions()
         }
     }

@@ -5,18 +5,11 @@ import SwiftUI
 /// field, and the page on its gray desk.
 struct EditorArea: View {
     let book: AppOpenBook
-    @Environment(\.windowLook) private var look
-
     var body: some View {
         let scene = book.book.scene(book.openScene)
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 FormattingBarStandIn()
-                if look.titlePlacement == .controlBar, let scene {
-                    Divider().frame(height: 20)
-                    SceneTitleField(book: book, scene: scene.id)
-                        .frame(maxWidth: 360)
-                }
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -25,26 +18,19 @@ struct EditorArea: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
                     Section {
-                        VStack(alignment: .leading, spacing: 14) {
-                            if look.titlePlacement == .heading, let scene {
-                                SceneTitleField(book: book, scene: scene.id)
-                                    .padding(.horizontal, WindowMetrics.pageMargin)
-                            }
-                            Page {
-                                if let scene {
-                                    TemporaryBodyEditor(book: book, scene: scene)
-                                } else {
-                                    Text(WindowWording.noSceneOpen)
-                                        .foregroundStyle(.secondary)
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                }
+                        Page {
+                            if let scene {
+                                TemporaryBodyEditor(book: book, scene: scene)
+                            } else {
+                                Text(WindowWording.noSceneOpen)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
                         }
-                        .frame(width: WindowMetrics.pageSize.width)
                         .padding(WindowMetrics.deskPadding)
                     } header: {
                         // Inside the scroll view, so it centres exactly as the page does.
-                        if look.titlePlacement == .strip, let scene {
+                        if let scene {
                             VStack(spacing: 0) {
                                 SceneTitleField(book: book, scene: scene.id)
                                     .frame(width: WindowMetrics.pageSize.width)
@@ -79,53 +65,29 @@ private struct Page<Content: View>: View {
 struct SceneTitleField: View {
     let book: AppOpenBook
     let scene: SceneID
-    @Environment(\.windowLook) private var look
-
     var body: some View {
-        let label = look.titleLabel.text
+        let label = WindowWording.titleLabel
         let text = Binding(
             get: { book.book.scene(scene)?.title.text ?? "" },
             set: { book.setTitle(of: scene, to: SceneTitle(pasted: $0)) })
-        Group {
-            switch look.titlePlacement {
-            case .strip:
-                HStack(spacing: 0) {
-                    Text(label)
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                        .frame(width: WindowMetrics.pageMargin - 10, alignment: .trailing)
-                        .padding(.trailing, 10)
-                    TextField(label, text: text, prompt: Text(WindowWording.untitledScene))
-                        .textFieldStyle(.roundedBorder)
-                        .labelsHidden()
-                    Spacer(minLength: WindowMetrics.pageMargin)
-                }
-            case .controlBar:
-                HStack(spacing: 8) {
-                    Text(label)
-                        .foregroundStyle(.secondary)
-                    TextField(label, text: text, prompt: Text(WindowWording.untitledScene))
-                        .textFieldStyle(.roundedBorder)
-                        .labelsHidden()
-                }
-            case .heading:
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField(label, text: text, prompt: Text(WindowWording.untitledScene))
-                        .textFieldStyle(.plain)
-                        .font(.custom("Times New Roman", size: 22).bold())
-                        .labelsHidden()
-                }
-            }
+        // The label sits in the page's left margin, so the field spans the text column.
+        HStack(spacing: 0) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .frame(width: WindowMetrics.pageMargin - 10, alignment: .trailing)
+                .padding(.trailing, 10)
+            TextField(label, text: text, prompt: Text(WindowWording.untitledScene))
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+            Spacer(minLength: WindowMetrics.pageMargin)
         }
         .disabled(!book.isEditable)
     }
 }
 
-/// Stands in for the formatting control bar (#18), so the title's placement can be judged
-/// beside it. Disabled; nothing here formats anything.
+/// Holds the formatting control bar's place until #18 builds it. Disabled; nothing here
+/// formats anything.
 private struct FormattingBarStandIn: View {
     var body: some View {
         HStack(spacing: 14) {

@@ -11,6 +11,8 @@ final class BookController {
 
     let store: AppBookStore
     let memory: any BookMemory
+    /// The window's layout (ADR 0022).
+    let preferences: AppPreferences
     let mirror: BackupMirror
     let prompts: any StorePrompts
     private let role: ProcessRole
@@ -19,7 +21,9 @@ final class BookController {
     init(role: ProcessRole, prompts: (any StorePrompts)? = nil) {
         self.role = role
         let standard: any StorePrompts
-        (memory, mirror, standard) = Self.surroundings(for: role)
+        let storage: any PreferenceStorage
+        (memory, mirror, standard, storage) = Self.surroundings(for: role)
+        preferences = AppPreferences(storage)
         self.prompts = prompts ?? standard
         store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: self.prompts)
     }
@@ -28,17 +32,18 @@ final class BookController {
     /// previews get throwaway ones that never touch the writer's files and never put up a
     /// modal alert nobody can answer.
     private static func surroundings(for role: ProcessRole) -> (
-        any BookMemory, BackupMirror, any StorePrompts
+        any BookMemory, BackupMirror, any StorePrompts, any PreferenceStorage
     ) {
         switch role {
         case .app:
-            (DefaultsBookMemory(.standard), .standard, AlertPrompts())
+            (DefaultsBookMemory(.standard), .standard, AlertPrompts(), DefaultsPreferenceStorage(.standard))
         case .testHost, .preview:
             (
                 TransientBookMemory(),
                 BackupMirror(
                     root: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Mirror")),
-                HeadlessPrompts()
+                HeadlessPrompts(),
+                TransientPreferenceStorage()
             )
         }
     }
