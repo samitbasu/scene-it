@@ -306,6 +306,7 @@ private func replace(_ url: URL, with data: Data) throws {
             // The keeper lists the folder once before the sweep does.
             let skipping = fault == .list ? 1 : 0
             fixture.fileSystem.inject(.fail(call, skipping: skipping))
+            fixture.fileSystem.clearCalls()
 
             #expect(try fixture.save(draft(2), at: due) == bothWritten)
 
