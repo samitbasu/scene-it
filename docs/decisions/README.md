@@ -27,3 +27,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0018](0018-external-change-ux.md) | External change on disk: ask Keep Mine / Open Theirs; both versions survive | Accepted |
 | [0019](0019-backup-failure-policy.md) | Backup can't be written: refuse for external versions, save-and-warn for our own | Accepted |
 | [0020](0020-instance-and-book-locks.md) | One app instance (flock) and one writer per book; the second opener gets read-only | Accepted |
+| [0021](0021-one-book-at-a-time.md) | One book open at a time; switching books saves and closes the current one first | Accepted |
