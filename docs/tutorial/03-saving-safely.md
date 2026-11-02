@@ -23,6 +23,8 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`FileSystem.swift`](../../Sources/SceneItCore/Persistence/FileSystem.swift) | the file-system protocol (the testing seam), `FileItem`, `FileSystemError` |
 | [`LocalFileSystem.swift`](../../Sources/SceneItCore/Persistence/LocalFileSystem.swift) | the real implementation: POSIX calls, `F_FULLFSYNC`, `renamex_np` |
 | [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `BackupStatus`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
+| [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
+| [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
 
 The tests are in [`Tests/SceneItCoreTests/Persistence/`](../../Tests/SceneItCoreTests/Persistence/).
 
@@ -38,7 +40,7 @@ My Novel.sceneit/
   book.json
   book.json.bak1 … bak3     the last three versions, newest first
   Archive/index.json        {"copies":[]} in a new book (PLAN §5.5)
-  Backups/                  tiered snapshots (ADR 0005, issue #9)
+  Backups/                  tiered snapshots and book-id (ADR 0005, §11)
 ```
 
 `PackageLayout` is the one place that knows those names. Everything else asks it,
@@ -642,10 +644,18 @@ public protocol FileSystem: Sendable {
     /// Creates one directory, durably; its parent must exist. Throws `.alreadyExists` if
     /// anything is at `url`.
     func createDirectory(at url: URL) throws(FileSystemError)
+
+    /// The entries of `directory`, in no particular order, without `.` and `..`.
+    func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry]
+
+    /// Removes the file or symbolic link at `file`; never a directory. Not flushed: after a
+    /// power loss the file may still be there.
+    func remove(_ file: URL) throws(FileSystemError)
 }
 ```
 
-These are exactly the operations create, open and save use. `publish` and `exchange`
+These are exactly the operations create, open and save use, plus the two that snapshot
+pruning needs (§11). `publish` and `exchange`
 only accept a `TemporaryFile`, so nothing can put a file in place that wasn't written
 durably first.
 
@@ -702,3 +712,108 @@ The tests that use it:
   previous three versions, and an unchanged save leaves the whole package untouched.
 - **Mutation checks.** Removing the "theirs must be backed up" guard, the swap-back, or
   the stop-at-first-failure rule each makes these tests fail.
+
+## 11. Tiered snapshots and the external mirror
+
+`bak1…bak3` protect against a bad write, but with a 2-second autosave they can all be
+seconds old. [ADR 0005](../decisions/0005-backups.md) adds history: after a save,
+[`BackupKeeper`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) may copy
+`book.json` to a snapshot in two places:
+
+```
+My Novel.sceneit/Backups/
+  book-id                         this book's UUID
+  book-20261101T143005Z.json      a snapshot: the UTC second it was taken
+~/Library/Application Support/Scene It/Backups/<book-id>/
+  package-path                    the package that writes here (see below)
+  book-20261101T143005Z.json      the same snapshot
+```
+
+The mirror survives the package being deleted or mangled, for example by a sync service.
+
+### Getting the exact bytes
+
+A snapshot must hold exactly what was published, not a re-encoding. `save` takes a
+closure that runs only when it wrote `book.json`, once it's in place, with a
+`PublishedBook`:
+
+```swift
+var snapshots: SnapshotReport?
+let outcome = try package.save(book) { snapshots = keeper.keep($0, now: .now) }
+```
+
+`PublishedBook`'s initializer is internal, so only `BookPackage` can make one. In Rust
+you'd get the same effect from a struct with a private field and no public constructor.
+The closure isn't `@escaping`, so it can capture and assign the local `var`: Swift knows
+it runs before `save` returns, like a Rust closure that borrows mutably for the call.
+
+### The schedule is a pure function
+
+[`SnapshotSchedule`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) sees
+only dates:
+
+- **Cadence:** `decision(snapshots:now:)` is `.due` when there's no snapshot, or the newest
+  is at least 10 minutes old. Autosave every 2 seconds still makes at most one snapshot
+  per 10 minutes.
+- **Retention:** `toDelete(_:now:)` puts each snapshot in a tier by age (under 24 h,
+  under 30 days, older) and a bucket within it (a 10-minute window, a UTC day, a week),
+  and keeps the **oldest** in each bucket. Buckets are aligned to the Unix epoch, so a day
+  is made of whole 10-minute windows and a week of whole days: the oldest of a day was
+  also the oldest of its window, so a snapshot that ages into a coarser tier was already
+  kept by the finer one.
+- **The newest is always kept**, and so is the newest at or before `now`.
+- **Clock skew:** a snapshot dated after `now` is never deleted and doesn't count for the
+  cadence (otherwise a clock set back a year would stop snapshots for a year). Once the
+  clock passes it, it's tiered like any other.
+
+Because these are pure, the tests can be exhaustive about boundaries (exactly 10 minutes,
+exactly 24 h, exactly 30 days, the last second of a window) and check properties over
+random sets: applying `toDelete` to what it kept deletes nothing more, the newest
+survives, and every bucket keeps its oldest.
+
+### Never fail the save
+
+`keep` doesn't throw. Each destination lists its folder, decides, prunes and writes on
+its own, and the result is a `SnapshotReport` holding a `SnapshotOutcome` for each:
+`.written`, `.notDue` or `.failed(SnapshotFailure)`, which names the step and the
+`FileSystemError`. Every failure is also logged (metadata only, never a path). By the time
+`keep` runs, `book.json` is already saved (ADR 0019).
+
+Pruning only removes regular files whose names round-trip exactly through `SnapshotName`:
+`book-20261101T143005Z.JSON`, `notes.txt`, a directory or a link with a snapshot's name,
+and the hidden temporary files are never touched. The new `FileSystem.contents(of:)`
+reports each entry's kind from `readdir`'s `d_type`, so this costs no extra system calls.
+
+### The book's id, and copied packages
+
+The mirror folder is named by the UUID in `Backups/book-id`, created the first time it's
+needed and written like everything else (temporary file, then rename). If it's corrupt, the
+book gets a new id and therefore a new, empty mirror folder; the old folder is kept, never
+pruned again, and still holds the earlier history. If it can't be *read* (permissions, an
+I/O error), it's left alone and the mirror reports a failure: replacing an id we
+couldn't read would orphan the mirror on every transient error.
+
+A copied package (Finder's Duplicate) carries its original's `book-id`, and without
+care both would write into one mirror folder. So each mirror folder records, in
+`package-path`, the path of the package that writes to it. When a package finds another
+path recorded there, it reads that path's `Backups/book-id`:
+
+| What's at the recorded path | Meaning | Result |
+| --- | --- | --- |
+| nothing | the package moved or was renamed (or the original was deleted) | record our path; keep the folder |
+| a book with a different id, or a corrupt one | something else took that name | record our path; keep the folder |
+| a book with the same id, or anything unreadable | this package is a copy | new id, new folder |
+
+The rule errs towards forking: a wrong fork only starts a new folder (the old one keeps
+the history), while a wrong "moved" would mix two books' snapshots. The one known false
+fork is a rename that only changes letter case, since the old path still names the same
+package on a case-insensitive volume. A folder is claimed with `publish`, which refuses to
+replace anything, so if two copies claim a new folder at once, one of them reports a
+failure and sorts itself out on its next save.
+
+### Rust comparison
+
+The keeper is a plain `struct` holding `any FileSystem`, like `struct Keeper { fs: Box<dyn
+FileSystem> }`. `SnapshotFailure` is a typed error enum, and `keep` returns it inside the
+report rather than as `Result::Err`, because it isn't a failure of the call: the save it
+follows succeeded.

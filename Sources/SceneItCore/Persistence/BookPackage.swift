@@ -10,7 +10,7 @@ import Synchronization
 /// serialized by its lock.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
-    private let fileSystem: any FileSystem
+    let fileSystem: any FileSystem
     private let lastSeen: Mutex<ContentDigest>
 
     private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest) {
@@ -81,8 +81,12 @@ public final class BookPackage: Sendable {
     /// The backup policy is ADR 0019: another program's version is never replaced unless it's
     /// safely in `bak1`; this package's own previous save is replaced even if it couldn't be
     /// backed up, and the outcome says so. When this throws, `book.json` is unchanged.
+    ///
+    /// `afterPublishing` runs only when the outcome is `.saved`, once `book.json` is in place,
+    /// with the bytes it now holds. It's where tiered snapshots are taken (`BackupKeeper`).
     public func save(
-        _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse
+        _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse,
+        afterPublishing: (PublishedBook) -> Void = { _ in }
     ) throws(SaveError) -> SaveOutcome {
         let data: Data
         do {
@@ -92,11 +96,12 @@ public final class BookPackage: Sendable {
                 "refused to save a book that doesn't encode", ["error": .error(LoggedError(error))])
             throw .encoding(.rejected(error))
         }
-        return try save(encoded: data, onExternalChange: policy)
+        return try save(encoded: data, onExternalChange: policy, afterPublishing: afterPublishing)
     }
 
     func save(
-        encoded data: Data, onExternalChange policy: ExternalChangePolicy = .refuse
+        encoded data: Data, onExternalChange policy: ExternalChangePolicy = .refuse,
+        afterPublishing: (PublishedBook) -> Void = { _ in }
     ) throws(SaveError) -> SaveOutcome {
         do {
             try Self.verify(data)
@@ -104,7 +109,7 @@ public final class BookPackage: Sendable {
             Log.store.fault("the encoded book failed verification", ["error": .error(LoggedError(error))])
             throw .encoding(error)
         }
-        return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
+        let outcome = try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
             let current = try readCurrent(lastSeen, policy)
             if current?.data == data {
                 Log.store.debug("book unchanged; nothing saved")
@@ -115,6 +120,8 @@ public final class BookPackage: Sendable {
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
             return .saved(backups)
         }
+        if case .saved = outcome { afterPublishing(PublishedBook(data: data)) }
+        return outcome
     }
 
     /// What `book.json` holds now, and whose it is.
@@ -463,6 +470,12 @@ private func wrapping<T, E: Error>(
     } catch {
         throw wrap(error)
     }
+}
+
+/// The verified bytes a save just put in `book.json`. Only `BookPackage` makes one, so a
+/// snapshot can't hold anything else.
+public struct PublishedBook: Sendable {
+    let data: Data
 }
 
 public struct OpenedBook: Sendable {

@@ -19,6 +19,8 @@ public struct PackageLayout: Hashable, Sendable {
     public var archiveIndex: URL { file("index.json", in: archive) }
     /// Tiered snapshots (ADR 0005), distinct from the rotated `book.json.bak1…3`.
     public var snapshots: URL { root.appending(path: "Backups", directoryHint: .isDirectory) }
+    /// The book's id, which names its folder in the external mirror (ADR 0005).
+    public var bookID: URL { file("book-id", in: snapshots) }
 
     public func backup(_ slot: BackupSlot) -> URL {
         file(slot.fileName, in: root)

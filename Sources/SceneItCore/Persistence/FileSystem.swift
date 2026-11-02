@@ -38,6 +38,27 @@ public protocol FileSystem: Sendable {
     /// Creates one directory, durably; its parent must exist. Throws `.alreadyExists` if
     /// anything is at `url`.
     func createDirectory(at url: URL) throws(FileSystemError)
+
+    /// The entries of `directory`, in no particular order, without `.` and `..`.
+    func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry]
+
+    /// Removes the file or symbolic link at `file`; never a directory. Not flushed: after a
+    /// power loss the file may still be there.
+    func remove(_ file: URL) throws(FileSystemError)
+}
+
+public struct DirectoryEntry: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case file, directory, symbolicLink, other
+    }
+
+    public let name: String
+    public let kind: Kind
+
+    public init(name: String, kind: Kind) {
+        self.name = name
+        self.kind = kind
+    }
 }
 
 public enum FileItem: Hashable, Sendable {
@@ -68,7 +89,7 @@ public struct TemporaryFile: Hashable, Sendable {
 
 public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertible {
     public enum Operation: String, Hashable, Sendable {
-        case inspect, read, write, publish, exchange, move
+        case inspect, read, write, publish, exchange, move, list, remove
         case createDirectory = "create a directory"
     }
 
@@ -141,6 +162,8 @@ extension FileSystemError.Operation {
         case .publish: "publish"
         case .exchange: "exchange"
         case .move: "move"
+        case .list: "list"
+        case .remove: "remove"
         case .createDirectory: "createDirectory"
         }
     }

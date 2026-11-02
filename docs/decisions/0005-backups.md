@@ -16,5 +16,6 @@ Three layers, all written only after the new `book.json` has been encoded and ve
 A backup failure never blocks a save of `book.json`. It is logged and shown in the status bar.
 
 ## Not chosen (for now)
-A restore UI (recovery is by hand). The second-writer lock was later adopted in [0020](0020-instance-and-book-locks.md).
-("Show Package Contents"); see `docs/user/recovery.md` (to be written).
+A restore UI. Recovery is by hand ("Show Package Contents"); see
+[`docs/user/recovery.md`](../user/recovery.md). The second-writer lock was later adopted in
+[0020](0020-instance-and-book-locks.md).

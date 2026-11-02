@@ -18,11 +18,13 @@ final class FaultInjectingFileSystem: FileSystem {
         case discard(String)
         case move(String, over: String)
         case createDirectory(String)
+        case list(String)
+        case remove(String)
 
         var isMutation: Bool {
             switch self {
-            case .inspect, .read: false
-            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory: true
+            case .inspect, .read, .list: false
+            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove: true
             }
         }
 
@@ -36,6 +38,8 @@ final class FaultInjectingFileSystem: FileSystem {
             case .discard(let name): "discard \(name)"
             case .move(let source, let destination): "move \(source) over \(destination)"
             case .createDirectory(let name): "create directory \(name)"
+            case .list(let name): "list \(name)"
+            case .remove(let name): "remove \(name)"
             }
         }
     }
@@ -139,6 +143,17 @@ final class FaultInjectingFileSystem: FileSystem {
         }
     }
 
+    func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry] {
+        try perform(.list(name(directory)), .list, directory) { () throws(FileSystemError) in
+            try base.contents(of: directory)
+        }
+    }
+
+    func remove(_ file: URL) throws(FileSystemError) {
+        try perform(.remove(name(file)), .remove, file) { () throws(FileSystemError) in try base.remove(file)
+        }
+    }
+
     private func isCrash(at call: Call) -> Bool {
         state.withLock { state in
             if case .crash(call) = state.fault { true } else { false }
@@ -215,7 +230,8 @@ struct DirectorySnapshot: Equatable {
             let contents: Data? =
                 switch attributes[.type] as? FileAttributeType {
                 case .typeDirectory?: nil
-                case .typeSymbolicLink?: Data(try manager.destinationOfSymbolicLink(atPath: url.path()).utf8)
+                case .typeSymbolicLink?:
+                    Data(try manager.destinationOfSymbolicLink(atPath: url.path(percentEncoded: false)).utf8)
                 default: try Data(contentsOf: url)
                 }
             entries[path] = Entry(

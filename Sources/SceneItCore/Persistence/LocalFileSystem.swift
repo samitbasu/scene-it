@@ -64,7 +64,7 @@ public struct LocalFileSystem: FileSystem {
             try Self.flushToDrive(descriptor)
             return TemporaryFile(url: url)
         } catch {
-            Self.remove(url)
+            Self.removeLoggingFailure(url)
             throw FileSystemError(.write, destination, error)
         }
     }
@@ -103,7 +103,7 @@ public struct LocalFileSystem: FileSystem {
     }
 
     public func discard(_ file: URL) {
-        Self.remove(file)
+        Self.removeLoggingFailure(file)
     }
 
     public func move(_ source: URL, over destination: URL) throws(FileSystemError) {
@@ -120,6 +120,50 @@ public struct LocalFileSystem: FileSystem {
             throw FileSystemError(.createDirectory, url, .init(errno: errno))
         }
         Self.flushDirectory(containing: url)
+    }
+
+    public func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry] {
+        guard let stream = (directory.withUnsafeFileSystemRepresentation { opendir($0!) }) else {
+            throw FileSystemError(.list, directory, .init(errno: errno))
+        }
+        defer { closedir(stream) }
+        var entries: [DirectoryEntry] = []
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                guard errno == 0 else { throw FileSystemError(.list, directory, .init(errno: errno)) }
+                return entries
+            }
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { bytes in
+                String(decoding: bytes.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+            }
+            guard name != "." && name != ".." else { continue }
+            let kind = try kind(of: entry.pointee.d_type, at: directory.appending(path: name))
+            entries.append(DirectoryEntry(name: name, kind: kind))
+        }
+    }
+
+    public func remove(_ file: URL) throws(FileSystemError) {
+        guard (file.withUnsafeFileSystemRepresentation { unlink($0!) }) == 0 else {
+            throw FileSystemError(.remove, file, .init(errno: errno))
+        }
+    }
+
+    /// Some volumes don't fill in `d_type`; those entries are inspected one by one.
+    private func kind(of type: UInt8, at url: URL) throws(FileSystemError) -> DirectoryEntry.Kind {
+        switch Int32(type) {
+        case DT_REG: return .file
+        case DT_DIR: return .directory
+        case DT_LNK: return .symbolicLink
+        case DT_UNKNOWN:
+            switch try item(at: url) {
+            case .file?: return .file
+            case .directory?: return .directory
+            case .symbolicLink?: return .symbolicLink
+            case .other?, nil: return .other
+            }
+        default: return .other
+        }
     }
 
     private static func writeAll(_ data: Data, to descriptor: Int32) throws(FileSystemError.Cause) {
@@ -211,7 +255,7 @@ public struct LocalFileSystem: FileSystem {
         throw FileSystemError.Cause(errno: code)
     }
 
-    private static func remove(_ url: URL) {
+    private static func removeLoggingFailure(_ url: URL) {
         if (url.withUnsafeFileSystemRepresentation { unlink($0!) }) != 0 && errno != ENOENT {
             Log.store.error("couldn't remove a temporary file", ["errno": .errno(errno)])
         }
