@@ -38,7 +38,7 @@ public enum LockWording {
     /// Offered only for `.openOnAnotherMac` and `.openInAnotherProcess`.
     public static let openAnyway = "Open Anyway"
     public static let openAnywayWarning =
-        "If the book is still open on that Mac, each Mac will stop and ask before saving over "
+        "If the book is still open there, each copy of Scene It will stop and ask before saving over "
         + "the other's changes."
     public static let keepReadOnly = "Keep Read-Only"
 }
