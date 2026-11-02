@@ -23,6 +23,9 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`FileSystem.swift`](../../Sources/SceneItCore/Persistence/FileSystem.swift) | the file-system protocol (the testing seam), `FileItem`, `FileSystemError` |
 | [`LocalFileSystem.swift`](../../Sources/SceneItCore/Persistence/LocalFileSystem.swift) | the real implementation: POSIX calls, `F_FULLFSYNC`, `renamex_np` |
 | [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `BackupStatus`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
+| [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
+| [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
+| [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 
 The tests are in [`Tests/SceneItCoreTests/Persistence/`](../../Tests/SceneItCoreTests/Persistence/).
 
@@ -38,7 +41,7 @@ My Novel.sceneit/
   book.json
   book.json.bak1 … bak3     the last three versions, newest first
   Archive/index.json        {"copies":[]} in a new book (PLAN §5.5)
-  Backups/                  tiered snapshots (ADR 0005, issue #9)
+  Backups/                  tiered snapshots and book-id (ADR 0005, §11)
 ```
 
 `PackageLayout` is the one place that knows those names. Everything else asks it,
@@ -74,7 +77,7 @@ them all. Each entry point names its error type:
 ```
 
 A save that succeeds can still have something to say, so `SaveOutcome` is `.unchanged`
-or `.saved(BackupStatus)`. `BackupStatus` is `.intact`, or
+or `.saved(BackupStatus, PublishedBook)` (the bytes it wrote, §11). `BackupStatus` is `.intact`, or
 `.previousVersionNotBackedUp(error, olderBackups:)` when the rotation failed (§4), where
 `olderBackups` says whether the oldest backup had already been retired.
 
@@ -124,7 +127,7 @@ It plays the role of Rust's `.map_err(LoadProblem::Unreadable)?`.
             let backups = try replaceBook(with: data, current: current, &lastSeen)
             lastSeen = ContentDigest(data)
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
-            return .saved(backups)
+            return .saved(backups, PublishedBook(data: data))
         }
     }
 ```
@@ -248,7 +251,7 @@ What happens next depends on whose version `book.json` holds:
 
 | `book.json` holds | The rotation fails | Result |
 | --- | --- | --- |
-| our own last save | at any step | **Save anyway**: `.saved(.previousVersionNotBackedUp(error, olderBackups:))`. The new book contains the old one plus the edits; refusing would leave the session's typing only in memory. The store shows "Backups aren't working". |
+| our own last save | at any step | **Save anyway**: `.saved(.previousVersionNotBackedUp(error, olderBackups:), _)`. The new book contains the old one plus the edits; refusing would leave the session's typing only in memory. The store shows "Backups aren't working". |
 | another program's version (`.overwriteKeepingTheirsAsBackup(theirs:)`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.json`. |
 
 Other details:
@@ -453,9 +456,9 @@ Errors (as opposed to crashes), when `book.json` holds our own last save:
 | encode, verify, inspecting or reading `book.json` | throws; nothing changed | V0; V1, V2, V3 |
 | writing either temporary file (full disk, I/O) | throws; nothing changed | V0; V1, V2, V3 |
 | inspecting or reading `bak1` | treated as "different"; saves normally | V9; V0, V1, V2 |
-| `bak2` → `bak3` | `.saved(.previousVersionNotBackedUp(_, .untouched))` | V9; V1, V2, V3 |
-| `bak1` → `bak2` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; V1, —, V2 |
-| publishing `bak1` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; —, V1, V2 |
+| `bak2` → `bak3` | `.saved(.previousVersionNotBackedUp(_, .untouched), _)` | V9; V1, V2, V3 |
+| `bak1` → `bak2` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired), _)` | V9; V1, —, V2 |
+| publishing `bak1` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired), _)` | V9; —, V1, V2 |
 | exchanging `book.json` | throws; retries don't rotate again | V0; V0, V1, V2 |
 | reading the displaced file after the exchange | swapped back; `.externallyModified(.changed(theirs:))` | V0; V0, V1, V2 |
 
@@ -642,10 +645,23 @@ public protocol FileSystem: Sendable {
     /// Creates one directory, durably; its parent must exist. Throws `.alreadyExists` if
     /// anything is at `url`.
     func createDirectory(at url: URL) throws(FileSystemError)
+
+    /// The entries of `directory`, in no particular order, without `.` and `..`.
+    func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry]
+
+    /// Removes the file or symbolic link at `file`; never a directory. Not flushed: after a
+    /// power loss the file may still be there.
+    func remove(_ file: URL) throws(FileSystemError)
+
+    /// Which file or directory is at `url`, whatever its path: `nil` if its volume has no
+    /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
+    /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
+    func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
 }
 ```
 
-These are exactly the operations create, open and save use. `publish` and `exchange`
+These are exactly the operations create, open and save use, plus the three that
+snapshots need (§11). `publish` and `exchange`
 only accept a `TemporaryFile`, so nothing can put a file in place that wasn't written
 durably first.
 
@@ -702,3 +718,130 @@ The tests that use it:
   previous three versions, and an unchanged save leaves the whole package untouched.
 - **Mutation checks.** Removing the "theirs must be backed up" guard, the swap-back, or
   the stop-at-first-failure rule each makes these tests fail.
+
+## 11. Tiered snapshots and the external mirror
+
+`bak1…bak3` protect against a bad write, but with a 2-second autosave they can all be
+seconds old. [ADR 0005](../decisions/0005-backups.md) adds history: after a save,
+[`BackupKeeper`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) may copy
+`book.json` to a snapshot in two places:
+
+```
+My Novel.sceneit/Backups/
+  book-id                         this book's UUID
+  book-20261101T143005Z.json      a snapshot: the UTC second it was taken
+~/Library/Application Support/Scene It/Backups/<book-id>/
+  package.json                    the package that writes here (see below)
+  book-20261101T143005Z.json      the same snapshot
+```
+
+The mirror survives the package being deleted or mangled, for example by a sync service.
+Snapshot names and `book.json.conflict-…` (§7) share one formatter, `UTCStamp`.
+
+### Getting the exact bytes
+
+A snapshot must hold exactly what was published, not a re-encoding. So a save that wrote
+`book.json` says what it wrote: `SaveOutcome.saved(BackupStatus, PublishedBook)`.
+
+```swift
+if case .saved(_, let published) = try package.save(book) {
+    let report = keeper.keep(published, now: .now)
+}
+```
+
+`PublishedBook`'s initializer is `fileprivate` to `BookPackage.swift`, so nothing else can
+make one. In Rust you'd get the same effect from a struct with a private field and no
+public constructor. Returning it, rather than calling the keeper from inside `save`, leaves
+the store (#11) to decide where and in what order `keep` runs: off the main actor (a due
+snapshot flushes two files, about 60 ms), serialized per book like its saves.
+
+### The schedule is a pure function
+
+[`SnapshotSchedule`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) sees
+only dates:
+
+- **Cadence:** `decision(snapshots:now:)` is `.due` when there's no snapshot, or the newest
+  is at least 10 minutes old. Autosave every 2 seconds still makes at most one snapshot
+  per 10 minutes.
+- **Retention:** `toDelete(_:now:)` puts each snapshot in a bucket (a 10-minute window, a
+  UTC day or a week) and keeps the **oldest** in each. Buckets are aligned to the Unix
+  epoch, so a day is made of whole 10-minute windows and a week of whole days.
+- **Which tier:** the finest one that still holds the *end* of the snapshot's bucket: a
+  window until it ended 24 h ago, a day until it ended 30 days ago. Going by the
+  snapshot's own age would split a day that straddles the 30-day line: its first snapshot
+  would turn weekly (and usually be pruned) while the rest of its day was still daily, and
+  the rest had already been pruned as not-first. By the bucket's end, a day keeps its
+  first snapshot until all of it is older than 30 days.
+- **The newest is always kept**, and so is the newest at or before `now`.
+- **Clock skew:** a snapshot dated after `now` is never deleted and doesn't count for the
+  cadence (otherwise a clock set back a year would stop snapshots for a year). Once the
+  clock passes it, it's tiered like any other.
+
+Because these are pure, the tests can be exhaustive about boundaries (exactly 10 minutes,
+a window or day ending exactly 24 h or 30 days ago, the last second of a window) and check
+properties: over random sets, applying `toDelete` to what it kept deletes nothing more;
+and over 150 simulated days of saves in six eras (1970, before 1970, a leap day, 2038,
+2100, 9999), pruning after every save, an independent whole-seconds model checks that
+every week, and every day and window still in its tier, keeps its first snapshot.
+
+### Never fail the save
+
+`keep` doesn't throw. Each destination lists its folder, decides, prunes and writes on
+its own, and the result is a `SnapshotReport` holding a `SnapshotOutcome` for each:
+`.written`, `.notDue` or `.failed(SnapshotFailure)`, which names the step and the
+`FileSystemError`. Every failure is also logged (metadata only, never a path). By the time
+`keep` runs, `book.json` is already saved (ADR 0019). If two `keep`s race to write the same
+snapshot name, the loser finds the same bytes there and counts it as written.
+
+Pruning only removes regular files whose names round-trip exactly through `SnapshotName`:
+`book-20261101T143005Z.JSON`, `notes.txt`, a directory, link or pipe with a snapshot's
+name, and the hidden temporary files are never touched. The new `FileSystem.contents(of:)`
+reports each entry's kind from `readdir`'s `d_type`, so this costs no extra system calls.
+If `Backups/` or the book's mirror folder is itself a symbolic link (or not a folder), that
+destination reports `.notARealFolder` before anything in it is read or written: through a
+link, `book-id` could be another book's, and pruning could reach outside the package.
+
+### The book's id, and copied packages
+
+The mirror folder is named by the UUID in `Backups/book-id`, created the first time it's
+needed and written like everything else (temporary file, then rename). If it's corrupt, the
+book gets a new id and therefore a new, empty mirror folder; the old folder is kept, never
+pruned again, and still holds the earlier history. If it can't be *read* (permissions, an
+I/O error), it's left alone and the mirror reports a failure: replacing an id we
+couldn't read would orphan the mirror on every transient error.
+
+A copied package (Finder's Duplicate, or a drive cloned file by file) carries its
+original's `book-id`, and without care both would write into one mirror folder, where
+pruning across two diverged histories could delete one's only snapshot. So each mirror
+folder records, in `package.json`, the package that writes to it: its path and its
+`FileIdentity`, the volume's UUID and the directory's inode. A path names a place; an
+identity names the directory itself, which keeps it when renamed or moved within its
+volume, while a copy gets a new one. The rule:
+
+| Identity | Path | Meaning | Result |
+| --- | --- | --- | --- |
+| same | same | this package | use the folder |
+| same | different | moved or renamed on its volume | record the new path |
+| different | same | another directory where this package was (a clone mounted under the same name, a restore) | new id, new folder |
+| different, or unknown | different | read the recorded path's `Backups/book-id`: | |
+| | | nothing there, or another id: moved to another volume, or the original is gone | record ours, keep the folder |
+| | | the same id, or unreadable: a copy | new id, new folder |
+| unknown | same | a volume without UUIDs: only the path can tell | use the folder |
+
+The rule errs towards forking: a wrong fork only starts a new folder (the old one keeps
+the history), while a wrong "moved" would mix two books' snapshots. A copy keeps the
+history it was copied with: its own `Backups/` still holds the original's snapshots, and
+the original's mirror folder holds them too; only the copy's *new* mirror folder starts
+empty. Known false forks: a sync service that re-creates the package directory (a new
+inode at the same path) starts a new folder each time it does that.
+
+The recorded path is read only when the identity can't decide, which is when the package
+moved to another volume or its volume has no UUID. That read can touch another volume, so
+macOS may ask the writer for permission to access a removable or network volume once.
+
+### Rust comparison
+
+The keeper is a plain `struct` holding `any FileSystem`, like `struct Keeper { fs: Box<dyn
+FileSystem> }`. `SnapshotFailure` is a typed error enum, and `keep` returns it inside the
+report rather than as `Result::Err`, because it isn't a failure of the call: the save it
+follows succeeded.

@@ -38,6 +38,44 @@ public protocol FileSystem: Sendable {
     /// Creates one directory, durably; its parent must exist. Throws `.alreadyExists` if
     /// anything is at `url`.
     func createDirectory(at url: URL) throws(FileSystemError)
+
+    /// The entries of `directory`, in no particular order, without `.` and `..`.
+    func contents(of directory: URL) throws(FileSystemError) -> [DirectoryEntry]
+
+    /// Removes the file or symbolic link at `file`; never a directory. Not flushed: after a
+    /// power loss the file may still be there.
+    func remove(_ file: URL) throws(FileSystemError)
+
+    /// Which file or directory is at `url`, whatever its path: `nil` if its volume has no
+    /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
+    /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
+    func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
+}
+
+/// A volume's UUID and the file number within it. Unlike a path, it doesn't change when a
+/// directory is renamed or moved within its volume, and a copy gets a different one.
+public struct FileIdentity: Hashable, Sendable, Codable {
+    public let volume: String
+    public let file: UInt64
+
+    public init(volume: String, file: UInt64) {
+        self.volume = volume
+        self.file = file
+    }
+}
+
+public struct DirectoryEntry: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case file, directory, symbolicLink, other
+    }
+
+    public let name: String
+    public let kind: Kind
+
+    public init(name: String, kind: Kind) {
+        self.name = name
+        self.kind = kind
+    }
 }
 
 public enum FileItem: Hashable, Sendable {
@@ -68,7 +106,7 @@ public struct TemporaryFile: Hashable, Sendable {
 
 public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertible {
     public enum Operation: String, Hashable, Sendable {
-        case inspect, read, write, publish, exchange, move
+        case inspect, read, write, publish, exchange, move, list, remove
         case createDirectory = "create a directory"
     }
 
@@ -141,6 +179,8 @@ extension FileSystemError.Operation {
         case .publish: "publish"
         case .exchange: "exchange"
         case .move: "move"
+        case .list: "list"
+        case .remove: "remove"
         case .createDirectory: "createDirectory"
         }
     }

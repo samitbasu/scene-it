@@ -19,6 +19,8 @@ public struct PackageLayout: Hashable, Sendable {
     public var archiveIndex: URL { file("index.json", in: archive) }
     /// Tiered snapshots (ADR 0005), distinct from the rotated `book.json.bak1…3`.
     public var snapshots: URL { root.appending(path: "Backups", directoryHint: .isDirectory) }
+    /// The book's id, which names its folder in the external mirror (ADR 0005).
+    public var bookID: URL { file("book-id", in: snapshots) }
 
     public func backup(_ slot: BackupSlot) -> URL {
         file(slot.fileName, in: root)
@@ -27,11 +29,8 @@ public struct PackageLayout: Hashable, Sendable {
     /// Where a version of `book.json` that another program wrote during a save is kept:
     /// `book.json.conflict-<UTC time>`, then `-2`, `-3`, … for later attempts in the same second.
     public func conflict(at date: Date, attempt: Int) -> URL {
-        let stamp = date.formatted(
-            .iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false)
-                .timeSeparator(.omitted))
         let suffix = attempt > 1 ? "-\(attempt)" : ""
-        return file("book.json.conflict-\(stamp)\(suffix)", in: root)
+        return file("book.json.conflict-\(UTCStamp.string(for: date))\(suffix)", in: root)
     }
 
     private func file(_ name: String, in directory: URL) -> URL {

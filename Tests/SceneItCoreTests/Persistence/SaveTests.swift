@@ -69,7 +69,7 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
 func makeFullPackage(at url: URL, fileSystem: any FileSystem) throws -> BookPackage {
     let package = try BookPackage.create(at: url, title: "Untitled", fileSystem: fileSystem).package
     for number in [3, 2, 1, 0] {
-        #expect(try package.save(draft(number)) == .saved(.intact))
+        #expect(try package.save(draft(number)).backupStatus == .intact)
     }
     try expectLayout(package.layout, book: 0, backups: [1, 2, 3])
     return package
@@ -100,7 +100,7 @@ func unstableEncoding(of book: Book) throws -> Data {
             let package = try BookPackage.create(at: url, title: "Novel").package
             var versions = [try #require(package.layout.contents().book)]
             for number in 1...5 {
-                #expect(try package.save(draft(number)) == .saved(.intact))
+                #expect(try package.save(draft(number)).backupStatus == .intact)
                 versions.append(try encoded(draft(number)))
                 let (book, backups) = package.layout.contents()
                 #expect(book == versions.last)
@@ -133,7 +133,7 @@ func unstableEncoding(of book: Book) throws -> Data {
             let fileSystem = FaultInjectingFileSystem(root: url)
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             fileSystem.clearCalls()
-            #expect(try package.save(draft(9)) == .saved(.intact))
+            #expect(try package.save(draft(9)).backupStatus == .intact)
             let steps = SaveFault.fileSystemSteps.compactMap(\.call)
             #expect(fileSystem.calls == steps + [.discard("temporary book.json")])
         }
@@ -151,10 +151,10 @@ func unstableEncoding(of book: Book) throws -> Data {
             case .saved(let state):
                 let outcome = try attemptSave(package, failing: fault, fileSystem)
                 switch (state, outcome) {
-                case (.intact, .saved(.intact)): break
+                case (.intact, .saved(.intact, _)): break
                 case (
                     .previousVersionNotBackedUp(let expected),
-                    .saved(.previousVersionNotBackedUp(_, let actual))
+                    .saved(.previousVersionNotBackedUp(_, let actual), _)
                 ):
                     #expect(actual == expected)
                 default: Issue.record("unexpected outcome \(outcome)")
@@ -176,7 +176,7 @@ func unstableEncoding(of book: Book) throws -> Data {
                     try expectLayout(package.layout, book: expected.book, backups: expected.backups)
                 }
                 fileSystem.clearFault()
-                #expect(try package.save(draft(9)) == .saved(.intact))
+                #expect(try package.save(draft(9)).backupStatus == .intact)
                 try expectLayout(package.layout, book: 9, backups: [0, 1, 2])
             }
             #expect(try temporaryFiles(in: url).isEmpty, "every unpublished temporary file was discarded")
@@ -221,7 +221,7 @@ func unstableEncoding(of book: Book) throws -> Data {
             #expect(throws: try changed(to: 7)) { try package.save(draft(9)) }
             #expect(
                 try package.save(draft(9), onExternalChange: overwriting(7))
-                    == .saved(.intact))
+                    .backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
         }
     }
@@ -254,7 +254,7 @@ func unstableEncoding(of book: Book) throws -> Data {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let package = try BookPackage.create(at: url, title: "Novel").package
-            #expect(try package.save(draft(1)) == .saved(.intact))
+            #expect(try package.save(draft(1)).backupStatus == .intact)
             let (book, backups) = package.layout.contents()
             #expect(book == (try encoded(draft(1))))
             #expect(backups == [.bak1: try encoded(Book(title: "Novel"))])

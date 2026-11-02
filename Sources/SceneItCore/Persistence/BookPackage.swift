@@ -10,7 +10,7 @@ import Synchronization
 /// serialized by its lock.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
-    private let fileSystem: any FileSystem
+    let fileSystem: any FileSystem
     private let lastSeen: Mutex<ContentDigest>
 
     private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest) {
@@ -113,7 +113,7 @@ public final class BookPackage: Sendable {
             let backups = try replaceBook(with: data, current: current, &lastSeen)
             lastSeen = ContentDigest(data)
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
-            return .saved(backups)
+            return .saved(backups, PublishedBook(data: data))
         }
     }
 
@@ -462,6 +462,16 @@ private func wrapping<T, E: Error>(
         return try body()
     } catch {
         throw wrap(error)
+    }
+}
+
+/// The verified bytes a save just put in `book.json`. Only `BookPackage` makes one, so a
+/// snapshot can't hold anything else.
+public struct PublishedBook: Hashable, Sendable {
+    let data: Data
+
+    fileprivate init(data: Data) {
+        self.data = data
     }
 }
 
