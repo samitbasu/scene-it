@@ -16,7 +16,7 @@ versions, and snapshots copy only what Scene It wrote.
   these files.
 - A book whose `format` is newer than this version supports opens read-only with reason `.newerFormat`, and offers no way to make
   it editable (spec §10 Q7).
-- The banner wording goes through the aesthetic gate.
+- How the choice is offered (owner, 2026-11-02): an alert when the book opens (Keep Read-Only is the default), **plus** a persistent banner above the page and File → Make Editable…, so the writer can review and make the book editable later without reopening it. The look goes through the aesthetic gate.
 
 ## Not chosen
 Keeping the original silently and opening normally (an emptied file would open as an empty book the writer might type into), or
