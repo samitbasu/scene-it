@@ -41,11 +41,10 @@ struct AppPreferencesTests {
         #expect(preferences.rightPanelTab == .errors)
     }
 
-    @Test func theErrorsTabShowsAlwaysOrOnlyWhileThereAreEntries() {
-        #expect(RightPanelTab.shown(errorCount: 0, .always) == [.comments, .notes, .tags, .errors])
-        #expect(RightPanelTab.shown(errorCount: 0, .whenPresent) == [.comments, .notes, .tags])
-        #expect(RightPanelTab.shown(errorCount: 3, .whenPresent) == [.comments, .notes, .tags, .errors])
-        let hidden = RightPanelTab.shown(errorCount: 0, .whenPresent)
+    @Test func theErrorsTabShowsOnlyWhileThereAreEntries() {
+        #expect(RightPanelTab.shown(errorCount: 0) == [.comments, .notes, .tags])
+        #expect(RightPanelTab.shown(errorCount: 3) == [.comments, .notes, .tags, .errors])
+        let hidden = RightPanelTab.shown(errorCount: 0)
         #expect(RightPanelTab.selected(.errors, among: hidden) == .comments, "the last entry went")
         #expect(RightPanelTab.selected(.tags, among: hidden) == .tags)
     }

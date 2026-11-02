@@ -7,8 +7,6 @@ import SwiftUI
 /// read-only book the entries can only be read and copied.
 struct ErrorsTab: View {
     let book: AppOpenBook
-    @Environment(\.errorsLook) private var look
-    @Environment(\.errorsEditing) private var editing
 
     var body: some View {
         let groups = book.book.errorGroups
@@ -20,16 +18,15 @@ struct ErrorsTab: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: look.rows == .compact ? 0 : 8) {
+                LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(groups, id: \.owner) { group in
                         Text(ErrorsWording.group(group.owner, in: book.book))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .padding(.top, 8)
-                            .padding(.bottom, look.rows == .compact ? 4 : 0)
                         ForEach(group.refs, id: \.self) { ref in
-                            ErrorRow(book: book, ref: ref, draft: ref == editing ? ref.entry.payload : nil)
+                            ErrorRow(book: book, ref: ref)
                         }
                     }
                 }
@@ -51,16 +48,37 @@ enum EntryClipboard {
 private struct ErrorRow: View {
     let book: AppOpenBook
     let ref: ErrorRef
-    @State var draft: String?
-    @State private var expanded = true
-    @Environment(\.errorsLook) private var look
+    /// The payload being fixed, while it is.
+    @State private var draft: String?
 
     var body: some View {
         let reason = ErrorsWording.reason(BookFormat.reason(for: ref, in: book.book))
-        switch look.rows {
-        case .cards: card(reason)
-        case .compact: compact(reason)
-        case .disclosure: disclosure(reason)
+        VStack(alignment: .leading, spacing: 6) {
+            TagLabel(tag: ref.entry.tag)
+            headline(reason)
+            detail(reason)
+            if draft == nil {
+                HStack(spacing: 14) {
+                    Button(ErrorsWording.copy) { EntryClipboard.copy(ref.entry) }
+                    if ref.entry.tag.isRepairable {
+                        Button(ErrorsWording.fix) { draft = ref.entry.payload }
+                            .disabled(!book.isEditable)
+                    }
+                    Spacer()
+                    Button(ErrorsWording.delete) { book.deleteError(ref) }
+                        .disabled(!book.isEditable)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
+        .overlay(alignment: .leading) {
+            UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6)
+                .fill(Color.orange)
+                .frame(width: 3)
         }
     }
 
@@ -86,101 +104,6 @@ private struct ErrorRow: View {
             payloadOrEditor
         }
     }
-
-    // MARK: The three looks
-
-    private func card(_ reason: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TagLabel(tag: ref.entry.tag)
-            headline(reason)
-            detail(reason)
-            if draft == nil {
-                HStack(spacing: 14) {
-                    copyButton
-                    if ref.entry.tag.isRepairable { fixButton }
-                    Spacer()
-                    deleteButton
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
-        .overlay(alignment: .leading) {
-            UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6)
-                .fill(Color.orange)
-                .frame(width: 3)
-        }
-    }
-
-    private func compact(_ reason: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isNotice ? ref.entry.payload : reason)
-                        .font(.callout)
-                        .lineLimit(isNotice ? 3 : 2)
-                    if isNotice {
-                    } else if draft == nil {
-                        Text(ref.entry.payload)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        payloadOrEditor
-                    }
-                }
-                Spacer(minLength: 0)
-                Menu {
-                    copyButton
-                    if ref.entry.tag.isRepairable { fixButton }
-                    Divider()
-                    deleteButton
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-            }
-            .padding(.vertical, 6)
-            Divider()
-        }
-    }
-
-    private func disclosure(_ reason: String) -> some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                detail(reason)
-                if draft == nil {
-                    HStack(spacing: 14) {
-                        copyButton
-                        if ref.entry.tag.isRepairable { fixButton }
-                        Spacer()
-                        deleteButton
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                }
-            }
-            .padding(.top, 4)
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                TagLabel(tag: ref.entry.tag)
-                headline(reason)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: Parts
 
     @ViewBuilder private var payloadOrEditor: some View {
         if let draft {
@@ -209,20 +132,6 @@ private struct ErrorRow: View {
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .textBackgroundColor)))
         }
-    }
-
-    private var copyButton: some View {
-        Button(ErrorsWording.copy) { EntryClipboard.copy(ref.entry) }
-    }
-
-    private var fixButton: some View {
-        Button(ErrorsWording.fix) { draft = ref.entry.payload }
-            .disabled(!book.isEditable)
-    }
-
-    private var deleteButton: some View {
-        Button(ErrorsWording.delete) { book.deleteError(ref) }
-            .disabled(!book.isEditable)
     }
 
     private func apply(_ payload: String) {

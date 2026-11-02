@@ -49,25 +49,15 @@ public final class AppPreferences {
 public enum RightPanelTab: String, CaseIterable, Hashable, Sendable {
     case comments, notes, tags, errors
 
-    /// The tabs shown over a book with `errorCount` error entries.
-    public static func shown(errorCount: Int, _ visibility: ErrorsTabVisibility) -> [RightPanelTab] {
-        switch visibility {
-        case .always: allCases
-        case .whenPresent: errorCount > 0 ? allCases : allCases.filter { $0 != .errors }
-        }
+    /// The tabs shown over a book with `errorCount` error entries: Errors only while it has any.
+    public static func shown(errorCount: Int) -> [RightPanelTab] {
+        errorCount > 0 ? allCases : allCases.filter { $0 != .errors }
     }
 
     /// The tab the panel shows: the one last chosen, or Comments while that one is hidden.
     public static func selected(_ preferred: RightPanelTab, among shown: [RightPanelTab]) -> RightPanelTab {
         shown.contains(preferred) ? preferred : .comments
     }
-}
-
-// TEMPORARY (#63): the owner picks one of these, and the other goes.
-public enum ErrorsTabVisibility: Hashable, Sendable, CaseIterable {
-    case always
-    /// Only while the book has error entries, with their count on the tab.
-    case whenPresent
 }
 
 /// Whether the right panel is open. Format 1 also stored it, as the Boolean

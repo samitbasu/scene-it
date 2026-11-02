@@ -149,7 +149,7 @@ public final class BookStore<C: Clock<Duration>> {
                 switch await makeEditableExclusively() {
                 case .editable: return .opened
                 case .readOnly(let reason): return .openedReadOnly(reason)
-                case .failed, .notRepaired: return .openedReadOnly(reason)
+                case .failed, .notRepaired, .keptReadOnly: return .openedReadOnly(reason)
                 }
             }
         }
@@ -165,6 +165,8 @@ public final class BookStore<C: Clock<Duration>> {
         case failed(FileSystemError)
         /// No book is open, or it isn't read-only because it was repaired as it opened.
         case notRepaired
+        /// Asked to confirm, the writer chose Keep Read-Only.
+        case keptReadOnly
     }
 
     /// Keeps the original of a book that opened read-only because it was repaired, then
@@ -172,6 +174,21 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func makeEditable() async -> MakeEditableOutcome {
         await exclusively { await makeEditableExclusively() }
+    }
+
+    /// Make Editable… from the banner or the File menu: asks first, with the alert the book
+    /// opened with (Keep Read-Only is the default), then makes it editable if the writer chooses.
+    @discardableResult
+    public func confirmMakeEditable() async -> MakeEditableOutcome {
+        await exclusively {
+            guard let book = current, case .readOnly(let reason) = book.status, book.canBeMadeEditable else {
+                return .notRepaired
+            }
+            switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
+            case .makeEditable: return await makeEditableExclusively()
+            case .keepReadOnly, .openAnyway: return .keptReadOnly
+            }
+        }
     }
 
     private func makeEditableExclusively() async -> MakeEditableOutcome {

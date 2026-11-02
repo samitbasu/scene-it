@@ -16,7 +16,7 @@ struct BookCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }
                 .keyboardShortcut("s")
-            Button(ErrorsWording.makeEditableItem) { Task { await books.store.makeEditable() } }
+            Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
                 .disabled(books.store.current?.canBeMadeEditable != true)
         }
     }

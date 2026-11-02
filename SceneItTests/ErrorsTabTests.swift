@@ -164,14 +164,9 @@ struct ErrorsTabTests {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let store = books.store
-            @MainActor func banner(_ style: BannerStyle, placed placement: BannerStyle? = nil) throws
-                -> some View
-            {
+            @MainActor func banner() throws -> some View {
                 ReadOnlyBanner(
-                    book: try #require(store.current), store: store, preferences: books.preferences,
-                    placement: placement ?? style
-                )
-                .environment(\.errorsLook, ErrorsLook(banner: style))
+                    book: try #require(store.current), store: store, preferences: books.preferences)
             }
 
             guard case .openedReadOnly(.repairedOnOpen) = await store.open(try package(damaged, in: folder))
@@ -179,36 +174,31 @@ struct ErrorsTabTests {
                 Issue.record("precondition: the book opens repaired and read-only")
                 return
             }
-            for style in BannerStyle.allCases {
-                let shown = height(of: try banner(style))
-                #expect(shown > 30, "\(style)")
-                let elsewhere = height(of: try banner(.yellowStrip, placed: style))
-                #expect(elsewhere == (style == .yellowStrip ? shown : 0), "only the chosen look shows")
-                let window = try await host(try banner(style), size: CGSize(width: 1000, height: 100))
+            try #expect(height(of: banner()) > 30)
+            do {
+                let window = try await host(try banner(), size: CGSize(width: 1000, height: 100))
                 defer { window.close() }
-                #expect(keyViews(in: window).count == 2, "\(style): Show Repairs and Make Editable…")
+                #expect(keyViews(in: window).count == 2, "Show Repairs and Make Editable…")
             }
             #expect(await store.makeEditable() == .editable)
-            try #expect(height(of: banner(.yellowStrip)) == 0, "gone once the book is editable")
+            try #expect(height(of: banner()) == 0, "gone once the book is editable")
             #expect(await store.closeBook() == .left)
 
             #expect(
                 await store.open(try package(newerText, named: "Newer", in: folder))
                     == .openedReadOnly(.newerFormat(FormatVersion(3))))
-            for style in BannerStyle.allCases {
-                try #expect(height(of: banner(style)) > 30, "\(style)")
-                let window = try await host(try banner(style), size: CGSize(width: 1000, height: 100))
+            try #expect(height(of: banner()) > 30)
+            do {
+                let window = try await host(try banner(), size: CGSize(width: 1000, height: 100))
                 defer { window.close() }
-                #expect(keyViews(in: window).isEmpty, "\(style): a newer book can't be made editable here")
+                #expect(keyViews(in: window).isEmpty, "a newer book can't be made editable here")
             }
             #expect(await store.closeBook() == .left)
 
             let held = folder.appending(path: "Held.sceneit", directoryHint: .isDirectory)
             let holder = try BookPackage.create(at: held, title: "Held")
             #expect(await store.open(held) == .openedReadOnly(.openElsewhere))
-            for style in BannerStyle.allCases {
-                try #expect(height(of: banner(style)) == 0, "\(style): the status bar and alert cover it")
-            }
+            try #expect(height(of: banner()) == 0, "the status bar and the alert cover a lock")
             #expect(await store.closeBook() == .left)
             withExtendedLifetime(holder) {}
         }
@@ -251,13 +241,17 @@ extension BookStoreIntegrationTests {
                 return
             }
             await eventually { makeEditableItem?.isEnabled == true }
+            let headless = try #require(books.prompts as? HeadlessPrompts)
+            #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle, ReadOnlyWording.readOnlyTitle])
             try perform(try #require(makeEditableItem))
+            await eventually { headless.titles == [ReadOnlyWording.readOnlyTitle] }
             let book = try #require(store.current)
-            await eventually { book.isEditable }
+            #expect(!book.isEditable, "it asks first, and the test host answers Keep Read-Only")
+            #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle])
+
+            #expect(await store.makeEditable() == .editable)
             await eventually { makeEditableItem?.isEnabled == false }
             #expect(await store.closeBook() == .left)
-            let headless = books.prompts as? HeadlessPrompts
-            #expect(headless?.takeTitles() == [ReadOnlyWording.readOnlyTitle, ReadOnlyWording.readOnlyTitle])
             expectNoQuestions()
         }
     }

@@ -1,6 +1,7 @@
 /// Every string the Errors tab and the read-only banner show (book format §5.4, ADR 0024), in
-/// one place so the owner can review the wording as a whole. None of it is approved yet
-/// (#63, #67); the notices' own text is `RepairNotice.payload` (book format §5.3).
+/// one place so the owner can review the wording as a whole. The owner approved all of it on
+/// 2026-11-02 (#63, #67), with the notices' own text, `RepairNotice.payload` (book format §5.3).
+/// Make Editable… confirms with `ReadOnlyWording.alert(for:)`, the approved open-time alert.
 public enum ErrorsWording {
     // MARK: The tab
 

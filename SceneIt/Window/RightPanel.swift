@@ -7,19 +7,16 @@ import SwiftUI
 struct RightPanel: View {
     let book: AppOpenBook
     let preferences: AppPreferences
-    @Environment(\.errorsLook) private var look
 
     var body: some View {
         let errorCount = book.book.errorCount
-        let tabs = RightPanelTab.shown(errorCount: errorCount, look.tabVisibility)
+        let tabs = RightPanelTab.shown(errorCount: errorCount)
         let selected = RightPanelTab.selected(preferences.rightPanelTab, among: tabs)
         switch preferences.rightPanel {
         case .open:
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    PanelTabs(
-                        tabs: tabs, selected: selected,
-                        badge: look.tabVisibility == .whenPresent ? errorCount : 0, preferences: preferences)
+                    PanelTabs(tabs: tabs, selected: selected, badge: errorCount, preferences: preferences)
                     Spacer(minLength: 0)
                     Button {
                         preferences.setRightPanel(.closed)

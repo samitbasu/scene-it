@@ -62,7 +62,80 @@ struct WindowRenders {
         }
     }
 
+    /// A damaged book (#63, #67): the banner while it's read-only, then the Errors tab once
+    /// it's editable; and a book saved by a newer version.
+    @Test func errorsAndBanner() async throws {
+        let output = try #require(renderFolder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try await withBook(Self.damagedSample()) { store, book, preferences in
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences, mode: .constant(.page))
+            try Self.write(
+                try await Self.render(window), name: "final-banner-repaired",
+                caption: "Repaired while opening: read-only, with the banner", to: output)
+            preferences.reveal(.errors)
+            try Self.write(
+                try await Self.render(window), name: "final-errors-tab-read-only",
+                caption: "Show Repairs: the Errors tab, read-only", to: output)
+            #expect(await store.makeEditable() == .editable)
+            try Self.write(
+                try await Self.render(window), name: "final-errors-tab",
+                caption: "The Errors tab once the book is editable", to: output)
+            preferences.showRightPanelTab(.comments)
+        }
+        let newer = String(decoding: BookFormat.serialize(Self.sampleBook()), as: UTF8.self)
+            .replacingOccurrences(of: "format: 2\n", with: "format: 3\n")
+        try await withBook(Data(newer.utf8)) { store, book, preferences in
+            try Self.write(
+                try await Self.render(
+                    BookWindow(book: book, store: store, preferences: preferences, mode: .constant(.page))),
+                name: "final-banner-newer", caption: "Saved by a newer Scene It: read-only", to: output)
+        }
+    }
+
     // MARK: Sample books
+
+    /// Opens `bytes` as a book's `book.md`; the test host's alerts answer Keep Read-Only.
+    private func withBook(
+        _ bytes: Data, _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
+    ) async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            #expect(await store.closeBook() == .left)
+            try bytes.write(to: url.appending(path: "book.md"), options: .atomic)
+            _ = await store.open(url)
+            try await body(store, try #require(store.current), books.preferences)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    /// The sample book with book format §9.2's kinds of damage: an unknown front-matter key, a
+    /// stray line, a mistyped palette name, a quote that doesn't match, an emoji, and an
+    /// unknown metadata key.
+    static func damagedSample() throws -> Data {
+        var text = String(decoding: BookFormat.serialize(sampleBook()), as: UTF8.self)
+        func replace(_ old: String, _ new: String) throws {
+            let range = try #require(text.range(of: old))
+            text.replaceSubrange(range, with: new)
+        }
+        try replace("format: 2\n---\n", "format: 2\ncolour: blue\n---\n\nRemember to back this up!\n")
+        try replace("behind her.", "behind her. \u{1F30A}")
+        try replace(
+            "already ashore.\n",
+            "already ashore.\n\n### Comments\n"
+                + "- c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | \"harbor lights\" | Too pretty?\n"
+                + "- c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | \"ferry left\" | Wrong range.\n")
+        let letter = try #require(text.range(of: "## The letter\n"))
+        let modified = try #require(
+            text.range(
+                of: #"modified: [^\n]+\n"#, options: .regularExpression,
+                range: letter.upperBound..<text.endIndex))
+        text.insert(contentsOf: "mood: grim\n", at: modified.upperBound)
+        return Data(text.utf8)
+    }
 
     func withSampleBook(_ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void) async throws
     {

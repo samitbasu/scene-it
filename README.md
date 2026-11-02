@@ -147,12 +147,8 @@ at 1440 × 900 pt, and `<name>-vs-mockup.png` beside `01-main-window.png`. Its b
 preferences are throwaway (a temporary folder, a test-host `BookController`). To compare
 candidates for a future look change, render each candidate the same way with a different name.
 
-Until the owner picks the Errors tab and read-only banner looks (#63, #67), the same run also
-renders `SceneItTests/ErrorsRenders.swift`'s candidates (add
-`-only-testing:SceneItTests/ErrorsRenders` to render only those): `a1`–`a4` (when the Errors tab
-shows), `b1`–`b4` (entry rows), `c1`–`c7` (the banner, repaired and newer-format), each as
-`<name>@1x.png`, `<name>@2x.png` and `<name>-vs-final.png` beside `final-window@1x.png`, today's
-window.
+It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
+`final-errors-tab`) and a book saved by a newer version (`final-banner-newer`), the same way.
 
 ### `scripts/release.sh`: build a distributable app
 

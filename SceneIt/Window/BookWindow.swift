@@ -13,18 +13,14 @@ struct BookWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ReadOnlyBanner(book: book, store: store, preferences: preferences, placement: .yellowStrip)
-            ReadOnlyBanner(book: book, store: store, preferences: preferences, placement: .infoBar)
+            ReadOnlyBanner(book: book, store: store, preferences: preferences)
             HStack(spacing: 0) {
                 IconRail(book: book, mode: $mode)
                 Divider()
                 ZStack {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
-                        EditorArea(book: book) {
-                            ReadOnlyBanner(
-                                book: book, store: store, preferences: preferences, placement: .inline)
-                        }
+                        EditorArea(book: book)
                         Divider()
                         RightPanel(book: book, preferences: preferences)
                     }
