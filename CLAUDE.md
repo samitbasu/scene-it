@@ -130,6 +130,7 @@ macOS novel-writing app (Swift 6, SwiftUI + AppKit TextKit 2). These notes are p
 - **Start here when resuming:** `docs/dev/WORKFLOW.md`. Work is tracked as GitHub issues and milestones (`gh issue list`).
 - **Spec:** `novel-app-build-bundle/PLAN.md`. **Deviations and decisions:** `docs/decisions/` (they override PLAN).
 - **Gate:** `scripts/check.sh` must pass before any commit lands on `main`.
+- **Scripts are documented in `README.md`** (usage, example arguments, outputs). Any PR that adds or changes a script updates that section.
 - **Layout:** `SceneItCore` SwiftPM package (model, persistence, backups, archive, search, reporting) under `Package.swift`/`Sources`/`Tests`; thin app target in `SceneIt/` (synchronized folders, so never hand-edit the pbxproj to add files).
 - **Swift translation of the rules above:** no naked `Bool` parameters (use two-case enums); no naked `Double`/`Float`/`CGFloat` parameters in our APIs (use newtypes such as `Zoom` and `SpeechRate`); `Duration` for time spans; illegal states unrepresentable. The JSON format (PLAN §5) is a contract; the in-memory model may be richer, with `Codable` mapping to the exact JSON.
 - **Trust first:** data-loss prevention beats performance. See the trust rules in WORKFLOW.md.
