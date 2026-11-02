@@ -9,48 +9,16 @@ The examples come from PLAN [§5.3](../../novel-app-build-bundle/PLAN.md) (the
 model sketch) and [§3](../../novel-app-build-bundle/PLAN.md) (architecture),
 because no app code exists yet. Later chapters quote real files instead.
 
-**How the snippets were checked.** Every Swift block was extracted from this file
-into a scratch SwiftPM package and built with Swift 6.4 in the Swift 6 language
-mode (macOS 26 deployment target). Blocks marked `// DOES NOT COMPILE` were
-compiled one at a time against the same package and fail with the error quoted
-in the block. Rust blocks were built with `cargo build` (serde and serde_json as
-the only dependencies). Swift blocks assume `import Foundation`, as every file in
-`SceneItCore` will have.
+Swift snippets assume `import Foundation`, as every file in `SceneItCore`
+will have. The [README](README.md) explains how they were checked.
 
 ---
 
-## 1. SwiftPM is Cargo
+## 1. Packages and access control
 
-| Cargo | SwiftPM |
-| --- | --- |
-| `Cargo.toml` | `Package.swift`, written in Swift and evaluated in a sandbox |
-| crate | *module* (a target); a *product* is what other packages can depend on |
-| `cargo build` / `test` / `run` | `swift build` / `swift test` / `swift run` |
-| `edition = "2024"` | `// swift-tools-version: 6.2`; tools version 6.x selects the Swift 6 language mode |
-| `#[test]` + `assert!` | Swift Testing: `@Test` + `#expect` / `#require` (XCTest is the older framework) |
-| `rustfmt`, `clippy` | `swift format` (ships with the toolchain), plus compiler warnings as errors |
-| `[features]` | `swiftSettings: [.enableUpcomingFeature(...)]` for *language* features; no Cargo-style feature flags |
-
-```swift
-// swift-tools-version: 6.2
-import PackageDescription
-
-let package = Package(
-    name: "SceneItCore",
-    platforms: [.macOS(.v26)],
-    products: [.library(name: "SceneItCore", targets: ["SceneItCore"])],
-    targets: [
-        .target(name: "SceneItCore"),
-        .testTarget(name: "SceneItCoreTests", dependencies: ["SceneItCore"]),
-    ]
-)
-```
-
-An `.app` can't be built by SwiftPM alone (see
-[decision 0002](../decisions/0002-project-structure.md)). That's why the app is a
-thin Xcode target over this package.
-
-**Access control** matters as soon as the app imports `SceneItCore`:
+The package layout, `Package.swift` and the build commands are covered in
+[chapter 01](01-project-anatomy.md). What matters here is visibility, because the
+app imports `SceneItCore` as a separate module:
 
 | Rust | Swift |
 | --- | --- |
@@ -63,26 +31,6 @@ thin Xcode target over this package.
 A `public struct` does **not** get a public memberwise initializer. If the app
 needs to construct it, write `public init(...)` yourself.
 
-```swift
-// Tests/SceneItCoreTests/TextColorTests.swift
-import Foundation
-import Testing
-
-@testable import SceneItCore
-
-@Test func misspelledColorIsRejected() throws {
-    let ok = try JSONDecoder().decode(TextColor.self, from: Data(#""purple""#.utf8))
-    #expect(ok == .purple)
-    #expect(throws: DecodingError.self) {
-        try JSONDecoder().decode(TextColor.self, from: Data(#""purpel""#.utf8))
-    }
-}
-```
-
-`@testable import` is the test-only door into `internal` declarations, the way a
-Rust `#[cfg(test)] mod tests` can see private items. `#""…""#` is a raw string,
-like `r#"…"#`.
-
 ---
 
 ## 2. Value types and reference types
@@ -94,20 +42,12 @@ Swift's split isn't owned versus borrowed. It's **value versus reference**:
   struct is always implicitly copyable (unless it opts out, see §7.4).
 - `class` (and `actor`) are references. Assignment copies a pointer and bumps an
   atomic reference count. Every class reference behaves like an `Arc<T>` whose
-  interior is freely mutable, with no `Mutex` and no borrow check.
+  interior is freely mutable. Instead of a `Mutex`, runtime exclusivity checks
+  (§7.3) catch overlapping accesses. Those checks don't prevent data races:
+  that's `Sendable`'s job (§8).
 
-```rust
-#[derive(Clone)]
-pub struct Scene {
-    pub id: String,
-    pub tags: Vec<String>,
-}
-
-pub fn clone_demo(original: &Scene) {
-    let mut draft = original.clone(); // explicit, and deep: the Vec is copied now
-    draft.tags.push("Mara".into());
-}
-```
+In Rust, `let mut draft = original.clone();` is explicit and deep: every `Vec`
+is copied at that line. In Swift the copy is implicit, and deferred:
 
 ```swift
 public enum TextColor: String, Codable, CaseIterable, Sendable {
@@ -147,8 +87,9 @@ func valueSemanticsDemo(_ original: Scene) {
 }
 ```
 
-`var draft = original` is cheap but not free. It copies `Scene`'s inline fields
-(here, five buffer pointers) and retains each buffer. No element is copied. The
+`var draft = original` is cheap but not free. It copies `Scene`'s 48 inline
+bytes (a 16-byte `String`, whose short values are stored inline, and four
+8-byte array buffer pointers) and retains each buffer. No element is copied. The
 `tags` buffer is copied only at `append`, because `Array`, `Dictionary`, `Set`
 and `String` are **copy-on-write**: before mutating, they check whether their
 heap buffer is uniquely referenced and clone it if it isn't. That's
@@ -201,7 +142,8 @@ Where the analogy breaks:
   ```
 
 - **`mutating`** marks a struct method that takes `self` as `inout` (§7.3), the
-  same as `&mut self`. Non-mutating methods take `self` by value, conceptually.
+  same as `&mut self`. Non-mutating methods receive `self` borrowed (+0, no
+  retain), like `&self`.
   Classes have no `mutating`, because every method can mutate.
 - **Identity** exists only for classes: `===` compares references. Structs have
   only `==`, and only if they're `Equatable`.
@@ -236,19 +178,9 @@ Swift enums are Rust enums: tagged unions with payloads and exhaustive `switch`.
 `Codable` corresponds to serde's derive, synthesized by the compiler instead of a
 proc macro.
 
-```rust
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum TextColor { Black, Purple, Red, Blue, Green, Gray, Pink }
-
-pub fn decode() -> TextColor {
-    serde_json::from_str("\"purple\"").unwrap()
-}
-```
-
-`enum TextColor: String, Codable, CaseIterable` (§2) does the same. The `: String`
+`enum TextColor: String, Codable, CaseIterable` (§2) is the Swift form of a Rust
+enum with `#[derive(Serialize, Deserialize)] #[serde(rename_all = "lowercase")]`.
+The `: String`
 gives each case a *raw value* (by default the case name), `Codable` encodes the
 raw value, and `CaseIterable` synthesizes `TextColor.allCases`, which in Rust
 takes a crate such as `strum`. Decoding `"purpel"` throws `DecodingError`, which
@@ -258,14 +190,14 @@ Payload enums and `switch`:
 
 ```swift
 public enum Selection: Sendable {
-    case none
+    case nothing
     case scene(Scene.ID)
     case comment(scene: Scene.ID, comment: Comment.ID)
 }
 
 func describe(_ s: Selection) -> String {
     switch s {
-    case .none: "nothing"
+    case .nothing: "nothing"
     case .scene(let id): "scene \(id)"
     case let .comment(scene, comment): "comment \(comment) in \(scene)"
     }
@@ -273,8 +205,10 @@ func describe(_ s: Selection) -> String {
 ```
 
 `switch` (and `if`) are expressions when every branch is a single expression.
-`.none` is resolved against the expected type, so `.purple` alone is a
-`TextColor` wherever one is expected.
+`.nothing` is resolved against the expected type, so `.purple` alone is a
+`TextColor` wherever one is expected. Avoid naming a case `none`: on a
+`Selection?` the compiler can't tell it from `Optional.none` and warns
+"assuming you mean 'Optional<Selection>.none'".
 
 Differences from serde that matter for `book.json`:
 
@@ -282,7 +216,7 @@ Differences from serde that matter for `book.json`:
   comes from types (enums, non-optional fields) and explicit validation.
 - **Optionals are omitted on encode.** A synthesized `Codable` uses
   `encodeIfPresent`, so `Run(text: "x")` encodes as `{"text":"x"}` without
-  `"bold": null`. That's serde's `skip_serializing_if = "Option::is_none"` by
+  `"italic": null`. That's serde's `skip_serializing_if = "Option::is_none"` by
   default. A missing key decodes to `nil`.
 - Renaming uses a nested `enum CodingKeys: String, CodingKey`, not attributes.
 - Enums from Apple's frameworks are usually *non-frozen*: switching over one
@@ -341,19 +275,6 @@ because the whole function is one expression. `guard let … else` is the genera
 early exit. The `else` block must leave the scope (`return`, `throw`, `break`, or
 a call to a `Never`-returning function), and the compiler checks that.
 
-```swift
-func optionalForms(_ book: Book, _ id: Scene.ID) {
-    if let scene = book.scene(withID: id) {
-        print(scene.tags)
-    }
-    if let firstTag = book.scene(withID: id)?.tags.first, firstTag.hasPrefix("M") {
-        print(firstTag)
-    }
-    let upper: String? = book.titleText(ofScene: id).map { $0.uppercased() }
-    _ = upper
-}
-```
-
 About traps: `!`, an out-of-bounds index, `fatalError` and **integer overflow**
 all trap, and they do so in optimized builds too. Arithmetic is checked in
 release, unlike Rust's wrapping release default. Use `&+`, `&-` and `&*` for
@@ -364,27 +285,8 @@ every trap is a crash report (chapter 11).
 
 ## 5. Protocols are traits, mostly
 
-```rust
-pub struct SearchHit { pub scene: String, pub paragraph: usize }
-
-pub trait SearchIndex {
-    fn index(&mut self, scenes: &[String]);
-    fn search(&self, query: &str) -> Vec<SearchHit>;
-}
-
-pub fn make_index() -> impl SearchIndex { Keyword(Vec::new()) }
-pub fn count(index: &impl SearchIndex, q: &str) -> usize { index.search(q).len() }
-pub struct Store { pub search: Box<dyn SearchIndex> }
-
-struct Keyword(Vec<String>);
-impl SearchIndex for Keyword {
-    fn index(&mut self, scenes: &[String]) { self.0 = scenes.to_vec(); }
-    fn search(&self, q: &str) -> Vec<SearchHit> {
-        self.0.iter().filter(|s| s.contains(q))
-            .map(|s| SearchHit { scene: s.clone(), paragraph: 0 }).collect()
-    }
-}
-```
+Take a Rust `trait SearchIndex` with `fn make_index() -> impl SearchIndex` and
+`struct Store { search: Box<dyn SearchIndex> }`. In Swift:
 
 ```swift
 public struct SearchHit: Hashable, Sendable {
@@ -449,7 +351,11 @@ final class StoreSketch {
 - **Generics aren't monomorphized by default.** Unspecialized generic code
   receives type metadata and witness tables at runtime (dictionary passing,
   closer to `dyn` without the box), and the optimizer specializes where it can
-  see the body. Across module boundaries that requires `@inlinable`. This affects
+  see the body. Within one package, cross-module optimization lets it see bodies
+  in other modules too, so a plain `public` generic in `SceneItCore` can still be
+  specialized in the app. `@inlinable` *guarantees* that the body is visible to
+  clients, and it's required for modules built with library evolution
+  (resilient, binary-stable frameworks such as Apple's). This affects
   performance, never semantics.
 
 Associated types and constrained existentials look the way you'd expect.
@@ -509,32 +415,22 @@ func dispatchDemo() {
 }
 ```
 
-`Loud.extra` doesn't override anything. It shadows the extension method, and the
-existential never sees it. Rust has no equivalent footgun, because trait methods
-are either in the trait or not callable through `dyn`. Rule: if conformers may
-customize it, declare it in the protocol body.
+`Loud.extra` doesn't override anything. Rust has the same thing: an extension
+trait `trait GreeterExt { fn extra(&self) }` with a blanket
+`impl<T: Greeter + ?Sized> GreeterExt for T`. An inherent `Loud::extra` takes
+precedence on a `Loud`, but `dyn Greeter` only reaches the blanket impl. The
+difference is that Swift spells both the requirement and the extension method
+with the same syntax, so it's easy to write the extension version by accident.
+Rule: if conformers may customize it, declare it in the protocol body.
 
 ---
 
 ## 6. Errors: `throws` is not `Result`
 
-```rust
-#[derive(Debug)]
-pub enum LoadError { Malformed(serde_json::Error), UnknownComment { scene: String, comment: String } }
-
-impl From<serde_json::Error> for LoadError {
-    fn from(e: serde_json::Error) -> Self { LoadError::Malformed(e) }
-}
-
-pub fn load(data: &str) -> Result<Vec<String>, LoadError> {
-    let tags: Vec<String> = serde_json::from_str(data)?;
-    Ok(tags)
-}
-```
-
 Swift functions are marked `throws`, and every call site of a throwing function
 is marked `try`. That's like `?` in that it propagates, and unlike `?` in that
-there's no `From`-based conversion. By default the error type is **untyped**: a
+there's no conversion: nothing plays the role of
+`impl From<serde_json::Error> for LoadError`. By default the error type is **untyped**: a
 plain `throws` throws `any Error`, an existential of the `Error` protocol, and
 callers can't match it exhaustively.
 
@@ -596,9 +492,7 @@ Points that aren't obvious:
 - `do`/`catch` **infers** the thrown type when every `try` in the body throws the
   same type, so in `caller`, `error` is a `LoadError` and the `switch` is
   exhaustive. With an untyped `throws` the same `switch` fails, because `error`
-  is `any Error`. (With Foundation imported, the diagnostic names an internal
-  protocol instead of `any Error`. Without Foundation it reads "type 'any Error'
-  has no member 'bad'".)
+  is `any Error`:
 
   ```swift
   // DOES NOT COMPILE: error: type '_ErrorCodeProtocol' has no member 'bad'
@@ -621,9 +515,12 @@ Points that aren't obvious:
   (loading, saving, archiving) that's almost always wrong. `try!` traps.
 - `throws(Never)` means non-throwing and `throws(any Error)` means plain
   `throws`, so a generic `throws(E)` replaces most uses of the older `rethrows`.
-- The Swift Evolution proposal (SE-0413) recommends untyped `throws` as the
-  default, and typed throws where the error set is closed and callers will
-  handle it exhaustively. Chapter 02 decides which `SceneItCore` uses.
+- The Swift Evolution proposal (SE-0413) says untyped `throws` is better for
+  most code. Typed throws suits code that stays within one module or package
+  and always handles its errors, generic code that only passes a caller's error
+  through, and Embedded Swift. It warns against choosing it just because there's
+  only one kind of error today. `SceneItCore`'s errors cross into the app, so
+  that's the case to argue. Chapter 02 decides.
 - `defer { … }` runs at scope exit on every path. It's the usual stand-in for a
   scope guard.
 
@@ -660,9 +557,7 @@ final class SaveCoordinator {
 }
 ```
 
-`wireUpLeaky` forms the cycle self → autosaver → closure → self. (A test in the
-verification package confirmed that the coordinator outlives its last external
-reference after `wireUpLeaky` and is freed after `wireUp`.) The capture list
+`wireUpLeaky` forms the cycle self → autosaver → closure → self. The capture list
 `[weak self]` captures a `Weak<Self>`, and `guard let self` is `upgrade()`.
 
 - `weak var x: T?` is always optional and becomes `nil` when the object dies.
@@ -691,11 +586,15 @@ reference after `wireUpLeaky` and is freed after `wireUp`.) The capture list
   }
   ```
 
-- **Lifetimes end at last use, not at end of scope.** `deinit` runs when the last
-  strong reference is released, and the optimizer may release a local right after
-  its last use. RAII guards of the form `let guard = Lock(); doWork()` aren't
-  reliable. Use `defer`, a `with…` closure API, or `withExtendedLifetime(x) { … }`.
-  Rust's drop-at-scope-end has no equivalent for classes.
+- **A lifetime isn't guaranteed past last use.** `deinit` runs when the last
+  strong reference is released, and the language only promises that a local
+  lives until its last use. In practice, since Swift 5.7, lexical lifetimes
+  usually keep locals alive to the end of the scope, but the optimizer may still
+  shorten a lifetime when nothing in between is a deinit barrier. Don't rely on
+  either. RAII guards of the form `let guard = Lock(); doWork()` aren't a
+  pattern Swift supports. Use `defer`, a `with…` closure API, or
+  `withExtendedLifetime(x) { … }`. Rust's guaranteed drop-at-scope-end has no
+  equivalent for classes.
 
 ### 7.2 Structs inside classes
 
@@ -799,7 +698,11 @@ func doubleCommit() {
   These parameter modifiers also work on copyable types, where they're
   performance hints.
 - A `~Copyable` struct can have a `deinit` (like `Drop`), and a `consuming`
-  method can end with `discard self` to skip it, like `mem::forget`.
+  method can end with `discard self` to skip it, like `mem::forget`. For now,
+  `discard` requires every stored property to be trivially destroyed (no
+  `String`, no class references): "can only 'discard' type 'Lease' if it
+  contains trivially-destroyed stored properties at this time". That diagnostic
+  comes late in compilation, so a quick type-check won't show it.
 - The `consume x` operator ends a *local's* lifetime, even for a copyable type,
   like an explicit `drop` or a move into a new binding. It can't be applied to a
   stored property of a copyable type ("'consume' can only be used to partially
@@ -828,14 +731,14 @@ so for reference types `Sendable` means roughly `Send + Sync`.
 
 | | Rust | Swift |
 | --- | --- | --- |
-| Inference | auto trait, inferred structurally, leaks through `pub` | inferred structurally **only for non-`public`** structs and enums; a `public` type must declare `Sendable` |
+| Inference | auto trait, inferred structurally, leaks through `pub` | inferred structurally only for non-`public` (and non-`@usableFromInline`) structs and enums, and for `@frozen` public ones; any other `public` type must declare `Sendable` |
 | Escape hatch | `unsafe impl Send` | `@unchecked Sendable` |
 | Classes | — | `final`, and every stored property a `let` of `Sendable` type; otherwise `@unchecked` |
 | Enforcement | always | Swift 6 language mode: errors; Swift 5 mode: optional warnings |
 
 That's why the model types in §2 say `Sendable` explicitly: they're `public` so
-the app can use them, and public types get no inference. An internal type with
-the same fields would be inferred `Sendable`:
+the app can use them, and non-frozen public types get no inference. An internal
+type with the same fields would be inferred `Sendable`:
 
 ```swift
 struct InternalSnapshot {
@@ -972,9 +875,11 @@ weaker:
 
 ### 8.5 Tasks and isolation defaults
 
-- `Task { … }` is roughly `tokio::spawn`, except that it **inherits the current
-  actor**: a `Task` created in a `@MainActor` method runs its body on the main
-  actor. `Task.detached` doesn't inherit. Structured forms are `async let` and
+- `Task { … }` is roughly `tokio::spawn`, except that it can **inherit
+  isolation**. Created in `@MainActor` code (any global actor), its body runs on
+  that actor. Created in an instance method of an `actor`, it's isolated to that
+  actor only if the closure captures `self`; otherwise it runs nonisolated.
+  `Task.detached` never inherits. Structured forms are `async let` and
   `withTaskGroup`. Cancellation is cooperative (`try Task.checkCancellation()`),
   like dropping a future, except that the task keeps running until it checks.
 - Swift 6.4 warns when a throwing `Task` is discarded unused ("unstructured
@@ -994,32 +899,44 @@ weaker:
   }
   ```
 
-- Where a `nonisolated async` function runs depends on the build settings. In
-  plain Swift 6 mode it runs on the global concurrent executor, even when it's
-  called from the main actor (verified). With the upcoming feature
-  `NonisolatedNonsendingByDefault` it runs on the caller's actor. A target can
-  also set `.defaultIsolation(MainActor.self)`, which makes unannotated code
-  `@MainActor`. Chapter 01 records which settings Scene It uses. Until you've
-  read it, don't assume either way.
+- Isolation defaults are per target, and Scene It uses two
+  ([decision 0011](../decisions/0011-mainactor-default-isolation.md)):
+  - **`SceneItCore`** uses plain Swift 6 defaults. Unannotated code is
+    nonisolated, and a `nonisolated async` function runs on the global
+    concurrent executor even when it's called from the main actor. That's why
+    `BookStore` says `@MainActor` explicitly.
+  - **The app target** sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and
+    approachable concurrency. Unannotated code there is `@MainActor`,
+    `nonisolated async` functions run on the caller's actor
+    (`NonisolatedNonsendingByDefault`), and background work opts out with
+    `nonisolated` or `@concurrent`.
+
+  The same function can therefore behave differently depending on which target
+  it's in. Check which side of the line you're on.
 
 ### 8.6 `Duration`
 
-The standard library's `Duration` (`.seconds(2)`, `.milliseconds(250)`) is
-`core::time::Duration`, and `ContinuousClock` and `SuspendingClock` play the role
-of `Instant`. Foundation's `TimeInterval` is a `typealias` for `Double`, which is
-exactly the naked float CLAUDE.md bans. Keep `Duration` everywhere and convert at
-the API boundary:
+The standard library's `Duration` (`.seconds(2)`, `.milliseconds(250)`) looks
+like `core::time::Duration`, and `ContinuousClock` and `SuspendingClock` play the
+role of `Instant`. The difference: Swift's `Duration` is **signed**.
 
 ```swift
-struct AutosavePolicy {
-    var idle: Duration = .seconds(2)
-    var maxInterval: Duration = .seconds(30)
+func signedDuration() -> Bool {
+    let negative: Duration = .seconds(-1)
+    return negative < .zero
 }
+```
 
-func waitIdle(_ policy: AutosavePolicy) async throws {
-    try await Task.sleep(for: policy.idle)
-}
+CLAUDE.md's "durations are `Duration`" rule relies on Rust's type ruling out
+negative spans, and Swift's type doesn't. So `SceneItCore` wraps it in a
+non-negative `Interval` newtype for every span its APIs accept, and keeps
+`Duration` for foreign APIs such as `Task.sleep(for:)`
+([decision 0010](../decisions/0010-nonnegative-interval.md)).
 
+Foundation's `TimeInterval` is a `typealias` for `Double`, which is exactly the
+naked float CLAUDE.md bans. It appears only at Foundation and AppKit call sites:
+
+```swift
 func timeInterval(_ d: Duration) -> TimeInterval { d / .seconds(1) }
 ```
 
@@ -1053,7 +970,10 @@ extension Collection where Element == Scene {
 ```
 
 - Methods added to a foreign type (`Collection`) need no extension trait and no
-  `use`. They're visible wherever your module is imported.
+  `use`. They're visible wherever your module is imported. In Swift 6 they're
+  even visible in files that only import your module *transitively*. The
+  `MemberImportVisibility` upcoming feature (SE-0444) requires a direct
+  `import`, which is closer to Rust's `use Trait`.
 - **There's no orphan rule.** You may conform a type you don't own to a protocol
   you don't own. Rust forbids this to keep coherence, and Swift permits it at the
   cost of coherence: if Foundation later adds the same conformance, which one
@@ -1111,8 +1031,10 @@ the guarantee through every signature.
 
 ### 10.2 Macros
 
-Swift macros are compiler plugins built on `swift-syntax`, run in a sandboxed
-separate process, and they see syntax, not types. That's a proc macro.
+Swift macros are compiler plugins built on `swift-syntax`, and they see syntax,
+not types. That's a proc macro. Macros that ship with the toolchain (such as
+`@Observable`) are loaded into the compiler process. Macros from packages and
+third parties run in a sandboxed plugin server process.
 *Freestanding* macros start with `#` (`#expect`, `#Preview`). *Attached* macros
 use `@` and look like attributes, so check the docs to tell `@Observable` (a
 macro) from `@State` (a property wrapper).
@@ -1210,55 +1132,30 @@ func rulesCallSite() {
 (The `Bool?` fields on `Run` are data in a serialized schema, not parameters.)
 
 **No naked `Double`/`Float` parameters.** Write a newtype that enforces its
-constraint in the initializer, implements its operators once, and converts out
-explicitly. Rust's `impl From<Zoom> for f64` becomes an initializer on `Double`:
+constraint in the initializer and implements its operators once. Rust's
+`impl From<Zoom> for f64` becomes an initializer on `Double`. If the value has to
+appear in `book.json` as a bare number (serde's `#[serde(transparent)]`),
+conform the newtype to `RawRepresentable` with a `Codable` raw value, and the
+standard library supplies the `Codable` implementation:
 
 ```swift
-struct Zoom: Comparable, Sendable {
-    static let range: ClosedRange<Double> = 0.5...3.0
-    let value: Double
-
-    init(_ raw: Double) {
-        value = raw.isNaN ? 1.0 : min(max(raw, Self.range.lowerBound), Self.range.upperBound)
+struct Zoom: RawRepresentable, Codable, Sendable {
+    let rawValue: Double
+    init(rawValue: Double) {
+        self.rawValue = rawValue.isNaN ? 1.0 : min(max(rawValue, 0.5), 3.0)
     }
-
-    static func < (a: Zoom, b: Zoom) -> Bool { a.value < b.value }
-
-    static func * (a: Zoom, step: ZoomStep) -> Zoom { Zoom(a.value * step.factor) }
-}
-
-struct ZoomStep: Sendable {
-    let factor: Double
-    static let `in` = ZoomStep(factor: 1.1)
-    static let out = ZoomStep(factor: 1 / 1.1)
 }
 
 extension Double {
-    init(_ zoom: Zoom) { self = zoom.value }
-}
-
-func zoomDemo() -> Double {
-    Double(Zoom(1.0) * .in * .in)
+    init(_ zoom: Zoom) { self = zoom.rawValue }
 }
 ```
 
-For a newtype that has to appear in `book.json` as a bare number (serde's
-`#[serde(transparent)]`), conform it to `RawRepresentable` with a `Codable` raw
-value, and the standard library supplies the `Codable` implementation:
-
-```swift
-struct ZoomSetting: RawRepresentable, Codable, Sendable {
-    let rawValue: Double
-    init(rawValue: Double) { self.rawValue = min(max(rawValue, 0.5), 3.0) }
-}
-```
-
-(Encoding `ZoomSetting(rawValue: 9)` inside a struct gives `{"zoom":3}`. Whether
+(Encoding `Zoom(rawValue: 9)` inside a struct gives `{"zoom":3}`. Whether
 decoding should clamp or *reject* an out-of-range value is a strict-decoding
 question for chapter 02.)
 
-**Durations are `Duration`.** See §8.6. `TimeInterval` appears only at
-Foundation and AppKit call sites.
+**Durations** use the non-negative `Interval` (§8.6).
 
 **Illegal states unrepresentable.** Swift enums with payloads, and `Optional` of a
 struct, are the tools, the same as in Rust:
@@ -1301,11 +1198,11 @@ are warnings, so they fail the gate too.
 | `impl Trait` | `some P` | |
 | `dyn Trait` | `any P` | inline existential, no object safety (§5) |
 | `impl Foo for Bar` | `extension Bar: Foo` | no orphan rule (§9) |
-| `Send` / `Sync` | `Sendable` | not inferred for `public` types (§8.1) |
+| `Send` / `Sync` | `Sendable` | not inferred for non-frozen `public` types (§8.1) |
 | `!Send` + UI thread | `@MainActor` | reentrant at `await` (§8.4) |
-| `tokio::spawn` | `Task { }` | inherits the actor (§8.5) |
-| `Duration` | `Duration` | `TimeInterval` is a `Double` (§8.6) |
+| `tokio::spawn` | `Task { }` | inherits global-actor isolation (§8.5) |
+| `Duration` | `Interval` over `Duration` | Swift's `Duration` is signed (§8.6) |
 | proc macro | macro (`@Observable`, `#expect`) | |
 | `serde` derive | `Codable` | ignores unknown keys (§3) |
 | `&str` byte indexing | `String.Index`; UTF-16 for AppKit | (§11) |
-| Cargo | SwiftPM | (§1) |
+| Cargo | SwiftPM | chapter 01 |

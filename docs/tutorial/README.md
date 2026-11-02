@@ -35,17 +35,17 @@ A tutorial that paraphrases code drifts from it. These rules prevent that:
 - **Chapter 00 predates the code,** so it uses the model sketch in PLAN §5.3.
   Instead of anchors, its snippets were extracted and compiled. Every Swift block
   was built with Swift 6.4 in a scratch package. Blocks marked
-  `// DOES NOT COMPILE` were checked to fail with the quoted error. The Rust
-  blocks were built with Cargo. When the real model lands (#7), chapter 02 points
+  `// DOES NOT COMPILE` were checked to fail with the quoted error. When the
+  real model lands (#7), chapter 02 points
   at it, and anything in 00 that disagrees should be fixed in 00.
 - **Claims about behaviour are verified, not remembered.** Where a chapter says
   what the compiler or runtime does (a diagnostic, a trap, an encoding), that was
-  observed on this toolchain. Language details that depend on build settings say
-  so and defer to chapter 01.
+  observed on this toolchain. Where behaviour depends on build settings, the
+  chapter says so and links the decision record that fixes the setting.
 
 ## Conventions
 
-- Rust ↔ Swift comparisons appear side by side when the analogy helps, and the
-  text says where it breaks.
+- Rust ↔ Swift comparisons are given where the analogy helps, and the text says
+  where it breaks.
 - Decision records in [`docs/decisions/`](../decisions/) have short *Learning
   notes* of their own. The chapters link to them rather than repeating them.
