@@ -31,7 +31,7 @@ SceneIt/                   app sources (SwiftUI + AppKit UI)
 SceneItTests/              app-hosted tests (run through xcodebuild)
 Config/                    Info.plist and other build configuration
 .swift-format              formatter and lint rules (used by both scripts)
-scripts/                   the scripts below
+scripts/                   the scripts below; lib.sh holds what they share
 docs/                      decisions, workflow, tutorials
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
@@ -52,26 +52,29 @@ from the real behaviour when it merges.
 scripts/check.sh
 ```
 
-Takes no arguments. Runs, in order, stopping at the first failure:
+Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
+`Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
+which both scripts source. It first deletes `build/check/SceneIt.xcresult`, then
+runs, in order, stopping at the first failure:
 
-1. **TextKit 1 guard:** fails if the identifier `layoutManager` (whole word, so
-   `textLayoutManager` is fine) appears in any `.swift` file under `SceneIt/` or
-   `Sources/`.
-2. `swift format lint --strict --recursive` over `Package.swift`, `Sources/`, `Tests/`,
-   `SceneIt/`, `SceneItTests/`, using `.swift-format`.
+1. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
+   `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
+   `textLayoutManager` is allowed. It also fails if one of the paths is missing.
+2. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
 3. `swift test` (SceneItCore unit tests; build output in `.build/`).
 4. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
-   -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult build test`.
-   This builds the app and runs the app-hosted tests. Warnings are errors through
-   the project's build settings and the package manifest.
+   -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
+   This builds the app and runs the app-hosted tests. Compiler warnings are errors,
+   through the project's build settings and the package manifest. Linker warnings
+   are not fatal.
 
 **Output on success:** nothing, exit status 0.
 
 **Output on failure:** exit status 1, and on stderr:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
 `error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match.
-If the xcodebuild step ran tests, each failing test is listed from the result
-bundle as `✘ <target>/<test>: <failure text>`.
+Only when the xcodebuild step fails, each failing test from that run's result
+bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
 **Products:** one log per step in `build/check/` (`textkit1-guard.log`, `lint.log`,
 `swift-test.log`, `xcodebuild.log`), the test result bundle
@@ -89,8 +92,8 @@ scripts/format.sh
 ```
 
 Takes no arguments. Runs `swift format format --in-place --recursive` over
-`Package.swift`, `Sources/`, `Tests/`, `SceneIt/` and `SceneItTests/` using
-`.swift-format`, the same paths and rules `check.sh` lints against. Some lint
+the Swift paths from `scripts/lib.sh`, using `.swift-format`. These are the same
+paths and rules `check.sh` lints against. Some lint
 findings (naming, for example) can't be fixed automatically and still need a
 manual edit. **Output:** modified source files only; review them
 with `git diff`.

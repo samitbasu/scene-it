@@ -33,14 +33,15 @@ This is like a Cargo workspace where the binary crate needs a special bundler
 | `[lib]` | `.library(name:targets:)` product plus a `.target` |
 | `tests/` integration tests | `.testTarget`, in `Tests/<Name>/` by convention |
 | `edition = "2024"` | `swiftLanguageModes: [.v6]` |
-| `rust-version` / target triple | `platforms: [.macOS(.v26)]`, the minimum OS (the deployment target) |
+| `MACOSX_DEPLOYMENT_TARGET=26.0`, as honoured by `rustc` | `platforms: [.macOS(.v26)]`, the minimum OS the binary loads on |
 | `#![deny(warnings)]` | `.treatAllWarnings(as: .error)` in `swiftSettings` |
 | `Cargo.lock` | `Package.resolved`. It doesn't exist yet because we have no dependencies. |
 | `pub` / `pub(crate)` | `public` / `internal` (the default) |
 
 A **product** is what other packages can consume. A **target** is a module (a
-crate). `@testable import SceneItCore` lets a test see `internal` items, the
-way a `#[cfg(test)] mod tests` sees private items.
+crate). `@testable import SceneItCore` lets a test target see `internal` items,
+as if they were `pub(crate)` and the tests were in the same crate. `private`
+and `fileprivate` items stay hidden.
 
 Swift 6 language mode turns on *complete* data-race checking at compile time.
 It's the closest analogue to `Send`/`Sync` enforcement: sharing mutable state
@@ -104,8 +105,9 @@ Scene It.app/
 
 A Release build has just `MacOS/Scene It`. Later, resources (icons, asset
 catalogs) go in `Contents/Resources/`, and embedded frameworks go in
-`Contents/Frameworks/`. `SceneItCore` is linked statically into the executable,
-so it doesn't appear as a separate file. When the tests run, Xcode also copies
+`Contents/Frameworks/`. `SceneItCore` is linked statically, so it never appears
+as a separate file. In Release its code is inside `MacOS/Scene It`. In Debug, it
+is inside `Scene It.debug.dylib`, along with the rest of the app's code. When the tests run, Xcode also copies
 `SceneItTests.xctest` into `Contents/PlugIns/`, and the app loads it at launch.
 
 ## `Info.plist`
@@ -179,10 +181,10 @@ step's diagnostics and exits 1. Full logs are in `build/check/`.
 
 | Step | Cargo analogue |
 | --- | --- |
-| grep for `layoutManager` under `SceneIt/` and `Sources/` | a custom lint: touching it silently switches a text view to TextKit 1 (PLAN §2) |
+| grep for TextKit 1 APIs (`layoutManager`, `NSLayoutManager`, `usingTextLayoutManager: false`) in all Swift sources | a custom lint: any of them silently switches a text view to TextKit 1 (PLAN §2) |
 | `swift format lint --strict` with [`.swift-format`](../../.swift-format) | `cargo fmt --check` (plus a few style lints) |
 | `swift test` | `cargo test` for the library |
-| `xcodebuild … build test` | `cargo build && cargo test` for the app, warnings as errors |
+| `xcodebuild … test` | `cargo test` for the app (it builds first), compiler warnings as errors |
 
 There is no clippy equivalent. The compiler's warnings, promoted to errors, are
 the lint. [`scripts/format.sh`](../../scripts/format.sh) is `cargo fmt`.

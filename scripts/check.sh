@@ -3,15 +3,21 @@
 # otherwise prints the failing step's diagnostics and exits non-zero.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib.sh"
 
-readonly swift_paths=(Package.swift Sources Tests SceneIt SceneItTests)
 readonly log_dir=build/check
 readonly result_bundle="$log_dir/SceneIt.xcresult"
+rm -rf "$result_bundle"
 mkdir -p "$log_dir"
 
 strip_ansi() {
     sed -E $'s/\x1b\\[[0-9;]*m//g; s/\x1b\\]8;;[^\x1b]*\x1b\\\\//g'
+}
+
+print_test_failures() {
+    [[ -d $result_bundle ]] || return 0
+    xcrun xcresulttool get test-results summary --path "$result_bundle" 2>/dev/null \
+        | jq -r '.testFailures[]? | "✘ \(.targetName)/\(.testName): \(.failureText)"' >&2 || true
 }
 
 fail() {
@@ -24,9 +30,8 @@ fail() {
     else
         tail -n 50 "$log" | strip_ansi >&2
     fi
-    if [[ -d $result_bundle ]]; then
-        xcrun xcresulttool get test-results summary --path "$result_bundle" 2>/dev/null \
-            | jq -r '.testFailures[]? | "✘ \(.targetName)/\(.testName): \(.failureText)"' >&2 || true
+    if [[ $step == xcodebuild ]]; then
+        print_test_failures
     fi
     exit 1
 }
@@ -39,22 +44,32 @@ run() {
 }
 
 forbid_textkit1() {
-    # TextKit 2 only (PLAN §2): touching `layoutManager` silently reverts a text view to TextKit 1.
-    local hits
-    hits=$(grep -rnw --include='*.swift' 'layoutManager' SceneIt Sources || true)
-    [[ -z $hits ]] && return 0
-    sed -E 's/^([^:]+:[0-9]+):/\1: error: layoutManager is forbidden, use textLayoutManager:/' <<<"$hits"
-    return 1
+    # TextKit 2 only (PLAN §2): any of these silently puts a text view on TextKit 1.
+    local path hits status=0
+    # BSD grep applies --include to its operands too, so it skips a missing directory silently.
+    for path in "${swift_paths[@]}"; do
+        [[ -e $path ]] || { echo "$path: error: no such file or directory"; return 2; }
+    done
+    hits=$(grep -rnE --include='*.swift' \
+        '\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false' "${swift_paths[@]}") \
+        || status=$?
+    case $status in
+        0)
+            sed -E 's/^([^:]+:[0-9]+):[[:space:]]*/\1: error: TextKit 1 is forbidden (PLAN §2): /' <<<"$hits"
+            return 1
+            ;;
+        1) return 0 ;;
+        *) return "$status" ;;
+    esac
 }
 
 run textkit1-guard forbid_textkit1
 run lint swift format lint --strict --recursive --parallel "${swift_paths[@]}"
 run swift-test swift test
-rm -rf "$result_bundle"
 run xcodebuild xcodebuild \
     -project SceneIt.xcodeproj \
     -scheme SceneIt \
     -destination 'platform=macOS' \
     -derivedDataPath build/DerivedData \
     -resultBundlePath "$result_bundle" \
-    build test
+    test

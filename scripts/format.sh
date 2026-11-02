@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/lib.sh"
 
-swift format format --in-place --recursive --parallel Package.swift Sources Tests SceneIt SceneItTests
+swift format format --in-place --recursive --parallel "${swift_paths[@]}"
