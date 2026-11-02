@@ -16,7 +16,7 @@ Read this first when you resume work in a new session.
 gh issue list --milestone "M1 Shell & storage" --state open   # what's left
 gh issue list --label decision --state open                   # blocked on the owner
 gh issue list --label in-progress                             # claimed by someone
-gh pr list --label ready-to-merge                              # waiting on the owner to merge
+gh pr list --label ready-to-merge                              # reviewed, waiting to be merged
 gh pr list                                                    # all open PRs
 ```
 1. Pick the lowest-numbered open milestone's unblocked issue (check its "Depends on" line).
@@ -27,7 +27,7 @@ gh pr list                                                    # all open PRs
 6. If you added or changed a script, update its section in the top-level `README.md` (usage, example arguments, output products).
 7. Open a PR with `Closes #N` in the body. List any intentional behaviour changes or deviations from PLAN.
 8. An independent reviewer (a fresh agent) reviews the PR against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings and re-run the gate.
-9. Label the PR `ready-to-merge`. **Only the owner merges into `main`** (squash), so agents and coordinators never merge. Work that depends on an unmerged PR may branch from that PR's branch, and rebases with `git rebase --onto origin/main <old-base>` after the squash-merge.
+9. The **coordinating session** (not the implementing agent) squash-merges once the review is clean and it has re-run `scripts/check.sh` on the PR branch itself. Implementing agents never merge their own work. Work that depends on an unmerged PR may branch from that PR's branch, then rebase with `git rebase --onto origin/main <old-base-tip>` after the squash-merge.
 
 ## Labels
 - `decision`: needs the owner's choice. Ask, don't guess. Record the answer in `docs/decisions/`.
@@ -35,7 +35,7 @@ gh pr list                                                    # all open PRs
 - `aesthetic`: UI look. Per CLAUDE.md, show the candidates rendered and wait for a pick.
 - `trust`: data-loss prevention or crash reporting. Review these with extra care.
 - `in-progress`: claimed.
-- `ready-to-merge`: reviewed and green; waiting for the owner to merge.
+- `ready-to-merge`: reviewed and green; waiting for the coordinator to merge.
 
 ## Trust rules (non-negotiable)
 - Never write `book.json` without encode → decode-verify → rotate → atomic write.
