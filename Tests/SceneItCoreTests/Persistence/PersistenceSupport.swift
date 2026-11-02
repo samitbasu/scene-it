@@ -20,10 +20,11 @@ final class FaultInjectingFileSystem: FileSystem {
         case createDirectory(String)
         case list(String)
         case remove(String)
+        case identify(String)
 
         var isMutation: Bool {
             switch self {
-            case .inspect, .read, .list: false
+            case .inspect, .read, .list, .identify: false
             case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove: true
             }
         }
@@ -40,6 +41,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .createDirectory(let name): "create directory \(name)"
             case .list(let name): "list \(name)"
             case .remove(let name): "remove \(name)"
+            case .identify(let name): "identify \(name)"
             }
         }
     }
@@ -59,6 +61,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var crashed = false
         var matched = 0
         var hooks: [(call: Call, action: @Sendable () -> Void)] = []
+        var identities: [String: FileIdentity?] = [:]
     }
 
     private let base = LocalFileSystem()
@@ -154,6 +157,20 @@ final class FaultInjectingFileSystem: FileSystem {
         }
     }
 
+    /// Makes `identity(of: url)` answer `identity` instead of asking the volume.
+    func override(identityOf url: URL, with identity: FileIdentity?) {
+        let key = name(url)
+        state.withLock { $0.identities[key] = .some(identity) }
+    }
+
+    func identity(of url: URL) throws(FileSystemError) -> FileIdentity? {
+        let key = name(url)
+        return try perform(.identify(key), .inspect, url) { () throws(FileSystemError) in
+            if let overridden = state.withLock({ $0.identities[key] }) { return overridden }
+            return try base.identity(of: url)
+        }
+    }
+
     private func isCrash(at call: Call) -> Bool {
         state.withLock { state in
             if case .crash(call) = state.fault { true } else { false }
@@ -229,10 +246,10 @@ struct DirectorySnapshot: Equatable {
             let attributes = try manager.attributesOfItem(atPath: url.path(percentEncoded: false))
             let contents: Data? =
                 switch attributes[.type] as? FileAttributeType {
-                case .typeDirectory?: nil
+                case .typeRegular?: try Data(contentsOf: url)
                 case .typeSymbolicLink?:
                     Data(try manager.destinationOfSymbolicLink(atPath: url.path(percentEncoded: false)).utf8)
-                default: try Data(contentsOf: url)
+                default: nil
                 }
             entries[path] = Entry(
                 contents: contents,
@@ -276,5 +293,16 @@ extension PackageLayout {
             backups[slot] = try? Data(contentsOf: backup(slot))
         }
         return (try? Data(contentsOf: book), backups)
+    }
+}
+
+extension SaveOutcome {
+    /// The backup status of a save that wrote `book.json`; `nil` for `.unchanged`.
+    var backupStatus: BackupStatus? {
+        if case .saved(let status, _) = self { status } else { nil }
+    }
+
+    var published: PublishedBook? {
+        if case .saved(_, let published) = self { published } else { nil }
     }
 }

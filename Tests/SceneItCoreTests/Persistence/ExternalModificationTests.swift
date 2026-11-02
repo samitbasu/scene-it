@@ -64,7 +64,7 @@ import Testing
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try change.apply(to: url.layout.book)
             guard let refusal = try change.refusal() else {
-                #expect(try package.save(draft(9)) == .saved(.intact))
+                #expect(try package.save(draft(9)).backupStatus == .intact)
                 try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
                 return
             }
@@ -81,9 +81,9 @@ import Testing
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             try Change.rewritten.apply(to: url.layout.book)
             let outcome = try package.save(draft(9), onExternalChange: overwriting(7))
-            #expect(outcome == .saved(.intact))
+            #expect(outcome.backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
-            #expect(try package.save(draft(10)) == .saved(.intact), "later saves need no policy")
+            #expect(try package.save(draft(10)).backupStatus == .intact, "later saves need no policy")
         }
     }
 
@@ -96,7 +96,7 @@ import Testing
                 try package.save(draft(9), onExternalChange: overwriting(7))
             }
             let outcome = try package.save(draft(9), onExternalChange: .recreate)
-            #expect(outcome == .saved(.intact))
+            #expect(outcome.backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [1, 2, 3])
         }
     }
@@ -145,7 +145,7 @@ import Testing
                 try package.save(draft(9), onExternalChange: overwriting(7))
             }
             #expect(try DirectorySnapshot(url) == before)
-            #expect(try package.save(draft(9), onExternalChange: overwriting(8)) == .saved(.intact))
+            #expect(try package.save(draft(9), onExternalChange: overwriting(8)).backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [8, 1, 2])
         }
     }
@@ -159,7 +159,7 @@ import Testing
 
             let reopened = try BookPackage.open(at: url)
             #expect(reopened.book == (try draft(7)))
-            #expect(try reopened.package.save(draft(9)) == .saved(.intact))
+            #expect(try reopened.package.save(draft(9)).backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
         }
     }
@@ -212,7 +212,7 @@ import Testing
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let (package, _) = try package(url, replacement)
-            #expect(try package.save(draft(9)) == .saved(.intact))
+            #expect(try package.save(draft(9)).backupStatus == .intact)
             try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
             #expect(try temporaryFiles(in: url).isEmpty)
         }
@@ -235,7 +235,7 @@ import Testing
             #expect(try Data(contentsOf: url.appending(path: fileName)) == theirs)
             #expect(url.layout.contents().book == (try encoded(draft(9))))
             fileSystem.clearFault()
-            #expect(try package.save(draft(10)) == .saved(.intact), "book.json holds our save")
+            #expect(try package.save(draft(10)).backupStatus == .intact, "book.json holds our save")
         }
     }
 }
@@ -287,7 +287,7 @@ extension ConcurrentChangeTests {
             let package = try BookPackage.create(at: url, title: "Novel").package
             let path = url.layout.book.path(percentEncoded: false)
             #expect(chmod(path, 0o4600) == 0)
-            #expect(try package.save(draft(1)) == .saved(.intact))
+            #expect(try package.save(draft(1)).backupStatus == .intact)
             var info = stat()
             #expect(stat(path, &info) == 0)
             #expect(info.st_mode & 0o7777 == 0o600, "the permission bits, without setuid")
@@ -336,7 +336,7 @@ extension ConcurrentChangeTests {
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             #expect(chmod(url.layout.backup(.bak1).path(percentEncoded: false), 0) == 0)
-            #expect(try package.save(draft(9)) == .saved(.intact))
+            #expect(try package.save(draft(9)).backupStatus == .intact)
             #expect(chmod(url.layout.backup(.bak2).path(percentEncoded: false), 0o644) == 0)
             try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
         }
@@ -374,7 +374,7 @@ extension ConcurrentChangeTests {
             }
             for number in [9, 10] {
                 let outcome = try package.save(draft(number))
-                guard case .saved(.previousVersionNotBackedUp) = outcome else {
+                guard case .saved(.previousVersionNotBackedUp, _) = outcome else {
                     Issue.record("expected the previous version not backed up, got \(outcome)")
                     return
                 }

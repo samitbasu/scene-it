@@ -16,8 +16,10 @@ public struct BackupKeeper: Sendable {
         fileSystem = package.fileSystem
     }
 
-    /// Call from `BookPackage.save`'s `afterPublishing`. Each destination decides on its own
-    /// whether a snapshot is due, and prunes its own snapshots before writing one.
+    /// Call with the `PublishedBook` of each `.saved` outcome, off the main actor: when a
+    /// snapshot is due this flushes two files to the drive. Calls for one book should be
+    /// serialized, like its saves. Each destination decides on its own whether a snapshot is
+    /// due, and prunes its own snapshots before writing one.
     public func keep(_ book: PublishedBook, now: Date) -> SnapshotReport {
         let inPackage = keep(book, in: { () throws(SnapshotFailure) in layout.snapshots }, now: now, .package)
         let inMirror = keep(book, in: mirrorFolder, now: now, .mirror)
@@ -45,13 +47,26 @@ public struct BackupKeeper: Sendable {
     }
 
     /// Only regular files whose names are exactly snapshot names; nothing else is ever pruned.
+    /// A folder that's a symbolic link is refused, so pruning never reaches outside.
     private func existingSnapshots(in directory: URL) throws(SnapshotFailure) -> [SnapshotName] {
+        let item: FileItem?
+        do {
+            item = try fileSystem.item(at: directory)
+        } catch {
+            throw .fileSystem(.list, error)
+        }
+        switch item {
+        case nil:
+            try createDirectories([directory])
+            return []
+        case .directory:
+            break
+        case .file, .symbolicLink, .other:
+            throw .fileSystem(.list, FileSystemError(.list, directory, .other(.ENOTDIR)))
+        }
         let entries: [DirectoryEntry]
         do {
             entries = try fileSystem.contents(of: directory)
-        } catch  where error.cause == .notFound {
-            try createDirectories([directory])
-            return []
         } catch {
             throw .fileSystem(.list, error)
         }
@@ -89,23 +104,69 @@ public struct BackupKeeper: Sendable {
     private func mirrorFolder() throws(SnapshotFailure) -> URL {
         let id = try bookID()
         let folder = mirror.folder(for: id)
-        let ourPath = BackupMirror.path(of: layout.root)
+        let us = try ourRecord()
         switch try recordedPackage(of: folder) {
-        case .at(ourPath):
-            return folder
         case .none:
-            try claim(folder, for: ourPath, over: .nothing)
+            try claim(folder, for: us, over: .nothing)
             return folder
-        case .at(let otherPath) where holdsBook(id, at: otherPath):
-            Log.backup.info("a package is a copy of another book; giving it a new book id")
-            let newID = try recordNewBookID(over: .existingFile)
-            let newFolder = mirror.folder(for: newID)
-            try claim(newFolder, for: ourPath, over: .nothing)
-            return newFolder
-        case .at, .unrecognized:
-            Log.backup.info("a book's package moved; its mirror folder follows it")
-            try claim(folder, for: ourPath, over: .existingFile)
-            return folder
+        case .unrecognized:
+            return try fork(us)
+        case .recorded(let recorded):
+            switch Self.ownership(recorded, us) {
+            case .ours:
+                return folder
+            case .oursMoved:
+                try claim(folder, for: us, over: .existingFile)
+                return folder
+            case .another:
+                return try fork(us)
+            case .unknown where holdsBook(id, at: recorded.path):
+                return try fork(us)
+            case .unknown:
+                Log.backup.info("a book's package moved; its mirror folder follows it")
+                try claim(folder, for: us, over: .existingFile)
+                return folder
+            }
+        }
+    }
+
+    private enum Ownership {
+        case ours
+        /// The same directory, at a new path on its volume.
+        case oursMoved
+        /// A different directory, at this package's path: a replacement or a clone.
+        case another
+        /// Only the recorded path can tell.
+        case unknown
+    }
+
+    /// Decided by identity when both sides have one, so the recorded path is only read when
+    /// this package moved to another volume or its volume has no UUID.
+    private static func ownership(_ recorded: PackageRecord, _ us: PackageRecord) -> Ownership {
+        guard let theirs = recorded.identity, let ours = us.identity else {
+            return recorded.path == us.path ? .ours : .unknown
+        }
+        switch (theirs == ours, recorded.path == us.path) {
+        case (true, true): return .ours
+        case (true, false): return .oursMoved
+        case (false, true): return .another
+        case (false, false): return .unknown
+        }
+    }
+
+    private func fork(_ us: PackageRecord) throws(SnapshotFailure) -> URL {
+        Log.backup.info("this package is a copy of another book; giving it a new book id")
+        let folder = mirror.folder(for: try recordNewBookID(over: .existingFile))
+        try claim(folder, for: us, over: .nothing)
+        return folder
+    }
+
+    private func ourRecord() throws(SnapshotFailure) -> PackageRecord {
+        do {
+            return PackageRecord(
+                path: BackupMirror.path(of: layout.root), identity: try fileSystem.identity(of: layout.root))
+        } catch {
+            throw .fileSystem(.identifyPackage, error)
         }
     }
 
@@ -163,34 +224,48 @@ public struct BackupKeeper: Sendable {
         }
     }
 
-    private enum RecordedPackage: Equatable {
+    private enum RecordedPackage {
         case none
-        case at(String)
-        /// Not an absolute path.
+        case recorded(PackageRecord)
+        /// Not a record this code wrote.
         case unrecognized
     }
 
     private func recordedPackage(of folder: URL) throws(SnapshotFailure) -> RecordedPackage {
         let data: Data
         do {
-            data = try fileSystem.read(BackupMirror.packagePathFile(in: folder))
+            data = try fileSystem.read(BackupMirror.packageRecord(in: folder))
         } catch  where error.cause.meansAbsent {
             return .none
         } catch {
             throw .fileSystem(.readMirrorOwner, error)
         }
-        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
-        return path.hasPrefix("/") ? .at(path) : .unrecognized
+        guard let record = try? JSONDecoder().decode(PackageRecord.self, from: data),
+            record.path.hasPrefix("/")
+        else { return .unrecognized }
+        return .recorded(record)
     }
 
-    private func claim(_ folder: URL, for path: String, over existing: Existing) throws(SnapshotFailure) {
-        if existing == .nothing {
-            try createDirectories([mirror.root.deletingLastPathComponent(), mirror.root, folder])
+    private func claim(_ folder: URL, for record: PackageRecord, over existing: Existing)
+        throws(SnapshotFailure)
+    {
+        try createDirectories([mirror.root.deletingLastPathComponent(), mirror.root, folder])
+        let data: Data
+        do {
+            data = try Self.recordEncoder.encode(record)
+        } catch {
+            Log.backup.fault("couldn't encode a package record", ["error": .error(LoggedError(error))])
+            throw .fileSystem(
+                .writeMirrorOwner, FileSystemError(.write, BackupMirror.packageRecord(in: folder), .io))
         }
-        try writeDurably(
-            Data("\(path)\n".utf8), to: BackupMirror.packagePathFile(in: folder), over: existing,
-            .writeMirrorOwner)
+        try writeDurably(data, to: BackupMirror.packageRecord(in: folder), over: existing, .writeMirrorOwner)
     }
+
+    private static let recordEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }()
 
     // MARK: - File-system helpers
 
@@ -216,6 +291,8 @@ public struct BackupKeeper: Sendable {
             }
         } catch {
             fileSystem.discard(temporary.url)
+            // Another keeper raced us to the same name with the same bytes: what we wanted.
+            if error.cause == .alreadyExists, (try? fileSystem.read(url)) == data { return }
             throw .fileSystem(step, error)
         }
     }
@@ -238,10 +315,12 @@ public struct BackupKeeper: Sendable {
 /// `~/Library/Application Support/Scene It/Backups/`.
 ///
 /// A copied package carries its original's `book-id`, and the two must not share a folder.
-/// So each folder records the path of the package that writes to it (`package-path`). A
-/// package that finds another path recorded checks the package there: if it holds the same
-/// id, this package is a copy and takes a new id (and folder); otherwise the book moved, and
-/// the folder follows it.
+/// So each folder records the package that writes to it (`package.json`): its path and its
+/// `FileIdentity`. The same identity at another path is the same package, moved; another
+/// identity at the same path is a different package, so it takes a new id (and folder).
+/// Otherwise the package at the recorded path is checked: if it holds the same id, this
+/// package is a copy and forks; if not, the book moved to another volume and the folder
+/// follows it.
 public struct BackupMirror: Hashable, Sendable {
     public let root: URL
 
@@ -259,14 +338,21 @@ public struct BackupMirror: Hashable, Sendable {
         root.appending(path: id.uuidString, directoryHint: .isDirectory)
     }
 
-    static func packagePathFile(in folder: URL) -> URL {
-        folder.appending(path: "package-path", directoryHint: .notDirectory)
+    static func packageRecord(in folder: URL) -> URL {
+        folder.appending(path: "package.json", directoryHint: .notDirectory)
     }
 
     static func path(of package: URL) -> String {
         let path = package.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
         return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
     }
+}
+
+/// The package that writes to a mirror folder.
+struct PackageRecord: Hashable, Codable {
+    let path: String
+    /// `nil` on a volume without a UUID.
+    let identity: FileIdentity?
 }
 
 /// What a save's snapshots did, for the status bar.
@@ -300,9 +386,12 @@ public enum SnapshotStep: Hashable, Sendable {
     case readBookID, writeBookID
     /// The mirror folder's record of which package writes to it.
     case readMirrorOwner, writeMirrorOwner
+    /// Finding the package directory's `FileIdentity`.
+    case identifyPackage
 
     var logSymbol: StaticString {
         switch self {
+        case .identifyPackage: "identifyPackage"
         case .createFolder: "createFolder"
         case .list: "list"
         case .prune: "prune"

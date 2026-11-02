@@ -149,6 +149,18 @@ public struct LocalFileSystem: FileSystem {
         }
     }
 
+    /// The file number is the inode; `st_dev` isn't used because it can change between mounts.
+    public func identity(of url: URL) throws(FileSystemError) -> FileIdentity? {
+        var info = stat()
+        guard (url.withUnsafeFileSystemRepresentation { lstat($0!, &info) }) == 0 else {
+            throw FileSystemError(.inspect, url, .init(errno: errno))
+        }
+        guard let volume = try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString else {
+            return nil
+        }
+        return FileIdentity(volume: volume, file: UInt64(info.st_ino))
+    }
+
     /// Some volumes don't fill in `d_type`; those entries are inspected one by one.
     private func kind(of type: UInt8, at url: URL) throws(FileSystemError) -> DirectoryEntry.Kind {
         switch Int32(type) {

@@ -5,17 +5,14 @@ import Foundation
 ///
 /// Each tier keeps the oldest snapshot in each of its buckets. Buckets are aligned to the
 /// Unix epoch in UTC (10-minute windows, UTC days, and weeks starting on a Thursday), so
-/// every day is a union of 10-minute windows and every week a union of days: the snapshot a
-/// coarser tier keeps is one that the finer tier kept too.
+/// every day is a union of 10-minute windows and every week a union of days. A snapshot
+/// belongs to the finest tier that still holds the *end* of its bucket there, so a day that
+/// is partly within the last 30 days is still a day, and keeps its first snapshot.
 public enum SnapshotSchedule {
     struct Tier {
-        /// The age a snapshot leaves this tier at; `nil` for the last tier.
+        /// How long after a bucket ends it leaves this tier; `nil` for the last tier.
         let until: Interval?
         let spacing: Interval
-
-        func holds(_ age: Interval) -> Bool {
-            until.map { age < $0 } ?? true
-        }
     }
 
     static let tiers = [
@@ -41,7 +38,7 @@ public enum SnapshotSchedule {
         guard let newestPast = past.max() else { return [] }
         var oldestInBucket: [Bucket: Date] = [:]
         for date in past {
-            let bucket = Bucket(date, age: age(of: date, at: now))
+            let bucket = Bucket.of(date, now: now)
             oldestInBucket[bucket] = min(oldestInBucket[bucket] ?? date, date)
         }
         return past.subtracting(oldestInBucket.values).subtracting([newestPast])
@@ -51,11 +48,19 @@ public enum SnapshotSchedule {
         let tier: Int
         let index: Int64
 
-        init(_ date: Date, age: Interval) {
-            let tiers = SnapshotSchedule.tiers
-            tier = tiers.firstIndex { $0.holds(age) } ?? tiers.count - 1
-            let spacing = tiers[tier].spacing.timeInterval
-            index = Int64((date.timeIntervalSince1970 / spacing).rounded(.down))
+        static func of(_ date: Date, now: Date) -> Bucket {
+            let buckets = tiers.indices.map { tier in
+                let spacing = tiers[tier].spacing.timeInterval
+                return (
+                    Bucket(tier: tier, index: Int64((date.timeIntervalSince1970 / spacing).rounded(.down))),
+                    spacing
+                )
+            }
+            let held = buckets.first { bucket, spacing in
+                let end = Date(timeIntervalSince1970: TimeInterval(bucket.index + 1) * spacing)
+                return tiers[bucket.tier].until.map { age(of: end, at: now) < $0 } ?? true
+            }
+            return (held ?? buckets[buckets.count - 1]).0
         }
     }
 
@@ -69,43 +74,27 @@ public enum SnapshotDecision: Hashable, Sendable {
     case notDue
 }
 
-/// A snapshot's file name, `book-20261101T143005Z.json`: the UTC second it was taken, so
-/// names sort by date. Pruning deletes only files whose names round-trip through this.
+/// A snapshot's file name, `book-20261101T143005Z.json`: the `UTCStamp` of the second it was
+/// taken. Pruning deletes only files whose names round-trip through this.
 struct SnapshotName: Hashable {
     let fileName: String
     let date: Date
 
     /// `nil` for a date outside the years 1970…9999, which no working clock reads.
     init?(date: Date) {
-        let second = Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
-        let parts = Self.calendar.dateComponents(
-            [.year, .month, .day, .hour, .minute, .second], from: second)
-        guard second.timeIntervalSince1970 >= 0, let year = parts.year, year <= 9999, let month = parts.month,
-            let day = parts.day,
-            let hour = parts.hour, let minute = parts.minute, let seconds = parts.second
-        else { return nil }
-        fileName = String(
-            format: "book-%04d%02d%02dT%02d%02d%02dZ.json", year, month, day, hour, minute, seconds)
+        let second = UTCStamp.second(of: date)
+        let stamp = UTCStamp.string(for: second)
+        guard second.timeIntervalSince1970 >= 0, UTCStamp.date(from: stamp) == second else { return nil }
+        fileName = "book-\(stamp).json"
         self.date = second
     }
 
     /// `nil` unless `fileName` is exactly a name that `init(date:)` produces.
     init?(fileName: String) {
-        guard
-            let match = fileName.wholeMatch(
-                of: /book-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\.json/.asciiOnlyDigits()),
-            let date = Self.calendar.date(
-                from: DateComponents(
-                    year: Int(match.1), month: Int(match.2), day: Int(match.3), hour: Int(match.4),
-                    minute: Int(match.5), second: Int(match.6))),
+        guard fileName.hasPrefix("book-"), fileName.hasSuffix(".json"),
+            let date = UTCStamp.date(from: fileName.dropFirst("book-".count).dropLast(".json".count)),
             let canonical = SnapshotName(date: date), canonical.fileName == fileName
         else { return nil }
         self = canonical
     }
-
-    private static let calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .gmt
-        return calendar
-    }()
 }

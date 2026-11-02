@@ -81,7 +81,8 @@ public enum ExternalChangePolicy: Hashable, Sendable {
 }
 
 public enum SaveOutcome: Hashable, Sendable {
-    case saved(BackupStatus)
+    /// `book.json` now holds the `PublishedBook`, which `BackupKeeper.keep` snapshots.
+    case saved(BackupStatus, PublishedBook)
     /// `book.json` already held exactly this book, so nothing was written or rotated.
     case unchanged
 }
