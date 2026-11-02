@@ -37,8 +37,8 @@ import Testing
         let problems = try problems(corrupting: #""text" : "The ferry""#, with: #""text" : "The\nferry""#)
         #expect(
             problems == [
-                #"scene "01JC4K00000000000000000001" (scenes[0]), title[0]: "#
-                    + "the title must be one line, but its text contains a line break"
+                #"scene "01JC4K00000000000000000001" (scenes[0]), title: "#
+                    + "the title must be one line, but it contains a line break"
             ])
     }
 
@@ -83,16 +83,13 @@ import Testing
 
     @Test func everyProblemIsReportedInDocumentOrder() throws {
         var book = try RichBook.make()
-        book.scenes[0].title = [Run("")]
+        book.scenes[0].title = "a\rb"
         book.scenes[1].body = [[Run("a\nb", comments: [CommentID(rawValue: "x")])]]
         book.boneyard[0].id = book.scenes[0].id
         let problems = BookValidator.problems(in: book)
         #expect(
             problems == [
-                .emptyRun(
-                    TextLocation(
-                        scene: ScenePlace(list: .scenes, index: 0, id: book.scenes[0].id),
-                        field: .title, paragraph: 0, run: 0)),
+                .lineBreakInTitle(ScenePlace(list: .scenes, index: 0, id: book.scenes[0].id)),
                 .lineBreak(
                     TextLocation(
                         scene: ScenePlace(list: .scenes, index: 1, id: book.scenes[1].id),

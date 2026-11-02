@@ -18,6 +18,8 @@ Everything lives in [`Sources/SceneItCore/Model/`](../../Sources/SceneItCore/Mod
 | [`BookSettings.swift`](../../Sources/SceneItCore/Model/BookSettings.swift) | `BookSettings`, `RightPanelTab`, `ScenesView`, `PanelVisibility` |
 | [`BookScene.swift`](../../Sources/SceneItCore/Model/BookScene.swift) | `BookScene`, `Comment` |
 | [`Run.swift`](../../Sources/SceneItCore/Model/Run.swift) | `Run`, `TextStyle`, `Paragraph` |
+| [`SceneTitle.swift`](../../Sources/SceneItCore/Model/SceneTitle.swift) | `SceneTitle`, a plain one-line title |
+| [`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift) | `isLineBreak` and `isObjectReplacement`, shared by the model and the editors |
 | [`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift) | `PaletteColor`, `TextColor`, `HighlightColor` |
 | [`Identifier.swift`](../../Sources/SceneItCore/Model/Identifier.swift) | `SceneID`, `CommentID` |
 | [`BoundedScalar.swift`](../../Sources/SceneItCore/Model/BoundedScalar.swift) | `Zoom`, `SpeechRate` |
@@ -164,6 +166,7 @@ serde's `rename_all = "lowercase"` for free. The palette in
 ```swift
 public enum PaletteColor: String, StrictStringEnum {
     case black, purple, red, blue, green, gray, pink
+    // …
 }
 ```
 
@@ -181,8 +184,11 @@ and a failable conversion from the palette sends black to `nil`:
 
 `Run` decodes a `PaletteColor` and maps it through that initializer, so a file
 saying `"color": "black"` loads as "no color", and the next save drops the
-attribute. That's the one place decoding normalizes instead of rejecting.
+attribute. The scene title is the other place where decoding normalizes instead of
+rejecting (§6).
 Comments keep `PaletteColor`, because black is one of their seven swatches.
+The inverse, `PaletteColor.init(_: TextColor?)`, is total: `nil` becomes `.black`.
+The text editor uses it to pick a run's display color ([chapter 06](06-attributed-strings.md)).
 
 `StrictStringEnum` replaces the standard library's `init(from:)` with one that
 names the valid values. A default implementation in a protocol extension wins over
@@ -281,7 +287,36 @@ repeated ids instead of normalizing them. The invariant this buys is narrower th
 might look: **our encoder's output is a fixed point**. Anything we wrote decodes and
 re-encodes to the same bytes. A file from elsewhere can load and then be written back
 differently. Examples are different whitespace, `"format": 1.0`, `-00:00`, unsorted
-comment ids, `"zoom": 1.0` (written back as `1`) and `"color": "black"`.
+comment ids, `"zoom": 1.0` (written back as `1`), `"color": "black"` and a
+formatted title.
+
+**The title** is the strongest case of "richer in memory, same on disk". In
+`book.json` it's a paragraph of runs like the body. But the title is edited in a
+plain one-line field ([decision 0015](../decisions/0015-title-is-a-plain-field.md)),
+so in memory it's a newtype over `String`,
+[`SceneTitle`](../../Sources/SceneItCore/Model/SceneTitle.swift). Its `Codable`
+conformance borrows `Paragraph`'s, in the same way a serde `#[serde(with = ...)]`
+module would:
+
+```swift
+extension SceneTitle: Codable {
+    public init(from decoder: any Decoder) throws {
+        text = try Paragraph(from: decoder).text
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        try Paragraph(text.isEmpty ? [] : [Run(text)]).encode(to: encoder)
+    }
+}
+```
+
+Any title the decoder accepts loads as its text alone: formatting, comment ids,
+several runs, and empty runs all disappear. The next save writes one plain run, or `[]`
+if the text is empty. `String` can still hold a line break, so `BookValidator` rejects
+one in a title using `Character.isLineBreak`, the model's single definition in
+[`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift).
+`SceneTitle(pasted:)` turns line breaks into spaces, and drops U+FFFC, before they get
+that far.
 
 One gap can't be closed through `Codable`: **duplicate keys** in a JSON object.
 `JSONDecoder` keeps only one of them, and a keyed container never sees the other,

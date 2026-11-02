@@ -26,3 +26,4 @@ paragraph) and makes "the title is exactly one line" true by construction.
 - The JSON format is unchanged; no `format` bump.
 - The window gains a visible title field. Its look goes through the aesthetic gate (#13).
 - The editor title rules move out of #15. The codec (#14) becomes body-only.
+- A comment anchored only in a formatted title loses its anchor on load, so it shows as Detached (PLAN §8.1).

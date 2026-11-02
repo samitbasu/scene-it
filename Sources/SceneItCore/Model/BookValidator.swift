@@ -22,9 +22,10 @@ public enum BookValidator {
         for comment in scene.comments where !commentIDs.insert(comment.id).inserted {
             problems.append(.duplicateCommentID(place, comment.id))
         }
-        let fields: [(SceneTextPart, [Paragraph])] = [
-            (.title, [scene.title]), (.body, scene.body), (.notes, scene.notes),
-        ]
+        if scene.title.text.contains(where: \.isLineBreak) {
+            problems.append(.lineBreakInTitle(place))
+        }
+        let fields: [(SceneTextPart, [Paragraph])] = [(.body, scene.body), (.notes, scene.notes)]
         for (field, paragraphs) in fields {
             for (paragraphIndex, paragraph) in paragraphs.enumerated() {
                 for (runIndex, run) in paragraph.runs.enumerated() {
@@ -33,7 +34,7 @@ public enum BookValidator {
                     if run.text.isEmpty {
                         problems.append(.emptyRun(location))
                     }
-                    if run.text.contains(where: \.isNewline) {
+                    if run.text.contains(where: \.isLineBreak) {
                         problems.append(.lineBreak(location))
                     }
                     for id in run.comments.sorted() where !commentIDs.contains(id) {
@@ -61,7 +62,7 @@ public struct ScenePlace: Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum SceneTextPart: String, Hashable, Sendable {
-    case title, body, notes
+    case body, notes
 }
 
 public struct TextLocation: Hashable, Sendable, CustomStringConvertible {
@@ -71,8 +72,7 @@ public struct TextLocation: Hashable, Sendable, CustomStringConvertible {
     public let run: Int
 
     public var description: String {
-        let paragraphPath = field == .title ? "" : "[\(paragraph)]"
-        return "\(scene), \(field.rawValue)\(paragraphPath)[\(run)]"
+        "\(scene), \(field.rawValue)[\(paragraph)][\(run)]"
     }
 }
 
@@ -82,6 +82,7 @@ public enum BookProblem: Error, Hashable, Sendable, CustomStringConvertible {
     case missingComment(TextLocation, CommentID)
     case emptyRun(TextLocation)
     case lineBreak(TextLocation)
+    case lineBreakInTitle(ScenePlace)
 
     public var description: String {
         switch self {
@@ -94,9 +95,9 @@ public enum BookProblem: Error, Hashable, Sendable, CustomStringConvertible {
         case .emptyRun(let location):
             "\(location): a run's text is empty"
         case .lineBreak(let location):
-            location.field == .title
-                ? "\(location): the title must be one line, but its text contains a line break"
-                : "\(location): a paragraph's text contains a line break"
+            "\(location): a paragraph's text contains a line break"
+        case .lineBreakInTitle(let place):
+            "\(place), title: the title must be one line, but it contains a line break"
         }
     }
 }
