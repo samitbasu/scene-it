@@ -18,3 +18,5 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0009](0009-report-destination.md) | Problem reports go to the owner's personal email | Accepted — resolves #6 |
 | [0010](0010-nonnegative-interval.md) | Time spans use a non-negative `Interval` newtype over `Duration` | Accepted — Swift caveat to CLAUDE.md |
 | [0011](0011-mainactor-default-isolation.md) | App target defaults to `@MainActor` isolation | Accepted |
+| [0012](0012-model-type-names.md) | Model types renamed: `BookScene`, `BookSettings`, `SceneTextPart` | Accepted |
+| [0013](0013-black-means-no-color.md) | `"color": "black"` loads as no color; the encoder never writes it | Accepted — refines PLAN §5.2/§6.2 |
