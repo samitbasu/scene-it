@@ -158,15 +158,4 @@ public enum StoreWording {
         case .fileSystem(let error): QuitWording.reason(.fileSystem(error))
         }
     }
-
-    // MARK: Temporary window (replaced by #13 and #15)
-
-    public static let noBookOpen = "No book is open."
-    public static let recentBooks = "Recent Books"
-    public static let addScene = "Add Scene"
-    public static let untitledScene = "Untitled scene"
-    public static let sceneTitlePlaceholder = "Scene title"
-    public static let formattedSceneNotEditable =
-        "This scene has formatting or comments, which this temporary editor would lose, so it can't be "
-        + "edited here."
 }

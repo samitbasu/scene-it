@@ -26,35 +26,11 @@ private final class WaitingPrompts: StorePrompts {
     }
 }
 
-private func eventually(
-    within limit: Duration = .seconds(10), _ condition: () -> Bool,
-    sourceLocation: SourceLocation = #_sourceLocation
-) async {
-    let deadline = ContinuousClock.now + limit
-    while ContinuousClock.now < deadline {
-        if condition() { return }
-        try? await Task.sleep(for: .milliseconds(5))
-    }
-    Issue.record("the condition never held", sourceLocation: sourceLocation)
-}
-
-private func withTemporaryFolder(_ body: (URL) async throws -> Void) async throws {
-    let url = FileManager.default.temporaryDirectory
-        .appending(path: "SceneItAppTests-\(UUID().uuidString)", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-    defer { try? FileManager.default.removeItem(at: url) }
-    try await body(url)
-}
-
-private func bookOnDisk(_ package: URL) throws -> Book {
-    try BookCoding.decode(Data(contentsOf: package.appending(path: "book.json")))
-}
-
 /// These drive the app's own store (`BookController.shared`), so they run one at a time.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct BookStoreIntegrationTests {
     /// The app's own store answers without the writer here; any question it asked was unexpected.
-    private func expectNoQuestions(sourceLocation: SourceLocation = #_sourceLocation) {
+    func expectNoQuestions(sourceLocation: SourceLocation = #_sourceLocation) {
         let headless = BookController.shared.prompts as? HeadlessPrompts
         #expect(headless != nil, sourceLocation: sourceLocation)
         #expect(headless?.titles == [], sourceLocation: sourceLocation)

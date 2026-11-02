@@ -1,0 +1,112 @@
+import Foundation
+
+/// Every string the main window shows, in one place so the owner can review the wording as a
+/// whole. Drafts awaiting the owner's approval (#13's aesthetic gate).
+public enum WindowWording {
+    // MARK: Start state (ADR 0021)
+
+    public static let noBookOpen = "No book is open."
+    public static let recentBooks = "Recent Books"
+    public static let noRecentBooks = "No recent books"
+
+    // MARK: Toolbar (PLAN §4.1)
+
+    public static let undo = "Undo"
+    public static let redo = "Redo"
+    public static let zoomOut = "Zoom Out"
+    public static let zoomIn = "Zoom In"
+    public static let print = "Print"
+    public static let exportToWord = "Export to Word"
+    public static let fileACopy = "File a copy…"
+
+    public static func zoom(_ zoom: Zoom) -> String {
+        (Double(zoom)).formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    public static let boneyard = "Boneyard"
+    public static let untitledScene = "Untitled scene"
+
+    /// The breadcrumb's parts, left to right: "My Novel › 1. The ferry", or "Boneyard › Title"
+    /// for a scene in the Boneyard (PLAN §4.1), or just the book's title with no scene open.
+    public static func breadcrumb(book: Book, openScene: SceneID?) -> [String] {
+        guard let scene = book.scene(openScene) else { return [book.title] }
+        switch SceneLocation(of: openScene, in: book) {
+        case .story(let number, _): return [book.title, "\(number). \(sceneName(scene))"]
+        case .boneyard: return [boneyard, sceneName(scene)]
+        case .noScene: return [book.title]
+        }
+    }
+
+    public static func sceneName(_ scene: BookScene) -> String {
+        scene.title.text.isEmpty ? untitledScene : scene.title.text
+    }
+
+    // MARK: Rail (PLAN §4.2)
+
+    public static let boneyardBadge = "B"
+
+    public static func railName(_ item: WindowMode) -> String {
+        switch item {
+        case .page: "Current scene"
+        case .scenes: "Scenes"
+        case .search: "Search"
+        case .fileCabinet: "File Cabinet"
+        }
+    }
+
+    /// The Current scene icon's tooltip: the scene's number and title.
+    public static func currentSceneTooltip(book: Book, openScene: SceneID?) -> String {
+        guard let scene = book.scene(openScene) else { return "No scene open" }
+        switch SceneLocation(of: openScene, in: book) {
+        case .story(let number, _): return "Scene \(number): \(sceneName(scene))"
+        case .boneyard: return "\(boneyard): \(sceneName(scene))"
+        case .noScene: return "No scene open"
+        }
+    }
+
+    public static let closeSheet = "Close"
+    public static let sheetComingLater = "Coming in a later version."
+    /// The temporary scene list in the Scenes sheet, until #28.
+    public static let addScene = "Add Scene"
+
+    // MARK: Page (PLAN §4.3, ADR 0015)
+
+    public static let noSceneOpen = "No scene open"
+    public static let formattedSceneNotEditable =
+        "This scene has formatting or comments, which this temporary editor would lose, so it can't be "
+        + "edited here."
+
+    // MARK: Right panel (PLAN §4.4)
+
+    public static func tab(_ tab: RightPanelTab) -> String {
+        switch tab {
+        case .comments: "Comments"
+        case .notes: "Notes"
+        case .tags: "Tags"
+        }
+    }
+
+    public static let hidePanel = "Hide the panel"
+    public static let showPanel = "Show the panel"
+    public static let toggleRightPanel = "Toggle Right Panel"
+
+    // MARK: Status bar (PLAN §4.5)
+
+    /// The status bar's left-hand parts. The save state follows them (`StoreWording.status`).
+    public static func statusParts(book: Book, openScene: SceneID?) -> [String] {
+        let bookPart = "Book · \(words(book.manuscriptWordCount))"
+        switch SceneLocation(of: openScene, in: book) {
+        case .story(let number, let count):
+            let words = words(book.scene(openScene)?.wordCount ?? .zero)
+            return ["Scene \(number) of \(count) · \(words)", bookPart]
+        case .boneyard:
+            return ["In the Boneyard (not in the manuscript)", bookPart]
+        case .noScene:
+            return [bookPart]
+        }
+    }
+
+    public static func words(_ count: WordCount) -> String {
+        count.words == 1 ? "1 word" : "\(count.words.formatted()) words"
+    }
+}
