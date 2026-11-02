@@ -29,7 +29,7 @@ private struct DescribedError: LocalizedError {
     let ring = LogRing(directory: directory.url)
     let entries = (0..<3).map {
         LogEntry(
-            date: Date(timeIntervalSinceReferenceDate: Double($0)), level: .info, category: "store",
+            date: Date(timeIntervalSinceReferenceDate: Double($0)), level: .info, category: .store,
             message: "entry \($0)")
     }
     entries.forEach(ring.append)
@@ -41,7 +41,7 @@ private struct DescribedError: LocalizedError {
     let capacity = 4096
     let ring = LogRing(directory: directory.url, capacityBytes: capacity)
     for index in 0..<500 {
-        ring.append(LogEntry(date: .now, level: .info, category: "store", message: "entry \(index)"))
+        ring.append(LogEntry(date: .now, level: .info, category: .store, message: "entry \(index)"))
     }
     let sizes = try [ring.currentFile, ring.previousFile].map {
         try FileManager.default.attributesOfItem(atPath: $0.path(percentEncoded: false))[.size] as? Int ?? 0
@@ -55,7 +55,7 @@ private struct DescribedError: LocalizedError {
 @Test func logRingSkipsALineTornByACrash() throws {
     let directory = try TemporaryDirectory()
     let ring = LogRing(directory: directory.url)
-    let entry = LogEntry(date: .now, level: .error, category: "app", message: "before the crash")
+    let entry = LogEntry(date: .now, level: .error, category: .app, message: "before the crash")
     ring.append(entry)
     let torn = try FileHandle(forWritingTo: ring.currentFile)
     try torn.seekToEnd()
@@ -74,5 +74,14 @@ private struct DescribedError: LocalizedError {
     Log.diagnostics.debug("Debug entries stay out of the ring", ["marker": .id(marker)])
     let matching = try ring.entries().filter { $0.message.contains(marker.uuidString) }
     #expect(matching.map(\.message) == ["Ring test marker=\(marker.uuidString)"])
-    #expect(matching.first?.category == "diagnostics")
+    #expect(matching.first?.category == .diagnostics)
+}
+
+@Test func infoEntriesCanBeReadBackFromTheUnifiedLog() throws {
+    let marker = UUID()
+    Log.store.info("Unified log info test", ["marker": .id(marker)])
+    let entries = try CurrentProcessLog.entries(since: .now - .minutes(1))
+    let match = try #require(entries.first { $0.message.contains(marker.uuidString) })
+    #expect(match.level == .info)
+    #expect(match.category == .store)
 }

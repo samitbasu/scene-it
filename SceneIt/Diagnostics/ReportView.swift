@@ -14,21 +14,22 @@ final class ReportModel {
     private(set) var notice: String?
     @ObservationIgnored var close: () -> Void = {}
     private let inputs: ProblemReport.Inputs
+    private let reports: URL
 
-    init(inputs: ProblemReport.Inputs) {
+    init(inputs: ProblemReport.Inputs, reports: URL) {
         self.inputs = inputs
+        self.reports = reports
     }
 
     func prepare() async {
-        let parent = FileManager.default.temporaryDirectory.appending(
-            path: "Scene It Reports/\(UUID().uuidString)", directoryHint: .isDirectory)
         state = .preparing
-        state = await Self.build(inputs, in: parent)
+        state = await Self.build(inputs, in: reports)
     }
 
     @concurrent
-    private static func build(_ inputs: ProblemReport.Inputs, in parent: URL) async -> State {
+    private static func build(_ inputs: ProblemReport.Inputs, in reports: URL) async -> State {
         do {
+            let parent = try ProblemReport.makeOutputFolder(in: reports, now: inputs.now)
             return .ready(try ProblemReport.build(inputs, in: parent))
         } catch {
             Log.diagnostics.error("Report not built", ["error": .error(LoggedError(error))])

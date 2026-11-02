@@ -53,7 +53,7 @@ public struct Log: Sendable {
         let text = Self.compose(message, metadata)
         logger.log(level: level.osLogType, "\(text, privacy: .public)")
         guard level != .debug, let ring = Self.persistentRing.withLock({ $0 }) else { return }
-        ring.append(LogEntry(date: .now, level: level, category: category.rawValue, message: text))
+        ring.append(LogEntry(date: .now, level: level, category: category, message: text))
     }
 
     static func compose(_ message: StaticString, _ metadata: LogMetadata) -> String {

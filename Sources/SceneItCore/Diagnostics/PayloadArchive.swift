@@ -32,6 +32,28 @@ public struct RetentionPolicy: Sendable {
         )
         return stale + fresh.dropFirst(maxCount)
     }
+
+    /// Deletes the expired items of `directory` that `isManaged` accepts. Never throws.
+    public func prune(_ directory: URL, now: Date, where isManaged: (URL) -> Bool) {
+        for file in expired(Self.files(in: directory, where: isManaged), now: now) {
+            do {
+                try FileManager.default.removeItem(at: file.url)
+            } catch {
+                Log.diagnostics.error("Old diagnostics not removed", ["error": .error(LoggedError(error))])
+            }
+        }
+    }
+
+    static func files(in directory: URL, where isManaged: (URL) -> Bool) -> [File] {
+        let contents =
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        return contents.filter(isManaged).map { File(url: $0, saved: modificationDate($0)) }
+    }
+}
+
+func modificationDate(_ url: URL) -> Date {
+    (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
 }
 
 /// The directory where MetricKit diagnostic payloads are saved, one JSON file each.
@@ -60,24 +82,12 @@ public struct PayloadArchive: Sendable {
     }
 
     public func prune(now: Date = .now) {
-        for file in policy.expired(savedFiles(), now: now) {
-            do {
-                try FileManager.default.removeItem(at: file.url)
-            } catch {
-                Log.diagnostics.error(
-                    "Old MetricKit payload not removed", ["error": .error(LoggedError(error))])
-            }
-        }
+        policy.prune(directory, now: now, where: Self.isPayload)
     }
 
-    public func savedFiles() -> [RetentionPolicy.File] {
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        return contents.filter { $0.pathExtension == "json" }.map { url in
-            let saved = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-            return RetentionPolicy.File(url: url, saved: saved ?? .distantPast)
-        }
+    func savedFiles() -> [RetentionPolicy.File] {
+        RetentionPolicy.files(in: directory, where: Self.isPayload)
     }
+
+    private static func isPayload(_ url: URL) -> Bool { url.pathExtension == "json" }
 }

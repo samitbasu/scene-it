@@ -23,7 +23,7 @@ private let system = SystemSummary(
     appVersion: "0.1.0", appBuild: "7", osVersion: "Version 26.1 (Build 25B78)", hardwareModel: "Mac16,1",
     architecture: "arm64", physicalMemoryBytes: 17_179_869_184)
 
-private struct Fixture {
+private struct ReportFixture {
     let directory: TemporaryDirectory
     let inputs: ProblemReport.Inputs
 
@@ -49,12 +49,12 @@ private struct Fixture {
         let ring = LogRing(directory: root.appending(path: "Log"))
         ring.append(
             LogEntry(
-                date: now - .hours(30), level: .error, category: "store",
+                date: now - .hours(30), level: .error, category: .store,
                 message: Log.compose(
                     "Save failed", ["scenes": .count(42), "error": .error(LoggedError(BookError()))])))
         ring.append(
             LogEntry(
-                date: now - .hours(29), level: .info, category: "editor",
+                date: now - .hours(29), level: .info, category: .editor,
                 message: Log.compose("Opened scene", ["scene": .id(UUID()), "words": .count(1834)])))
 
         inputs = ProblemReport.Inputs(
@@ -63,7 +63,7 @@ private struct Fixture {
                 ProblemReport.LogSource(
                     fileName: "this-session.log", title: ReportWording.thisSessionLog,
                     reason: ReportWording.thisSessionLogReason
-                ) { [LogEntry(date: now, level: .info, category: "app", message: "Launched")] },
+                ) { [LogEntry(date: now, level: .info, category: .app, message: "Launched")] },
             ],
             metricKitDirectory: metricKit, crashReportsDirectory: crashReports, system: system,
             status: StatusSummary(["backups": .symbol("not set up"), "autosave": .interval(.seconds(2))]),
@@ -103,7 +103,7 @@ private func unzip(_ zip: URL, into directory: URL) throws -> [String: Data] {
 }
 
 @Test func reportZipContainsEveryGatheredPieceAndOnlyThose() throws {
-    let fixture = try Fixture()
+    let fixture = try ReportFixture()
     let report = try fixture.build()
     guard case .zip(let zip) = report.archive else {
         Issue.record("expected a zip, got \(report.archive)")
@@ -137,20 +137,29 @@ private func unzip(_ zip: URL, into directory: URL) throws -> [String: Data] {
 }
 
 @Test func reportContainsNoManuscriptText() throws {
-    let fixture = try Fixture()
+    let fixture = try ReportFixture()
     let crashReports = fixture.inputs.crashReportsDirectory
-    let fixtureText = try FileManager.default.contentsOfDirectory(
-        at: crashReports, includingPropertiesForKeys: nil
-    )
-    .filter { !$0.hasDirectoryPath }
-    .map { String(decoding: try Data(contentsOf: $0), as: UTF8.self) }.joined()
-    #expect(
-        bookSentences.allSatisfy { fixtureText.contains($0) || BookError().localizedDescription.contains($0) }
-    )
+    func fixtureText(_ name: String) throws -> String {
+        String(decoding: try Data(contentsOf: crashReports.appending(path: name)), as: UTF8.self)
+    }
+    // Each sentence sits where a careless implementation would pick it up.
+    try #require(try fixtureText("Other App-2026-10-31-120000.ips").contains(bookSentences[0]))
+    try #require(BookError().localizedDescription.contains(bookSentences[1]))
+    try #require(try fixtureText("Scene It-unrelated.txt").contains(bookSentences[2]))
+    let copiedVerbatim = "Scene It-2026-10-31-120000.ips"
+    try #require(
+        bookSentences.allSatisfy { sentence in (try? fixtureText(copiedVerbatim).contains(sentence)) == false
+        })
 
     let report = try fixture.build()
     let files = try unzip(report.archive.url, into: fixture.directory.url.appending(path: "Unzipped"))
-    try #require(files.count >= 7)
+    let folder = "Scene It Report 2026-10-29 2053/"
+    // The log line that carried the error with sentence 1 is in the report, as is a copied .ips.
+    let recent = try #require(files[folder + "logs/recent-sessions.log"])
+    try #require(String(decoding: recent, as: UTF8.self).contains("Save failed"))
+    let copied = try #require(files[folder + "crash-reports/" + copiedVerbatim])
+    try #require(copied == Data(try fixtureText(copiedVerbatim).utf8))
+
     for (path, data) in files {
         let text = String(decoding: data, as: UTF8.self)
         for sentence in bookSentences {
@@ -160,9 +169,36 @@ private func unzip(_ zip: URL, into directory: URL) throws -> [String: Data] {
     #expect(bookSentences.allSatisfy { !report.manifest.text.contains($0) })
 }
 
+@Test func aCrashReportInBothFoldersIsIncludedOnce() throws {
+    let fixture = try ReportFixture()
+    let crashReports = fixture.inputs.crashReportsDirectory
+    let name = "Scene It-2026-10-31-120000.ips"
+    try FileManager.default.copyItem(
+        at: crashReports.appending(path: name), to: crashReports.appending(path: "Retired/\(name)"))
+    let report = try fixture.build()
+    #expect(report.manifest.included.filter { $0.name == "crash-reports/\(name)" }.count == 1)
+    #expect(report.manifest.notIncluded.isEmpty)
+}
+
+@Test func makingAnOutputFolderPrunesOldReports() throws {
+    let directory = try TemporaryDirectory()
+    let reports = directory.url.appending(path: "Reports")
+    let stale = reports.appending(path: "stale", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.modificationDate: Date.now - .days(2)], ofItemAtPath: stale.path)
+    var folders: [URL] = []
+    for _ in 0..<6 {
+        folders.append(try ProblemReport.makeOutputFolder(in: reports))
+    }
+    let remaining = try FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: nil)
+    #expect(!remaining.contains { $0.lastPathComponent == "stale" })
+    #expect(remaining.count <= 5)
+    #expect(FileManager.default.fileExists(atPath: try #require(folders.last).path(percentEncoded: false)))
+}
+
 @Test func anUnreadablePieceIsListedAndSkippedWithoutFailingTheReport() throws {
-    let fixture = try Fixture(logSources: [
-        ProblemReport.LogSource(fileName: "broken.log", title: "Broken log", reason: "Fixture") {
+    let fixture = try ReportFixture(logSources: [
+        ProblemReport.LogSource(fileName: "broken.log", title: "Broken log", reason: "ReportFixture") {
             throw Unreadable()
         }
     ])

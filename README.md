@@ -31,7 +31,7 @@ SceneIt/                   app sources (SwiftUI + AppKit UI)
 SceneItTests/              app-hosted tests (run through xcodebuild)
 Config/                    Info.plist and other build configuration
 .swift-format              formatter and lint rules (used by both scripts)
-scripts/                   the scripts below; lib.sh holds what they share
+scripts/                   the scripts below; lib.sh holds shared paths, guards.sh the source guards
 docs/                      decisions, workflow, tutorials
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
@@ -54,15 +54,27 @@ scripts/check.sh
 
 Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
-which both scripts source. It first deletes `build/check/SceneIt.xcresult`, then
+which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
 runs, in order, stopping at the first failure:
 
-1. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
+1. `scripts/test-guards.sh` (below): checks that the source guards in steps 2–4 reject
+   and accept what they should.
+2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
-   `textLayoutManager` is allowed. It also fails if one of the paths is missing.
-2. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
-3. `swift test` (SceneItCore unit tests; build output in `.build/`).
-4. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
+   `textLayoutManager` is allowed.
+3. **Logging guard:** fails on `Logger(`, `os_log`, `OSLog…` or `NSLog(` outside
+   `Sources/SceneItCore/Diagnostics/Log.swift` and `CurrentProcessLog.swift`. All logging
+   goes through `Log`, whose types keep manuscript text out (ADR 0006).
+4. **Trap-message guard:** fails on string interpolation (`\(`) on the same line as
+   `fatalError(`, `precondition(`, `preconditionFailure(`, `assert(` or `assertionFailure(`.
+   Crash reports, which problem reports include verbatim, quote these messages.
+
+   Steps 2–4 are functions in `scripts/guards.sh`. Each one fails if a path is missing,
+   ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
+   for each hit.
+5. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
+6. `swift test` (SceneItCore unit tests; build output in `.build/`).
+7. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests. Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
@@ -76,12 +88,27 @@ runs, in order, stopping at the first failure:
 Only when the xcodebuild step fails, each failing test from that run's result
 bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
-**Products:** one log per step in `build/check/` (`textkit1-guard.log`, `lint.log`,
-`swift-test.log`, `xcodebuild.log`), the test result bundle
+**Products:** one log per step in `build/check/` (`guard-tests.log`, `textkit1-guard.log`,
+`logging-guard.log`, `trap-message-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
 `build/DerivedData/Build/Products/Debug/Scene It.app`. All of `build/` can be
 deleted at any time. Run this before every commit; nothing lands on `main`
 without it passing.
+
+### `scripts/test-guards.sh`: tests for the source guards
+
+**Status:** available.
+
+```sh
+scripts/test-guards.sh
+```
+
+Takes no arguments; `check.sh` runs it first. For each guard in `scripts/guards.sh`, it
+writes one-line Swift fixtures into a temporary directory. The guard must reject each
+violating fixture, reporting the fixture's `file:1`, and accept each allowed one: exempt
+files, comments, interpolation outside traps. It also checks that a missing path fails
+with status 2. **Output:** nothing on success. On failure, one `✘` line per case that went
+the wrong way, and exit status 1. **Products:** none; the fixtures are deleted on exit.
 
 ### `scripts/format.sh`: apply formatting
 

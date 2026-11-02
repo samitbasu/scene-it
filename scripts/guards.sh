@@ -1,0 +1,53 @@
+# Source guards run by check.sh and tested by test-guards.sh. Each guard takes the paths to
+# scan as arguments, prints `file:line: error: …` for every hit and returns 1 if there is one.
+# Lines that are only a `//` comment are ignored; the patterns match one line at a time.
+
+# forbid_pattern <message> <extended regex> [<exempt file>…] -- <path>…
+forbid_pattern() {
+    local message=$1 pattern=$2
+    shift 2
+    local exempt=()
+    while [[ $1 != -- ]]; do
+        exempt+=("$1")
+        shift
+    done
+    shift
+    local path hits status=0
+    # BSD grep applies --include to its operands too, so it skips a missing directory silently.
+    for path in "$@"; do
+        [[ -e $path ]] || { echo "$path: error: no such file or directory"; return 2; }
+    done
+    hits=$(grep -rnE --include='*.swift' "$pattern" "$@") || status=$?
+    case $status in
+        0) ;;
+        1) return 0 ;;
+        *) return "$status" ;;
+    esac
+    hits=$(grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' <<<"$hits" || true)
+    local file
+    for file in ${exempt[@]+"${exempt[@]}"}; do
+        hits=$(awk -v prefix="$file:" 'index($0, prefix) != 1' <<<"$hits")
+    done
+    [[ -n $hits ]] || return 0
+    sed -E "s#^([^:]+:[0-9]+):[[:space:]]*#\1: error: $message: #" <<<"$hits"
+    return 1
+}
+
+forbid_textkit1() {
+    # TextKit 2 only (PLAN §2): any of these silently puts a text view on TextKit 1.
+    forbid_pattern 'TextKit 1 is forbidden (PLAN §2)' \
+        '\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false' -- "$@"
+}
+
+forbid_unchecked_logging() {
+    # Only the Log facade may log, so the type system can keep manuscript text out (ADR 0006).
+    forbid_pattern 'log through Log, not os.Logger/os_log/NSLog (ADR 0006)' \
+        '\bLogger\(|\bos_log\b|\bOSLog|\bNSLog\(' \
+        Sources/SceneItCore/Diagnostics/Log.swift Sources/SceneItCore/Diagnostics/CurrentProcessLog.swift -- "$@"
+}
+
+forbid_interpolated_traps() {
+    # A trap's message is copied verbatim into crash reports, which are sent to us.
+    forbid_pattern 'trap messages must be static: crash reports include them verbatim' \
+        '\b(fatalError|precondition|preconditionFailure|assert|assertionFailure)\(.*\\\(' -- "$@"
+}

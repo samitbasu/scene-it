@@ -1,14 +1,15 @@
 import Foundation
 import Synchronization
 
-/// One log line as it appears in a problem report.
+/// One log line as it appears in a problem report. Only `Log` (and `CurrentProcessLog`, which
+/// reads `Log`'s own entries back from the unified log) can create one.
 public struct LogEntry: Codable, Sendable, Equatable {
     public let date: Date
     public let level: LogLevel
-    public let category: String
+    public let category: LogCategory
     public let message: String
 
-    public init(date: Date, level: LogLevel, category: String, message: String) {
+    init(date: Date, level: LogLevel, category: LogCategory, message: String) {
         self.date = date
         self.level = level
         self.category = category
@@ -17,7 +18,7 @@ public struct LogEntry: Codable, Sendable, Equatable {
 
     public var rendered: String {
         let stamp = date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
-        return "\(stamp) \(level.rawValue) \(category): \(message)"
+        return "\(stamp) \(level.rawValue) \(category.rawValue): \(message)"
     }
 }
 
@@ -42,7 +43,7 @@ public final class LogRing: Sendable {
     var previousFile: URL { directory.appending(path: "log.1.jsonl") }
 
     /// Never throws: a log that can't be written is dropped.
-    public func append(_ entry: LogEntry) {
+    func append(_ entry: LogEntry) {
         guard var line = try? JSONEncoder().encode(entry) else { return }
         line.append(UInt8(ascii: "\n"))
         handle.withLock { handle in
@@ -65,15 +66,16 @@ public final class LogRing: Sendable {
     }
 
     /// Oldest first. A line torn by a crash, or otherwise unreadable, is skipped.
-    public func entries() throws -> [LogEntry] {
-        try handle.withLock { _ in
-            try [previousFile, currentFile].flatMap { file -> [LogEntry] in
-                guard FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) else {
-                    return []
-                }
-                return try Data(contentsOf: file)
-                    .split(separator: UInt8(ascii: "\n"))
-                    .compactMap { try? JSONDecoder().decode(LogEntry.self, from: $0) }
+    func entries() throws -> [LogEntry] {
+        let files = try handle.withLock { _ in
+            try [previousFile, currentFile].filter {
+                FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+            }.map { try Data(contentsOf: $0) }
+        }
+        let decoder = JSONDecoder()
+        return files.flatMap { data in
+            data.split(separator: UInt8(ascii: "\n")).compactMap {
+                try? decoder.decode(LogEntry.self, from: $0)
             }
         }
     }

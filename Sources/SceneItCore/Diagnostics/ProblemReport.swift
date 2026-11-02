@@ -56,7 +56,7 @@ public struct ProblemReport: Sendable {
 
         public init(
             logSources: [LogSource], metricKitDirectory: URL,
-            crashReportsDirectory: URL = DiagnosticsDirectory.systemCrashReports,
+            crashReportsDirectory: URL,
             system: SystemSummary, status: StatusSummary, now: Date = .now, timeZone: TimeZone = .current
         ) {
             self.logSources = logSources
@@ -91,6 +91,16 @@ public struct ProblemReport: Sendable {
     }
 
     public static let crashReportPrefix = "Scene It"
+    static let outputRetention = RetentionPolicy(maxCount: 4, maxAge: .days(1))
+
+    /// A new, empty folder under `reports` to build one report in. Older report folders are
+    /// deleted first: any older than a day, and all but the newest few.
+    public static func makeOutputFolder(in reports: URL, now: Date = .now) throws -> URL {
+        outputRetention.prune(reports, now: now) { $0.hasDirectoryPath }
+        let folder = reports.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
     static let maxCrashReports = 10
 
     /// The base name of the report: `Scene It Report yyyy-MM-dd HHmm`.
@@ -198,7 +208,11 @@ private struct Gatherer {
                 return
             }
         }
-        let wanted = candidates.filter(isWanted).sorted { modified($0) > modified($1) }.prefix(limit)
+        var seen = Set<String>()
+        let wanted = candidates.filter(isWanted)
+            .sorted { modificationDate($0) > modificationDate($1) }
+            .filter { seen.insert($0.lastPathComponent).inserted }
+            .prefix(limit)
         if wanted.isEmpty {
             manifest.notIncluded.append(none)
         }
@@ -207,11 +221,6 @@ private struct Gatherer {
                 try FileManager.default.copyItem(at: file, to: $0)
             }
         }
-    }
-
-    private func modified(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            ?? .distantPast
     }
 }
 
