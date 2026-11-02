@@ -68,6 +68,11 @@ is an old NeXTSTEP-style property list. The key objects:
     the space), `PRODUCT_MODULE_NAME = SceneIt` (the Swift module, which can't
     contain a space), `PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneIt`,
     `ENABLE_HARDENED_RUNTIME = YES`.
+  - app and app-test targets only: `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and
+    `SWIFT_APPROACHABLE_CONCURRENCY = YES` ([ADR 0011](../decisions/0011-mainactor-default-isolation.md)).
+    Every declaration in the app is on the main actor unless it says `nonisolated`,
+    so the places where code runs off the main thread are easy to find. The `SceneItCore`
+    package keeps plain Swift 6 defaults.
 - **Synchronized folders** (`PBXFileSystemSynchronizedRootGroup`): the target
   compiles whatever is in `SceneIt/`, like Cargo picking up `src/`.
   Older projects listed every file in the pbxproj, which caused merge conflicts.
