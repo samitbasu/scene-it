@@ -25,7 +25,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `BackupStatus`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
 | [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
 | [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
-| [`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift) | clearing away the temporary files a crashed save leaves |
+| [`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift) | clearing away the temporary files a crashed save or snapshot leaves |
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 | [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
 | [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the advisory record, `LockRecordPolicy`, `ThisMac` |
@@ -514,6 +514,31 @@ The rules, each one there to keep a version from being lost:
 Nothing in the sweep throws. Each failure is logged (metadata only) and leaves the file
 where it is, and the save's outcome is the same as without it.
 
+`BackupKeeper` (§11) writes snapshots, `book-id` and the mirror's `package.json` the same
+way, so a crash there leaves `.book-<time>.json.<UUID>.tmp`, `.book-id.<UUID>.tmp` or
+`.package.json.<UUID>.tmp` in `Backups/` or the book's mirror folder. The same
+`StrayTemporaryFiles` sweeps those folders too: one implementation, given the folder and what
+each destination's temporary file holds (its private `Contents` enum). Its two initializers
+are the whole difference:
+
+| Folder | Destinations | A copy of `book.json` is kept if it matches | Metadata |
+| --- | --- | --- | --- |
+| package root, `init(packageRoot:fileSystem:)` | `book.json`, `book.json.bak1` | `book.json`, `bak1`–`bak3`, a snapshot in `Backups/` | — |
+| `Backups/`, `init(snapshotsIn:metadata:…)` | any snapshot name, `book-id` | a snapshot in `Backups/`, `book.json`, `bak1`–`bak3` | `book-id` |
+| mirror folder, `init(snapshotsIn:metadata:…)` | any snapshot name, `package.json` | a snapshot in that folder | `package.json` |
+
+The mirror counts only its own snapshots, because it has to outlive the package. A copy of
+`book.json` kept nowhere is recovered as `book.json.recovered-<time>.json` *in the folder it
+was found in*, a name `SnapshotName` doesn't parse, so pruning never removes it.
+
+Metadata is treated differently. A temporary `book-id` or `package.json` was never published,
+so nothing refers to it: a mirror folder is only ever named by a published `book-id`, and a
+temporary `package.json` claimed nothing. It's removed, whatever it holds, as long as the
+file it would have replaced is a regular file that parses: a UUID, or a package record with
+an absolute path. Otherwise it's left alone. `BackupKeeper` replaces a corrupt `book-id`
+itself, and the next sweep removes the stray. Recovering it would only leave a meaningless
+UUID beside the user's books.
+
 ## 7. Noticing someone else's changes
 
 Dropbox, `git checkout` or a text editor can replace `book.json` while the app has
@@ -854,6 +879,13 @@ reports each entry's kind from `readdir`'s `d_type`, so this costs no extra syst
 If `Backups/` or the book's mirror folder is itself a symbolic link (or not a folder), that
 destination reports `.notARealFolder` before anything in it is read or written: through a
 link, `book-id` could be another book's, and pruning could reach outside the package.
+
+When a snapshot is due, each destination also sweeps its folder of the temporary files an
+interrupted `keep` left (§6), after the folder check and whatever happens to the snapshot.
+Strays must be 10 minutes old and snapshots are at least 10 minutes apart, so sweeping only
+when one is due costs at most one extra listing per 10 minutes, not one per autosave. A
+read-only book never gets this far: `BackupKeeper` needs a `BookPackage`, which only an
+editable book has.
 
 ### The book's id, and copied packages
 

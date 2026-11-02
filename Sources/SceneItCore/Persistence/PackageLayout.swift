@@ -36,11 +36,19 @@ public struct PackageLayout: Hashable, Sendable {
         file("book.json.conflict-\(Self.stamp(date, attempt))", in: root)
     }
 
-    /// Where a stray temporary file holding a version found nowhere else in the package is
-    /// kept: `book.json.recovered-<UTC time>.json`, the time being the file's last
-    /// modification, then `-2`, `-3`, … before `.json` for later attempts with the same second.
+    /// Where a stray temporary file in the package's root holding a version found nowhere
+    /// else in the package is kept.
     public func recovered(modified date: Date, attempt: Int) -> URL {
-        file("book.json.recovered-\(Self.stamp(date, attempt)).json", in: root)
+        Self.recovered(in: root, modified: date, attempt: attempt)
+    }
+
+    /// Where a stray temporary file in `folder` holding a version kept nowhere else is kept:
+    /// `book.json.recovered-<UTC time>.json` in `folder`, the time being the file's last
+    /// modification, then `-2`, `-3`, … before `.json` for later attempts with the same second.
+    /// It's never a `SnapshotName`, so pruning never removes it.
+    static func recovered(in folder: URL, modified date: Date, attempt: Int) -> URL {
+        folder.appending(
+            path: "book.json.recovered-\(stamp(date, attempt)).json", directoryHint: .notDirectory)
     }
 
     private static func stamp(_ date: Date, _ attempt: Int) -> String {

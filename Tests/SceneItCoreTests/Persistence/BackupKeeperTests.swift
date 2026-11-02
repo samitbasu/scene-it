@@ -8,7 +8,7 @@ private let start = Date(timeIntervalSince1970: 1_793_610_000)
 
 /// A book package and a mirror root (standing in for Application Support) in one temporary
 /// directory, on a file system that can fail chosen calls.
-private struct KeeperFixture {
+struct KeeperFixture {
     let directory: URL
     let fileSystem: FaultInjectingFileSystem
     let mirror: BackupMirror
