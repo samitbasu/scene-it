@@ -43,3 +43,12 @@ gh pr list                                                    # all open PRs
 - A failure to load must never half-load or overwrite anything.
 - Prefer refusing an operation with a clear error over guessing.
 - Never log manuscript text.
+
+## Safety rules for agents (non-negotiable)
+- **Never synthesize input** (System Events keystrokes or clicks, `osascript` UI scripting, `cliclick`, CGEvent posting).
+  It can reach whatever app is frontmost, including the owner's browser or mail, and the screen may be locked.
+  Verify UI through app-hosted tests (XCTest/XCUITest driving our own process) and by reading our own logs or files. If a check needs a human,
+  say so in the PR and leave it for the owner.
+- Never touch the owner's real data: `~/Library/Application Support/Scene It`, `UserDefaults` for `com.samitbasu.SceneIt`,
+  real books, the keychain, certificates, or Xcode accounts. Use temporary directories and the test-host isolation.
+- If a manual run of the app leaves state behind (a session marker, recents, a lock file), clean up exactly what you created, and report it.
