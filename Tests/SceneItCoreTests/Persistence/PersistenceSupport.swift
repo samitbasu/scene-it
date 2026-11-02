@@ -4,15 +4,17 @@ import Testing
 
 @testable import SceneItCore
 
-/// A `LocalFileSystem` that records every call and can fail chosen ones, or simulate the
-/// process dying at one.
+/// A `LocalFileSystem` that records every call, can fail chosen ones or simulate the process
+/// dying at one, and can run an action (another program's write) just before a call.
 final class FaultInjectingFileSystem: FileSystem {
-    /// One call, naming files relative to the package so traces read like the pipeline.
+    /// One call, naming files relative to the package so traces read like the pipeline. A
+    /// hidden temporary file for `book.json` is named "temporary book.json".
     enum Call: Hashable, CustomStringConvertible {
         case inspect(String)
         case read(String)
         case writeTemporary(String)
         case publish(String)
+        case exchange(String)
         case discard(String)
         case move(String, over: String)
         case createDirectory(String)
@@ -20,7 +22,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var isMutation: Bool {
             switch self {
             case .inspect, .read: false
-            case .writeTemporary, .publish, .discard, .move, .createDirectory: true
+            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory: true
             }
         }
 
@@ -30,6 +32,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .read(let name): "read \(name)"
             case .writeTemporary(let name): "write a temporary file for \(name)"
             case .publish(let name): "publish \(name)"
+            case .exchange(let name): "exchange \(name)"
             case .discard(let name): "discard \(name)"
             case .move(let source, let destination): "move \(source) over \(destination)"
             case .createDirectory(let name): "create directory \(name)"
@@ -38,8 +41,9 @@ final class FaultInjectingFileSystem: FileSystem {
     }
 
     enum Fault {
-        /// Every call equal to this one fails, until `clearFault()`.
-        case fail(Call)
+        /// Every call equal to this one fails with `cause`, until `clearFault()`, except the
+        /// first `skipping` such calls after `inject`.
+        case fail(Call, cause: FileSystemError.Cause = .io, skipping: Int = 0)
         /// The process dies when it reaches this call: it and every later call do nothing and
         /// fail. A temporary file being written is left half-written.
         case crash(Call)
@@ -49,6 +53,8 @@ final class FaultInjectingFileSystem: FileSystem {
         var calls: [Call] = []
         var fault: Fault?
         var crashed = false
+        var matched = 0
+        var hook: (call: Call, action: @Sendable () -> Void)?
     }
 
     private let base = LocalFileSystem()
@@ -62,7 +68,10 @@ final class FaultInjectingFileSystem: FileSystem {
     var calls: [Call] { state.withLock { $0.calls } }
 
     func inject(_ fault: Fault) {
-        state.withLock { $0.fault = fault }
+        state.withLock {
+            $0.fault = fault
+            $0.matched = 0
+        }
     }
 
     func clearFault() {
@@ -71,6 +80,11 @@ final class FaultInjectingFileSystem: FileSystem {
 
     func clearCalls() {
         state.withLock { $0.calls = [] }
+    }
+
+    /// Runs `action` once, just before the next call equal to `call`.
+    func before(_ call: Call, run action: @escaping @Sendable () -> Void) {
+        state.withLock { $0.hook = (call, action) }
     }
 
     func item(at url: URL) throws(FileSystemError) -> FileItem? {
@@ -102,10 +116,14 @@ final class FaultInjectingFileSystem: FileSystem {
         }
     }
 
-    func discard(_ temporary: TemporaryFile) {
-        try? perform(.discard(name(temporary.url)), .write, temporary.url) { () throws(FileSystemError) in
-            base.discard(temporary)
+    func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
+        try perform(.exchange(name(destination)), .exchange, destination) { () throws(FileSystemError) in
+            try base.exchange(temporary, with: destination)
         }
+    }
+
+    func discard(_ file: URL) {
+        try? perform(.discard(name(file)), .write, file) { () throws(FileSystemError) in base.discard(file) }
     }
 
     func move(_ source: URL, over destination: URL) throws(FileSystemError) {
@@ -131,23 +149,36 @@ final class FaultInjectingFileSystem: FileSystem {
         _ call: Call, _ operation: FileSystemError.Operation, _ url: URL,
         _ body: () throws(FileSystemError) -> T
     ) throws(FileSystemError) -> T {
-        let fails = state.withLock { state in
+        let (failure, hook) = state.withLock { state -> (FileSystemError.Cause?, (@Sendable () -> Void)?) in
             state.calls.append(call)
+            var hook: (@Sendable () -> Void)?
+            if let pending = state.hook, pending.call == call {
+                hook = pending.action
+                state.hook = nil
+            }
             switch state.fault {
-            case .fail(call): return true
+            case .fail(call, let cause, let skipping):
+                state.matched += 1
+                if state.matched > skipping { return (cause, hook) }
             case .crash(call): state.crashed = true
             default: break
             }
-            return state.crashed
+            return (state.crashed ? .io : nil, hook)
         }
-        guard !fails else { throw FileSystemError(operation, url, .io) }
+        hook?()
+        if let failure { throw FileSystemError(operation, url, failure) }
         return try body()
     }
 
     private func name(_ url: URL) -> String {
         let path = url.standardizedFileURL.path(percentEncoded: false)
         let rootPath = root.standardizedFileURL.path(percentEncoded: false)
-        return path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)).trimmingSlashes : path
+        guard path.hasPrefix(rootPath) else { return path }
+        let relative = String(path.dropFirst(rootPath.count)).trimmingSlashes
+        if let match = relative.wholeMatch(of: /\.(.+)\.[0-9A-F-]{36}\.tmp/) {
+            return "temporary \(match.1)"
+        }
+        return relative
     }
 }
 

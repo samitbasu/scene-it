@@ -1,7 +1,7 @@
 import Foundation
 
 /// `FileSystem` over POSIX calls. Data is flushed to the drive (`F_FULLFSYNC`) before the
-/// rename that publishes it, and the directory is flushed after.
+/// rename that publishes it, and the directory is flushed after every rename.
 public struct LocalFileSystem: FileSystem {
     public init() {}
 
@@ -13,7 +13,19 @@ public struct LocalFileSystem: FileSystem {
             if code == ENOENT || code == ENOTDIR { return nil }
             throw FileSystemError(.inspect, url, .init(errno: code))
         }
-        return Self.item(info)
+        switch info.st_mode & S_IFMT {
+        case S_IFREG:
+            let modified = info.st_mtimespec
+            let metadata = FileMetadata(
+                size: info.st_size,
+                modified: Date(
+                    timeIntervalSince1970: TimeInterval(modified.tv_sec) + TimeInterval(modified.tv_nsec)
+                        / 1e9))
+            return .file(metadata, protection: Self.protection(info))
+        case S_IFDIR: return .directory
+        case S_IFLNK: return .symbolicLink
+        default: return .other
+        }
     }
 
     public func read(_ file: URL) throws(FileSystemError) -> Data {
@@ -50,34 +62,57 @@ public struct LocalFileSystem: FileSystem {
             try Self.writeAll(data, to: descriptor)
             Self.copyMode(of: model, to: descriptor)
             try Self.flushToDrive(descriptor)
-            var info = stat()
-            guard fstat(descriptor, &info) == 0 else { throw Self.errnoCause() }
-            return TemporaryFile(url: url, stamp: FileStamp(info))
+            return TemporaryFile(url: url)
         } catch {
             Self.remove(url)
             throw FileSystemError(.write, destination, error)
         }
     }
 
+    /// `RENAME_EXCL` makes "must not exist" part of the rename. Volumes that don't declare it
+    /// (FAT, exFAT) get a check followed by a plain rename, which leaves a tiny window.
     public func publish(_ temporary: TemporaryFile, as destination: URL) throws(FileSystemError) {
-        do {
-            try Self.rename(temporary.url, over: destination)
+        do throws(FileSystemError.Cause) {
+            if Self.volume(of: destination, declares: .volumeSupportsExclusiveRenamingKey) {
+                try Self.rename(temporary.url, to: destination, flags: UInt32(RENAME_EXCL))
+            } else {
+                var info = stat()
+                guard (destination.withUnsafeFileSystemRepresentation { lstat($0!, &info) }) != 0 else {
+                    throw .alreadyExists
+                }
+                try Self.rename(temporary.url, to: destination, flags: 0)
+            }
         } catch {
             throw FileSystemError(.publish, destination, error)
         }
         Self.flushDirectory(containing: destination)
     }
 
-    public func discard(_ temporary: TemporaryFile) {
-        Self.remove(temporary.url)
+    /// Only on volumes that declare swap support: FAT32 on macOS 27 returns success from
+    /// `RENAME_SWAP` but performs a plain rename, destroying the destination.
+    public func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
+        guard Self.volume(of: destination, declares: .volumeSupportsSwapRenamingKey) else {
+            throw FileSystemError(.exchange, destination, .unsupported)
+        }
+        do {
+            try Self.rename(temporary.url, to: destination, flags: UInt32(RENAME_SWAP))
+        } catch {
+            throw FileSystemError(.exchange, destination, error)
+        }
+        Self.flushDirectory(containing: destination)
+    }
+
+    public func discard(_ file: URL) {
+        Self.remove(file)
     }
 
     public func move(_ source: URL, over destination: URL) throws(FileSystemError) {
         do {
-            try Self.rename(source, over: destination)
+            try Self.rename(source, to: destination, flags: 0)
         } catch {
             throw FileSystemError(.move, source, error)
         }
+        Self.flushDirectory(containing: destination)
     }
 
     public func createDirectory(at url: URL) throws(FileSystemError) {
@@ -105,15 +140,15 @@ public struct LocalFileSystem: FileSystem {
         if let failure { throw FileSystemError.Cause(errno: failure) }
     }
 
-    /// Like Foundation's atomic write, a replacement keeps the permissions of the file it
-    /// replaces. Volumes without POSIX permissions (FAT, exFAT) may refuse; that's not worth
-    /// failing a save for.
+    /// Like Foundation's atomic write, a replacement keeps the permission bits of the file it
+    /// replaces (not setuid, setgid or sticky, and not ACLs). Volumes without POSIX
+    /// permissions (FAT, exFAT) may refuse; that's not worth failing a save for.
     private static func copyMode(of model: URL, to descriptor: Int32) {
         var info = stat()
         guard (model.withUnsafeFileSystemRepresentation { lstat($0!, &info) }) == 0,
             info.st_mode & S_IFMT == S_IFREG
         else { return }
-        if fchmod(descriptor, info.st_mode & 0o7777) != 0 {
+        if fchmod(descriptor, info.st_mode & 0o777) != 0 {
             Log.store.error("couldn't copy a file's permissions to its replacement", ["errno": .errno(errno)])
         }
     }
@@ -146,11 +181,27 @@ public struct LocalFileSystem: FileSystem {
         }
     }
 
-    private static func rename(_ source: URL, over destination: URL) throws(FileSystemError.Cause) {
-        let result = source.withUnsafeFileSystemRepresentation { from in
-            destination.withUnsafeFileSystemRepresentation { to in Darwin.rename(from!, to!) }
+    private static func volume(of url: URL, declares capability: URLResourceKey) -> Bool {
+        let values = try? url.deletingLastPathComponent().resourceValues(forKeys: [capability])
+        return switch capability {
+        case .volumeSupportsSwapRenamingKey: values?.volumeSupportsSwapRenaming == true
+        case .volumeSupportsExclusiveRenamingKey: values?.volumeSupportsExclusiveRenaming == true
+        default: false
         }
-        guard result == 0 else { throw errnoCause() }
+    }
+
+    /// `renamex_np` reports EINVAL for flags a volume doesn't support, and ENOTSUP for some;
+    /// both mean `.unsupported` when flags were asked for.
+    private static func rename(_ source: URL, to destination: URL, flags: UInt32) throws(FileSystemError
+        .Cause)
+    {
+        let result = source.withUnsafeFileSystemRepresentation { from in
+            destination.withUnsafeFileSystemRepresentation { to in renamex_np(from!, to!, flags) }
+        }
+        guard result != 0 else { return }
+        let code = errno
+        if flags != 0 && (code == ENOTSUP || code == EINVAL) { throw .unsupported }
+        throw FileSystemError.Cause(errno: code)
     }
 
     private static func remove(_ url: URL) {
@@ -163,18 +214,10 @@ public struct LocalFileSystem: FileSystem {
         FileSystemError.Cause(errno: errno)
     }
 
-    private static func item(_ info: stat) -> FileItem {
-        switch info.st_mode & S_IFMT {
-        case S_IFREG: .file(FileStamp(info), protection(info))
-        case S_IFDIR: .directory
-        case S_IFLNK: .symbolicLink
-        default: .other
-        }
-    }
-
-    private static func protection(_ info: stat) -> WriteProtection {
-        if info.st_flags & UInt32(UF_IMMUTABLE | SF_IMMUTABLE) != 0 { return .locked }
+    private static func protection(_ info: stat) -> WriteProtection? {
+        let locked = UInt32(UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)
+        if info.st_flags & locked != 0 { return .locked }
         if info.st_mode & S_IWUSR == 0 { return .readOnly }
-        return .writable
+        return nil
     }
 }

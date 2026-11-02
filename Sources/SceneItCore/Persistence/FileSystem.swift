@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Writing is split in two so that every write that can fail (a full disk, an I/O error)
 /// happens before anything visible changes: `writeTemporary` makes a durable copy under a
-/// hidden name, and `publish` renames it into place.
+/// hidden name, and a rename (`publish`, `exchange` or `move`) puts it in place. Every
+/// rename is durable: the directory is flushed after it.
 public protocol FileSystem: Sendable {
     /// `nil` when nothing is at `url`. Doesn't follow a symbolic link at `url` itself.
     func item(at url: URL) throws(FileSystemError) -> FileItem?
@@ -19,11 +20,17 @@ public protocol FileSystem: Sendable {
         _ data: Data, for destination: URL, permissionsFrom model: URL
     ) throws(FileSystemError) -> TemporaryFile
 
-    /// Renames `temporary` over `destination` in one step and makes the rename durable.
+    /// Renames `temporary` to `destination`, which must not exist: throws `.alreadyExists`
+    /// rather than replace anything.
     func publish(_ temporary: TemporaryFile, as destination: URL) throws(FileSystemError)
 
-    /// Removes a temporary file that won't be published. Failures are logged, not thrown.
-    func discard(_ temporary: TemporaryFile)
+    /// Swaps `temporary` and `destination` in one step: afterwards `destination` holds the
+    /// temporary file's contents, and `temporary.url` holds what `destination` held.
+    /// Throws `.unsupported` on volumes that can't swap (FAT, exFAT, HFS+).
+    func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError)
+
+    /// Removes a hidden temporary file if it's still there. Failures are logged, not thrown.
+    func discard(_ file: URL)
 
     /// Renames `source` to `destination` in one step, replacing anything already there.
     func move(_ source: URL, over destination: URL) throws(FileSystemError)
@@ -34,51 +41,34 @@ public protocol FileSystem: Sendable {
 }
 
 public enum FileItem: Hashable, Sendable {
-    case file(FileStamp, WriteProtection)
+    /// `protection` is `nil` when the file can be replaced.
+    case file(FileMetadata, protection: WriteProtection?)
     case directory
     case symbolicLink
     /// A device, socket or pipe: never read as a book.
     case other
 }
 
-public enum WriteProtection: Hashable, Sendable {
-    case writable
-    /// The owner's write permission is off (`chmod a-w`).
-    case readOnly
-    /// Finder's "Locked" (the immutable flag).
-    case locked
+public struct FileMetadata: Hashable, Sendable {
+    public let size: Int64
+    public let modified: Date
 }
 
-/// Identifies one version of a file without reading it: its size, modification time and
-/// inode number. A replaced file has a new inode even if its size and time match.
-public struct FileStamp: Hashable, Sendable {
-    public let size: Int64
-    let modifiedSeconds: Int
-    let modifiedNanoseconds: Int
-    let inode: UInt64
-
-    init(_ info: stat) {
-        size = info.st_size
-        modifiedSeconds = info.st_mtimespec.tv_sec
-        modifiedNanoseconds = info.st_mtimespec.tv_nsec
-        inode = info.st_ino
-    }
-
-    public var modified: Date {
-        Date(timeIntervalSince1970: TimeInterval(modifiedSeconds) + TimeInterval(modifiedNanoseconds) / 1e9)
-    }
+public enum WriteProtection: Hashable, Sendable {
+    /// The owner's write permission is off (`chmod a-w`).
+    case readOnly
+    /// Finder's "Locked" (the immutable flag) or the append-only flag.
+    case locked
 }
 
 /// A durable file under a hidden name, waiting to be published or discarded.
 public struct TemporaryFile: Hashable, Sendable {
     public let url: URL
-    /// The stamp the file keeps once published: a rename changes neither its time nor its inode.
-    public let stamp: FileStamp
 }
 
 public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertible {
     public enum Operation: String, Hashable, Sendable {
-        case inspect, read, write, publish, move
+        case inspect, read, write, publish, exchange, move
         case createDirectory = "create a directory"
     }
 
@@ -88,6 +78,7 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
         case noSpace
         case permissionDenied
         case readOnlyVolume
+        case unsupported
         case io
         case other(POSIXErrorCode)
 
@@ -98,6 +89,7 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
             case ENOSPC, EDQUOT: self = .noSpace
             case EACCES, EPERM: self = .permissionDenied
             case EROFS: self = .readOnlyVolume
+            case ENOTSUP: self = .unsupported
             case EIO: self = .io
             default: self = POSIXErrorCode(rawValue: code).map(Cause.other) ?? .io
             }
@@ -110,6 +102,7 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
             case .noSpace: "the disk is full"
             case .permissionDenied: "permission denied"
             case .readOnlyVolume: "the disk is read-only"
+            case .unsupported: "the disk doesn't support this operation"
             case .io: "an input/output error"
             case .other(let code): String(cString: strerror(code.rawValue))
             }
@@ -146,6 +139,7 @@ extension FileSystemError.Operation {
         case .read: "read"
         case .write: "write"
         case .publish: "publish"
+        case .exchange: "exchange"
         case .move: "move"
         case .createDirectory: "createDirectory"
         }
@@ -160,6 +154,7 @@ extension FileSystemError.Cause {
         case .noSpace: "noSpace"
         case .permissionDenied: "permissionDenied"
         case .readOnlyVolume: "readOnlyVolume"
+        case .unsupported: "unsupported"
         case .io: "io"
         case .other: "other"
         }

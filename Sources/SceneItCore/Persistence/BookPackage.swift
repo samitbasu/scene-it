@@ -5,15 +5,15 @@ import Synchronization
 /// An open `.sceneit` package: creates, opens and saves `book.json`, rotating
 /// `book.json.bak1…3` on each save that changes it.
 ///
-/// It remembers which `book.json` it last read or wrote, and won't silently save over a
-/// different one. A class, so that two copies can't disagree about that; saves are
+/// It remembers a digest of the `book.json` it last read or wrote, and won't silently save
+/// over a different one. A class, so that two copies can't disagree about that; saves are
 /// serialized by its lock.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
     private let fileSystem: any FileSystem
-    private let lastSeen: Mutex<KnownVersion>
+    private let lastSeen: Mutex<ContentDigest>
 
-    private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: KnownVersion) {
+    private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest) {
         self.layout = layout
         self.fileSystem = fileSystem
         self.lastSeen = Mutex(lastSeen)
@@ -44,11 +44,10 @@ public final class BookPackage: Sendable {
         }
         do {
             try fileSystem.createDirectory(at: layout.archive)
-            _ = try writeFile(emptyArchiveIndex, to: layout.archiveIndex, fileSystem)
+            try writeNewFile(emptyArchiveIndex, at: layout.archiveIndex, fileSystem)
             try fileSystem.createDirectory(at: layout.snapshots)
-            let stamp = try writeFile(data, to: layout.book, fileSystem)
-            let package = BookPackage(
-                layout: layout, fileSystem: fileSystem, lastSeen: KnownVersion(stamp: stamp, contents: data))
+            try writeNewFile(data, at: layout.book, fileSystem)
+            let package = BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data))
             return OpenedBook(package: package, book: book)
         } catch {
             Log.store.error("couldn't create a book package", error.logMetadata)
@@ -62,11 +61,12 @@ public final class BookPackage: Sendable {
     ) throws(LoadError) -> OpenedBook {
         let layout = PackageLayout(root: url)
         do {
-            let (book, version) = try load(layout, fileSystem)
+            let (book, data) = try load(layout, fileSystem)
             Log.store.info(
-                "opened a book", ["bytes": .bytes(version.stamp.size), "scenes": .count(book.scenes.count)])
+                "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
             return OpenedBook(
-                package: BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: version), book: book)
+                package: BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data)),
+                book: book)
         } catch {
             let backups = existingBackups(layout, fileSystem)
             Log.store.error(
@@ -78,9 +78,9 @@ public final class BookPackage: Sendable {
 
     /// Writes `book` unless `book.json` already holds exactly its encoding.
     ///
-    /// When this throws, `book.json` is unchanged. Every write happens before anything is
-    /// renamed, so a full disk or an I/O error leaves the backups untouched as well; only a
-    /// failed rename can cost a backup (see chapter 03 of the tutorial).
+    /// The backup policy is ADR 0019: another program's version is never replaced unless it's
+    /// safely in `bak1`; this package's own previous save is replaced even if it couldn't be
+    /// backed up, and the outcome says so. When this throws, `book.json` is unchanged.
     public func save(
         _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse
     ) throws(SaveError) -> SaveOutcome {
@@ -105,23 +105,34 @@ public final class BookPackage: Sendable {
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
-            let current = try readCurrent(&lastSeen, policy)
-            if current == data {
+            let current = try readCurrent(lastSeen, policy)
+            if current?.data == data {
                 Log.store.debug("book unchanged; nothing saved")
                 return .unchanged
             }
-            let (stamp, backups) = try replaceBook(with: data, backingUp: current)
-            lastSeen = KnownVersion(stamp: stamp, contents: data)
-            Log.store.info("saved the book", ["bytes": .bytes(stamp.size)])
+            let backups = try replaceBook(with: data, current: current, &lastSeen)
+            lastSeen = ContentDigest(data)
+            Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
             return .saved(backups)
         }
     }
 
-    /// The bytes of `book.json`, or `nil` if it was removed and `policy` allows recreating it.
-    /// Adopts a new stamp when `book.json` was touched or copied but holds what we last wrote.
-    private func readCurrent(
-        _ lastSeen: inout KnownVersion, _ policy: ExternalChangePolicy
-    ) throws(SaveError) -> Data? {
+    /// What `book.json` holds now, and whose it is.
+    private struct Current {
+        let data: Data
+        let owner: Owner
+    }
+
+    private enum Owner {
+        /// The bytes are this package's own last read or write.
+        case ours
+        case theirs
+    }
+
+    /// `nil` if `book.json` was removed and `policy` allows recreating it.
+    private func readCurrent(_ lastSeen: ContentDigest, _ policy: ExternalChangePolicy) throws(SaveError)
+        -> Current?
+    {
         let item = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
             try fileSystem.item(at: layout.book)
         }
@@ -131,19 +142,14 @@ public final class BookPackage: Sendable {
             return nil
         case .directory, .symbolicLink, .other:
             throw refusal(.notAFile)
-        case .file(let stamp, let protection):
-            guard protection == .writable else { throw .writeProtected(protection) }
-            let current = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
+        case .file(_, let protection):
+            if let protection { throw .writeProtected(protection) }
+            let data = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
                 try fileSystem.read(layout.book)
             }
-            if stamp != lastSeen.stamp {
-                if ContentDigest(current) == lastSeen.digest {
-                    lastSeen.stamp = stamp
-                } else if policy == .refuse {
-                    throw refusal(.changed)
-                }
-            }
-            return current
+            if ContentDigest(data) == lastSeen { return Current(data: data, owner: .ours) }
+            guard policy == .overwriteKeepingTheirsAsBackup else { throw refusal(.changed) }
+            return Current(data: data, owner: .theirs)
         }
     }
 
@@ -153,33 +159,47 @@ public final class BookPackage: Sendable {
     }
 
     /// Writes both temporary files first, so every failure that leaves the disk unchanged
-    /// happens before any rename. Then the renames: the backup rotation (best effort),
-    /// then `book.json`.
+    /// happens before any rename. Then the renames: the backup rotation, then `book.json`.
     private func replaceBook(
-        with data: Data, backingUp current: Data?
-    ) throws(SaveError) -> (FileStamp, BackupStatus) {
-        var backup: (file: TemporaryFile, bak1: Bak1)?
-        do throws(FileSystemError) {
-            if let current, case let bak1 = bak1Holding(current), bak1 != .holdsCurrent {
-                let file = try fileSystem.writeTemporary(
-                    current, for: layout.backup(.bak1), permissionsFrom: layout.book)
-                backup = (file, bak1)
+        with data: Data, current: Current?, _ lastSeen: inout ContentDigest
+    ) throws(SaveError) -> BackupStatus {
+        var unpublished: [URL] = []
+        do throws(SaveError) {
+            var backup: (file: TemporaryFile, bak1: Bak1)?
+            if let current {
+                let bak1 = bak1Holding(current.data)
+                if bak1 != .holdsCurrent {
+                    let file = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
+                        try fileSystem.writeTemporary(
+                            current.data, for: layout.backup(.bak1), permissionsFrom: layout.book)
+                    }
+                    unpublished.append(file.url)
+                    backup = (file, bak1)
+                }
             }
-            let replacement = try fileSystem.writeTemporary(
-                data, for: layout.book, permissionsFrom: layout.book)
-            let status = backup.map { rotateBackups(publishing: $0.file, over: $0.bak1) } ?? .intact
-            backup = nil
-            do {
-                try fileSystem.publish(replacement, as: layout.book)
-            } catch {
-                fileSystem.discard(replacement)
-                throw error
+            let replacement = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
+                try fileSystem.writeTemporary(data, for: layout.book, permissionsFrom: layout.book)
             }
-            return (replacement.stamp, status)
+            unpublished.append(replacement.url)
+            var status = BackupStatus.intact
+            if let backup, let current {
+                do {
+                    try rotateBackups(publishing: backup.file, over: backup.bak1)
+                } catch {
+                    guard current.owner == .ours else { throw .couldNotBackUpTheirVersion(error.cause) }
+                    Log.store.error(
+                        "couldn't back up the previous version; saving anyway", error.cause.logMetadata)
+                    fileSystem.discard(backup.file.url)
+                    status = .previousVersionNotBackedUp(error.cause, olderBackups: error.olderBackups)
+                }
+            }
+            unpublished = []
+            try replace(with: replacement, expecting: current?.data, &lastSeen)
+            return status
         } catch {
-            if let backup { fileSystem.discard(backup.file) }
-            Log.store.error("couldn't save the book", error.logMetadata)
-            throw .fileSystem(error)
+            unpublished.forEach(fileSystem.discard)
+            Log.store.error("couldn't save the book")
+            throw error
         }
     }
 
@@ -187,7 +207,7 @@ public final class BookPackage: Sendable {
         case holdsCurrent, absent, holdsOther
     }
 
-    /// Anything that can't be read counts as different, so a damaged slot never blocks a save.
+    /// Anything that can't be read counts as different, so a damaged slot never stops a save.
     private func bak1Holding(_ current: Data) -> Bak1 {
         let url = layout.backup(.bak1)
         let item: FileItem?
@@ -197,50 +217,117 @@ public final class BookPackage: Sendable {
             return .holdsOther
         }
         guard let item else { return .absent }
-        guard case .file(let stamp, _) = item, stamp.size == current.count,
+        guard case .file(let metadata, _) = item, metadata.size == current.count,
             let contents = try? fileSystem.read(url), contents == current
         else { return .holdsOther }
         return .holdsCurrent
     }
 
-    /// Shifts `bak2`→`bak3` and `bak1`→`bak2` (unless `bak1` is empty), then publishes
-    /// `backup` as `bak1`. A step that fails doesn't stop the later ones: the newest versions
-    /// are the ones worth keeping.
-    private func rotateBackups(publishing backup: TemporaryFile, over bak1: Bak1) -> BackupStatus {
-        var failures: [FileSystemError] = []
-        if bak1 == .holdsOther {
-            for (source, destination) in [(BackupSlot.bak2, BackupSlot.bak3), (.bak1, .bak2)] {
-                do {
-                    try fileSystem.move(layout.backup(source), over: layout.backup(destination))
-                } catch  where error.cause == .notFound {
-                    continue
-                } catch {
-                    failures.append(error)
-                }
+    /// Shifts `bak2`→`bak3` and `bak1`→`bak2` (unless `bak1` is empty, which absorbs the shift),
+    /// then publishes `backup` into the empty `bak1`. Stops at the first failure, so it never
+    /// destroys a version other than the one in `bak3`.
+    private func rotateBackups(publishing backup: TemporaryFile, over bak1: Bak1) throws(RotationFailure) {
+        var olderBackups = OlderBackups.untouched
+        let shifts: [(BackupSlot, BackupSlot)] = bak1 == .absent ? [] : [(.bak2, .bak3), (.bak1, .bak2)]
+        for (source, destination) in shifts {
+            do {
+                try fileSystem.move(layout.backup(source), over: layout.backup(destination))
+            } catch  where error.cause == .notFound {
+                continue
+            } catch {
+                throw RotationFailure(cause: error, olderBackups: olderBackups)
             }
+            if destination == .bak3 { olderBackups = .oldestRetired }
         }
         do {
             try fileSystem.publish(backup, as: layout.backup(.bak1))
         } catch {
-            fileSystem.discard(backup)
-            failures.append(error)
+            throw RotationFailure(cause: error, olderBackups: olderBackups)
         }
-        guard let first = failures.first else { return .intact }
-        Log.store.error("couldn't rotate the backups; saving the book anyway", first.logMetadata)
-        return .degraded(first)
     }
 
-    private static func writeFile(
-        _ data: Data, to url: URL, _ fileSystem: any FileSystem
-    ) throws(FileSystemError) -> FileStamp {
-        let temporary = try fileSystem.writeTemporary(data, for: url, permissionsFrom: url)
-        do {
-            try fileSystem.publish(temporary, as: url)
-        } catch {
-            fileSystem.discard(temporary)
-            throw error
+    private struct RotationFailure: Error {
+        let cause: FileSystemError
+        let olderBackups: OlderBackups
+    }
+
+    /// Replaces `book.json` only if it still holds `expected` (or, for `nil`, nothing), and
+    /// disposes of `replacement`.
+    ///
+    /// With `exchange`, the check happens after the swap, so no window remains: if the
+    /// displaced file isn't `expected`, another program wrote it after `readCurrent`, and it's
+    /// swapped back. Volumes that can't swap get a re-check just before a plain rename.
+    private func replace(
+        with replacement: TemporaryFile, expecting expected: Data?, _ lastSeen: inout ContentDigest
+    ) throws(SaveError) {
+        guard let expected else {
+            do {
+                return try fileSystem.publish(replacement, as: layout.book)
+            } catch {
+                fileSystem.discard(replacement.url)
+                throw error.cause == .alreadyExists ? refusal(.changed) : .fileSystem(error)
+            }
         }
-        return temporary.stamp
+        do {
+            try fileSystem.exchange(replacement, with: layout.book)
+        } catch  where error.cause == .unsupported {
+            return try replaceWithoutExchange(replacement, expecting: expected)
+        } catch {
+            fileSystem.discard(replacement.url)
+            throw .fileSystem(error)
+        }
+        if (try? fileSystem.read(replacement.url)) == expected {
+            fileSystem.discard(replacement.url)
+            return
+        }
+        do {
+            try fileSystem.exchange(replacement, with: layout.book)
+        } catch {
+            throw keepAsConflict(replacement, &lastSeen)
+        }
+        fileSystem.discard(replacement.url)
+        throw refusal(.changed)
+    }
+
+    /// For volumes that can't swap (FAT, exFAT, HFS+). A change landing between this re-read
+    /// and the rename is lost; the window is a few microseconds.
+    private func replaceWithoutExchange(_ replacement: TemporaryFile, expecting expected: Data)
+        throws(SaveError)
+    {
+        guard (try? fileSystem.read(layout.book)) == expected else {
+            fileSystem.discard(replacement.url)
+            throw refusal(.changed)
+        }
+        do {
+            try fileSystem.move(replacement.url, over: layout.book)
+        } catch {
+            fileSystem.discard(replacement.url)
+            throw .fileSystem(error)
+        }
+    }
+
+    /// `book.json` now holds this save and the other program's version sits at the temporary
+    /// name, which nothing reads; give it a visible name so it isn't lost.
+    private func keepAsConflict(_ displaced: TemporaryFile, _ lastSeen: inout ContentDigest) -> SaveError {
+        if let ours = try? fileSystem.read(layout.book) { lastSeen = ContentDigest(ours) }
+        let conflict = layout.conflict(at: .now)
+        do {
+            try fileSystem.publish(displaced, as: conflict)
+        } catch {
+            Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
+            guard case .file? = try? fileSystem.item(at: displaced.url) else { return refusal(.changed) }
+            return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
+        }
+        Log.store.fault("another program changed book.json during a save; kept its version separately")
+        return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
+    }
+
+    private static func writeNewFile(_ data: Data, at url: URL, _ fileSystem: any FileSystem)
+        throws(FileSystemError)
+    {
+        let temporary = try fileSystem.writeTemporary(data, for: url, permissionsFrom: url)
+        defer { fileSystem.discard(temporary.url) }
+        try fileSystem.publish(temporary, as: url)
     }
 
     /// Encodes `book` and checks that the bytes are a fixed point of decode → encode.
@@ -273,11 +360,9 @@ public final class BookPackage: Sendable {
         guard reencoded == data else { throw .unstable }
     }
 
-    /// The stamp is taken before reading, so a change made while reading makes the next
-    /// save see a mismatch instead of silently overwriting it.
-    private static func load(
-        _ layout: PackageLayout, _ fileSystem: any FileSystem
-    ) throws(LoadProblem) -> (Book, KnownVersion) {
+    private static func load(_ layout: PackageLayout, _ fileSystem: any FileSystem) throws(LoadProblem) -> (
+        Book, Data
+    ) {
         guard layout.hasPackageExtension else { throw .missingPackageExtension }
         let unreadable = LoadProblem.unreadable
         switch try wrapping(
@@ -287,13 +372,12 @@ public final class BookPackage: Sendable {
         case .file, .symbolicLink, .other: throw .notADirectory
         case .directory: break
         }
-        let stamp: FileStamp
         switch try wrapping(
             unreadable, { () throws(FileSystemError) in try fileSystem.item(at: layout.book) })
         {
         case nil: throw .bookMissing
         case .directory, .symbolicLink, .other: throw .bookNotAFile
-        case .file(let bookStamp, _): stamp = bookStamp
+        case .file: break
         }
         let data = try wrapping(unreadable) { () throws(FileSystemError) in try fileSystem.read(layout.book) }
         let book: Book
@@ -304,25 +388,16 @@ public final class BookPackage: Sendable {
         }
         let problems = BookValidator.problems(in: book)
         guard problems.isEmpty else { throw .invalid(problems) }
-        return (book, KnownVersion(stamp: stamp, contents: data))
+        return (book, data)
     }
 
     private static func existingBackups(_ layout: PackageLayout, _ fileSystem: any FileSystem) -> [Backup] {
         BackupSlot.allCases.compactMap { slot in
-            guard case .file(let stamp, _) = try? fileSystem.item(at: layout.backup(slot)) else { return nil }
-            return Backup(slot: slot, modified: stamp.modified)
+            guard case .file(let metadata, _) = try? fileSystem.item(at: layout.backup(slot)) else {
+                return nil
+            }
+            return Backup(slot: slot, modified: metadata.modified)
         }
-    }
-}
-
-/// The `book.json` this package last read or wrote.
-private struct KnownVersion: Sendable {
-    var stamp: FileStamp
-    let digest: ContentDigest
-
-    init(stamp: FileStamp, contents: Data) {
-        self.stamp = stamp
-        digest = ContentDigest(contents)
     }
 }
 

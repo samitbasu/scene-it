@@ -8,7 +8,8 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
     case encode, verify
     case inspectBook, readBook, inspectBak1, readBak1
     case writeBackupTemporary, writeBookTemporary
-    case shiftBak2, shiftBak1, publishBak1, publishBook
+    case shiftBak2, shiftBak1, publishBak1
+    case exchangeBook, readDisplaced
 
     /// The file-system call this step makes; `nil` for the in-memory steps.
     var call: FaultInjectingFileSystem.Call? {
@@ -23,37 +24,45 @@ enum SaveFault: CaseIterable, CustomTestStringConvertible {
         case .shiftBak2: .move("book.json.bak2", over: "book.json.bak3")
         case .shiftBak1: .move("book.json.bak1", over: "book.json.bak2")
         case .publishBak1: .publish("book.json.bak1")
-        case .publishBook: .publish("book.json")
+        case .exchangeBook: .exchange("book.json")
+        case .readDisplaced: .read("temporary book.json")
         }
     }
 
-    /// Starting from `book.json` = draft 0 and `bak1`…`bak3` = drafts 1…3, what a save of
-    /// draft 9 that fails at this step leaves: the draft in `book.json`, then in each slot.
-    var expected: (saved: Bool, book: Int, backups: [Int?]) {
+    enum Result {
+        case saved(BackupState)
+        case refused
+    }
+
+    enum BackupState {
+        case intact
+        case previousVersionNotBackedUp(OlderBackups)
+    }
+
+    /// ADR 0019, as a table. Starting from `book.json` = draft 0 (our own last save) and
+    /// `bak1`…`bak3` = drafts 1…3, what a save of draft 9 that fails at this step does, and
+    /// which drafts are left in `book.json` and each slot.
+    var expected: (result: Result, book: Int, backups: [Int?]) {
         switch self {
         case .encode, .verify, .inspectBook, .readBook, .writeBackupTemporary, .writeBookTemporary:
-            (false, 0, [1, 2, 3])
+            (.refused, 0, [1, 2, 3])
         // A failure to look at bak1 counts as "bak1 differs", so the save goes ahead normally.
-        case .inspectBak1, .readBak1: (true, 9, [0, 1, 2])
-        // Rotation is best effort; the later steps still run.
-        case .shiftBak2: (true, 9, [0, 1, 3])
-        case .shiftBak1: (true, 9, [0, nil, 2])
-        case .publishBak1: (true, 9, [nil, 1, 2])
-        // bak3 is gone, but bak1 already holds book.json, so retries don't rotate again.
-        case .publishBook: (false, 0, [0, 1, 2])
-        }
-    }
-
-    var degradesBackups: Bool {
-        switch self {
-        case .shiftBak2, .shiftBak1, .publishBak1: true
-        default: false
+        case .inspectBak1, .readBak1: (.saved(.intact), 9, [0, 1, 2])
+        // The rotation stops at its first failure; draft 0 was ours, so the save goes ahead.
+        case .shiftBak2: (.saved(.previousVersionNotBackedUp(.untouched)), 9, [1, 2, 3])
+        case .shiftBak1: (.saved(.previousVersionNotBackedUp(.oldestRetired)), 9, [1, nil, 2])
+        case .publishBak1: (.saved(.previousVersionNotBackedUp(.oldestRetired)), 9, [nil, 1, 2])
+        // bak1 already holds book.json, so retries don't rotate again.
+        case .exchangeBook: (.refused, 0, [0, 1, 2])
+        // The displaced file can't be confirmed as ours, so it's swapped back.
+        case .readDisplaced: (.refused, 0, [0, 1, 2])
         }
     }
 
     var testDescription: String { "\(self)" }
 
     static let fileSystemSteps = allCases.filter { $0.call != nil }
+    static let rotationSteps: [SaveFault] = [.shiftBak2, .shiftBak1, .publishBak1]
 }
 
 /// A package at `url` whose `book.json` is draft 0 and whose `bak1`…`bak3` are drafts 1…3.
@@ -103,6 +112,7 @@ func unstableEncoding(of book: Book) throws -> Data {
                 }
             }
             #expect(Set(versions).count == versions.count, "precondition: every version is distinct")
+            #expect(try temporaryFiles(in: url).isEmpty)
         }
     }
 
@@ -124,37 +134,42 @@ func unstableEncoding(of book: Book) throws -> Data {
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             fileSystem.clearCalls()
             #expect(try package.save(draft(9)) == .saved(.intact))
-            #expect(fileSystem.calls == SaveFault.fileSystemSteps.compactMap(\.call))
+            let steps = SaveFault.fileSystemSteps.compactMap(\.call)
+            #expect(fileSystem.calls == steps + [.discard("temporary book.json")])
         }
     }
 
     @Test(arguments: SaveFault.allCases)
-    func aFailedStepLosesAtMostWhatItsRowAllows(_ fault: SaveFault) throws {
+    func aFailedStepDoesWhatThePolicyTableSays(_ fault: SaveFault) throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
             let package = try makeFullPackage(at: url, fileSystem: fileSystem)
             let expected = fault.expected
 
-            if expected.saved {
+            switch expected.result {
+            case .saved(let state):
                 let outcome = try attemptSave(package, failing: fault, fileSystem)
-                if fault.degradesBackups {
-                    guard case .saved(.degraded) = outcome else {
-                        Issue.record("expected degraded backups, got \(outcome)")
-                        return
-                    }
-                } else {
-                    #expect(outcome == .saved(.intact))
+                switch (state, outcome) {
+                case (.intact, .saved(.intact)): break
+                case (
+                    .previousVersionNotBackedUp(let expected),
+                    .saved(.previousVersionNotBackedUp(_, let actual))
+                ):
+                    #expect(actual == expected)
+                default: Issue.record("unexpected outcome \(outcome)")
                 }
                 try expectLayout(package.layout, book: expected.book, backups: expected.backups)
-            } else {
+            case .refused:
                 // Twice: a retry that fails the same way must not lose anything more.
                 for _ in 1...2 {
                     let error = try #require(throws: SaveError.self) {
                         try attemptSave(package, failing: fault, fileSystem)
                     }
                     switch (fault, error) {
-                    case (.encode, .encoding(.rejected)), (.verify, .encoding(.unstable)): break
+                    case (.encode, .encoding(.rejected)), (.verify, .encoding(.unstable)),
+                        (.readDisplaced, .externallyModified(.changed)):
+                        break
                     case (_, .fileSystem) where fault.call != nil: break
                     default: Issue.record("unexpected error \(error)")
                     }
@@ -165,6 +180,49 @@ func unstableEncoding(of book: Book) throws -> Data {
                 try expectLayout(package.layout, book: 9, backups: [0, 1, 2])
             }
             #expect(try temporaryFiles(in: url).isEmpty, "every unpublished temporary file was discarded")
+        }
+    }
+
+    /// Their version is never replaced unless it's safely in bak1 (ADR 0019).
+    @Test(arguments: SaveFault.rotationSteps)
+    func aFailedRotationNeverReplacesTheirVersion(_ fault: SaveFault) throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            try encoded(draft(7)).write(to: url.layout.book)
+            fileSystem.inject(.fail(try #require(fault.call)))
+            let error = try #require(throws: SaveError.self) {
+                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+            }
+            guard case .couldNotBackUpTheirVersion = error else {
+                Issue.record("unexpected error \(error)")
+                return
+            }
+            #expect(url.layout.contents().book == (try encoded(draft(7))))
+            #expect(try temporaryFiles(in: url).isEmpty)
+        }
+    }
+
+    @Test func repeatedFailuresWhileKeepingTheirsNeverPushHistoryOut() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            try encoded(draft(7)).write(to: url.layout.book)
+            fileSystem.inject(.fail(.exchange("book.json")))
+            for _ in 1...3 {
+                #expect(throws: SaveError.self) {
+                    try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                }
+            }
+            try expectLayout(url.layout, book: 7, backups: [7, 1, 2])
+            fileSystem.clearFault()
+            #expect(throws: SaveError.externallyModified(.changed)) { try package.save(draft(9)) }
+            #expect(
+                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+                    == .saved(.intact))
+            try expectLayout(url.layout, book: 9, backups: [7, 1, 2])
         }
     }
 
@@ -181,20 +239,13 @@ func unstableEncoding(of book: Book) throws -> Data {
                     try temporaryFiles(in: url).contains { $0.hasSuffix(".crashed.tmp") },
                     "precondition: the crash left a half-written temporary file")
             }
+            let expected = crash.crashRow
+            try expectLayout(url.layout, book: expected.book, backups: expected.backups)
 
             let restarted = try BookPackage.open(at: url)
-            #expect(restarted.book == (try draft(0)))
-            #expect(try restarted.package.save(draft(9)) == .saved(.intact))
+            #expect(restarted.book == (try draft(expected.book)))
+            _ = try restarted.package.save(draft(9))
             try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
-            #expect(try BookPackage.open(at: url).book == (try draft(9)))
-        }
-    }
-
-    @Test func aCrashAfterTheLastStepLoadsTheNewBook() throws {
-        try withTemporaryDirectory { directory in
-            let url = directory.appending(path: "Novel.sceneit")
-            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            #expect(try package.save(draft(9)) == .saved(.intact))
             #expect(try BookPackage.open(at: url).book == (try draft(9)))
         }
     }
@@ -215,6 +266,21 @@ func unstableEncoding(of book: Book) throws -> Data {
         #expect(throws: EncodingFailure.unstable) { try BookPackage.verify(unstable) }
         #expect(throws: EncodingFailure.self) { try BookPackage.verify(Data("{".utf8)) }
         try BookPackage.verify(encoded(draft(1)))
+    }
+}
+
+extension SaveFault {
+    /// The files left by a crash *at* this step (that is, after the step before it).
+    var crashRow: (book: Int, backups: [Int?]) {
+        switch self {
+        case .encode, .verify, .inspectBook, .readBook, .inspectBak1, .readBak1, .writeBackupTemporary,
+            .writeBookTemporary, .shiftBak2:
+            (0, [1, 2, 3])
+        case .shiftBak1: (0, [1, nil, 2])
+        case .publishBak1: (0, [nil, 1, 2])
+        case .exchangeBook: (0, [0, 1, 2])
+        case .readDisplaced: (9, [0, 1, 2])
+        }
     }
 }
 
@@ -239,6 +305,12 @@ private func attemptSave(
 func temporaryFiles(in url: URL) throws -> [String] {
     try FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))
         .filter { $0.hasPrefix(".") && $0.hasSuffix(".tmp") }
+}
+
+/// Whether `book.json` or any backup slot holds `data`.
+func packageKeeps(_ data: Data, _ layout: PackageLayout) -> Bool {
+    let (book, backups) = layout.contents()
+    return book == data || backups.values.contains(data)
 }
 
 extension URL {

@@ -24,6 +24,14 @@ public struct PackageLayout: Hashable, Sendable {
         file(slot.fileName, in: root)
     }
 
+    /// Where a version of `book.json` that another program wrote during a save is kept.
+    public func conflict(at date: Date) -> URL {
+        let stamp = date.formatted(
+            .iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false)
+                .timeSeparator(.omitted))
+        return file("book.json.conflict-\(stamp)", in: root)
+    }
+
     private func file(_ name: String, in directory: URL) -> URL {
         directory.appending(path: name, directoryHint: .notDirectory)
     }

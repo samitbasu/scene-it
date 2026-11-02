@@ -5,9 +5,12 @@ who has written `tempfile` + `persist` in Rust.
 
 The rules come from [WORKFLOW.md](../dev/WORKFLOW.md)'s trust section: never write
 `book.json` without encode → verify → rotate → atomic write; a failed load never
-half-loads or overwrites anything; refuse with a clear error rather than guess. This
-chapter shows how each rule turns into code, and what each step does and doesn't
-guarantee if the power goes out.
+half-loads or overwrites anything; refuse with a clear error rather than guess. Two
+decision records refine them: [ADR 0018](../decisions/0018-external-change-ux.md) (what
+happens when another program changed the book) and
+[ADR 0019](../decisions/0019-backup-failure-policy.md) (what happens when a backup can't
+be written). This chapter shows how each rule turns into code, and what each step does and
+doesn't guarantee if the power goes out.
 
 ## Where the code is
 
@@ -17,9 +20,9 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | --- | --- |
 | [`BookPackage.swift`](../../Sources/SceneItCore/Persistence/BookPackage.swift) | create, open and save; the save pipeline |
 | [`PackageLayout.swift`](../../Sources/SceneItCore/Persistence/PackageLayout.swift) | where each file lives in a `.sceneit` package; `BackupSlot` |
-| [`FileSystem.swift`](../../Sources/SceneItCore/Persistence/FileSystem.swift) | the file-system protocol (the testing seam), `FileStamp`, `FileSystemError` |
-| [`LocalFileSystem.swift`](../../Sources/SceneItCore/Persistence/LocalFileSystem.swift) | the real implementation: POSIX calls, `F_FULLFSYNC` |
-| [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
+| [`FileSystem.swift`](../../Sources/SceneItCore/Persistence/FileSystem.swift) | the file-system protocol (the testing seam), `FileItem`, `FileSystemError` |
+| [`LocalFileSystem.swift`](../../Sources/SceneItCore/Persistence/LocalFileSystem.swift) | the real implementation: POSIX calls, `F_FULLFSYNC`, `renamex_np` |
+| [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `BackupStatus`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
 
 The tests are in [`Tests/SceneItCoreTests/Persistence/`](../../Tests/SceneItCoreTests/Persistence/).
 
@@ -45,18 +48,18 @@ the last thing `create` writes, so a creation interrupted halfway leaves a packa
 that `open` refuses with "the package has no book.json" instead of something that
 looks like a book.
 
-`BookPackage` is a `final class`, not a struct. It remembers which `book.json` it last
-read or wrote (§7), and two copies of a struct could each remember something different
-and then disagree about whether the file had changed. Its state is behind a `Mutex`,
-so two saves can't interleave either.
+`BookPackage` is a `final class`, not a struct. It remembers a digest of the
+`book.json` it last read or wrote (§7), and two copies of a struct could each remember
+something different and then disagree about whether the file had changed. Its state is
+behind a `Mutex`, so two saves can't interleave either.
 
 ## 2. `throws` and typed errors
 
 Chapter 00 §6 introduced typed throws. Persistence is where they pay off: the store
 (#11) has to show a different message for "your book is invalid", "the disk is full",
-"the file is locked" and "another program changed the file", and an exhaustive
-`switch` over a typed error makes the compiler check that it handles them all. Each
-entry point names its error type:
+"the file is locked", "another program changed the file" and "backups aren't working",
+and an exhaustive `switch` over a typed error makes the compiler check that it handles
+them all. Each entry point names its error type:
 
 ```swift
     public static func create(
@@ -70,21 +73,23 @@ entry point names its error type:
     ) throws(SaveError) -> SaveOutcome {
 ```
 
-A save that succeeds still has something to say, so `SaveOutcome` is `.unchanged`
-or `.saved(BackupStatus)`, where `BackupStatus` is `.intact` or
-`.degraded(FileSystemError)` (§4). The status bar can show all three.
+A save that succeeds can still have something to say, so `SaveOutcome` is `.unchanged`
+or `.saved(BackupStatus)`. `BackupStatus` is `.intact`, or
+`.previousVersionNotBackedUp(error, olderBackups:)` when the rotation failed (§4), where
+`olderBackups` says whether the oldest backup had already been retired.
 
 File-system errors are typed down to the cause. `FileSystemError.Cause` names the
 ones the store can explain (`.noSpace`, `.permissionDenied`, `.readOnlyVolume`,
-`.io`, …) and keeps the rest as `.other(POSIXErrorCode)` rather than as a string.
+`.unsupported`, `.io`, …) and keeps the rest as `.other(POSIXErrorCode)` rather than as
+a string.
 
 There's no `From`, so every boundary converts by hand. When the calls in a `do`
-block throw one type, the `catch` infers it. A `throw error` statement inside the
-block defeats that inference: the block's type falls back to `any Error`, and the
-fix is to state it with `do throws(FileSystemError) {`. `replaceBook` (§4) does that.
-Where a single call has to be wrapped inline, a small generic helper does it. Its
-closure needs the explicit `() throws(FileSystemError) in`, because (chapter 00 §6)
-closures don't infer typed throws:
+block throw one type, the `catch` infers it. A `throw` statement of another type inside
+the block makes the inferred type fall back to `any Error`, and the fix is to state it:
+`do throws(SaveError) {`, as `replaceBook` (§4) does. Where a single call has to be
+wrapped inline, a small generic helper does it. Its closure needs the explicit
+`() throws(FileSystemError) in`, because (chapter 00 §6) closures don't infer typed
+throws:
 
 ```swift
 private func wrapping<T, E: Error>(
@@ -111,14 +116,14 @@ It plays the role of Rust's `.map_err(LoadProblem::Unreadable)?`.
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
-            let current = try readCurrent(&lastSeen, policy)
-            if current == data {
+            let current = try readCurrent(lastSeen, policy)
+            if current?.data == data {
                 Log.store.debug("book unchanged; nothing saved")
                 return .unchanged
             }
-            let (stamp, backups) = try replaceBook(with: data, backingUp: current)
-            lastSeen = KnownVersion(stamp: stamp, contents: data)
-            Log.store.info("saved the book", ["bytes": .bytes(stamp.size)])
+            let backups = try replaceBook(with: data, current: current, &lastSeen)
+            lastSeen = ContentDigest(data)
+            Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
             return .saved(backups)
         }
     }
@@ -139,8 +144,9 @@ In order:
    written as one code point (NFC) equals `"e"` plus a combining accent (NFD). Two
    "equal" books can encode differently, and comparing values would hide exactly
    the kind of drift this step exists to catch.
-3. **Check `book.json`.** Refuse a read-only or locked file (§8), and detect another
-   program's changes (§7).
+3. **Read `book.json`, and decide whose it is.** Refuse a read-only or locked file (§8).
+   Compare the bytes' digest with the one remembered: equal means *ours*, otherwise
+   *theirs*, which `.refuse` turns into an error (§7).
 4. **Skip unchanged.** If `book.json` already holds these exact bytes, return
    `.unchanged` without touching anything. Autosave runs every couple of seconds;
    if it rotated each time, three idle autosaves would push every real backup out.
@@ -166,69 +172,87 @@ is bad, and when they fail nothing visible has changed yet. **Phase 2 only renam
 
 ```swift
     private func replaceBook(
-        with data: Data, backingUp current: Data?
-    ) throws(SaveError) -> (FileStamp, BackupStatus) {
-        var backup: (file: TemporaryFile, bak1: Bak1)?
-        do throws(FileSystemError) {
-            if let current, case let bak1 = bak1Holding(current), bak1 != .holdsCurrent {
-                let file = try fileSystem.writeTemporary(
-                    current, for: layout.backup(.bak1), permissionsFrom: layout.book)
-                backup = (file, bak1)
+        with data: Data, current: Current?, _ lastSeen: inout ContentDigest
+    ) throws(SaveError) -> BackupStatus {
+        var unpublished: [URL] = []
+        do throws(SaveError) {
+            var backup: (file: TemporaryFile, bak1: Bak1)?
+            if let current {
+                let bak1 = bak1Holding(current.data)
+                if bak1 != .holdsCurrent {
+                    let file = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
+                        try fileSystem.writeTemporary(
+                            current.data, for: layout.backup(.bak1), permissionsFrom: layout.book)
+                    }
+                    unpublished.append(file.url)
+                    backup = (file, bak1)
+                }
             }
-            let replacement = try fileSystem.writeTemporary(
-                data, for: layout.book, permissionsFrom: layout.book)
-            let status = backup.map { rotateBackups(publishing: $0.file, over: $0.bak1) } ?? .intact
-            backup = nil
-            do {
-                try fileSystem.publish(replacement, as: layout.book)
-            } catch {
-                fileSystem.discard(replacement)
-                throw error
+            let replacement = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
+                try fileSystem.writeTemporary(data, for: layout.book, permissionsFrom: layout.book)
             }
-            return (replacement.stamp, status)
+            unpublished.append(replacement.url)
+            var status = BackupStatus.intact
+            if let backup, let current {
+                do {
+                    try rotateBackups(publishing: backup.file, over: backup.bak1)
+                } catch {
+                    guard current.owner == .ours else { throw .couldNotBackUpTheirVersion(error.cause) }
+                    Log.store.error(
+                        "couldn't back up the previous version; saving anyway", error.cause.logMetadata)
+                    fileSystem.discard(backup.file.url)
+                    status = .previousVersionNotBackedUp(error.cause, olderBackups: error.olderBackups)
+                }
+            }
+            unpublished = []
+            try replace(with: replacement, expecting: current?.data, &lastSeen)
+            return status
         } catch {
-            if let backup { fileSystem.discard(backup.file) }
-            Log.store.error("couldn't save the book", error.logMetadata)
-            throw .fileSystem(error)
+            unpublished.forEach(fileSystem.discard)
+            Log.store.error("couldn't save the book")
+            throw error
         }
     }
 ```
 
-The rotation is best effort:
+The rotation stops at its first failure:
 
 ```swift
-    private func rotateBackups(publishing backup: TemporaryFile, over bak1: Bak1) -> BackupStatus {
-        var failures: [FileSystemError] = []
-        if bak1 == .holdsOther {
-            for (source, destination) in [(BackupSlot.bak2, BackupSlot.bak3), (.bak1, .bak2)] {
-                do {
-                    try fileSystem.move(layout.backup(source), over: layout.backup(destination))
-                } catch  where error.cause == .notFound {
-                    continue
-                } catch {
-                    failures.append(error)
-                }
+    private func rotateBackups(publishing backup: TemporaryFile, over bak1: Bak1) throws(RotationFailure) {
+        var olderBackups = OlderBackups.untouched
+        let shifts: [(BackupSlot, BackupSlot)] = bak1 == .absent ? [] : [(.bak2, .bak3), (.bak1, .bak2)]
+        for (source, destination) in shifts {
+            do {
+                try fileSystem.move(layout.backup(source), over: layout.backup(destination))
+            } catch  where error.cause == .notFound {
+                continue
+            } catch {
+                throw RotationFailure(cause: error, olderBackups: olderBackups)
             }
+            if destination == .bak3 { olderBackups = .oldestRetired }
         }
         do {
             try fileSystem.publish(backup, as: layout.backup(.bak1))
         } catch {
-            fileSystem.discard(backup)
-            failures.append(error)
+            throw RotationFailure(cause: error, olderBackups: olderBackups)
         }
-        guard let first = failures.first else { return .intact }
-        Log.store.error("couldn't rotate the backups; saving the book anyway", first.logMetadata)
-        return .degraded(first)
     }
 ```
 
-The details that matter:
+### The backup policy (ADR 0019)
 
-- **Saving `book.json` comes first.** A backup slot can be damaged: a locked file, a
-  directory someone created, a file iCloud evicted. None of that may stop the writer's
-  work from being saved. A failed rotation step is logged, the remaining steps still
-  run (the newest versions are the ones worth keeping), and the save reports
-  `.saved(.degraded(error))`.
+One rule covers the rotation: **a save destroys nothing but the version in `bak3`**. Every
+shift moves into a slot the previous shift emptied, `publish` refuses to replace anything
+(§5), and the first failure stops the rotation before it can overwrite a distinct version.
+What happens next depends on whose version `book.json` holds:
+
+| `book.json` holds | The rotation fails | Result |
+| --- | --- | --- |
+| our own last save | at any step | **Save anyway**: `.saved(.previousVersionNotBackedUp(error, olderBackups:))`. The new book contains the old one plus the edits; refusing would leave the session's typing only in memory. The store shows "Backups aren't working". |
+| another program's version (`.overwriteKeepingTheirsAsBackup`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.json`. |
+
+Other details:
+
 - **A missing slot absorbs the shift.** A missing `bak2` is `.notFound` and is skipped,
   so `bak3` keeps its version. A missing `bak1` means nothing shifts at all. A retry
   after a crash fills the gap instead of discarding another version.
@@ -236,9 +260,10 @@ The details that matter:
   already holds the current version. Without this check, every failing autosave would
   shift again, and three of them would replace all the backups with copies of the
   current book. `bak1Holding` compares sizes before reading, and anything it can't read
-  counts as different, so an unreadable `bak1` costs a rotation, never a save. The
-  tests catch the regression: making `bak1Holding` always answer "different" fails the
-  final-rename row.
+  counts as different, so an unreadable `bak1` costs a rotation, never a save.
+- **Damaged slots.** A locked `bak1`, or a directory at `bak2` or `bak3`, makes a rename
+  fail. The rotation stops and leaves the versions where they are, and our own save goes
+  ahead with `.previousVersionNotBackedUp`.
 
 A backup's modification time is *when that version was superseded*: the copy into
 `bak1` is a new file, and renames keep it. `LoadError` lists those times.
@@ -262,7 +287,8 @@ reached disk while the temporary file's data hadn't. That's what flushing is for
 flush all buffered data to the permanent storage device". On macOS `fsync` only hands
 data to the drive, which may hold it in a volatile cache. Measured on this machine (an
 Apple SSD, 1 MB files, 20 runs each): about 0.44 ms per `fsync` and 6.8 ms per
-`F_FULLFSYNC`. A save does up to four (two files, and the directory after each publish), which is a fine price for a novel.
+`F_FULLFSYNC`. A save flushes two files, and the directory after each rename (up to
+five), which is a fine price for a novel.
 
 ### Rust comparison
 
@@ -281,8 +307,8 @@ Two things here were checked in source rather than remembered: Rust's
 (`library/std/src/sys/fs/unix.rs`, `os_fsync`), and `tempfile` 3.27's
 `persist` is a plain `rename` that syncs nothing, so the explicit
 `sync_all` calls are what make it durable. Our seam splits the same recipe in two:
-`writeTemporary` is everything up to `sync_all`, and `publish` is `persist` plus the
-directory sync.
+`writeTemporary` is everything up to `sync_all`, and the renames (`publish`, `exchange`,
+`move`) are `persist` plus the directory sync.
 
 ### What `Data.write(options: .atomic)` does
 
@@ -321,9 +347,7 @@ So `LocalFileSystem` does it by hand:
             try Self.writeAll(data, to: descriptor)
             Self.copyMode(of: model, to: descriptor)
             try Self.flushToDrive(descriptor)
-            var info = stat()
-            guard fstat(descriptor, &info) == 0 else { throw Self.errnoCause() }
-            return TemporaryFile(url: url, stamp: FileStamp(info))
+            return TemporaryFile(url: url)
         } catch {
             Self.remove(url)
             throw FileSystemError(.write, destination, error)
@@ -339,45 +363,74 @@ So `LocalFileSystem` does it by hand:
     }
 ```
 
-Notes on the details:
+### Three kinds of rename
 
-- **Permissions** follow Foundation: the new `book.json` gets the old one's mode. The
-  new `bak1` gets `book.json`'s mode too, not the old `bak1`'s, so a private (0600)
-  book keeps private backups, and an unreadable old `bak1` doesn't make the new one
-  unreadable. (The tests caught that last case.) Extended attributes are not copied.
+`rename(2)` silently replaces whatever is at the destination. The seam offers three
+renames so that each call states what it may replace:
+
+- **`publish`** may replace *nothing*: `renamex_np(…, RENAME_EXCL)` fails with `EEXIST`
+  if the destination exists. It's used for a new `bak1` and for a new package's files,
+  so a rotation can never overwrite a version by mistake.
+- **`exchange`** swaps two names in one step (`RENAME_SWAP`). It's used for `book.json`
+  (§7).
+- **`move`** is plain `rename`, used only to shift backups down.
+
+Both flags depend on the volume, and the volume's *declared* capability is what counts:
+
+```swift
+    /// Only on volumes that declare swap support: FAT32 on macOS 27 returns success from
+    /// `RENAME_SWAP` but performs a plain rename, destroying the destination.
+    public func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
+        guard Self.volume(of: destination, declares: .volumeSupportsSwapRenamingKey) else {
+            throw FileSystemError(.exchange, destination, .unsupported)
+        }
+```
+
+That comment records something found while testing. On FAT32 disk images,
+`renamex_np(a, b, RENAME_SWAP)` returned 0, `a` was gone, and `b` held `a`'s contents:
+the "swap" had quietly overwritten `b`. exFAT and HFS+ correctly return `ENOTSUP`. All
+three declare `volumeSupportsSwapRenaming == false`, so asking the volume first avoids the
+bug. FAT32 and exFAT also don't declare `RENAME_EXCL`; there, `publish` checks that the
+destination is absent and then renames, which leaves a window of microseconds.
+
+### Other details
+
+- **Permissions** follow Foundation: the new `book.json` gets the old one's permission
+  bits. The new `bak1` gets `book.json`'s bits too, not the old `bak1`'s, so a private
+  (0600) book keeps private backups, and an unreadable old `bak1` doesn't make the new one
+  unreadable. Older backups keep the bits they had, so a change to `book.json`'s
+  permissions reaches all three backups over three saves. Only the 0o777 bits are copied:
+  setuid, setgid and sticky are dropped. ACLs and extended attributes are not carried
+  over.
 - **The `fsync` fallback** only applies when the file system says `F_FULLFSYNC` isn't
   supported (`ENOTSUP`, `ENOTTY` or `EINVAL`, as on SMB and some FUSE volumes). Any
   other error is a real failure.
-- **`publish`** renames and then flushes the directory the same way, which makes the
-  rename itself durable (`F_FULLFSYNC` on a directory descriptor returns 0 on APFS;
-  checked). A failure to flush the directory is logged, not thrown: the new file is
-  already in place, so reporting "the save failed" would be false. `createDirectory`
-  flushes the parent directory for the same reason.
+- **Every rename flushes the directory** (`F_FULLFSYNC` on a directory descriptor returns
+  0 on APFS; checked), which makes it durable. A failure to flush the directory is logged,
+  not thrown: the change is already in place, so reporting failure would be false.
+  `createDirectory` flushes the parent directory for the same reason.
 - **The temporary name** is unique (a UUID), so two processes saving at once can't
   write into the same file. A crash can leave a hidden `.book.json.<uuid>.tmp` behind.
-  It's harmless, because nothing reads it; cleaning these up is issue #49.
-- **The stamp** of the new file is taken with `fstat` before the rename. A rename
-  changes neither the modification time nor the inode, so that's the stamp
-  `book.json` has afterwards, recorded without a step that could fail after the file
-  was already replaced.
+  Nothing reads it; cleaning these up is issue #49.
 
 ### Other volumes
 
 Books can live on USB sticks. On FAT32, exFAT and HFS+ disk images on this machine,
-repeated saves, the unchanged check and a crash at every step (§6) all behaved as on
-APFS, and the stamp read back after `publish` matched the `fstat` stamp in 10 of 10
-saves on each. Renaming over an existing file worked on FAT32 too, so the `EINVAL`
-case that swift-foundation guards against didn't occur here. The differences to
-know about: FAT and exFAT have no POSIX permissions, so copying the mode may fail
-(that's logged, not fatal), and `man 2 fcntl` lists `F_FULLFSYNC` for FAT but not
-exFAT, where the `fsync` fallback applies if the call is refused.
+repeated saves, the unchanged check, a crash at every step (§6) and a concurrent write
+during a save (§7) all behaved as on APFS once the swap was gated as above. On a tiny APFS
+volume filled until a save hit a real `ENOSPC`, every attempt was refused with
+`.noSpace` and left the package byte-identical, with no temporary files. FAT and exFAT
+have no POSIX permissions, so copying the mode may fail (that's logged, not fatal), and
+`man 2 fcntl` lists `F_FULLFSYNC` for FAT but not exFAT, where the `fsync` fallback
+applies if the call is refused.
 
 ## 6. What a crash or a failure leaves behind
 
-Start from a package where `book.json` is version V0 and the backups are V1–V3,
-and save V9. Each row is the state on disk if the process dies right after that step.
-Every step is either in memory, a read, a durable write under a hidden name, or a
-`rename`, so there are no torn states between rows, at worst a stray temporary file.
+Start from a package where `book.json` is version V0 (our own last save) and the
+backups are V1–V3, and save V9. Each row is the state on disk if the process dies right
+after that step. Every step is either in memory, a read, a durable write under a hidden
+name, or a rename, so there are no torn states between rows, at worst a stray temporary
+file.
 
 | Crash after | `book.json` | `bak1` | `bak2` | `bak3` | Opens as |
 | --- | --- | --- | --- | --- | --- |
@@ -386,69 +439,126 @@ Every step is either in memory, a read, a durable write under a hidden name, or 
 | `bak2` → `bak3` | V0 | V1 | — | V2 | V0 |
 | `bak1` → `bak2` | V0 | — | V1 | V2 | V0 |
 | publishing `bak1` | V0 | V0 | V1 | V2 | V0 |
-| publishing `book.json` | V9 | V0 | V1 | V2 | V9 |
+| exchanging `book.json` | V9 | V0 | V1 | V2 | V9 (V0 also at a stray temporary name) |
 
 - **`book.json` is always present and whole**, and it's V0 or V9.
 - **Nothing but V3 is ever lost**, and V3 is the version this save retires anyway.
 - **The next save repairs the gaps.** In every row, saving V9 again ends with
   `bak1`–`bak3` = V0, V1, V2.
 
-Errors (as opposed to crashes) depend on the step that fails:
+Errors (as opposed to crashes), when `book.json` holds our own last save:
 
-| Failing step | Result | Backups lost |
+| Failing step | Result | `book.json`, `bak1`–`bak3` afterwards |
 | --- | --- | --- |
-| encode, verify, inspecting or reading `book.json` | throws; nothing changed | none |
-| writing either temporary file (full disk, I/O error) | throws; nothing changed | none |
-| inspecting or reading `bak1` | treated as "different"; saves normally | V3 (normal rotation) |
-| `bak2` → `bak3` | `.saved(.degraded)`: `bak1` V0, `bak2` V1, `bak3` V3 | V2 instead of V3 |
-| `bak1` → `bak2` | `.saved(.degraded)`: `bak1` V0, `bak2` —, `bak3` V2 | V1 and V3 |
-| publishing `bak1` | `.saved(.degraded)`: `bak1` —, `bak2` V1, `bak3` V2 | V3, and V0 has no backup |
-| publishing `book.json` | throws; `book.json` is V0, backups V0, V1, V2 | V3; retries lose nothing more |
+| encode, verify, inspecting or reading `book.json` | throws; nothing changed | V0; V1, V2, V3 |
+| writing either temporary file (full disk, I/O) | throws; nothing changed | V0; V1, V2, V3 |
+| inspecting or reading `bak1` | treated as "different"; saves normally | V9; V0, V1, V2 |
+| `bak2` → `bak3` | `.saved(.previousVersionNotBackedUp(_, .untouched))` | V9; V1, V2, V3 |
+| `bak1` → `bak2` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; V1, —, V2 |
+| publishing `bak1` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired))` | V9; —, V1, V2 |
+| exchanging `book.json` | throws; retries don't rotate again | V0; V0, V1, V2 |
+| reading the displaced file after the exchange | swapped back; `.externallyModified(.changed)` | V0; V0, V1, V2 |
 
-So only a failed *rename* can cost more than the retiring V3, and a rename fails only
-when a slot is damaged or the volume misbehaves. In that case the save still succeeds
-and says so.
+When `book.json` holds another program's version (saving with
+`.overwriteKeepingTheirsAsBackup`), the three rotation rows throw
+`.couldNotBackUpTheirVersion` instead, and `book.json` keeps their version.
 
 ## 7. Noticing someone else's changes
 
 Dropbox, `git checkout` or a text editor can replace `book.json` while the app has
 it open. Saving over that would silently throw their version away. So `BookPackage`
-remembers the `FileStamp` (size, nanosecond modification time and inode) and a SHA-256
-digest of the `book.json` it last read or wrote, and a save compares:
+remembers a SHA-256 digest of the `book.json` it last read or wrote, and a save compares
+the digest of what's there now. The bytes are read anyway (for the unchanged check and
+the backup), so there's no cheaper signal worth trusting more: size and modification time
+can be restored by a careful writer, and one of the tests does exactly that.
 
 ```swift
-            if stamp != lastSeen.stamp {
-                if ContentDigest(current) == lastSeen.digest {
-                    lastSeen.stamp = stamp
-                } else if policy == .refuse {
-                    throw refusal(.changed)
-                }
-            }
+            if ContentDigest(data) == lastSeen { return Current(data: data, owner: .ours) }
+            guard policy == .overwriteKeepingTheirsAsBackup else { throw refusal(.changed) }
+            return Current(data: data, owner: .theirs)
 ```
 
-- A **touched** file, or one **copied back with identical bytes**, has a new stamp but
-  our digest, so the new stamp is adopted silently.
+- A **touched** file, or one **copied back with identical bytes**, is still ours.
 - A **changed** file throws `SaveError.externallyModified(.changed)`, and a removed one
   throws `.removed`, unless the caller passes
   `onExternalChange: .overwriteKeepingTheirsAsBackup`. With that policy, the other
-  program's version is rotated into `bak1` like any other current version, so nothing
-  is lost, and a removed `book.json` is recreated.
+  program's version is rotated into `bak1` first (and the save is refused if that fails,
+  §4), and a removed `book.json` is recreated.
 - Anything that **isn't a file** (a directory or a link where `book.json` was) is
   `.notAFile` and is refused under either policy.
 
-What to offer the writer is the store's decision (#11). When opening, the stamp is
-taken *before* reading, so a change that lands mid-read makes the next save look again
-rather than overwrite it.
+ADR 0018 decides what the writer sees.
 
-This doesn't close the race where another program writes between the check and our
-rename. Closing it needs a lock, which ADR 0005 leaves for later.
+### A write that lands during the save
+
+The check above happens before the temporary files are written. Another program could
+write `book.json` after it, and a plain rename would then replace their version without
+anyone noticing. So the final step is a compare-and-swap:
+
+```swift
+    private func replace(
+        with replacement: TemporaryFile, expecting expected: Data?, _ lastSeen: inout ContentDigest
+    ) throws(SaveError) {
+        guard let expected else {
+            do {
+                return try fileSystem.publish(replacement, as: layout.book)
+            } catch {
+                fileSystem.discard(replacement.url)
+                throw error.cause == .alreadyExists ? refusal(.changed) : .fileSystem(error)
+            }
+        }
+        do {
+            try fileSystem.exchange(replacement, with: layout.book)
+        } catch  where error.cause == .unsupported {
+            return try replaceWithoutExchange(replacement, expecting: expected)
+        } catch {
+            fileSystem.discard(replacement.url)
+            throw .fileSystem(error)
+        }
+        if (try? fileSystem.read(replacement.url)) == expected {
+            fileSystem.discard(replacement.url)
+            return
+        }
+        do {
+            try fileSystem.exchange(replacement, with: layout.book)
+        } catch {
+            throw keepAsConflict(replacement, &lastSeen)
+        }
+        fileSystem.discard(replacement.url)
+        throw refusal(.changed)
+    }
+```
+
+After the swap, the temporary name holds whatever `book.json` held *at the instant of the
+swap*. If those aren't the bytes the save checked, another program wrote in between, and
+a second swap puts their version back. The save then throws `.externallyModified(.changed)`,
+which leads to ADR 0018's choice like any other external change. Swapping back, rather
+than keeping their bytes under another name, leaves the package exactly as the other
+program meant it, and needs nothing new from the store.
+
+Two fallbacks remain, each documented in code:
+
+- **The swap back fails** (a double fault). Their version is renamed to
+  `book.json.conflict-<UTC time>`, and the save throws
+  `.externallyModified(.keptAsConflict(fileName:))`. If even that rename fails, the error
+  names the hidden temporary file that holds it.
+- **The volume can't swap** (FAT, exFAT, HFS+). The save re-reads `book.json` just
+  before a plain rename. A write landing in the microseconds between the two is the one
+  residual window.
+
+This narrows the race to nothing where the volume can swap, but it isn't a lock: two
+copies of the app saving the same book will keep refusing each other's changes, which is
+the intended outcome. ADR 0005 leaves real locking for later.
 
 ## 8. Permissions and locks
 
-A save would succeed on a read-only (0444) or locked (Finder's "Locked") `book.json`,
-because a rename only needs permission on the *directory*. That would silently undo the
-writer's protection, so the save refuses with `SaveError.writeProtected(.readOnly)` or
-`(.locked)` before writing anything.
+A save would succeed on a read-only (0444) or locked `book.json`, because a rename only
+needs permission on the *directory*. That would silently undo the writer's protection, so
+the save refuses with `SaveError.writeProtected(.readOnly)` or `(.locked)` before writing
+anything. `.locked` covers Finder's "Locked" (the immutable flag) and the append-only
+flag, both of which make the final rename fail anyway. A writable file has no protection
+value at all (`FileItem.file(_, protection: nil)`), so there's no "write-protected:
+writable" state to handle.
 
 ## 9. Loading: all or nothing, and never a write
 
@@ -495,11 +605,17 @@ public protocol FileSystem: Sendable {
         _ data: Data, for destination: URL, permissionsFrom model: URL
     ) throws(FileSystemError) -> TemporaryFile
 
-    /// Renames `temporary` over `destination` in one step and makes the rename durable.
+    /// Renames `temporary` to `destination`, which must not exist: throws `.alreadyExists`
+    /// rather than replace anything.
     func publish(_ temporary: TemporaryFile, as destination: URL) throws(FileSystemError)
 
-    /// Removes a temporary file that won't be published. Failures are logged, not thrown.
-    func discard(_ temporary: TemporaryFile)
+    /// Swaps `temporary` and `destination` in one step: afterwards `destination` holds the
+    /// temporary file's contents, and `temporary.url` holds what `destination` held.
+    /// Throws `.unsupported` on volumes that can't swap (FAT, exFAT, HFS+).
+    func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError)
+
+    /// Removes a hidden temporary file if it's still there. Failures are logged, not thrown.
+    func discard(_ file: URL)
 
     /// Renames `source` to `destination` in one step, replacing anything already there.
     func move(_ source: URL, over destination: URL) throws(FileSystemError)
@@ -510,8 +626,9 @@ public protocol FileSystem: Sendable {
 }
 ```
 
-These are exactly the operations create, open and save use. `publish` only accepts a
-`TemporaryFile`, so nothing can "publish" a file that wasn't written durably first.
+These are exactly the operations create, open and save use. `publish` and `exchange`
+only accept a `TemporaryFile`, so nothing can put a file in place that wasn't written
+durably first.
 
 In Rust you'd write `trait FileSystem` and either make `BookPackage<F: FileSystem>`
 generic (static dispatch) or store a `Box<dyn FileSystem>`. `BookPackage` stores
@@ -522,29 +639,36 @@ package, the store included, for a few calls per save that cost far less than on
 lets a `BookPackage` cross to whichever executor the store saves on.
 
 The test double, `FaultInjectingFileSystem`, wraps the real `LocalFileSystem` (so
-tests run against real temporary directories), records every call, and either fails
-a chosen call or simulates the process dying there (that call and every later one do
-nothing, and a temporary file being written is left half-written). Its state is behind
-a `Mutex` from the `Synchronization` module, the equivalent of `std::sync::Mutex`,
-which is what lets a `final class` be `Sendable` without `@unchecked`. `BookPackage`
-uses the same pattern.
+tests run against real temporary directories) and records every call. It can fail a
+chosen call (with a chosen cause, optionally after letting the first few through),
+simulate the process dying there (that call and every later one do nothing, and a
+temporary file being written is left half-written), or run an action just before a
+call, which is how the tests play "another program writes `book.json` mid-save". Its
+state is behind a `Mutex` from the `Synchronization` module, the equivalent of
+`std::sync::Mutex`, which is what lets a `final class` be `Sendable` without
+`@unchecked`. `BookPackage` uses the same pattern.
 
 The tests that use it:
 
 - **Every step.** `SaveFault` lists the steps of a save in order, each mapped to the
-  call it makes, together with the row of §6's error table it must produce. One test
-  checks that a clean save makes *exactly* those calls in that order, so the list
-  can't miss a step. One parameterized test fails each step (twice in a row for the
-  steps that throw) and checks the files against the row, that no temporary file is
-  left behind, and that a clean retry ends in the standard layout.
-- **Crashes.** The same steps with a simulated crash: a fresh `open` on the real file
-  system must load V0, and the next save must converge. A crash after the last step
-  must load V9.
-- **Damaged backups.** An unreadable `bak1`, a directory at `bak3` and a locked `bak1`
-  never stop `book.json` from being saved.
-- **External changes and protection.** Rewritten, removed, touched, replaced with
-  identical bytes, and replaced by a directory, under both policies; a read-only and a
-  locked `book.json`; permissions kept across a save.
+  call it makes, together with its row of §6's error table. One test checks that a clean
+  save makes *exactly* those calls in that order, so the list can't miss a step. One
+  parameterized test fails each step (twice in a row for the steps that throw) and
+  checks the files against the row, that no temporary file is left behind, and that a
+  clean retry ends in the standard layout. Another fails each rotation step while
+  `book.json` holds their version, and checks that nothing is published.
+- **Crashes.** Each step with a simulated crash: the files must match §6's crash table, a
+  fresh `open` on the real file system must load the right version, and the next save
+  must converge.
+- **Concurrent writes.** Another program's write lands between the check and the final
+  rename, with and without swap support and under both policies: their version is never
+  lost. A failed swap-back keeps it under a conflict name.
+- **Damaged backups.** An unreadable `bak1`, a directory at `bak2` or `bak3`, and a locked
+  `bak1`: the versions stay where they are, and our own save goes ahead and says so.
+- **External changes and protection.** Rewritten, rewritten in place with the size and
+  modification time restored, removed, touched, replaced with identical bytes, and
+  replaced by a directory; a read-only, locked or append-only `book.json`; permissions
+  kept across a save.
 - **Loading damaged packages.** Truncated, empty, garbage, an invalid book, an
   unsupported format, a missing `book.json`, a directory, a link or a dangling link
   where `book.json` should be, an unreadable `book.json`, a file where the package
@@ -557,3 +681,5 @@ The tests that use it:
   occurred, so it can't silently degenerate into testing only one.
 - **Rotation.** Five saves of distinct content leave `bak1`–`bak3` byte-equal to the
   previous three versions, and an unchanged save leaves the whole package untouched.
+- **Mutation checks.** Removing the "theirs must be backed up" guard, the swap-back, or
+  the stop-at-first-failure rule each makes these tests fail.

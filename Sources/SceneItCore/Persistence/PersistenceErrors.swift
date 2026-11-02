@@ -23,10 +23,13 @@ public enum EncodingFailure: Error, Hashable, Sendable, CustomStringConvertible 
 
 public enum SaveError: Error, Hashable, Sendable, CustomStringConvertible {
     case encoding(EncodingFailure)
-    /// `book.json` isn't the file this package last read or wrote, and the save's
-    /// `ExternalChangePolicy` was `.refuse` (or the change can't be overwritten).
+    /// `book.json` doesn't hold what this package last read or wrote, and the save's
+    /// `ExternalChangePolicy` (or the kind of change) doesn't allow replacing it.
     case externallyModified(ExternalChange)
     case writeProtected(WriteProtection)
+    /// Under `.overwriteKeepingTheirsAsBackup`, the other program's version couldn't be put
+    /// into `bak1`, so nothing was saved (ADR 0019).
+    case couldNotBackUpTheirVersion(FileSystemError)
     case fileSystem(FileSystemError)
 
     public var description: String {
@@ -35,24 +38,32 @@ public enum SaveError: Error, Hashable, Sendable, CustomStringConvertible {
         case .externallyModified(let change): "couldn't save: \(change)"
         case .writeProtected(.readOnly): "couldn't save: book.json is read-only"
         case .writeProtected(.locked): "couldn't save: book.json is locked"
-        case .writeProtected(.writable): "couldn't save: book.json is write-protected"
+        case .couldNotBackUpTheirVersion(let error):
+            "couldn't save: the version another program wrote couldn't be backed up (\(error))"
         case .fileSystem(let error): "couldn't save: \(error)"
         }
     }
 }
 
 public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
-    /// Another program wrote different contents.
+    /// Another program wrote different contents. If that happened while this save was
+    /// replacing `book.json`, its version was put back.
     case changed
     case removed
     /// A directory, link or other non-file now stands where `book.json` was. Never overwritten.
     case notAFile
+    /// Another program wrote `book.json` while this save was replacing it, and its version
+    /// couldn't be put back, so it was kept in the package under this file name. `book.json`
+    /// holds the book this save wrote.
+    case keptAsConflict(fileName: String)
 
     public var description: String {
         switch self {
         case .changed: "book.json was changed by another program"
         case .removed: "book.json was removed by another program"
         case .notAFile: "book.json was replaced by something that isn't a file"
+        case .keptAsConflict(let fileName):
+            "book.json was changed by another program during the save; its version is in \(fileName)"
         }
     }
 }
@@ -61,8 +72,8 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
 public enum ExternalChangePolicy: Hashable, Sendable {
     /// Throw `SaveError.externallyModified` and write nothing.
     case refuse
-    /// Save anyway, first rotating the other program's version into `bak1` (or recreating
-    /// `book.json` if it was removed).
+    /// Save anyway, but only after the other program's version is safely in `bak1` (or
+    /// recreate `book.json` if it was removed).
     case overwriteKeepingTheirsAsBackup
 }
 
@@ -75,9 +86,18 @@ public enum SaveOutcome: Hashable, Sendable {
 public enum BackupStatus: Hashable, Sendable {
     /// `bak1` holds the version this save replaced, and older versions shifted down.
     case intact
-    /// `book.json` was saved, but a backup slot couldn't be rotated (it's damaged,
-    /// locked, or a directory). The error is the first rotation step that failed.
-    case degraded(FileSystemError)
+    /// `book.json` was saved, but the version it replaced (this package's own previous save)
+    /// couldn't be put into `bak1`; the error is the rotation step that failed (ADR 0019).
+    case previousVersionNotBackedUp(FileSystemError, olderBackups: OlderBackups)
+}
+
+/// What a rotation that stopped partway did to the older backups. It never destroys
+/// anything but the version in `bak3`.
+public enum OlderBackups: Hashable, Sendable {
+    case untouched
+    /// `bak2` had already moved into `bak3`, so `bak3`'s version, if there was one, is gone,
+    /// and nothing took its place in the rotation.
+    case oldestRetired
 }
 
 public enum CreateError: Error, Hashable, Sendable, CustomStringConvertible {

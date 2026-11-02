@@ -6,12 +6,31 @@ import Testing
 
 @Suite struct ExternalModificationTests {
     enum Change: CaseIterable {
-        case rewritten, removed, touched, replacedWithIdenticalBytes, replacedByADirectory
+        case rewritten, rewrittenInPlaceKeepingSizeAndTime, removed, touched, replacedWithIdenticalBytes
+        case replacedByADirectory
 
         func apply(to book: URL) throws {
             switch self {
             case .rewritten:
                 try encoded(draft(7)).write(to: book)
+            case .rewrittenInPlaceKeepingSizeAndTime:
+                let path = book.path(percentEncoded: false)
+                var before = stat()
+                #expect(lstat(path, &before) == 0)
+                let theirs = try encoded(draft(7))
+                #expect(theirs.count == before.st_size, "precondition: same size")
+                let handle = try FileHandle(forWritingTo: book)
+                try handle.truncate(atOffset: 0)
+                try handle.write(contentsOf: theirs)
+                try handle.close()
+                var times = [before.st_atimespec, before.st_mtimespec]
+                #expect(utimensat(AT_FDCWD, path, &times, 0) == 0)
+                var after = stat()
+                #expect(lstat(path, &after) == 0)
+                #expect(
+                    after.st_ino == before.st_ino
+                        && after.st_mtimespec.tv_nsec == before.st_mtimespec.tv_nsec,
+                    "precondition: same inode and modification time")
             case .removed:
                 try FileManager.default.removeItem(at: book)
             case .touched:
@@ -30,7 +49,7 @@ import Testing
         /// What `.refuse` reports; `nil` when the bytes are still ours and the save proceeds.
         var refusal: ExternalChange? {
             switch self {
-            case .rewritten: .changed
+            case .rewritten, .rewrittenInPlaceKeepingSizeAndTime: .changed
             case .removed: .removed
             case .replacedByADirectory: .notAFile
             case .touched, .replacedWithIdenticalBytes: nil
@@ -47,7 +66,6 @@ import Testing
             guard let refusal = change.refusal else {
                 #expect(try package.save(draft(9)) == .saved(.intact))
                 try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
-                #expect(try package.save(draft(10)) == .saved(.intact), "the adopted stamp sticks")
                 return
             }
             let before = try DirectorySnapshot(url)
@@ -91,6 +109,25 @@ import Testing
         }
     }
 
+    @Test func overwritingRefusesWhenTheirVersionCantBeBackedUp() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            let bak1 = url.layout.backup(.bak1).path(percentEncoded: false)
+            #expect(chflags(bak1, UInt32(UF_IMMUTABLE)) == 0)
+            defer { chflags(bak1, 0) }
+            try Change.rewritten.apply(to: url.layout.book)
+            let error = try #require(throws: SaveError.self) {
+                try package.save(draft(9), onExternalChange: .overwriteKeepingTheirsAsBackup)
+            }
+            guard case .couldNotBackUpTheirVersion = error else {
+                Issue.record("unexpected error \(error)")
+                return
+            }
+            #expect(url.layout.contents().book == (try encoded(draft(7))))
+        }
+    }
+
     @Test func reopeningAfterAnExternalChangeSavesAgain() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
@@ -106,95 +143,180 @@ import Testing
     }
 }
 
-@Suite struct WriteProtectionTests {
-    @Test func aSaveKeepsBookJsonsPermissions() throws {
+/// Another program writes `book.json` after the save checked it but before the save replaced it.
+@Suite struct ConcurrentChangeTests {
+    enum Replacement: CaseIterable {
+        /// The volume can swap: the check happens after the swap.
+        case exchange
+        /// FAT/exFAT: a re-check just before a plain rename.
+        case recheckThenRename
+    }
+
+    private func package(
+        _ url: URL, _ replacement: Replacement
+    ) throws -> (BookPackage, FaultInjectingFileSystem) {
+        let fileSystem = FaultInjectingFileSystem(root: url)
+        let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+        if replacement == .recheckThenRename {
+            fileSystem.inject(.fail(.exchange("book.json"), cause: .unsupported))
+        }
+        return (package, fileSystem)
+    }
+
+    @Test(arguments: Replacement.allCases, [ExternalChangePolicy.refuse, .overwriteKeepingTheirsAsBackup])
+    func aWriteDuringTheSaveIsNeverLost(_ replacement: Replacement, _ policy: ExternalChangePolicy) throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            let package = try BookPackage.create(at: url, title: "Novel").package
-            let path = url.layout.book.path(percentEncoded: false)
-            #expect(chmod(path, 0o600) == 0)
-            #expect(try package.save(draft(1)) == .saved(.intact))
-            var info = stat()
-            #expect(stat(path, &info) == 0)
-            #expect(info.st_mode & 0o777 == 0o600)
-            #expect(stat(url.layout.backup(.bak1).path(percentEncoded: false), &info) == 0)
-            #expect(info.st_mode & 0o777 == 0o600, "a private book's backups stay private")
+            let (package, fileSystem) = try package(url, replacement)
+            let book = url.layout.book
+            let theirs = try encoded(draft(7))
+            fileSystem.before(.writeTemporary("book.json")) { try? theirs.write(to: book) }
+            #expect(throws: SaveError.externallyModified(.changed)) {
+                try package.save(draft(9), onExternalChange: policy)
+            }
+            try expectLayout(url.layout, book: 7, backups: [0, 1, 2])
+            #expect(try temporaryFiles(in: url).isEmpty)
         }
     }
 
-    @Test func aReadOnlyBookIsRefused() throws {
+    @Test(arguments: Replacement.allCases)
+    func withoutAConcurrentWriteTheSaveSucceeds(_ replacement: Replacement) throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            #expect(chmod(url.layout.book.path(percentEncoded: false), 0o444) == 0)
-            let before = try DirectorySnapshot(url)
-            #expect(throws: SaveError.writeProtected(.readOnly)) { try package.save(draft(9)) }
-            #expect(try DirectorySnapshot(url) == before)
+            let (package, _) = try package(url, replacement)
+            #expect(try package.save(draft(9)) == .saved(.intact))
+            try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
+            #expect(try temporaryFiles(in: url).isEmpty)
         }
     }
 
-    @Test func aLockedBookIsRefused() throws {
+    @Test func ifTheirVersionCantBeSwappedBackItIsKeptUnderAConflictName() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
-            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            let path = url.layout.book.path(percentEncoded: false)
-            #expect(chflags(path, UInt32(UF_IMMUTABLE)) == 0)
-            defer { chflags(path, 0) }
-            let before = try DirectorySnapshot(url)
-            #expect(throws: SaveError.writeProtected(.locked)) { try package.save(draft(9)) }
-            #expect(try DirectorySnapshot(url) == before)
+            let (package, fileSystem) = try package(url, .exchange)
+            let book = url.layout.book
+            let theirs = try encoded(draft(7))
+            fileSystem.before(.writeTemporary("book.json")) { try? theirs.write(to: book) }
+            fileSystem.inject(.fail(.exchange("book.json"), skipping: 1))
+            let error = try #require(throws: SaveError.self) { try package.save(draft(9)) }
+            guard case .externallyModified(.keptAsConflict(let fileName)) = error else {
+                Issue.record("unexpected error \(error)")
+                return
+            }
+            #expect(fileName.hasPrefix("book.json.conflict-"))
+            #expect(try Data(contentsOf: url.appending(path: fileName)) == theirs)
+            #expect(url.layout.contents().book == (try encoded(draft(9))))
+            fileSystem.clearFault()
+            #expect(try package.save(draft(10)) == .saved(.intact), "book.json holds our save")
         }
     }
 }
 
-/// A damaged backup slot must never stop `book.json` from being saved.
+@Suite struct WriteProtectionTests {
+    @Test func aSaveKeepsBookJsonsPermissionsAndGivesThemToTheNewBackup() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try BookPackage.create(at: url, title: "Novel").package
+            let path = url.layout.book.path(percentEncoded: false)
+            #expect(chmod(path, 0o4600) == 0)
+            #expect(try package.save(draft(1)) == .saved(.intact))
+            var info = stat()
+            #expect(stat(path, &info) == 0)
+            #expect(info.st_mode & 0o7777 == 0o600, "the permission bits, without setuid")
+            #expect(stat(url.layout.backup(.bak1).path(percentEncoded: false), &info) == 0)
+            #expect(info.st_mode & 0o7777 == 0o600, "a private book's backups stay private")
+        }
+    }
+
+    @Test(arguments: [WriteProtection.readOnly, .locked])
+    func aProtectedBookIsRefused(_ protection: WriteProtection) throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            let path = url.layout.book.path(percentEncoded: false)
+            switch protection {
+            case .readOnly: #expect(chmod(path, 0o444) == 0)
+            case .locked: #expect(chflags(path, UInt32(UF_IMMUTABLE)) == 0)
+            }
+            defer { chflags(path, 0) }
+            let before = try DirectorySnapshot(url)
+            #expect(throws: SaveError.writeProtected(protection)) { try package.save(draft(9)) }
+            #expect(try DirectorySnapshot(url) == before)
+        }
+    }
+
+    @Test func anAppendOnlyBookCountsAsLocked() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
+            let path = url.layout.book.path(percentEncoded: false)
+            #expect(chflags(path, UInt32(UF_APPEND)) == 0)
+            defer { chflags(path, 0) }
+            for number in [9, 10] {
+                #expect(throws: SaveError.writeProtected(.locked)) { try package.save(draft(number)) }
+            }
+            try expectLayout(url.layout, book: 0, backups: [1, 2, 3])
+        }
+    }
+}
+
+/// A damaged backup slot never destroys a distinct version, and never stops our own save
+/// (ADR 0019); the outcome says the previous version wasn't backed up.
 @Suite struct DamagedBackupTests {
     @Test func anUnreadableBak1CountsAsDifferent() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            let bak1 = url.layout.backup(.bak1).path(percentEncoded: false)
-            #expect(chmod(bak1, 0) == 0)
+            #expect(chmod(url.layout.backup(.bak1).path(percentEncoded: false), 0) == 0)
             #expect(try package.save(draft(9)) == .saved(.intact))
             #expect(chmod(url.layout.backup(.bak2).path(percentEncoded: false), 0o644) == 0)
             try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
         }
     }
 
-    @Test func aDirectoryAtBak3DegradesTheBackupsButSaves() throws {
-        try withTemporaryDirectory { directory in
-            let url = directory.appending(path: "Novel.sceneit")
-            let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            let bak3 = url.layout.backup(.bak3)
-            try FileManager.default.removeItem(at: bak3)
-            try FileManager.default.createDirectory(at: bak3, withIntermediateDirectories: false)
-            try Data().write(to: bak3.appending(path: "x"))
-            let outcome = try package.save(draft(9))
-            guard case .saved(.degraded(let error)) = outcome else {
-                Issue.record("expected degraded backups, got \(outcome)")
-                return
+    enum Damage: CaseIterable {
+        case directoryAtBak3, directoryAtBak2, lockedBak1
+
+        /// Which drafts survive in bak1…bak3 after saving draft 9.
+        var survivors: [Int?] {
+            switch self {
+            case .directoryAtBak3: [1, 2, nil]
+            case .directoryAtBak2: [1, nil, 3]
+            case .lockedBak1: [1, nil, 2]
             }
-            #expect(error.operation == .move)
-            let (book, backups) = url.layout.contents()
-            #expect(book == (try encoded(draft(9))))
-            #expect(backups[.bak1] == (try encoded(draft(0))))
-            #expect(backups[.bak2] == (try encoded(draft(1))))
         }
     }
 
-    @Test func aLockedBak1DegradesTheBackupsButSaves() throws {
+    @Test(arguments: Damage.allCases)
+    func aDamagedSlotLeavesTheVersionsAloneAndStillSaves(_ damage: Damage) throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
-            let bak1 = url.layout.backup(.bak1).path(percentEncoded: false)
-            #expect(chflags(bak1, UInt32(UF_IMMUTABLE)) == 0)
+            let layout = url.layout
+            let bak1 = layout.backup(.bak1).path(percentEncoded: false)
             defer { chflags(bak1, 0) }
-            let outcome = try package.save(draft(9))
-            guard case .saved(.degraded) = outcome else {
-                Issue.record("expected degraded backups, got \(outcome)")
-                return
+            switch damage {
+            case .directoryAtBak3, .directoryAtBak2:
+                let slot = layout.backup(damage == .directoryAtBak3 ? .bak3 : .bak2)
+                try FileManager.default.removeItem(at: slot)
+                try FileManager.default.createDirectory(at: slot, withIntermediateDirectories: false)
+                try Data("x".utf8).write(to: slot.appending(path: "x"))
+            case .lockedBak1:
+                #expect(chflags(bak1, UInt32(UF_IMMUTABLE)) == 0)
             }
-            #expect(url.layout.contents().book == (try encoded(draft(9))))
+            for number in [9, 10] {
+                let outcome = try package.save(draft(number))
+                guard case .saved(.previousVersionNotBackedUp) = outcome else {
+                    Issue.record("expected the previous version not backed up, got \(outcome)")
+                    return
+                }
+            }
+            let (book, backups) = layout.contents()
+            #expect(book == (try encoded(draft(10))))
+            for slot in BackupSlot.allCases {
+                let expected = try damage.survivors[slot.rawValue - 1].map { try encoded(draft($0)) }
+                #expect(backups[slot] == expected, "\(slot)")
+            }
             #expect(try temporaryFiles(in: url).isEmpty)
         }
     }
