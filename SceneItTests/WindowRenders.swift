@@ -32,7 +32,8 @@ struct WindowRenders {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withSampleBook { book, preferences in
-            let window = { (mode: WindowMode) in BookWindow(book: book, preferences: preferences, mode: mode)
+            let window = { (mode: WindowMode) in
+                BookWindow(book: book, preferences: preferences, mode: .constant(mode))
             }
             try Self.write(
                 try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",

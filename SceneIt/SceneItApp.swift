@@ -10,7 +10,7 @@ struct SceneItApp: App {
         Window(StoreWording.windowTitle, id: "main") {
             MainWindow(books: .shared)
         }
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(WindowMetrics.defaultSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             BookCommands(books: .shared)

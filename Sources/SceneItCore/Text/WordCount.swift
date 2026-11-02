@@ -1,8 +1,7 @@
-import Foundation
-
-/// How many words some text has. A word is what Foundation's word enumeration yields
-/// (`String.EnumerationOptions.byWords`, Unicode word boundaries): runs of spaces and
-/// punctuation aren't words, "don't" and "1,409" are one word each, and "well-known" is two.
+/// How many words some text has, counted as Microsoft Word counts them (the owner's decision):
+/// a word is a maximal run of non-whitespace characters, except that a run of punctuation alone
+/// (a standalone `--`, `...` or `-`) isn't a word. So "well-known", "dawn--and", "don't" and
+/// "“Quoted,”" are one word each.
 public struct WordCount: Hashable, Comparable, Sendable {
     public let words: Int
 
@@ -14,15 +13,35 @@ public struct WordCount: Hashable, Comparable, Sendable {
 
     /// Paragraph breaks always separate words.
     public init(_ paragraphs: [Paragraph]) {
-        words = paragraphs.reduce(0) { total, paragraph in total + Self.count(paragraph.text) }
+        var words = 0
+        for paragraph in paragraphs {
+            var inRun = false
+            var runHasWordCharacter = false
+            for run in paragraph.runs {
+                for scalar in run.text.unicodeScalars {
+                    if scalar.properties.isWhitespace {
+                        if inRun, runHasWordCharacter { words += 1 }
+                        inRun = false
+                        runHasWordCharacter = false
+                    } else {
+                        inRun = true
+                        runHasWordCharacter = runHasWordCharacter || !Self.isPunctuation(scalar)
+                    }
+                }
+            }
+            if inRun, runHasWordCharacter { words += 1 }
+        }
+        self.words = words
     }
 
-    private static func count(_ text: String) -> Int {
-        var count = 0
-        text.enumerateSubstrings(in: text.startIndex..., options: [.byWords, .substringNotRequired]) {
-            _, _, _, _ in count += 1
+    private static func isPunctuation(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+            .initialPunctuation, .finalPunctuation, .otherPunctuation:
+            true
+        default:
+            false
         }
-        return count
     }
 
     public static func + (lhs: WordCount, rhs: WordCount) -> WordCount {
@@ -41,9 +60,31 @@ extension BookScene {
     }
 }
 
-extension Book {
+/// Each scene's word count, kept by `OpenBook` so an edit recounts only the scene whose body
+/// changed, never the whole book.
+public struct SceneWordCounts: Hashable, Sendable {
+    private var counts: [SceneID: WordCount]
+    /// How many scenes have been counted, for tests that prove an edit didn't recount.
+    private(set) var countsMade = 0
+
+    public init(_ book: Book) {
+        counts = [:]
+        for scene in book.scenes + book.boneyard { recount(scene) }
+    }
+
+    /// Counts `scene` again, after its body changed or it was added.
+    public mutating func recount(_ scene: BookScene) {
+        counts[scene.id] = scene.wordCount
+        countsMade += 1
+    }
+
+    public subscript(_ scene: SceneID) -> WordCount {
+        counts[scene] ?? .zero
+    }
+
     /// The manuscript's words: every scene in the story, and none in the Boneyard (PLAN §7.3).
-    public var manuscriptWordCount: WordCount {
-        scenes.reduce(.zero) { $0 + $1.wordCount }
+    /// Summed from the counts, so reordering or cutting scenes needs no recount.
+    public func manuscript(of book: Book) -> WordCount {
+        book.scenes.reduce(.zero) { $0 + self[$1.id] }
     }
 }

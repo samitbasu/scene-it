@@ -23,6 +23,14 @@ public struct Book: Hashable, Sendable {
     }
 }
 
+extension Book {
+    /// The scene with this id, in the story or the Boneyard.
+    public func scene(_ id: SceneID?) -> BookScene? {
+        guard let id else { return nil }
+        return scenes.first { $0.id == id } ?? boneyard.first { $0.id == id }
+    }
+}
+
 public enum BookFormat {
     public static let current = 1
 }

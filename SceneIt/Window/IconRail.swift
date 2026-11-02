@@ -10,7 +10,7 @@ struct IconRail: View {
         VStack(spacing: 6) {
             currentScene
             Divider()
-                .frame(width: 28)
+                .frame(width: WindowMetrics.railDividerWidth)
                 .padding(.vertical, 4)
             ForEach(WindowMode.allCases.filter(\.isSheet), id: \.self) { sheet in
                 RailButton(item: sheet, mode: $mode, badge: nil)
@@ -23,7 +23,7 @@ struct IconRail: View {
     }
 
     private var currentScene: some View {
-        let mark = CurrentSceneMark(SceneLocation(of: book.openScene, in: book.book))
+        let mark = CurrentSceneMark(book.location)
         let badge: String? =
             switch mark {
             case .badge(let text): text
@@ -31,7 +31,7 @@ struct IconRail: View {
             }
         return RailButton(item: .page, mode: $mode, badge: badge)
             .disabled(mark == .unavailable)
-            .help(WindowWording.currentSceneTooltip(book: book.book, openScene: book.openScene))
+            .help(WindowWording.currentSceneTooltip(book.location))
     }
 }
 
@@ -48,10 +48,10 @@ private struct RailButton: View {
         } label: {
             Image(systemName: Self.symbol(for: item))
                 .font(.system(size: 17))
-                .frame(width: 40, height: 40)
+                .frame(width: WindowMetrics.railButtonSize, height: WindowMetrics.railButtonSize)
                 .foregroundStyle(highlighted ? Color.accentColor : .secondary)
                 .background(
-                    RoundedRectangle(cornerRadius: 9)
+                    RoundedRectangle(cornerRadius: WindowMetrics.railButtonCornerRadius)
                         .fill(highlighted ? Color.accentColor.opacity(0.12) : .clear)
                 )
                 .overlay(alignment: .bottomTrailing) {

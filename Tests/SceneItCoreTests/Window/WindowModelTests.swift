@@ -23,13 +23,21 @@ private func sampleBook() throws -> Book {
     @Test(arguments: [
         ("", 0),
         ("   ", 0),
+        ("--", 0),
+        ("...", 0),
+        ("-", 0),
         ("— . , ! ?", 0),
         ("The ferry left at dawn.", 5),
         ("don't", 1),
         ("1,409 words", 2),
-        ("well-known", 2),
-        ("dawn—and", 2),
+        ("well-known", 1),
+        ("dawn--and", 1),
+        ("dawn—and", 1),
+        ("dawn -- and", 2),
+        ("She paused ... then went on.", 5),
         ("“Quoted,” she said.", 3),
+        ("(aside)", 1),
+        ("one    two\tthree", 3),
         ("  leading and trailing  ", 3),
     ])
     func wordsInOneParagraph(text: String, words: Int) {
@@ -38,20 +46,39 @@ private func sampleBook() throws -> Book {
 
     @Test func runsJoinWithinAParagraph() {
         #expect(WordCount([[Run("Hel", styles: [.bold]), Run("lo there")]]).words == 2)
+        #expect(WordCount([[Run("--"), Run("x")]]).words == 1, "punctuation joined to a word is part of it")
     }
 
     @Test func paragraphBreaksSeparateWords() {
-        let joined = "endstart"
-        #expect(WordCount([[Run(joined)]]).words == 1, "precondition: joined, it's one word")
+        #expect(WordCount([[Run("endstart")]]).words == 1, "precondition: joined, it's one word")
         #expect(WordCount([[Run("end")], [Run("start")]]).words == 2)
         #expect(WordCount([[Run("one")], [], [Run("two")]]).words == 2)
     }
 
-    @Test func theManuscriptCountsStoryBodiesOnly() throws {
+    @Test func theTitleIsNotCounted() throws {
+        #expect(try sampleBook().scenes[0].wordCount.words == 8)
+    }
+}
+
+@Suite struct SceneWordCountsTests {
+    @Test func theManuscriptIsTheStoryAndNotTheBoneyard() throws {
         let book = try sampleBook()
-        #expect(book.scenes[0].wordCount.words == 8, "the title isn't counted")
-        #expect(book.boneyard[0].wordCount.words == 6)
-        #expect(book.manuscriptWordCount.words == 9, "the Boneyard isn't counted")
+        let counts = SceneWordCounts(book)
+        #expect(counts[SceneID(rawValue: "b1")].words == 6)
+        #expect(counts.manuscript(of: book).words == 9)
+    }
+
+    @Test func reorderingAndCuttingNeedNoRecount() throws {
+        var book = try sampleBook()
+        let counts = SceneWordCounts(book)
+        let made = counts.countsMade
+        book.scenes.reverse()
+        #expect(counts.manuscript(of: book).words == 9)
+        book.boneyard.insert(book.scenes.removeFirst(), at: 0)
+        #expect(counts.manuscript(of: book).words == 8, "cutting s2 (1 word) leaves s1")
+        book.scenes.append(book.boneyard.removeLast())
+        #expect(counts.manuscript(of: book).words == 14, "restoring b1 (6 words)")
+        #expect(counts.countsMade == made)
     }
 }
 
@@ -59,15 +86,18 @@ private func sampleBook() throws -> Book {
     @Test func locations() throws {
         let book = try sampleBook()
         #expect(SceneLocation(of: nil, in: book) == .noScene)
-        #expect(SceneLocation(of: SceneID(rawValue: "s1"), in: book) == .story(number: 1, of: 2))
-        #expect(SceneLocation(of: SceneID(rawValue: "s2"), in: book) == .story(number: 2, of: 2))
-        #expect(SceneLocation(of: SceneID(rawValue: "b1"), in: book) == .boneyard)
+        #expect(
+            SceneLocation(of: SceneID(rawValue: "s1"), in: book) == .story(book.scenes[0], number: 1, of: 2))
+        #expect(
+            SceneLocation(of: SceneID(rawValue: "s2"), in: book) == .story(book.scenes[1], number: 2, of: 2))
+        #expect(SceneLocation(of: SceneID(rawValue: "b1"), in: book) == .boneyard(book.boneyard[0]))
         #expect(SceneLocation(of: SceneID(rawValue: "deleted"), in: book) == .noScene)
     }
 
-    @Test func theCurrentSceneMarkIsTheNumberOrBOrGrayedWithNoBadge() {
-        #expect(CurrentSceneMark(.story(number: 12, of: 24)) == .badge("12"))
-        #expect(CurrentSceneMark(.boneyard) == .badge("B"))
+    @Test func theCurrentSceneMarkIsTheNumberOrBOrGrayedWithNoBadge() throws {
+        let book = try sampleBook()
+        #expect(CurrentSceneMark(.story(book.scenes[0], number: 12, of: 24)) == .badge("12"))
+        #expect(CurrentSceneMark(.boneyard(book.boneyard[0])) == .badge("B"))
         #expect(CurrentSceneMark(.noScene) == .unavailable)
     }
 }
@@ -101,46 +131,35 @@ private func sampleBook() throws -> Book {
 }
 
 @Suite struct WindowWordingTests {
+    private func location(_ id: String?, in book: Book) -> SceneLocation {
+        SceneLocation(of: id.map(SceneID.init(rawValue:)), in: book)
+    }
+
     @Test func breadcrumb() throws {
         let book = try sampleBook()
-        #expect(
-            WindowWording.breadcrumb(book: book, openScene: SceneID(rawValue: "s1")) == [
-                "My Novel", "1. The ferry",
-            ])
-        #expect(
-            WindowWording.breadcrumb(book: book, openScene: SceneID(rawValue: "s2")) == [
-                "My Novel", "2. Untitled scene",
-            ]
-        )
-        #expect(
-            WindowWording.breadcrumb(book: book, openScene: SceneID(rawValue: "b1")) == [
-                "My Novel", "Boneyard", "The brother",
-            ])
-        #expect(WindowWording.breadcrumb(book: book, openScene: nil) == ["My Novel"])
+        let crumb = { WindowWording.breadcrumb(bookTitle: book.title, location($0, in: book)) }
+        #expect(crumb("s1") == ["My Novel", "1. The ferry"])
+        #expect(crumb("s2") == ["My Novel", "2. Untitled scene"])
+        #expect(crumb("b1") == ["My Novel", "Boneyard", "The brother"])
+        #expect(crumb(nil) == ["My Novel"])
     }
 
     @Test func statusParts() throws {
         let book = try sampleBook()
-        #expect(
-            WindowWording.statusParts(book: book, openScene: SceneID(rawValue: "s1")) == [
-                "Scene 1 of 2 · 8 words", "Book · 9 words",
-            ])
-        #expect(
-            WindowWording.statusParts(book: book, openScene: SceneID(rawValue: "s2")) == [
-                "Scene 2 of 2 · 1 word", "Book · 9 words",
-            ])
-        #expect(
-            WindowWording.statusParts(book: book, openScene: SceneID(rawValue: "b1")) == [
-                "In the Boneyard (not in the manuscript)", "Book · 9 words",
-            ])
-        #expect(WindowWording.statusParts(book: book, openScene: nil) == ["Book · 9 words"])
+        let parts = { (id: String?, scene: Int) in
+            WindowWording.statusParts(
+                location(id, in: book), sceneWords: WordCount(words: scene), bookWords: WordCount(words: 409))
+        }
+        #expect(parts("s1", 8) == ["Scene 1 of 2 · 8 words", "Book · 409 words"])
+        #expect(parts("s2", 1) == ["Scene 2 of 2 · 1 word", "Book · 409 words"])
+        #expect(parts("b1", 6) == ["In the Boneyard (not in the manuscript)", "Book · 409 words"])
+        #expect(parts(nil, 0) == ["Book · 409 words"])
     }
 
     @Test func tooltips() throws {
         let book = try sampleBook()
-        #expect(
-            WindowWording.currentSceneTooltip(book: book, openScene: SceneID(rawValue: "s1"))
-                == "Scene 1: The ferry")
-        #expect(WindowWording.currentSceneTooltip(book: book, openScene: nil) == "No scene open")
+        #expect(WindowWording.currentSceneTooltip(location("s1", in: book)) == "Scene 1: The ferry")
+        #expect(WindowWording.currentSceneTooltip(location("b1", in: book)) == "Boneyard: The brother")
+        #expect(WindowWording.currentSceneTooltip(.noScene) == "No scene open")
     }
 }

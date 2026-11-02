@@ -6,7 +6,7 @@ import SwiftUI
 struct EditorArea: View {
     let book: AppOpenBook
     var body: some View {
-        let scene = book.book.scene(book.openScene)
+        let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 FormattingBarStandIn()
@@ -35,7 +35,7 @@ struct EditorArea: View {
                                 SceneTitleField(book: book, scene: scene.id)
                                     .frame(width: WindowMetrics.pageSize.width)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
+                                    .padding(.vertical, WindowMetrics.titleStripPadding)
                                 Divider()
                             }
                             .background(.background)
@@ -75,8 +75,8 @@ struct SceneTitleField: View {
             Text(label)
                 .foregroundStyle(.secondary)
                 .fixedSize()
-                .frame(width: WindowMetrics.pageMargin - 10, alignment: .trailing)
-                .padding(.trailing, 10)
+                .frame(width: WindowMetrics.pageMargin - WindowMetrics.titleLabelGap, alignment: .trailing)
+                .padding(.trailing, WindowMetrics.titleLabelGap)
             TextField(label, text: text, prompt: Text(WindowWording.untitledScene))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
@@ -110,19 +110,30 @@ private struct FormattingBarStandIn: View {
 private struct TemporaryBodyEditor: View {
     let book: AppOpenBook
     let scene: BookScene
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         if PlainBody.isPlain(scene) {
-            TextEditor(
-                text: Binding(
-                    get: { PlainBody.text(scene.body) },
-                    set: { book.replaceBody(of: scene.id, with: PlainBody.paragraphs($0)) })
-            )
-            .font(.custom("Times New Roman", size: 12))
-            .lineSpacing(12)
-            .scrollContentBackground(.hidden)
-            .foregroundStyle(.black)
-            .disabled(!book.isEditable)
+            // TextEditor stays editable when disabled, so a read-only book, or a page under a
+            // sheet, shows the text instead.
+            if isEnabled && book.isEditable {
+                TextEditor(
+                    text: Binding(
+                        get: { PlainBody.text(scene.body) },
+                        set: { book.replaceBody(of: scene.id, with: PlainBody.paragraphs($0)) })
+                )
+                .font(.custom("Times New Roman", size: 12))
+                .lineSpacing(12)
+                .scrollContentBackground(.hidden)
+                .foregroundStyle(.black)
+            } else {
+                Text(PlainBody.text(scene.body))
+                    .font(.custom("Times New Roman", size: 12))
+                    .lineSpacing(12)
+                    .foregroundStyle(.black)
+                    .padding(.leading, 5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         } else {
             Text(WindowWording.formattedSceneNotEditable)
                 .foregroundStyle(.secondary)

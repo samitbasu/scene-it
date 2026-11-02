@@ -91,7 +91,7 @@ See `mockups/screenshots/01-main-window.png`.
 
 ### 4.4 Right panel (290 pt, collapsible)
 - **Tabs:** **Comments | Notes | Tags**, plus a collapse control ». When collapsed, the panel becomes a thin strip with «. Cmd+] toggles it.
-- **Saved state:** the open/closed state and the selected tab are saved in `settings`.
+- **Saved state:** the open/closed state and the selected tab are app-wide preferences, kept in UserDefaults, not in the book (ADR 0022).
 
 ### 4.5 Status bar
 "Scene n of N · words", "Book · words", and then "Saved" / "Unsaved changes" / "Read only". For a Boneyard scene: "In the Boneyard (not in the manuscript)".

@@ -1,23 +1,5 @@
-public enum RightPanelTab: String, StrictStringEnum {
-    case comments, notes, tags
-}
-
 public enum ScenesView: String, StrictStringEnum {
     case cards, lightTable
-}
-
-/// `rightPanelOpen` in `book.json`.
-public enum PanelVisibility: Hashable, Sendable, Codable {
-    case open, closed
-
-    public init(from decoder: any Decoder) throws {
-        self = try decoder.singleValueContainer().decode(Bool.self) ? .open : .closed
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(self == .open)
-    }
 }
 
 public struct BookSettings: Hashable, Sendable, Encodable {

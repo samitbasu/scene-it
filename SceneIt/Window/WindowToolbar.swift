@@ -23,7 +23,6 @@ struct WindowToolbar: ToolbarContent {
             ControlGroup {
                 Button(WindowWording.zoomOut, systemImage: "minus") {}
                     .disabled(true)
-                // #16 keeps the zoom in AppPreferences (ADR 0022).
                 Text(WindowWording.zoom(.standard))
                     .monospacedDigit()
                     .frame(minWidth: 44)
@@ -57,7 +56,7 @@ private struct Breadcrumb: View {
     let book: AppOpenBook
 
     var body: some View {
-        let parts = WindowWording.breadcrumb(book: book.book, openScene: book.openScene)
+        let parts = WindowWording.breadcrumb(bookTitle: book.book.title, book.location)
         HStack(spacing: 6) {
             ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                 if index > 0 {

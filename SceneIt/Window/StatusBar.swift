@@ -6,7 +6,10 @@ struct StatusBar: View {
     let book: AppOpenBook
 
     var body: some View {
-        let parts = WindowWording.statusParts(book: book.book, openScene: book.openScene)
+        let location = book.location
+        let parts = WindowWording.statusParts(
+            location, sceneWords: location.scene.map { book.wordCounts[$0.id] } ?? .zero,
+            bookWords: book.manuscriptWordCount)
         HStack(spacing: 14) {
             ForEach(parts, id: \.self) { Text($0) }
             Spacer()

@@ -8,13 +8,7 @@ typealias AppOpenBook = OpenBook<ContinuousClock>
 struct BookWindow: View {
     let book: AppOpenBook
     let preferences: AppPreferences
-    @State private var mode: WindowMode
-
-    init(book: AppOpenBook, preferences: AppPreferences, mode: WindowMode = .page) {
-        self.book = book
-        self.preferences = preferences
-        _mode = State(initialValue: mode)
-    }
+    @Binding var mode: WindowMode
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,11 +16,14 @@ struct BookWindow: View {
                 IconRail(book: book, mode: $mode)
                 Divider()
                 ZStack {
+                    // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
                         EditorArea(book: book)
                         Divider()
                         RightPanel(preferences: preferences)
                     }
+                    .disabled(mode.isSheet)
+                    .accessibilityHidden(mode.isSheet)
                     if mode.isSheet {
                         SheetPlaceholder(book: book, mode: $mode)
                     }

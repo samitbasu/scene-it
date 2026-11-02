@@ -491,7 +491,20 @@ choices keep illegal combinations out:
   so the window reads it instead of storing it again.
 
 The rail badge, the breadcrumb and the status bar all show where the open scene is. They read
-one value, `SceneLocation`, so they can't disagree.
+one value, `SceneLocation`, which carries the open scene itself, so they can't disagree.
+
+**Word counts match Microsoft Word** (the owner's decision): a word is a maximal run of
+non-whitespace characters, and a run of punctuation alone (`--`, `...`) isn't one. So
+"well-known" and "dawn--and" are one word each. Counting is per scene and cached in `OpenBook`
+(`SceneWordCounts`): an edit recounts only the scene whose *body* changed, and the book's total
+is a sum over the cache. A view body runs on the main actor on every change it observes, so
+recounting a 120,000-word book there (about 290 ms) on each keystroke would stall typing. Caching
+per scene exploits an invariant: an edit touches one scene. Reordering or cutting scenes needs
+no recount at all, because the total sums the counts of whatever scenes the story now holds.
+
+While a sheet is open, the page and panel under it are `.disabled`, and the sheet takes the
+keyboard focus (a small `NSViewRepresentable` that makes itself first responder), so keystrokes
+and Tab can't reach the hidden editors. A hosted test checks the first responder.
 
 Menus reach the window's state through **focused values**: `BookWindow` publishes a binding with
 `.focusedSceneValue(\.windowMode, $mode)`, and `WindowCommands` reads it with

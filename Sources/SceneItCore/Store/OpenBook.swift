@@ -12,6 +12,8 @@ import Observation
 public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public let layout: PackageLayout
     public private(set) var book: Book
+    /// Kept in step with `book` by every edit, so the status bar never recounts the book.
+    public private(set) var wordCounts: SceneWordCounts
     public private(set) var openScene: SceneID?
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
@@ -36,6 +38,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     init(_ opened: OpenedBook, clock: C, mirror: BackupMirror, store: BookStore<C>) {
         self.store = store
         book = opened.book
+        wordCounts = SceneWordCounts(opened.book)
         access = .closed
         switch opened {
         case .editing(let editable):
@@ -96,6 +99,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let new = BookScene(id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "")
         let index = scene.flatMap { id in book.scenes.firstIndex { $0.id == id } }.map { $0 + 1 }
         book.scenes.insert(new, at: index ?? book.scenes.endIndex)
+        wordCounts.recount(new)
         driver.send(.edited)
         select(new.id)
         return new.id
@@ -115,7 +119,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             change(&scene)
             guard scene != book[keyPath: list][index] else { return }
             scene.modified = Timestamp(.now, in: .current)
+            let bodyChanged = scene.body != book[keyPath: list][index].body
             book[keyPath: list][index] = scene
+            if bodyChanged { wordCounts.recount(scene) }
             driver.send(.edited)
             return
         }
@@ -198,5 +204,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     func detach() -> BookWriter? {
         defer { access = .closed }
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
+    }
+}
+
+extension OpenBook {
+    public var location: SceneLocation {
+        SceneLocation(of: openScene, in: book)
+    }
+
+    /// The manuscript's words, from the per-scene counts.
+    public var manuscriptWordCount: WordCount {
+        wordCounts.manuscript(of: book)
     }
 }

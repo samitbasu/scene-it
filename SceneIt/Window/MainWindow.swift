@@ -10,13 +10,24 @@ struct MainWindow: View {
             if let book = books.store.current {
                 // A new identity per book, so window state such as an open sheet never
                 // outlives the book it was opened over.
-                BookWindow(book: book, preferences: books.preferences)
-                    .id(ObjectIdentifier(book))
+                OpenBookWindow(book: book, preferences: books.preferences)
+                    .id(book.layout.root)
             } else {
                 StartView(books: books)
             }
         }
-        .frame(minWidth: 1040, minHeight: 640)
+        .frame(minWidth: WindowMetrics.minimumSize.width, minHeight: WindowMetrics.minimumSize.height)
+    }
+}
+
+/// Owns the window's mode for one open book.
+private struct OpenBookWindow: View {
+    let book: AppOpenBook
+    let preferences: AppPreferences
+    @State private var mode = WindowMode.page
+
+    var body: some View {
+        BookWindow(book: book, preferences: preferences, mode: $mode)
     }
 }
 

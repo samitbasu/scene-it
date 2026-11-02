@@ -8,7 +8,7 @@ import Observation
 public final class AppPreferences {
     public private(set) var rightPanel: PanelVisibility
     public private(set) var rightPanelTab: RightPanelTab
-    @ObservationIgnored private let storage: any PreferenceStorage
+    @ObservationIgnored public let storage: any PreferenceStorage
 
     /// A value missing from `storage`, or one this version doesn't know, is the default.
     public init(_ storage: any PreferenceStorage) {
@@ -36,6 +36,26 @@ public final class AppPreferences {
     enum Key {
         static let rightPanelOpen = "rightPanelOpen"
         static let rightPanelTab = "rightPanelTab"
+    }
+}
+
+/// The right panel's tabs, left to right.
+public enum RightPanelTab: String, StrictStringEnum {
+    case comments, notes, tags
+}
+
+/// Whether the right panel is open. Format 1's `book.json` also stores it, as the Boolean
+/// `rightPanelOpen`, which the window no longer reads (ADR 0022).
+public enum PanelVisibility: Hashable, Sendable, Codable {
+    case open, closed
+
+    public init(from decoder: any Decoder) throws {
+        self = try decoder.singleValueContainer().decode(Bool.self) ? .open : .closed
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self == .open)
     }
 }
 
