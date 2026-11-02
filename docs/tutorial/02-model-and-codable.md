@@ -164,7 +164,6 @@ serde's `rename_all = "lowercase"` for free. The palette in
 ```swift
 public enum PaletteColor: String, StrictStringEnum {
     case black, purple, red, blue, green, gray, pink
-}
 ```
 
 A run's color has no `black`, because on the page black is the absence of a color
@@ -183,6 +182,8 @@ and a failable conversion from the palette sends black to `nil`:
 saying `"color": "black"` loads as "no color", and the next save drops the
 attribute. That's the one place decoding normalizes instead of rejecting.
 Comments keep `PaletteColor`, because black is one of their seven swatches.
+The inverse, `PaletteColor.init(_: TextColor?)`, is total: `nil` becomes `.black`.
+The text editor uses it to pick a run's display color ([chapter 06](06-attributed-strings.md)).
 
 `StrictStringEnum` replaces the standard library's `init(from:)` with one that
 names the valid values. A default implementation in a protocol extension wins over

@@ -11,7 +11,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 03 | Saving safely: the `.sceneit` package, verify-then-atomic-write, backup rotation | planned, lands with #8 |
 | 04 | SwiftUI and Observation: the main window, `@Observable` `BookStore`, how views track state | planned, lands with #13 |
 | 05 | AppKit interop and TextKit 2: `NSViewRepresentable`, `ManuscriptTextView` | planned, lands with #15 |
-| 06 | Attributed strings and the `RunCodec`: `NovelAttributes`, runs to `NSAttributedString` and back | planned, lands with #14 |
+| 06 | [Attributed strings and the `RunCodec`](06-attributed-strings.md): `NovelAttributes`, runs to `NSAttributedString` and back | written |
 | 07 | Undo: `UndoManager`, text undo versus structural undo | planned, lands with #16 |
 | 08 | The search engine: the `SearchIndex` protocol and `KeywordSearch` | planned, lands with #30 |
 | 09 | Printing and export: `NSPrintOperation`, Word export | planned, lands with #35 |
