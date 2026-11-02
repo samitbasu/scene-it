@@ -275,7 +275,7 @@ with the quit alert's choices (Retry / Cancel / Close Anyway). The order matters
         let book = OpenBook(opened, clock: clock, mirror: mirror, store: self)
         if settled == .saved { settled = await settleCurrent(before: .closeBook) }
         guard settled != .stay else {
-            await book.close()
+            await book.detach()?.release()
             return .stayed
         }
         await replaceCurrent(with: book, after: settled)
@@ -377,6 +377,7 @@ is closed in the same main-actor turn as the comparison that finds them equal:
             if book.book == mine { break }
             pass += 1
         }
+        let writer = book.detach()
         current = nil
 ```
 
@@ -389,6 +390,12 @@ The same care applies to Close Anyway. When the writer leaves without saving, a 
 stuck on a failing disk. The store doesn't `await` that book's release, which waits for the
 save: it would hold every later operation, quitting included. It starts the release in the
 background instead.
+
+Every path that lets go of a book does it in two steps: `OpenBook.detach()`, which is
+synchronous and makes the book refuse edits from then on, then the (asynchronous) release of
+the writer it returns. The detach always happens in the same main-actor turn as `current`
+changing. A text field's setter can still fire on the old book before SwiftUI redraws, and
+an `await` between the two would let that edit land in a book nobody saves.
 
 ## 6. The app side
 

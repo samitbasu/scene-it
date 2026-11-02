@@ -160,6 +160,34 @@ struct StoreRaceTests {
         }
     }
 
+    /// An editor's setter can still fire on the old book after the store let go of it, before
+    /// SwiftUI redraws. The old book must already refuse it, or the edit lands nowhere.
+    @Test func typingAfterTheFinalCheckIsRefused() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let (store, book, scene, _) = try await changedBook(
+                in: folder, prompts: prompts, fileSystem: fileSystem)
+            book.replaceBody(of: scene, with: [[Run("Mine")]])
+            let lateTyping = Task { @MainActor in
+                while store.current === book { await Task.yield() }
+                let before = book.book
+                book.replaceBody(of: scene, with: [[Run("Typed after the final check")]])
+                return (accepted: book.book != before, editable: book.isEditable)
+            }
+            store.saveNow()
+            let late = await lateTyping.value
+            await eventually { store.current != nil }
+
+            #expect(!late.accepted)
+            #expect(!late.editable)
+            #expect(book.status == .closed)
+            let copy = try bookOnDisk(folder.appending(path: copyName))
+            #expect(copy == book.book)
+            #expect(copy.scenes.first?.body == [[Run("Mine")]])
+        }
+    }
+
     // MARK: S3: when the original can't be read, the copy is opened
 
     @Test func whenTheOriginalIsNotAFileMyVersionIsOpened() async throws {

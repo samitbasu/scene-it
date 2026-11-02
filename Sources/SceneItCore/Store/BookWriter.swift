@@ -34,10 +34,12 @@ final class BookWriter: Sendable {
     }
 
     let layout: PackageLayout
+    private let fileSystem: any FileSystem
     private let held: Mutex<Held?>
 
     init(_ package: BookPackage, mirror: BackupMirror) {
         layout = package.layout
+        fileSystem = package.fileSystem
         held = Mutex(Held(package: package, keeper: BackupKeeper(package: package, mirror: mirror)))
     }
 
@@ -99,11 +101,23 @@ final class BookWriter: Sendable {
     func discardCopy() async {
         await release()
         do {
-            try FileManager.default.removeItem(at: layout.root)
+            try Self.removeTree(layout.root, fileSystem)
         } catch {
-            Log.store.error(
-                "couldn't remove an unfinished copy of a book", ["error": .error(LoggedError(error))])
+            Log.store.error("couldn't remove an unfinished copy of a book", error.logMetadata)
         }
+    }
+
+    /// Removes `directory` and everything in it, never following a link out of it.
+    private static func removeTree(_ directory: URL, _ fileSystem: any FileSystem) throws(FileSystemError) {
+        for entry in try fileSystem.contents(of: directory) {
+            let url = directory.appending(path: entry.name)
+            if entry.kind == .directory {
+                try removeTree(url, fileSystem)
+            } else {
+                try fileSystem.remove(url)
+            }
+        }
+        try fileSystem.removeDirectory(directory)
     }
 
     private static let maximumCopyAttempts = 100

@@ -193,25 +193,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         autosave?.send(.appDeactivated)
     }
 
-    /// Drops the driver and releases the package, off the main actor, once any running save ends.
-    func close() async {
-        let writer = detach()
-        await writer?.release()
-    }
-
-    /// After the writer chose to leave without saving: a save may be stuck, so nothing waits
-    /// for the release, which happens once that save ends.
-    func closeInBackground() {
-        guard let writer = detach() else { return }
-        Task { await writer.release() }
-    }
-
-    /// For termination: releases the package now unless a save is still running.
-    func closeImmediately() {
-        detach()?.releaseUnlessSaving()
-    }
-
-    private func detach() -> BookWriter? {
+    /// Closes the book at once, synchronously: from here on it refuses every edit, and its
+    /// driver is dropped. The caller releases the returned writer (`BookStore.release`).
+    func detach() -> BookWriter? {
         defer { access = .closed }
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
     }

@@ -162,6 +162,12 @@ public struct LocalFileSystem: FileSystem {
         }
     }
 
+    public func removeDirectory(_ directory: URL) throws(FileSystemError) {
+        guard (directory.withUnsafeFileSystemRepresentation { rmdir($0!) }) == 0 else {
+            throw FileSystemError(.remove, directory, .init(errno: errno))
+        }
+    }
+
     /// The file number is the inode; `st_dev` isn't used because it can change between mounts.
     /// Both `stat` and the resource lookup follow a link, so both describe the same target.
     /// The lookup uses a fresh `URL`, because Foundation caches resource values on a `URL`.

@@ -67,16 +67,16 @@ public final class BookStore<C: Clock<Duration>> {
     /// (ADR 0021): the first is opened, and the rest go to Recent Books, which the writer is told.
     public func open(_ books: [URL]) async {
         guard let first = books.first else { return }
-        let outcome = await open(first)
-        let others = Array(books.dropFirst())
-        guard !others.isEmpty else { return }
-        Log.store.info("asked to open several books; opened the first", ["count": .count(books.count)])
-        let isOpen: Bool =
-            switch outcome {
-            case .opened, .openedReadOnly, .alreadyOpen: true
-            case .failed, .stayed: false
-            }
         await exclusively {
+            let outcome = await openExclusively(first, onLockRecord: .respect)
+            let others = Array(books.dropFirst())
+            guard !others.isEmpty else { return }
+            Log.store.info("asked to open several books; opened the first", ["count": .count(books.count)])
+            let isOpen: Bool =
+                switch outcome {
+                case .opened, .openedReadOnly, .alreadyOpen: true
+                case .failed, .stayed: false
+                }
             for book in others.reversed() { remember(book) }
             if isOpen { remember(first) }
             await prompts.tell(
@@ -170,7 +170,7 @@ public final class BookStore<C: Clock<Duration>> {
         let book = OpenBook(opened, clock: clock, mirror: mirror, store: self)
         if settled == .saved { settled = await settleCurrent(before: .closeBook) }
         guard settled != .stay else {
-            await book.close()
+            await book.detach()?.release()
             return .stayed
         }
         await replaceCurrent(with: book, after: settled)
@@ -252,12 +252,13 @@ public final class BookStore<C: Clock<Duration>> {
             if book.book == mine { break }
             pass += 1
         }
+        let writer = book.detach()
         current = nil
         Log.store.info("saved my version of a changed book as a separate book", ["passes": .count(pass)])
         let copyURL = copy.layout.root
         remember(copyURL)
         await copy.release()
-        await book.close()
+        await writer?.release()
         if case .externallyModified(.notAFile) = error {
             forget(original)
             if case .opened = await openExclusively(copyURL, onLockRecord: .respect) {
@@ -297,12 +298,14 @@ public final class BookStore<C: Clock<Duration>> {
             case .stay:
                 return .stayed
             case .saved:
+                let writer = book.detach()
                 current = nil
-                await book.close()
+                await writer?.release()
                 return .left
             case .discarding:
+                let writer = book.detach()
                 current = nil
-                book.closeImmediately()
+                writer?.releaseUnlessSaving()
                 return .left
             }
         }
@@ -310,7 +313,7 @@ public final class BookStore<C: Clock<Duration>> {
 
     /// `applicationWillTerminate`: releases the book's lock now, unless a save is still running.
     public func closeForTermination() {
-        current?.closeImmediately()
+        current?.detach()?.releaseUnlessSaving()
         current = nil
     }
 
@@ -320,14 +323,17 @@ public final class BookStore<C: Clock<Duration>> {
         await current?.settle(before: leaving, asking: prompts) ?? .saved
     }
 
-    /// After the writer chose to discard edits, a save may be stuck, so the old book's release
-    /// isn't awaited: waiting here would hold every later operation, quitting included.
+    /// The old book is detached in this turn, so it refuses edits before anything else runs.
+    /// After the writer chose to discard edits, a save may be stuck, so its release isn't
+    /// awaited: waiting here would hold every later operation, quitting included.
     private func replaceCurrent(with book: OpenBook<C>?, after settled: OpenBook<C>.Settled) async {
-        let old = current
+        let old = current?.detach()
         current = book
         switch settled {
-        case .discarding: old?.closeInBackground()
-        case .saved, .stay: await old?.close()
+        case .discarding:
+            if let old { Task { await old.release() } }
+        case .saved, .stay:
+            await old?.release()
         }
     }
 
