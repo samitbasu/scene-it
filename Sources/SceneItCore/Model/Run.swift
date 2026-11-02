@@ -98,6 +98,11 @@ public struct Paragraph: Hashable, Sendable, Codable, ExpressibleByArrayLiteral 
         runs.map(\.text).joined()
     }
 
+    /// Every comment id the paragraphs' runs mention.
+    public static func commentIDs(in paragraphs: [Paragraph]) -> Set<CommentID> {
+        Set(paragraphs.lazy.flatMap(\.runs).flatMap(\.comments))
+    }
+
     public init(from decoder: any Decoder) throws {
         runs = try decoder.singleValueContainer().decode([Run].self)
     }

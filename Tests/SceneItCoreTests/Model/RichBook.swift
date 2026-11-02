@@ -13,7 +13,7 @@ enum RichBook {
         let ferry = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000001"),
             modified: try timestamp("2026-10-31T20:54:00-07:00"),
-            title: [Run("The ferry")],
+            title: "The ferry",
             tags: ["opening", "Mara"],
             body: [
                 [
@@ -42,12 +42,12 @@ enum RichBook {
         let station = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000002"),
             modified: try timestamp("2026-11-01T09:15:07+05:30"),
-            title: [Run("The "), Run("station", styles: [.italic])],
+            title: "The station",
             body: [[Run("Rain.")]])
         let cut = BookScene(
             id: SceneID(rawValue: "01JC4K00000000000000000003"),
             modified: try timestamp("2025-02-28T23:59:59+00:00"),
-            title: [Run("A cut scene")],
+            title: "A cut scene",
             tags: ["cut"],
             body: [[Run("Gone", highlight: .red, comments: [c3])]],
             comments: [

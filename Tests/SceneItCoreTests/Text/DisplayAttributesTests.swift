@@ -18,12 +18,12 @@ import Testing
             #expect(font.fontName == name)
             #expect(font.familyName == ParagraphRole.fontFamily)
             #expect(font.pointSize == 12)
-            #expect(role.styles(of: font) == styles.subtracting([.strike]))
+            #expect(TextStyle.styles(of: font) == styles)
         }
         #expect(role.font([.strike]) == role.font([]))
     }
 
-    @Test func theTitleIsBoldTimesNewRoman18() {
+    @Test func theOutputHeadingIsBoldTimesNewRoman18() {
         #expect(ParagraphRole.title.font([]).fontName == "TimesNewRomanPS-BoldMT")
         #expect(ParagraphRole.title.font([.italic]).fontName == "TimesNewRomanPS-BoldItalicMT")
         #expect(ParagraphRole.title.font([]).pointSize == 18)
@@ -38,18 +38,15 @@ import Testing
         }
     }
 
-    @Test func loadingAppliesEachParagraphsRoleIncludingItsBreak() throws {
-        let text = RunCodec.attributedString(for: ScenePage(title: [Run("T")], body: [[Run("b")], []]))
-        try #require(text.string == "T\nb\n")
-        let roles: [ParagraphRole] = [.title, .title, .body, .body]
-        for (offset, role) in roles.enumerated() {
+    @Test(arguments: [(Editor.body, ParagraphRole.body), (.notes, .notes)])
+    func loadingAppliesTheRoleIncludingToBreaks(editor: Editor, role: ParagraphRole) throws {
+        let text = editor.load([[Run("a")], [], [Run("b")]])
+        try #require(text.string == "a\n\nb")
+        for offset in 0..<text.length {
             let attributes = text.attributes(at: offset, effectiveRange: nil)
             #expect(attributes[.font] as? NSFont == role.font([]))
             #expect(attributes[.paragraphStyle] as? NSParagraphStyle == role.paragraphStyle)
         }
-        let notes = RunCodec.attributedString(forNotes: [[Run("n")]])
-        #expect(notes.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle == .default)
-        #expect(notes.attribute(.font, at: 0, effectiveRange: nil) as? NSFont == ParagraphRole.notes.font([]))
     }
 
     @Test func loadingSetsDisplayColorsAndPaletteNames() throws {

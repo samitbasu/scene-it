@@ -2,12 +2,15 @@ import AppKit
 
 /// How a paragraph is displayed (PLAN §6.1, §8.2). Display only: none of this is saved.
 public enum ParagraphRole: Hashable, Sendable, CaseIterable {
-    case title, body, notes
+    /// The 18 pt bold heading that print and export put above a scene, built from its
+    /// `SceneTitle`. The editors never use it: the title is edited in a plain field
+    /// (decision 0015).
+    case title
+    case body, notes
 
     public static let fontFamily = "Times New Roman"
 
-    /// Traits every run in the role has, which therefore aren't styles: a title's bold
-    /// is the heading's, so the title can't carry a separate bold style.
+    /// Traits every run in the role has, whatever its styles.
     public var baseTraits: NSFontDescriptor.SymbolicTraits {
         switch self {
         case .title: .bold
@@ -37,12 +40,6 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         return NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
     }
 
-    /// The styles `font`'s traits express beyond the role's own.
-    func styles(of font: NSFont) -> Set<TextStyle> {
-        let traits = font.fontDescriptor.symbolicTraits.subtracting(baseTraits)
-        return Set(TextStyle.allCases.filter { !$0.fontTrait.isEmpty && traits.contains($0.fontTrait) })
-    }
-
     /// The attributes of text in this role, for `typingAttributes` and paragraph breaks.
     @MainActor
     public var typingAttributes: [NSAttributedString.Key: Any] {
@@ -65,5 +62,11 @@ extension TextStyle {
         case .italic: .italic
         case .strike: []
         }
+    }
+
+    /// The styles `font`'s traits express, whatever its family.
+    static func styles(of font: NSFont) -> Set<TextStyle> {
+        let traits = font.fontDescriptor.symbolicTraits
+        return Set(allCases.filter { !$0.fontTrait.isEmpty && traits.contains($0.fontTrait) })
     }
 }

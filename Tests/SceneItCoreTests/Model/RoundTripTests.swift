@@ -12,7 +12,7 @@ import Testing
     @Test func richFixtureCoversEveryAttribute() throws {
         let book = try RichBook.make()
         let scenes = book.scenes + book.boneyard
-        let runs = scenes.flatMap { [$0.title] + $0.body + $0.notes }.flatMap(\.runs)
+        let runs = scenes.flatMap { $0.body + $0.notes }.flatMap(\.runs)
         #expect(Set(runs.flatMap(\.styles)) == Set(TextStyle.allCases))
         #expect(runs.contains { $0.color != nil })
         #expect(runs.contains { $0.highlight != nil })
@@ -68,7 +68,7 @@ import Testing
             scenes: [
                 BookScene(
                     id: SceneID(rawValue: "s"), modified: try timestamp("2026-01-01T00:00:00+00:00"),
-                    title: [Run("plain")])
+                    title: "plain")
             ])
         let json = String(decoding: try BookCoding.encode(book), as: UTF8.self)
         for absent in ["bold", "italic", "strike", "\"color\"", "highlight", "voice", "null", "false"] {

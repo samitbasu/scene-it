@@ -30,10 +30,9 @@ import Testing
 
     @Test func lineBreakInTitle() throws {
         var book = try RichBook.make()
-        book.scenes[0].title = [Run("The\u{2028}ferry")]
-        let place = ScenePlace(list: .scenes, index: 0, id: book.scenes[0].id)
+        book.scenes[0].title = "The\u{2028}ferry"
         expectEncodingFails(
-            book, with: .lineBreak(TextLocation(scene: place, field: .title, paragraph: 0, run: 0)))
+            book, with: .lineBreakInTitle(ScenePlace(list: .scenes, index: 0, id: book.scenes[0].id)))
     }
 
     @Test func missingCommentID() throws {

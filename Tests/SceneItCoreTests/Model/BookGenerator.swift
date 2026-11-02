@@ -46,7 +46,7 @@ struct BookGenerator {
         return BookScene(
             id: ids.sceneID(),
             modified: timestamp(),
-            title: paragraph(commentIDs),
+            title: SceneTitle(string(Self.lineAlphabet, 0...16)),
             tags: (0..<int(0...3)).map { _ in string(Self.anyAlphabet, 1...8) },
             body: (0..<int(0...4)).map { _ in paragraph(commentIDs) },
             notes: (0..<int(0...2)).map { _ in paragraph(commentIDs) },

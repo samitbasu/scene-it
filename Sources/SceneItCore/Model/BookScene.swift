@@ -30,8 +30,7 @@ extension Comment: Decodable {
 public struct BookScene: Identifiable, Hashable, Sendable, Encodable {
     public var id: SceneID
     public var modified: Timestamp
-    /// Exactly one line: `BookValidator` rejects a line break in it.
-    public var title: Paragraph
+    public var title: SceneTitle
     /// Stored without the leading `#`.
     public var tags: [String]
     public var body: [Paragraph]
@@ -41,7 +40,7 @@ public struct BookScene: Identifiable, Hashable, Sendable, Encodable {
     public init(
         id: SceneID,
         modified: Timestamp,
-        title: Paragraph,
+        title: SceneTitle,
         tags: [String] = [],
         body: [Paragraph] = [],
         notes: [Paragraph] = [],
@@ -66,7 +65,7 @@ extension BookScene: Decodable {
         let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
         id = try container.decode(SceneID.self, forKey: .id)
         modified = try container.decode(Timestamp.self, forKey: .modified)
-        title = try container.decode(Paragraph.self, forKey: .title)
+        title = try container.decode(SceneTitle.self, forKey: .title)
         tags = try container.decode([String].self, forKey: .tags)
         body = try container.decode([Paragraph].self, forKey: .body)
         notes = try container.decode([Paragraph].self, forKey: .notes)

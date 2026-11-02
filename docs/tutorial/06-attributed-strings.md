@@ -70,36 +70,26 @@ preview of a comment's quote, say) gets the same keys with types.
 ```
 book.json ─decode─▶ [Paragraph] ─RunCodec.attributedString─▶ NSAttributedString ─▶ NSTextStorage
                          ▲                                                              │
-                         └──────────────── RunCodec.page(from:) / notes(from:) ◀────────┘
+                         └──────────────── RunCodec.body(from:) / notes(from:) ◀────────┘
 ```
 
-The public API is four functions, two per editor:
+The public API is four functions, two per editor. The page holds only the body. The
+scene title is a plain `SceneTitle` edited in its own field
+([decision 0015](../decisions/0015-title-is-a-plain-field.md)), so it never passes
+through the codec:
 
 ```swift
-    public static func attributedString(for page: ScenePage) -> NSAttributedString {
-        attributedString([page.title] + page.body, layout: .page)
+    public static func attributedString(forBody body: [Paragraph]) -> NSAttributedString {
+        attributedString(body, role: .body)
+    }
+
+    public static func body(from text: NSAttributedString) -> [Paragraph] {
+        paragraphs(from: text, role: .body)
     }
 ```
 
-A `ScenePage` is the title paragraph plus the body, because the page editor shows
-both in one text view. The notes tab has its own pair,
-`attributedString(forNotes:)` and `notes(from:)`.
-
-Which role each paragraph has is a single function that both directions use, so
-loading and saving can't disagree about which paragraph is the title:
-
-```swift
-private enum TextLayout {
-    case page, notes
-
-    func role(ofParagraph index: Int) -> ParagraphRole {
-        switch self {
-        case .page: index == 0 ? .title : .body
-        case .notes: .notes
-        }
-    }
-}
-```
+The notes pair, `attributedString(forNotes:)` and `notes(from:)`, is the same with
+`.notes`. The two editors differ only in how their text looks.
 
 ## 4. Custom attributes, `AttributeScope` and dynamic member lookup
 
@@ -239,18 +229,16 @@ lookup would quietly hand back the regular face and bold would be lost on the ne
 save. Strikethrough isn't a face at all. It's a separate `.strikethroughStyle`
 attribute.
 
-The title is 18 pt **bold**. That bold belongs to the heading, so it's the role's
-`baseTraits` and not a style. Saving subtracts the base traits, so a title run can't
-carry a separate bold style. A `bold` flag on a title run in `book.json` loads (it
-looks the same) and is dropped on the next save.
+`ParagraphRole` also has a `.title` case: an 18 pt **bold** heading, with bold in its
+`baseTraits` so every face it picks is bold. The editors never use it. It's there
+for print and export, which draw the scene's `SceneTitle` above the body.
 
-Every font is resolved on the main actor. In the test runner, eight threads
-resolving `Times New Roman` at once hung, every thread waiting on a reply from
-the font server. Running the same tests on the main actor finished in under a
-second. AppKit text belongs on the main thread anyway, since `NSTextStorage` is
-edited there, so `RunCodec` is `@MainActor` ([ADR
-0011](../decisions/0011-mainactor-default-isolation.md) explains the isolation
-model).
+`RunCodec` is `@MainActor`. The `NSTextStorage` it fills and reads belongs to a text
+view, and AppKit text is main-thread only, so the codec runs where its input lives
+([ADR 0011](../decisions/0011-mainactor-default-isolation.md) explains the isolation
+model). The test suites are `@MainActor` too. Before they were, `swift test` hung
+twice while developing this chapter: several test threads were each resolving Times
+New Roman, and all of them were waiting on a reply from the font server.
 
 ## 6. Saving: read meaning, drop display
 
@@ -272,9 +260,9 @@ attribute runs but still one `Character` and one break.
 Each attribute run becomes a `RunFormat` read back from the dictionary:
 
 ```swift
-    init(_ attributes: [NSAttributedString.Key: Any], in role: ParagraphRole) {
+    init(_ attributes: [NSAttributedString.Key: Any]) {
         if let font = attributes[.font] as? NSFont {
-            styles = role.styles(of: font)
+            styles = TextStyle.styles(of: font)
         }
         if let strike = attributes[.strikethroughStyle] as? Int, strike != 0 {
             styles.insert(.strike)
@@ -286,7 +274,7 @@ Each attribute run becomes a `RunFormat` read back from the dictionary:
 ```
 
 Nothing else is read, and that is the whole policy for foreign attributes:
-links, underlines, kerning, other fonts' sizes and families are never saved. Three
+links, underlines, kerning, other fonts' sizes and families are never saved. Four
 consequences are deliberate:
 
 - **Color comes from the name, not the `NSColor`.** A pasted red has a
@@ -297,11 +285,31 @@ consequences are deliberate:
   Helvetica Bold saves as bold.
 - **Spacing and indent are never stored.** They come from the paragraph's role
   every time the text loads, so changing the body style later needs no migration.
+- **Images are removed.** In an attributed string an image is an `.attachment`
+  attribute on a U+FFFC OBJECT REPLACEMENT CHARACTER. The editors refuse images
+  ([decision 0016](../decisions/0016-text-only-no-images.md)), and as a second line of
+  defence the codec deletes that character wherever it carries an attachment, so an
+  invisible placeholder never reaches disk:
+
+```swift
+                var piece = String(string[bounds])
+                if attributes[.attachment] != nil {
+                    piece.removeAll { $0 == "\u{FFFC}" }
+                }
+```
 
 Runs that end up with the same `RunFormat` merge, and empty pieces are skipped, so
 the output has no empty runs and no two neighbouring runs alike. An empty paragraph
-saves as zero runs, which is how the model writes a blank line. Notes have one more
-rule: empty text is no notes (`[]`), not one empty paragraph.
+saves as zero runs, which is how the model writes a blank line. Empty *text* saves
+as no paragraphs (`[]`), because an empty string can't show whether it held none or
+one empty paragraph.
+
+One rule is beyond the codec: every comment id in a run must be in the scene's
+`comments`, or `BookCoding.encode` refuses the book. The codec doesn't know the
+scene, so it passes ids through untouched. Whoever accepts an edit (the store, for a
+paste) must remap or strip ids it can't resolve
+([decision 0017](../decisions/0017-paste-carries-comments.md)).
+`Paragraph.commentIDs(in:)` lists the ids to check.
 
 ### The UTF-16 gotcha
 
@@ -317,24 +325,31 @@ UTF-8 length is 6. Never mix them. Convert at the boundary with
                 // Slicing rounds an index inside a surrogate pair down, so a range that
                 // splits a pair yields the whole scalar once and an empty piece.
                 guard let bounds = Range(range, in: string) else { return }
-                let piece = String(string[bounds])
 ```
 
-The comment covers the nasty case. An attribute can start in the middle of a
+The comment covers one nasty case. An attribute can start in the middle of a
 surrogate pair (half an emoji bold), because `NSAttributedString` doesn't stop
 you. Converting that `NSRange` gives a `String.Index` inside a scalar, and slicing
 rounds it down. So the first piece is empty and the second holds the whole emoji.
 `aRunBoundaryInsideASurrogatePairKeepsTheTextIntact` pins this down.
 
+The other nasty case is a **lone surrogate**. An `NSString` is just UTF-16 code
+units, so it can hold half a pair on its own. A Swift `String` must be valid Unicode,
+so the half becomes U+FFFD REPLACEMENT CHARACTER (�) when it's read into one. Rust's
+`String::from_utf16_lossy` makes the same repair. The replacement is still one UTF-16
+unit, so offsets don't shift. `aLoneSurrogateBecomesTheReplacementCharacter` pins
+this down.
+
 ## 7. How the tests prove it
 
-- **Round trips** of every color × highlight × style combination (392 runs, checked
-  to be pairwise distinct so nothing merges), overlapping comments, and empty
-  paragraphs.
+- **Round trips** in both editors of every color × highlight × style combination
+  (392 runs, checked to be pairwise distinct so nothing merges), overlapping
+  comments, and empty paragraphs.
 - **Generated scenes**: `generatedScenesRoundTrip` reuses the model tests'
   `BookGenerator`. Since run boundaries may legitimately move, it compares the text
   scalar by scalar together with each scalar's format, checks the output is
   canonical, checks `save(load(save(x))) == save(x)`, and validates the resulting
   book.
 - **Hostile input**: every separator, foreign attributes, malformed custom values,
-  a pasted color without a name, and random mixtures of all of them.
+  a pasted color without a name, attachments, a lone surrogate, and random mixtures
+  of them.
