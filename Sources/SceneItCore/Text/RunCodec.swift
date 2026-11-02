@@ -10,11 +10,13 @@ import AppKit
 ///   uncolored, which is black.
 /// - Bold and italic come from the font's traits. The font itself, sizes, spacing, links,
 ///   underlines and any other attribute are dropped.
-/// - Every line or paragraph separator (`Character.isNewline`) ends a paragraph.
-/// - Attachment characters (U+FFFC carrying `.attachment`) are removed (decision 0016).
+/// - Every line or paragraph separator (`Character.isLineBreak`) ends a paragraph.
+/// - Object replacement characters (U+FFFC, where attachments sit) are removed, with or
+///   without an `.attachment` (decision 0016).
 /// - A lone UTF-16 surrogate, which `NSString` allows but `String` can't hold, becomes
 ///   U+FFFD.
-/// - Empty text is no paragraphs, so `[[]]` (one empty paragraph) saves as `[]`.
+/// - Text with no line breaks and nothing left to save is no paragraphs, so `[[]]` (one
+///   empty paragraph) saves as `[]`.
 ///
 /// The output therefore satisfies `BookValidator` except for one rule the codec can't
 /// see: comment ids must exist in the scene's `comments`, or encoding fails. Whoever
@@ -29,7 +31,7 @@ public enum RunCodec {
     }
 
     public static func body(from text: NSAttributedString) -> [Paragraph] {
-        paragraphs(from: text, role: .body)
+        paragraphs(from: text)
     }
 
     public static func attributedString(forNotes notes: [Paragraph]) -> NSAttributedString {
@@ -37,7 +39,7 @@ public enum RunCodec {
     }
 
     public static func notes(from text: NSAttributedString) -> [Paragraph] {
-        paragraphs(from: text, role: .notes)
+        paragraphs(from: text)
     }
 
     private static func attributedString(_ paragraphs: [Paragraph], role: ParagraphRole) -> NSAttributedString
@@ -55,11 +57,10 @@ public enum RunCodec {
         return text
     }
 
-    private static func paragraphs(from text: NSAttributedString, role: ParagraphRole) -> [Paragraph] {
-        guard text.length > 0 else { return [] }
+    private static func paragraphs(from text: NSAttributedString) -> [Paragraph] {
         let string = text.string
-        let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        return lines.map { line in
+        let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isLineBreak)
+        let paragraphs = lines.map { line in
             var runs: [Run] = []
             let lineRange = NSRange(line.startIndex..<line.endIndex, in: string)
             text.enumerateAttributes(in: lineRange) { attributes, range, _ in
@@ -67,9 +68,7 @@ public enum RunCodec {
                 // splits a pair yields the whole scalar once and an empty piece.
                 guard let bounds = Range(range, in: string) else { return }
                 var piece = String(string[bounds])
-                if attributes[.attachment] != nil {
-                    piece.removeAll { $0 == "\u{FFFC}" }
-                }
+                piece.removeAll(where: \.isObjectReplacement)
                 guard !piece.isEmpty else { return }
                 let format = RunFormat(attributes)
                 if let last = runs.last, RunFormat(last) == format {
@@ -80,6 +79,7 @@ public enum RunCodec {
             }
             return Paragraph(runs)
         }
+        return paragraphs == [[]] ? [] : paragraphs
     }
 }
 

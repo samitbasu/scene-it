@@ -21,7 +21,7 @@ import Testing
         expectEncodingFails(book, with: .emptyRun(Self.firstBodyRun(book)))
     }
 
-    @Test(arguments: ["\n", "\r", "\r\n", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}"])
+    @Test(arguments: lineBreaks)
     func lineBreakInParagraph(lineBreak: String) throws {
         var book = try RichBook.make()
         book.scenes[1].body[0].runs[0].text = "Ra\(lineBreak)in."

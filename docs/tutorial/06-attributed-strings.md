@@ -84,7 +84,7 @@ through the codec:
     }
 
     public static func body(from text: NSAttributedString) -> [Paragraph] {
-        paragraphs(from: text, role: .body)
+        paragraphs(from: text)
     }
 ```
 
@@ -247,11 +247,14 @@ attribute runs:
 
 ```swift
         let string = text.string
-        let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isLineBreak)
 ```
 
-`Character.isNewline` is true for `\n`, `\r`, `\r\n` (one `Character`), U+000B,
-U+000C, U+0085, U+2028 and U+2029, the same test `BookValidator` applies. A paste
+`isLineBreak` is the model's one definition of a line break, in
+[`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift). It's
+`Character.isNewline`: true for `\n`, `\r`, `\r\n` (one `Character`), U+000B, U+000C,
+U+0085, U+2028 and U+2029. `BookValidator` and `SceneTitle(pasted:)` use the same
+property, so the codec and the validator can't disagree. A paste
 from Word that contains U+2029 becomes a paragraph break instead of a run that the
 encoder would refuse to save. Splitting the *whole string* first, not each attribute
 run, matters for `\r\n`: if the `\r` is bold and the `\n` isn't, they're two
@@ -288,21 +291,20 @@ consequences are deliberate:
 - **Images are removed.** In an attributed string an image is an `.attachment`
   attribute on a U+FFFC OBJECT REPLACEMENT CHARACTER. The editors refuse images
   ([decision 0016](../decisions/0016-text-only-no-images.md)), and as a second line of
-  defence the codec deletes that character wherever it carries an attachment, so an
-  invisible placeholder never reaches disk:
+  defence the codec deletes every U+FFFC, with or without an attachment, so an
+  invisible placeholder never reaches disk. `isObjectReplacement`, next to
+  `isLineBreak`, is the one test for it:
 
 ```swift
                 var piece = String(string[bounds])
-                if attributes[.attachment] != nil {
-                    piece.removeAll { $0 == "\u{FFFC}" }
-                }
+                piece.removeAll(where: \.isObjectReplacement)
 ```
 
 Runs that end up with the same `RunFormat` merge, and empty pieces are skipped, so
 the output has no empty runs and no two neighbouring runs alike. An empty paragraph
-saves as zero runs, which is how the model writes a blank line. Empty *text* saves
-as no paragraphs (`[]`), because an empty string can't show whether it held none or
-one empty paragraph.
+saves as zero runs, which is how the model writes a blank line. Text that leaves a
+single empty paragraph (empty text, or only a U+FFFC) saves as no paragraphs (`[]`),
+because loading `[]` and `[[]]` both give an empty string.
 
 One rule is beyond the codec: every comment id in a run must be in the scene's
 `comments`, or `BookCoding.encode` refuses the book. The codec doesn't know the

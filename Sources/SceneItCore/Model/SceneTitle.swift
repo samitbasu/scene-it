@@ -15,9 +15,10 @@ public struct SceneTitle: Hashable, Sendable, ExpressibleByStringLiteral, Custom
         self.init(text)
     }
 
-    /// Each line or paragraph separator becomes a space, so pasted text stays on one line.
+    /// Each line break becomes a space, so pasted text stays on one line, and object
+    /// replacement characters are removed.
     public init(pasted text: String) {
-        self.init(String(text.map { $0.isNewline ? " " : $0 }))
+        self.init(String(text.filter { !$0.isObjectReplacement }.map { $0.isLineBreak ? " " : $0 }))
     }
 
     public var description: String { text }

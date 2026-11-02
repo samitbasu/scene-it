@@ -29,9 +29,19 @@ import Testing
         #expect(json == #"[{"text":"The ferry"}]"#)
     }
 
-    @Test(arguments: ["\n", "\r", "\r\n", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}"])
+    @Test(arguments: lineBreaks)
     func pastedSeparatorsBecomeSpaces(separator: String) {
         #expect(SceneTitle(pasted: "The\(separator)ferry\(separator)") == "The ferry ")
+    }
+
+    @Test func pastedObjectReplacementCharactersAreRemoved() {
+        #expect(SceneTitle(pasted: "\u{FFFC}The\u{FFFC} ferry") == "The ferry")
+    }
+
+    @Test func lineBreaksListsEverySeparator() {
+        let scalars = (0...0x10FFFF).compactMap(Unicode.Scalar.init).filter { Character($0).isLineBreak }
+        #expect(Set(lineBreaks.flatMap(\.unicodeScalars)) == Set(scalars))
+        #expect(lineBreaks.allSatisfy { $0.count == 1 && $0.first!.isLineBreak })
     }
 
     @Test func commentIDsCollectsEveryRunsIDs() {

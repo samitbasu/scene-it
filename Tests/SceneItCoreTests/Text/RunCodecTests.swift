@@ -30,10 +30,6 @@ enum Editor: CaseIterable, Sendable {
 }
 
 @MainActor @Suite struct RunCodecTests {
-    nonisolated private static let separators = [
-        "\n", "\r", "\r\n", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}",
-    ]
-
     @Test(arguments: Editor.allCases)
     func everyColorHighlightAndStyleCombinationRoundTrips(editor: Editor) {
         let styleSets = TextStyle.allCases.reduce(into: [Set<TextStyle>()]) { sets, style in
@@ -82,7 +78,7 @@ enum Editor: CaseIterable, Sendable {
         #expect(editor.roundTrip([[]]) == [], "one empty paragraph is indistinguishable from none")
     }
 
-    @Test(arguments: Editor.allCases, separators)
+    @Test(arguments: Editor.allCases, lineBreaks)
     func everySeparatorEndsAParagraph(editor: Editor, separator: String) {
         let text = NSAttributedString(string: "zero\(separator)one\(separator)\(separator)two")
         #expect(editor.save(text) == [[Run("zero")], [Run("one")], [], [Run("two")]])
@@ -157,9 +153,12 @@ enum Editor: CaseIterable, Sendable {
     func attachmentsAreRemoved(editor: Editor) {
         let text = NSMutableAttributedString(string: "ab")
         text.append(NSAttributedString(attachment: NSTextAttachment()))
-        text.append(NSAttributedString(string: "cd"))
+        text.append(NSAttributedString(string: "cd\u{FFFC}e"))
         #expect(text.string.contains("\u{FFFC}"), "precondition: an attachment is U+FFFC in the text")
-        #expect(editor.save(text) == [[Run("abcd")]])
+        #expect(text.attribute(.attachment, at: 5, effectiveRange: nil) == nil, "precondition: a bare U+FFFC")
+        #expect(editor.save(text) == [[Run("abcde")]])
+        #expect(
+            editor.save(NSAttributedString(attachment: NSTextAttachment())) == [], "nothing left is no text")
     }
 
     @Test func aLoneSurrogateBecomesTheReplacementCharacter() {
@@ -208,7 +207,7 @@ enum Editor: CaseIterable, Sendable {
 
     @Test func randomSeparatorsAndForeignAttributesSaveToValidParagraphs() {
         var random = SplitMix64(seed: 14)
-        let pieces = ["a", "é", "😀", "\u{FFFC}"] + Self.separators
+        let pieces = ["a", "é", "😀", "\u{FFFC}"] + lineBreaks
         let attributes: [[NSAttributedString.Key: Any]] = [
             [:], [.underlineStyle: 1], [.textColor: "red"], [.strikethroughStyle: 1],
             [.font: ParagraphRole.body.font([.bold])], [.comments: NSSet(array: ["c1"])],
@@ -225,13 +224,8 @@ enum Editor: CaseIterable, Sendable {
             let body = RunCodec.body(from: text)
             #expect(body.allSatisfy(Self.isCanonical))
             #expect(RunCodec.body(from: RunCodec.attributedString(forBody: body)) == body, "idempotent")
-            var expected = ""
-            text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attributes, range, _ in
-                let piece = text.attributedSubstring(from: range).string
-                expected += attributes[.attachment] == nil ? piece : piece.replacing("\u{FFFC}", with: "")
-            }
-            let scalars = expected.unicodeScalars.filter { !Character($0).isNewline }
-            #expect(Array(body.map(\.text).joined().unicodeScalars) == Array(scalars))
+            let expected = text.string.filter { !$0.isObjectReplacement && !$0.isLineBreak }
+            #expect(Array(body.map(\.text).joined().unicodeScalars) == Array(expected.unicodeScalars))
         }
     }
 
@@ -250,7 +244,7 @@ enum Editor: CaseIterable, Sendable {
 
     private static func isCanonical(_ paragraph: Paragraph) -> Bool {
         let runs = paragraph.runs
-        return runs.allSatisfy { !$0.text.isEmpty && !$0.text.contains(where: \.isNewline) }
+        return runs.allSatisfy { !$0.text.isEmpty && !$0.text.contains(where: \.isLineBreak) }
             && zip(runs, runs.dropFirst()).allSatisfy { RunFormat($0) != RunFormat($1) }
     }
 }

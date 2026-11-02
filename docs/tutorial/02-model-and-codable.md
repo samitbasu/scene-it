@@ -19,6 +19,7 @@ Everything lives in [`Sources/SceneItCore/Model/`](../../Sources/SceneItCore/Mod
 | [`BookScene.swift`](../../Sources/SceneItCore/Model/BookScene.swift) | `BookScene`, `Comment` |
 | [`Run.swift`](../../Sources/SceneItCore/Model/Run.swift) | `Run`, `TextStyle`, `Paragraph` |
 | [`SceneTitle.swift`](../../Sources/SceneItCore/Model/SceneTitle.swift) | `SceneTitle`, a plain one-line title |
+| [`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift) | `isLineBreak` and `isObjectReplacement`, shared by the model and the editors |
 | [`Palette.swift`](../../Sources/SceneItCore/Model/Palette.swift) | `PaletteColor`, `TextColor`, `HighlightColor` |
 | [`Identifier.swift`](../../Sources/SceneItCore/Model/Identifier.swift) | `SceneID`, `CommentID` |
 | [`BoundedScalar.swift`](../../Sources/SceneItCore/Model/BoundedScalar.swift) | `Zoom`, `SpeechRate` |
@@ -183,8 +184,8 @@ and a failable conversion from the palette sends black to `nil`:
 
 `Run` decodes a `PaletteColor` and maps it through that initializer, so a file
 saying `"color": "black"` loads as "no color", and the next save drops the
-attribute. That's one of two places where decoding normalizes instead of rejecting;
-the other is a formatted scene title (§6).
+attribute. The scene title is the other place where decoding normalizes instead of
+rejecting (§6).
 Comments keep `PaletteColor`, because black is one of their seven swatches.
 The inverse, `PaletteColor.init(_: TextColor?)`, is total: `nil` becomes `.black`.
 The text editor uses it to pick a run's display color ([chapter 06](06-attributed-strings.md)).
@@ -309,9 +310,12 @@ extension SceneTitle: Codable {
 }
 ```
 
-A title written with formatting or comment ids loads as its text, and the next save
-writes one plain run. `String` can still hold a line break, so `BookValidator` rejects
-one in a title. `SceneTitle(pasted:)` turns separators into spaces before they get
+Any title the decoder accepts loads as its text alone: formatting, comment ids,
+several runs, and empty runs all disappear. The next save writes one plain run, or `[]`
+if the text is empty. `String` can still hold a line break, so `BookValidator` rejects
+one in a title using `Character.isLineBreak`, the model's single definition in
+[`TextPolicy.swift`](../../Sources/SceneItCore/Model/TextPolicy.swift).
+`SceneTitle(pasted:)` turns line breaks into spaces, and drops U+FFFC, before they get
 that far.
 
 One gap can't be closed through `Codable`: **duplicate keys** in a JSON object.

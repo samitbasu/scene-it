@@ -22,7 +22,7 @@ public enum BookValidator {
         for comment in scene.comments where !commentIDs.insert(comment.id).inserted {
             problems.append(.duplicateCommentID(place, comment.id))
         }
-        if scene.title.text.contains(where: \.isNewline) {
+        if scene.title.text.contains(where: \.isLineBreak) {
             problems.append(.lineBreakInTitle(place))
         }
         let fields: [(SceneTextPart, [Paragraph])] = [(.body, scene.body), (.notes, scene.notes)]
@@ -34,7 +34,7 @@ public enum BookValidator {
                     if run.text.isEmpty {
                         problems.append(.emptyRun(location))
                     }
-                    if run.text.contains(where: \.isNewline) {
+                    if run.text.contains(where: \.isLineBreak) {
                         problems.append(.lineBreak(location))
                     }
                     for id in run.comments.sorted() where !commentIDs.contains(id) {

@@ -47,3 +47,6 @@ func decodingError(_ json: String) throws -> BookDecodingError {
 func timestamp(_ text: String) throws -> Timestamp {
     try #require(Timestamp(text))
 }
+
+/// Every line or paragraph separator `Character.isLineBreak` recognizes.
+let lineBreaks = ["\n", "\r", "\r\n", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}"]
