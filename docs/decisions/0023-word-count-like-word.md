@@ -9,3 +9,5 @@ only for the scene whose body changed.
 
 **Not chosen:** macOS linguistic word boundaries, which count hyphenated and dash-joined words as several and so disagree with
 the writer's exported Word document.
+
+**Open detail:** a non-breaking space (U+00A0, allowed by Latin-1) currently separates words. Whether Word treats it the same way is unverified; revisit if a writer reports a mismatch.
