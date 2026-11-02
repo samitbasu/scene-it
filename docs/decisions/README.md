@@ -15,3 +15,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0006](0006-crash-reporting.md) | Built-in "Report a Problem", Apple frameworks only | Accepted |
 | [0007](0007-name-and-bundle-id.md) | "Scene It", `com.samitbasu.SceneIt` | Accepted — resolves PLAN Q2 |
 | [0008](0008-local-ci.md) | Local `scripts/check.sh` instead of hosted CI | Accepted |
+| [0009](0009-report-destination.md) | Problem reports go to the owner's personal email | Accepted — resolves #6 |
