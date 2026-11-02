@@ -45,7 +45,8 @@ public struct LocalFileSystem: FileSystem {
         _ data: Data, for destination: URL, permissionsFrom model: URL
     ) throws(FileSystemError) -> TemporaryFile {
         let url = destination.deletingLastPathComponent().appending(
-            path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp", directoryHint: .notDirectory)
+            path: TemporaryFile.name(for: destination.lastPathComponent, id: UUID()),
+            directoryHint: .notDirectory)
         let descriptor = url.withUnsafeFileSystemRepresentation {
             open($0!, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
         }

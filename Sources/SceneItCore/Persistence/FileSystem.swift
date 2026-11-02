@@ -117,6 +117,18 @@ public enum WriteProtection: Hashable, Sendable {
 /// A durable file under a hidden name, waiting to be published or discarded.
 public struct TemporaryFile: Hashable, Sendable {
     public let url: URL
+
+    /// `.<destination>.<UUID>.tmp`, the UUID in upper case: the name `LocalFileSystem` gives
+    /// the temporary file for `destination`.
+    static func name(for destination: String, id: UUID) -> String {
+        ".\(destination).\(id.uuidString).tmp"
+    }
+
+    /// The `destination` that `name(for:id:)` made `name` from; `nil` for any other name.
+    static func destination(ofName name: String) -> Substring? {
+        let pattern = /\.(.+)\.[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.tmp/
+        return name.wholeMatch(of: pattern.matchingSemantics(.unicodeScalar))?.output.1
+    }
 }
 
 public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertible {

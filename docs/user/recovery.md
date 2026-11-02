@@ -13,11 +13,17 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
 | `My Novel.sceneit/book.json` | the book | |
 | `My Novel.sceneit/book.json.bak1`, `.bak2`, `.bak3` | the three versions before the last save, newest first | until the next three saves |
 | `My Novel.sceneit/book.json.conflict-<time>`, also `-<time>-2`, `-<time>-3`, … | a version another program wrote while Scene It was saving (the number is added when there was more than one in the same second) | until you delete it |
+| `My Novel.sceneit/book.json.recovered-<time>.json`, also `-<time>-2.json`, `-<time>-3.json`, … | a version left behind by a save that was interrupted (a crash, or another program writing at the same moment) and found nowhere else in the book; `<time>` is when that version was written | until you delete it |
 | `My Novel.sceneit/Backups/book-<time>.json` | snapshots | one per 10 minutes for a day, one per day for 30 days, then one per week |
 | `~/Library/Application Support/Scene It/Backups/<id>/book-<time>.json` | the same snapshots, outside the book, so they survive the book being deleted | the same |
 
 - `<time>` is in UTC (Greenwich time), written `20261101T143005Z` for 1 November 2026 at
   14:30:05 UTC.
+- Hidden files named `.book.json.<…>.tmp` or `.book.json.bak1.<…>.tmp` belong to a save in
+  progress, or to one that was interrupted. Once one is 10 minutes old, the next save
+  deletes it if `book.json`, a `.bak` file or a snapshot already holds exactly the same
+  text, and otherwise renames it to `book.json.recovered-<time>.json`. It is never deleted
+  while its text exists nowhere else.
 - The daily and weekly snapshots are the **first** of that UTC day or week: they show
   your book as it was when you started working that day or week, not at the end of it.
   The newest snapshot is always kept too.

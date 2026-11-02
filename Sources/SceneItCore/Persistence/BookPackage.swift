@@ -207,6 +207,9 @@ public final class BookPackage: Sendable {
     /// The backup policy is ADR 0019: another program's version is never replaced unless it's
     /// safely in `bak1`; this package's own previous save is replaced even if it couldn't be
     /// backed up, and the outcome says so. When this throws, `book.json` is unchanged.
+    ///
+    /// A save that writes also clears away stray temporary files (`StrayTemporaryFiles`),
+    /// never failing because of them.
     public func save(
         _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse
     ) throws(SaveError) -> SaveOutcome {
@@ -239,6 +242,7 @@ public final class BookPackage: Sendable {
             let backups = try replaceBook(with: data, current: current, &lastSeen)
             lastSeen = ContentDigest(data)
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
+            StrayTemporaryFiles(layout: layout, fileSystem: fileSystem).sweep(now: .now)
             return .saved(backups, PublishedBook(data: data))
         }
     }
