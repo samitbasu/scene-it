@@ -22,3 +22,5 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0013](0013-black-means-no-color.md) | `"color": "black"` loads as no color; the encoder never writes it | Accepted — refines PLAN §5.2/§6.2 |
 | [0014](0014-title-always-bold.md) | Scene titles are always bold; Bold is disabled in the title | Superseded by 0015 |
 | [0015](0015-title-is-a-plain-field.md) | Title is a plain-text field above the page, not part of the page text | Accepted — deviates from PLAN §6.1 |
+| [0016](0016-text-only-no-images.md) | Text only; the editors refuse images | Accepted |
+| [0017](0017-paste-carries-comments.md) | Pasting commented text copies its comments into the destination scene | Accepted |
