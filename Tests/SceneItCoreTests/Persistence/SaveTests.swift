@@ -136,7 +136,7 @@ func unstableEncoding(of book: Book) throws -> Data {
             fileSystem.clearCalls()
             #expect(try package.save(draft(9)).backupStatus == .intact)
             let steps = SaveFault.fileSystemSteps.compactMap(\.call)
-            #expect(fileSystem.calls == steps + [.discard("temporary book.json")])
+            #expect(fileSystem.calls == steps + [.discard("temporary book.json"), .list("")])
         }
     }
 

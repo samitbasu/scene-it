@@ -25,6 +25,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`PersistenceErrors.swift`](../../Sources/SceneItCore/Persistence/PersistenceErrors.swift) | `SaveError`, `SaveOutcome`, `BackupStatus`, `ExternalChangePolicy`, `CreateError`, `LoadError` |
 | [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
 | [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
+| [`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift) | clearing away the temporary files a crashed save leaves |
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 | [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
 | [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the advisory record, `LockRecordPolicy`, `ThisMac` |
@@ -345,7 +346,8 @@ So `LocalFileSystem` does it by hand:
         _ data: Data, for destination: URL, permissionsFrom model: URL
     ) throws(FileSystemError) -> TemporaryFile {
         let url = destination.deletingLastPathComponent().appending(
-            path: ".\(destination.lastPathComponent).\(UUID().uuidString).tmp", directoryHint: .notDirectory)
+            path: TemporaryFile.name(for: destination.lastPathComponent, id: UUID()),
+            directoryHint: .notDirectory)
         let descriptor = url.withUnsafeFileSystemRepresentation {
             open($0!, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
         }
@@ -419,7 +421,7 @@ destination is absent and then renames, which leaves a window of microseconds.
   `createDirectory` flushes the parent directory for the same reason.
 - **The temporary name** is unique (a UUID), so two processes saving at once can't
   write into the same file. A crash can leave a hidden `.book.json.<uuid>.tmp` behind.
-  Nothing reads it; cleaning these up is issue #49.
+  Nothing reads it; a later save clears it away (§6).
 
 ### Other volumes
 
@@ -470,6 +472,47 @@ Errors (as opposed to crashes), when `book.json` holds our own last save:
 When `book.json` holds another program's version (saving with
 `.overwriteKeepingTheirsAsBackup(theirs:)`), the three rotation rows throw
 `.couldNotBackUpTheirVersion` instead, and `book.json` keeps their version.
+
+### Clearing away stray temporary files
+
+A crash in the second row leaves hidden `.book.json.<UUID>.tmp` and
+`.book.json.bak1.<UUID>.tmp` files behind. Every save that writes then calls
+`StrayTemporaryFiles.sweep(now:)`
+([`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift)),
+after `book.json` is published and while the book's lock is held (§12), so no other copy of
+Scene It is writing into the package. `open` never sweeps (loading never writes), and a
+read-only book has no `BookPackage`, so it can't. An `.unchanged` save doesn't sweep either.
+
+The rules, each one there to keep a version from being lost:
+
+- **The name must match exactly.** `TemporaryFile.name(for:id:)` is the one place the
+  temporary name is made, and `TemporaryFile.destination(ofName:)` parses it back with
+  `^\.(.+)\.[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.tmp$` (upper-case
+  UUID, matched scalar by scalar); the destination must be `book.json` or `book.json.bak1`,
+  the only two a save writes. Only regular files count: a link or a folder with that name is
+  left alone.
+- **It must be at least 10 minutes old** (`minimumAge`, an `Interval`), so a write still in
+  progress elsewhere isn't touched.
+- **It's removed only if its bytes are already kept**: the same size and bytes as
+  `book.json`, `bak1`–`bak3` or a snapshot in `Backups/`. A crash during a save leaves
+  either the new book (now in `book.json`) or the old one (in a backup), so this is the
+  normal case. The size comes first: a stray whose size no kept file has isn't even read,
+  and each kept file is read (and hashed) at most once per sweep.
+- **Anything else is renamed, never removed**, to `book.json.recovered-<UTC time>.json`
+  (the file's modification time; `-2`, `-3`, … on a clash, never replacing anything). This is
+  §7's double fault: another program's version left at the temporary name when it couldn't
+  be swapped back or renamed. `keepAsConflict` and this rename share one helper,
+  `FileSystem.publishUnderFreeName`.
+- **What's removed is the file that was compared, not whatever has its name.** The stray is
+  opened once with `FileSystem.open` (`O_NOFOLLOW`, and `O_NONBLOCK` so a pipe swapped in
+  can't hang the save while it holds the package's mutex), `fstat`ed and read through that
+  descriptor. To remove it, it's first renamed (never replacing anything) to a fresh
+  temporary name, and removed only if the file there has the same inode, size and
+  modification time; anything else found there is recovered instead. A program that writes
+  the old name afterwards writes a new file, which the sweep doesn't touch.
+
+Nothing in the sweep throws. Each failure is logged (metadata only) and leaves the file
+where it is, and the save's outcome is the same as without it.
 
 ## 7. Noticing someone else's changes
 
@@ -627,6 +670,10 @@ public protocol FileSystem: Sendable {
 
     /// Refuses to follow a symbolic link at `file`.
     func read(_ file: URL) throws(FileSystemError) -> Data
+
+    /// Opens `file` for reading. Refuses to follow a symbolic link at `file`, and never waits
+    /// for a writer if a pipe is there.
+    func open(_ file: URL) throws(FileSystemError) -> OpenFile
 
     /// Writes `data` to a new hidden file next to `destination` and flushes it to the
     /// drive. The file takes the permissions of `model` if that's an existing file.

@@ -207,6 +207,9 @@ public final class BookPackage: Sendable {
     /// The backup policy is ADR 0019: another program's version is never replaced unless it's
     /// safely in `bak1`; this package's own previous save is replaced even if it couldn't be
     /// backed up, and the outcome says so. When this throws, `book.json` is unchanged.
+    ///
+    /// A save that writes also clears away stray temporary files (`StrayTemporaryFiles`),
+    /// never failing because of them.
     public func save(
         _ book: Book, onExternalChange policy: ExternalChangePolicy = .refuse
     ) throws(SaveError) -> SaveOutcome {
@@ -239,6 +242,7 @@ public final class BookPackage: Sendable {
             let backups = try replaceBook(with: data, current: current, &lastSeen)
             lastSeen = ContentDigest(data)
             Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
+            StrayTemporaryFiles(layout: layout, fileSystem: fileSystem).sweep(now: .now)
             return .saved(backups, PublishedBook(data: data))
         }
     }
@@ -472,25 +476,20 @@ public final class BookPackage: Sendable {
     ) -> SaveError {
         lastSeen = ContentDigest(published)
         let now = Date.now
-        for attempt in 1...Self.conflictNameAttempts {
-            let conflict = layout.conflict(at: now, attempt: attempt)
-            do {
-                try fileSystem.publish(displaced, as: conflict)
+        do {
+            if let conflict = try fileSystem.publishUnderFreeName(
+                displaced, { layout.conflict(at: now, attempt: $0) })
+            {
                 Log.store.fault(
                     "another program changed book.json during a save; kept its version separately")
                 return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
-            } catch  where error.cause == .alreadyExists {
-                continue
-            } catch {
-                Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
-                break
             }
+        } catch {
+            Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
         }
         guard case .file? = try? fileSystem.item(at: displaced.url) else { return changedDuringSave() }
         return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
     }
-
-    private static let conflictNameAttempts = 100
 
     private static func writeNewFile(_ data: Data, at url: URL, _ fileSystem: any FileSystem)
         throws(FileSystemError)

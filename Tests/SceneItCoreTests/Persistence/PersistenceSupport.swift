@@ -12,6 +12,7 @@ final class FaultInjectingFileSystem: FileSystem {
     enum Call: Hashable, CustomStringConvertible {
         case inspect(String)
         case read(String)
+        case open(String)
         case writeTemporary(String)
         case publish(String)
         case exchange(String)
@@ -26,7 +27,7 @@ final class FaultInjectingFileSystem: FileSystem {
 
         var isMutation: Bool {
             switch self {
-            case .inspect, .read, .list, .identify: false
+            case .inspect, .read, .open, .list, .identify: false
             case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove, .lock: true
             }
         }
@@ -35,6 +36,7 @@ final class FaultInjectingFileSystem: FileSystem {
             switch self {
             case .inspect(let name): "inspect \(name)"
             case .read(let name): "read \(name)"
+            case .open(let name): "open \(name)"
             case .writeTemporary(let name): "write a temporary file for \(name)"
             case .publish(let name): "publish \(name)"
             case .exchange(let name): "exchange \(name)"
@@ -106,6 +108,10 @@ final class FaultInjectingFileSystem: FileSystem {
 
     func read(_ file: URL) throws(FileSystemError) -> Data {
         try perform(.read(name(file)), .read, file) { () throws(FileSystemError) in try base.read(file) }
+    }
+
+    func open(_ file: URL) throws(FileSystemError) -> OpenFile {
+        try perform(.open(name(file)), .read, file) { () throws(FileSystemError) in try base.open(file) }
     }
 
     func writeTemporary(

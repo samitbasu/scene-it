@@ -33,8 +33,18 @@ public struct PackageLayout: Hashable, Sendable {
     /// Where a version of `book.json` that another program wrote during a save is kept:
     /// `book.json.conflict-<UTC time>`, then `-2`, `-3`, … for later attempts in the same second.
     public func conflict(at date: Date, attempt: Int) -> URL {
-        let suffix = attempt > 1 ? "-\(attempt)" : ""
-        return file("book.json.conflict-\(UTCStamp.string(for: date))\(suffix)", in: root)
+        file("book.json.conflict-\(Self.stamp(date, attempt))", in: root)
+    }
+
+    /// Where a stray temporary file holding a version found nowhere else in the package is
+    /// kept: `book.json.recovered-<UTC time>.json`, the time being the file's last
+    /// modification, then `-2`, `-3`, … before `.json` for later attempts with the same second.
+    public func recovered(modified date: Date, attempt: Int) -> URL {
+        file("book.json.recovered-\(Self.stamp(date, attempt)).json", in: root)
+    }
+
+    private static func stamp(_ date: Date, _ attempt: Int) -> String {
+        UTCStamp.string(for: date) + (attempt > 1 ? "-\(attempt)" : "")
     }
 
     private func file(_ name: String, in directory: URL) -> URL {
