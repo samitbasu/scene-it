@@ -11,10 +11,6 @@ readonly result_bundle="$log_dir/SceneIt.xcresult"
 rm -rf "$result_bundle"
 mkdir -p "$log_dir"
 
-strip_ansi() {
-    sed -E $'s/\x1b\\[[0-9;]*m//g; s/\x1b\\]8;;[^\x1b]*\x1b\\\\//g'
-}
-
 print_test_failures() {
     [[ -d $result_bundle ]] || return 0
     xcrun xcresulttool get test-results summary --path "$result_bundle" 2>/dev/null \
@@ -24,13 +20,7 @@ print_test_failures() {
 fail() {
     local step=$1 log=$2
     echo "check.sh: $step failed (full log: $log)" >&2
-    local diagnostics
-    diagnostics=$(grep -E 'error:|warning:|✘|\*\* (BUILD|TEST) FAILED' "$log" | grep -v appintentsmetadataprocessor | strip_ansi || true)
-    if [[ -n $diagnostics ]]; then
-        echo "$diagnostics" >&2
-    else
-        tail -n 50 "$log" | strip_ansi >&2
-    fi
+    print_log_diagnostics "$log"
     if [[ $step == xcodebuild ]]; then
         print_test_failures
     fi
