@@ -124,7 +124,7 @@ extension Scheduler {
 }
 
 @Test func stillSavingOffersWaitAsTheDefault() {
-    let alert = QuitWording.alert(for: .stillSaving)
+    let alert = QuitWording.alert(for: .stillSaving, leaving: .quit)
     #expect(alert.choices == [.wait, .quitAnyway])
     #expect(alert.title == "Scene It is still saving your book.")
 }

@@ -3,6 +3,7 @@ import SceneItCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let diagnostics = DiagnosticsController.shared
+    private let books = BookController.shared
     private var phase = Phase.launching
 
     /// The app-wide lock (ADR 0020), held until the process exits.
@@ -17,9 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private enum Phase {
         case launching
-        case running(LastSession)
-        /// Another instance holds the lock; collecting the books this launch was asked to
-        /// open, which AppKit delivers before `applicationDidFinishLaunching`.
+        /// Holding the lock; collecting the books this launch was asked to open, which AppKit
+        /// delivers before `applicationDidFinishLaunching`.
+        case starting(LastSession, books: [URL])
+        case running
+        /// Waiting for the book to be saved before replying to `applicationShouldTerminate`.
+        case quitting
+        /// Another instance holds the lock; collecting the books to forward to it.
         case handingOff(books: [URL])
     }
 
@@ -34,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.app.error("couldn't take the app lock; running without it")
             }
             Self.instanceLock = consume lock
-            phase = .running(lastSession)
+            phase = .starting(lastSession, books: [])
         case .handOff:
             Log.app.info("another instance is running; handing off to it")
             phase = .handingOff(books: [])
@@ -45,24 +50,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch phase {
         case .handingOff(let books):
             phase = .handingOff(books: books + urls)
-        case .launching, .running:
+        case .starting(let lastSession, let books):
+            phase = .starting(lastSession, books: books + urls)
+        case .running, .quitting:
             Log.app.info("asked to open books", ["count": .count(urls.count)])
+            Task { await books.open(urls) }
+        case .launching:
+            Log.app.error("asked to open books before launching", ["count": .count(urls.count)])
         }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         switch phase {
-        case .running(let lastSession):
-            Task { diagnostics.offerReport(after: lastSession) }
+        case .starting(let lastSession, let requested):
+            phase = .running
+            let lastSaved = books.memory.lastSaved
+            Task {
+                diagnostics.offerReport(after: lastSession, lastSaved: lastSaved)
+                await books.launch(opening: requested)
+            }
         case .handingOff(let books):
             InstanceHandoff.forward(books) { NSApp.terminate(nil) }
-        case .launching:
+        case .launching, .running, .quitting:
             break
         }
     }
 
+    func applicationDidResignActive(_ notification: Notification) {
+        books.store.appDeactivated()
+    }
+
+    /// Replies later, once the book is saved or the writer has chosen (`QuitWording`).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        switch phase {
+        case .running:
+            phase = .quitting
+            Task {
+                let quit = await books.store.prepareToQuit()
+                if !quit { phase = .running }
+                sender.reply(toApplicationShouldTerminate: quit)
+            }
+            return .terminateLater
+        case .quitting:
+            return .terminateCancel
+        case .launching, .starting, .handingOff:
+            return .terminateNow
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        guard case .running = phase else { return }
-        diagnostics.stop()
+        switch phase {
+        case .starting, .running, .quitting:
+            books.store.closeForTermination()
+            diagnostics.stop()
+        case .launching, .handingOff:
+            break
+        }
     }
 }

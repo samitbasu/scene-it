@@ -47,11 +47,11 @@ final class DiagnosticsController {
         directory.sessionMarker.end()
     }
 
-    func offerReport(after lastSession: LastSession) {
+    func offerReport(after lastSession: LastSession, lastSaved: Date?) {
         guard case .crashedLastTime(let lastLaunch) = lastSession else { return }
         let alert = NSAlert()
         alert.messageText = ReportWording.crashAlertTitle
-        alert.informativeText = ReportWording.crashAlertMessage(lastLaunch: lastLaunch)
+        alert.informativeText = ReportWording.crashAlertMessage(lastLaunch: lastLaunch, lastSaved: lastSaved)
         alert.addButton(withTitle: ReportWording.crashAlertSend)
         alert.addButton(withTitle: ReportWording.crashAlertNotNow)
         if alert.runModal() == .alertFirstButtonReturn {

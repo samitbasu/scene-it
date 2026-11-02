@@ -4,11 +4,13 @@ import SwiftUI
 struct SceneItApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    /// One window, holding at most one book (ADR 0021).
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Window("Scene It", id: "main") {
+            ContentView(books: .shared)
         }
         .commands {
+            BookCommands(books: .shared)
             DiagnosticsCommands(diagnostics: .shared)
         }
     }

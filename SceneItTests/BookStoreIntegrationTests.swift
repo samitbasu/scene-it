@@ -1,0 +1,164 @@
+import AppKit
+import Foundation
+import SceneItCore
+import Testing
+
+@testable import SceneIt
+
+/// Questions wait until `answer` is called, so a test can watch the store while one is up.
+private final class WaitingPrompts: StorePrompts {
+    private(set) var titles: [String] = []
+    private var pending: [CheckedContinuation<Void, Never>] = []
+
+    func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        titles.append(alert.title)
+        await withCheckedContinuation { pending.append($0) }
+        return alert.choices[0]
+    }
+
+    func tell(_ notice: Notice) async {
+        titles.append(notice.title)
+    }
+
+    func answer() {
+        for continuation in pending { continuation.resume() }
+        pending = []
+    }
+}
+
+private func eventually(
+    within limit: Duration = .seconds(10), _ condition: () -> Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    let deadline = ContinuousClock.now + limit
+    while ContinuousClock.now < deadline {
+        if condition() { return }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    Issue.record("the condition never held", sourceLocation: sourceLocation)
+}
+
+private func withTemporaryFolder(_ body: (URL) async throws -> Void) async throws {
+    let url = FileManager.default.temporaryDirectory
+        .appending(path: "SceneItAppTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: url) }
+    try await body(url)
+}
+
+private func bookOnDisk(_ package: URL) throws -> Book {
+    try BookCoding.decode(Data(contentsOf: package.appending(path: "book.json")))
+}
+
+/// These drive the app's own store (`BookController.shared`), so they run one at a time.
+@Suite(.serialized)
+struct BookStoreIntegrationTests {
+    @Test func theTestHostKeepsBooksAwayFromTheWritersFiles() {
+        let books = BookController.shared
+        #expect(books.memory is TransientBookMemory)
+        #expect(
+            books.mirror.root.path(percentEncoded: false).hasPrefix(
+                FileManager.default.temporaryDirectory.path(percentEncoded: false)))
+        #expect(books.mirror != BackupMirror.standard)
+        #expect(books.store.current == nil, "the test host doesn't reopen the writer's last book")
+    }
+
+    @Test func theFileMenuHasNewOpenAndSave() {
+        for title in [StoreWording.newBookMenuItem, StoreWording.openBookMenuItem, StoreWording.saveMenuItem]
+        {
+            #expect(menuItem(titled: title, in: NSApp.mainMenu) != nil, "\(title)")
+        }
+        #expect(menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)?.keyEquivalent == "s")
+    }
+
+    @Test func anEditReachesBookJsonThroughAutosaveAndReopensTheSame() async throws {
+        try await withTemporaryFolder { folder in
+            let store = BookController.shared.store
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+            await eventually { book.status == .saved }
+            book.replaceBody(of: scene, with: PlainBody.paragraphs("The tide came in.\n\nIt went out."))
+            #expect(book.status == .unsaved)
+            await eventually { book.status == .saved }
+            #expect(try bookOnDisk(url) == book.book)
+            #expect(
+                try bookOnDisk(url).scenes.first?.body.map(\.text) == [
+                    "The tide came in.", "", "It went out.",
+                ])
+            let snapshots = try FileManager.default.contentsOfDirectory(
+                atPath: url.appending(path: "Backups").path(percentEncoded: false))
+            #expect(snapshots.contains { $0.hasPrefix("book-") })
+
+            let saved = book.book
+            #expect(await store.closeBook())
+            #expect(await store.open(url) == .opened)
+            #expect(store.current?.book == saved)
+            #expect(await store.closeBook())
+        }
+    }
+
+    @Test func fileSaveSavesAtOnce() async throws {
+        try await withTemporaryFolder { folder in
+            let store = BookController.shared.store
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+            await eventually { book.status == .saved }
+            book.setTitle(of: scene, to: "Saved by the menu")
+            let start = ContinuousClock.now
+            try perform(try #require(menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)))
+            await eventually { book.status == .saved }
+            #expect(
+                ContinuousClock.now - start < AutosavePolicy.idleDelay.duration, "saved before the idle delay"
+            )
+            #expect(try bookOnDisk(url).scenes.first?.title == "Saved by the menu")
+            #expect(await store.closeBook())
+        }
+    }
+
+    @Test func aBookAppKitAsksUsToOpenIsOpened() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "From Finder.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: url, title: "From Finder")
+            let delegate = try #require(NSApp.delegate)
+            try #require(delegate.responds(to: #selector(NSApplicationDelegate.application(_:open:))))
+            delegate.application?(NSApp, open: [url])
+            let store = BookController.shared.store
+            await eventually { store.current?.layout.root.canonicalPath == url.canonicalPath }
+            #expect(store.current?.isEditable == true)
+            #expect(await store.closeBook())
+        }
+    }
+
+    @Test func anExternalWriteThenAnEditReachesChangedOnDisk() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = WaitingPrompts()
+            let store = BookController(role: .testHost, prompts: prompts).store
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+            await eventually { book.status == .saved }
+
+            var theirs = try bookOnDisk(url)
+            theirs.title = "Their version"
+            try BookCoding.encode(theirs).write(to: url.appending(path: "book.json"), options: .atomic)
+            book.setTitle(of: scene, to: "My version")
+            store.saveNow()
+            await eventually { prompts.titles == ["This book was changed by another program."] }
+            guard case .changedOnDisk = book.status else {
+                Issue.record("status is \(book.status)")
+                return
+            }
+            #expect(try bookOnDisk(url) == theirs, "nothing was saved over their version")
+
+            prompts.answer()
+            await eventually { book.status == .saved }
+            #expect(try bookOnDisk(url) == book.book)
+            #expect(await store.closeBook())
+        }
+    }
+}

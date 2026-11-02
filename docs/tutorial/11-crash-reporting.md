@@ -125,6 +125,10 @@ shutdown) or *automatic termination* (quit when it has no windows). `Diagnostics
 turns both off with `ProcessInfo`'s `disableSuddenTermination()` and
 `disableAutomaticTermination(_:)`, and a hosted test checks that `Info.plist` doesn't opt in.
 
+The alert also says when a book was last saved, if that was during the session that crashed
+(`ReportWording.crashAlertMessage(lastLaunch:lastSaved:)`). The store records the time of each
+successful save in `UserDefaults` (chapter 04 §6), never anything from the book itself.
+
 False positives are still possible: Force Quit, a power cut, or **stopping the app in Xcode**
 all skip step 2, and the next launch offers a report. That's fine. Missing a real crash
 would be worse. A Debug build run from Xcode and an installed copy share one bundle
