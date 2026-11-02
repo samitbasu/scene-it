@@ -7,7 +7,7 @@ window (a sync service, another Mac, another copy of the app):
 
 1. Autosave pauses, and the status bar shows "Changed on disk".
 2. An alert explains what happened and offers two choices:
-   - **Keep My Version:** save with `ExternalChangePolicy.overwriteKeepingTheirsAsBackup`. Mine
+   - **Keep My Version:** save with `ExternalChangePolicy.overwriteKeepingTheirsAsBackup(theirs:)` (bound to the digest of the version the writer saw; a different version pauses and asks again). Mine
      becomes `book.json`, and theirs is rotated into `book.json.bak1`.
    - **Open Other Version:** first save my in-memory book as a new package
      next to the original, "<Title> (my edits).sceneit" (with a numeric suffix if needed), then
