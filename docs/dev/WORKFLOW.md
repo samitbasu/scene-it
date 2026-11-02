@@ -38,8 +38,10 @@ gh pr list                                                    # all open PRs
 - `ready-to-merge`: reviewed and green; waiting for the coordinator to merge.
 
 ## Trust rules (non-negotiable)
-- Never write `book.json` without encode → decode-verify → rotate → atomic write.
-- Never modify `Archive/saveNNNN.json` after it's written.
+- Never write `book.md` without serialize → verify (book format §7.2) → rotate → atomic write.
+- Never save over a `book.md` that was repaired as it opened until its original bytes are kept
+  in `book.md.original-<time>.md` (ADR 0024), and never remove, rotate or prune that file.
+- Never modify `Archive/saveNNNN.md` after it's written.
 - A failure to load must never half-load or overwrite anything.
 - Prefer refusing an operation with a clear error over guessing.
 - Never log manuscript text.

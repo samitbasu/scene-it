@@ -292,7 +292,7 @@ private struct LockHolder {
         }
     }
 
-    @Test func aBookDamagedWhileItWasBeingLockedIsReadAgain() throws {
+    @Test func aBookDamagedWhileItWasBeingLockedIsReadAgainAndOpensReadOnlyWithoutTheLock() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             do {
@@ -302,8 +302,18 @@ private struct LockHolder {
             let fileSystem = FaultInjectingFileSystem(root: url)
             fileSystem.before(.lock(".lock")) { try? Data("{".utf8).write(to: url.layout.book) }
             let opened = try BookPackage.open(at: url, fileSystem: fileSystem)
+            #expect(
+                fileSystem.calls.contains(.lock(".lock")), "precondition: the change landed while locking")
             #expect(opened.book.errors.contains(ErrorEntry(.line, "{")), "the damaged version was read")
-            #expect(opened.editable != nil)
+            guard case .repairedOnOpen(let repair)? = opened.readOnlyReason else {
+                Issue.record("expected repairedOnOpen, got \(String(describing: opened.readOnlyReason))")
+                return
+            }
+            #expect(repair.original == Data("{".utf8), "the bytes kept are the ones parsed")
+            guard case .acquired = LocalFileSystem().lock(url.layout.lock) else {
+                Issue.record("a book that opens read-only holds no lock")
+                return
+            }
         }
     }
 }
@@ -390,7 +400,8 @@ private struct LockHolder {
         _ url: URL, _ fileSystem: FaultInjectingFileSystem, as other: Opener? = nil,
         policy: LockRecordPolicy = .respect
     ) throws -> OpenedBook {
-        try BookPackage.open(at: url, onLockRecord: policy, fileSystem: fileSystem, opener: other ?? opener)
+        try BookPackage.open(
+            at: url, onLockRecord: policy, defaults: .system, fileSystem: fileSystem, opener: other ?? opener)
     }
 
     @Test(arguments: Untrusted.allCases)

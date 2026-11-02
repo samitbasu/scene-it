@@ -110,7 +110,7 @@ import Testing
             let description = error.description
             #expect(
                 description.hasPrefix(
-                    "Couldn't open Novel.sceneit: the package's book.json isn't a regular file"))
+                    "Couldn't open Novel.sceneit: the package's book.md isn't a regular file"))
             for slot in BackupSlot.allCases {
                 #expect(description.contains("- \(slot.fileName) (last modified "))
             }

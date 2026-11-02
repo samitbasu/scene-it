@@ -8,7 +8,7 @@
 | Our own last save | — | **Save anyway.** The status bar says "Backups aren't working". |
 
 ## Why "save anyway" for our own versions
-The new `book.json` is verified and contains the previous version plus the writer's edits. Refusing
+The new `book.json` (`book.md` since ADR 0022) is verified and contains the previous version plus the writer's edits. Refusing
 would leave the whole session's typing only in memory, where a crash or power loss loses it. The
 worst cost of saving is one lost rollback point, and the tiered snapshots and the external mirror
 keep separate history.

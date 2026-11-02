@@ -74,7 +74,7 @@ public enum SnapshotDecision: Hashable, Sendable {
     case notDue
 }
 
-/// A snapshot's file name, `book-20261101T143005Z.json`: the `UTCStamp` of the second it was
+/// A snapshot's file name, `book-20261101T143005Z.md`: the `UTCStamp` of the second it was
 /// taken. Pruning deletes only files whose names round-trip through this.
 struct SnapshotName: Hashable {
     let fileName: String
@@ -85,14 +85,14 @@ struct SnapshotName: Hashable {
         let second = UTCStamp.second(of: date)
         let stamp = UTCStamp.string(for: second)
         guard second.timeIntervalSince1970 >= 0, UTCStamp.date(from: stamp) == second else { return nil }
-        fileName = "book-\(stamp).json"
+        fileName = "book-\(stamp).md"
         self.date = second
     }
 
     /// `nil` unless `fileName` is exactly a name that `init(date:)` produces.
     init?(fileName: String) {
-        guard fileName.hasPrefix("book-"), fileName.hasSuffix(".json"),
-            let date = UTCStamp.date(from: fileName.dropFirst("book-".count).dropLast(".json".count)),
+        guard fileName.hasPrefix("book-"), fileName.hasSuffix(".md"),
+            let date = UTCStamp.date(from: fileName.dropFirst("book-".count).dropLast(".md".count)),
             let canonical = SnapshotName(date: date), canonical.fileName == fileName
         else { return nil }
         self = canonical

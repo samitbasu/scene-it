@@ -74,6 +74,15 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         if case .writable(let driver, _, .accepted) = access { driver } else { nil }
     }
 
+    /// ADR 0024's Make Editable, once the original is kept: the repaired book is unsaved, so
+    /// autosave writes it, replacing the damaged file.
+    func becomeEditable(_ writer: BookWriter, clock: C) {
+        guard case .readOnly = access else { return }
+        let driver = AutosaveDriver(clock: clock, saver: self)
+        access = .writable(driver, writer, .accepted)
+        driver.send(.edited)
+    }
+
     func setEdits(_ edits: Edits) {
         if case .writable(let driver, let writer, _) = access { access = .writable(driver, writer, edits) }
     }

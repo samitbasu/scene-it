@@ -166,7 +166,7 @@ import Testing
     }
 }
 
-/// Another program writes `book.json` after the save checked it but before the save replaced it.
+/// Another program writes `book.md` after the save checked it but before the save replaced it.
 @Suite struct ConcurrentChangeTests {
     enum Replacement: CaseIterable {
         /// The volume can swap: the check happens after the swap.
@@ -181,7 +181,7 @@ import Testing
         let fileSystem = FaultInjectingFileSystem(root: url)
         let package = try makeFullPackage(at: url, fileSystem: fileSystem)
         if replacement == .recheckThenRename {
-            fileSystem.inject(.fail(.exchange("book.json"), cause: .unsupported))
+            fileSystem.inject(.fail(.exchange("book.md"), cause: .unsupported))
         }
         return (package, fileSystem)
     }
@@ -199,7 +199,7 @@ import Testing
             let (package, fileSystem) = try package(url, replacement)
             let book = url.layout.book
             let theirs = try encoded(draft(7))
-            fileSystem.before(.writeTemporary("book.json")) { try? theirs.write(to: book) }
+            fileSystem.before(.writeTemporary("book.md")) { try? theirs.write(to: book) }
             #expect(throws: try changed(to: 7)) {
                 try package.save(draft(9), onExternalChange: policy)
             }
@@ -225,25 +225,25 @@ import Testing
             let (package, fileSystem) = try package(url, .exchange)
             let book = url.layout.book
             let theirs = try encoded(draft(7))
-            fileSystem.before(.writeTemporary("book.json")) { try? theirs.write(to: book) }
-            fileSystem.inject(.fail(.exchange("book.json"), skipping: 1))
+            fileSystem.before(.writeTemporary("book.md")) { try? theirs.write(to: book) }
+            fileSystem.inject(.fail(.exchange("book.md"), skipping: 1))
             let error = try #require(throws: SaveError.self) { try package.save(draft(9)) }
             guard case .externallyModified(.keptAsConflict(let fileName)) = error else {
                 Issue.record("unexpected error \(error)")
                 return
             }
-            #expect(fileName.hasPrefix("book.json.conflict-"))
+            #expect(fileName.hasPrefix("book.md.conflict-"))
             #expect(try Data(contentsOf: url.appending(path: fileName)) == theirs)
             #expect(url.layout.contents().book == (try encoded(draft(9))))
             fileSystem.clearFault()
-            #expect(try package.save(draft(10)).backupStatus == .intact, "book.json holds our save")
+            #expect(try package.save(draft(10)).backupStatus == .intact, "book.md holds our save")
         }
     }
 }
 
 extension ConcurrentChangeTests {
     /// Triple fault: theirs1 lands before the swap, theirs2 lands after it, and the swap-back
-    /// fails. book.json now holds theirs2, which must never be mistaken for our own save.
+    /// fails. book.md now holds theirs2, which must never be mistaken for our own save.
     @Test func aThirdWriteAfterAFailedSwapBackIsNotTakenForOurs() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
@@ -252,18 +252,18 @@ extension ConcurrentChangeTests {
             let book = url.layout.book
             let theirs1 = try encoded(draft(7))
             let theirs2 = try encoded(draft(8))
-            fileSystem.before(.writeTemporary("book.json")) { try? theirs1.write(to: book) }
-            fileSystem.before(.read("temporary book.json")) { try? theirs2.write(to: book) }
-            fileSystem.inject(.fail(.exchange("book.json"), skipping: 1))
+            fileSystem.before(.writeTemporary("book.md")) { try? theirs1.write(to: book) }
+            fileSystem.before(.read("temporary book.md")) { try? theirs2.write(to: book) }
+            fileSystem.inject(.fail(.exchange("book.md"), skipping: 1))
             let error = try #require(throws: SaveError.self) { try package.save(draft(9)) }
             guard case .externallyModified(.keptAsConflict(let fileName)) = error else {
                 Issue.record("unexpected error \(error)")
                 return
             }
             #expect(try Data(contentsOf: url.appending(path: fileName)) == theirs1)
-            #expect(url.layout.contents().book == theirs2, "precondition: theirs2 landed in book.json")
+            #expect(url.layout.contents().book == theirs2, "precondition: theirs2 landed in book.md")
 
-            fileSystem.inject(.fail(.publish("book.json.bak1")))
+            fileSystem.inject(.fail(.publish("book.md.bak1")))
             #expect(throws: try changed(to: 8)) { try package.save(draft(10)) }
             #expect(url.layout.contents().book == theirs2)
         }
@@ -274,7 +274,7 @@ extension ConcurrentChangeTests {
             let url = directory.appending(path: "Novel.sceneit")
             let layout = url.layout
             let now = Date.now
-            #expect(layout.conflict(at: now, attempt: 1).lastPathComponent.hasPrefix("book.json.conflict-"))
+            #expect(layout.conflict(at: now, attempt: 1).lastPathComponent.hasPrefix("book.md.conflict-"))
             #expect(layout.conflict(at: now, attempt: 2).lastPathComponent.hasSuffix("-2"))
             #expect(layout.conflict(at: now, attempt: 1) != layout.conflict(at: now, attempt: 2))
         }
@@ -282,7 +282,7 @@ extension ConcurrentChangeTests {
 }
 
 @Suite struct WriteProtectionTests {
-    @Test func aSaveKeepsBookJsonsPermissionsAndGivesThemToTheNewBackup() throws {
+    @Test func aSaveKeepsBookMdsPermissionsAndGivesThemToTheNewBackup() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let package = try BookPackage.create(at: url, title: "Novel").package

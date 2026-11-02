@@ -210,7 +210,7 @@ func describe(_ s: Selection) -> String {
 `Selection?` the compiler can't tell it from `Optional.none` and warns
 "assuming you mean 'Optional<Selection>.none'".
 
-Differences from serde that matter for `book.json`:
+Differences from serde that matter for a JSON file (the book was `book.json` before format 2; it's Markdown now, chapter 02):
 
 - **Unknown keys are ignored**, and there's no `deny_unknown_fields`. Strictness
   comes from types (enums, non-optional fields) and explicit validation.
@@ -1134,7 +1134,7 @@ func rulesCallSite() {
 **No naked `Double`/`Float` parameters.** Write a newtype that enforces its
 constraint in the initializer and implements its operators once. Rust's
 `impl From<Zoom> for f64` becomes an initializer on `Double`. If the value has to
-appear in `book.json` as a bare number (serde's `#[serde(transparent)]`),
+appear in a JSON file as a bare number (serde's `#[serde(transparent)]`),
 conform the newtype to `RawRepresentable` with a `Codable` raw value, and the
 standard library supplies the `Codable` implementation:
 

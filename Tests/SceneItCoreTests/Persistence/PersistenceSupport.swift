@@ -8,7 +8,7 @@ import Testing
 /// dying at one, and can run an action (another program's write) just before a call.
 final class FaultInjectingFileSystem: FileSystem {
     /// One call, naming files relative to the package so traces read like the pipeline. A
-    /// hidden temporary file for `book.json` is named "temporary book.json", and one for
+    /// hidden temporary file for `book.md` is named "temporary book.md", and one for
     /// `Backups/book-id` "Backups/temporary book-id".
     enum Call: Hashable, CustomStringConvertible {
         case inspect(String)
@@ -340,7 +340,7 @@ func overwriting(_ number: Int) throws -> ExternalChangePolicy {
 }
 
 extension PackageLayout {
-    /// The bytes of `book.json` and each backup slot; `nil` where a file is absent.
+    /// The bytes of `book.md` and each backup slot; `nil` where a file is absent.
     func contents() -> (book: Data?, backups: [BackupSlot: Data]) {
         var backups: [BackupSlot: Data] = [:]
         for slot in BackupSlot.allCases {
@@ -351,7 +351,7 @@ extension PackageLayout {
 }
 
 extension SaveOutcome {
-    /// The backup status of a save that wrote `book.json`; `nil` for `.unchanged`.
+    /// The backup status of a save that wrote `book.md`; `nil` for `.unchanged`.
     var backupStatus: BackupStatus? {
         if case .saved(let status, _) = self { status } else { nil }
     }

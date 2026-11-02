@@ -3,12 +3,12 @@ import Synchronization
 
 /// What one save did, for the status bar.
 public enum WriteResult: Hashable, Sendable {
-    /// `book.json` already held exactly this book.
+    /// `book.md` already held exactly this book.
     case unchanged
     case saved(SavedBackups)
 }
 
-/// What a save that wrote `book.json` did for its backups: the rotation (`bak1…3`) and the
+/// What a save that wrote `book.md` did for its backups: the rotation (`bak1…3`) and the
 /// tiered snapshots (ADR 0005, 0019).
 public struct SavedBackups: Hashable, Sendable {
     public let rotation: BackupStatus

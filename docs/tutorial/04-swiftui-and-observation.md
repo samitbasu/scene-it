@@ -334,7 +334,7 @@ main window is closed.
 
 ### ADR 0018: changed on disk
 
-When a save finds that another program changed `book.json`, the scheduler pauses autosave.
+When a save finds that another program changed `book.md`, the scheduler pauses autosave.
 The saver can't call the driver (chapter 03a), so it schedules a task that runs *after* the
 driver has handled the failure, and asks only if autosave really is paused:
 
@@ -541,6 +541,6 @@ test asserts this.
   (and a fault-injecting file system for failing saves): switching with and without a failing
   save, both ADR 0018 choices, read-only, quitting.
 - The hosted tests (`scripts/check.sh`) drive the app's own store: create a book, edit, let
-  autosave write `book.json`, reopen it; choose File → Save from the real menu; hand the app a
-  book through `application(_:open:)`; write `book.json` from outside and watch the status
+  autosave write `book.md`, reopen it; choose File → Save from the real menu; hand the app a
+  book through `application(_:open:)`; write `book.md` from outside and watch the status
   become "Changed on disk".

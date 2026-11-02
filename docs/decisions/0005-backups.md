@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-11-01). **Extends PLAN §5.4.**
 
 ## Problem
-PLAN rotates `book.json.bak1…bak3` on *every* save. With a 2 s autosave, all
+PLAN rotates `book.json.bak1…bak3` (`book.md.bak1…3` since ADR 0022) on *every* save. With a 2 s autosave, all
 three backups can be seconds old, so they protect against a corrupt write but not
 against "I deleted a chapter an hour ago".
 

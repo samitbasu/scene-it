@@ -72,7 +72,7 @@ struct WindowRenders {
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
             try BookFormat.serialize(Self.sampleBook()).write(
-                to: url.appending(path: "book.json"), options: .atomic)
+                to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)
             try await body(book, books.preferences)

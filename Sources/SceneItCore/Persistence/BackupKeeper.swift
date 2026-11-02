@@ -1,9 +1,9 @@
 import Foundation
 
-/// Takes the tiered snapshots of ADR 0005 after a save: one copy of `book.json` in the
+/// Takes the tiered snapshots of ADR 0005 after a save: one copy of `book.md` in the
 /// package's `Backups/`, and one in the external mirror's folder for this book.
 ///
-/// It never throws and never touches `book.json`: every failure is logged and returned in
+/// It never throws and never touches `book.md`: every failure is logged and returned in
 /// the `SnapshotReport` (ADR 0019).
 public struct BackupKeeper: Sendable {
     private let layout: PackageLayout

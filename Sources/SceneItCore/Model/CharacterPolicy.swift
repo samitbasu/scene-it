@@ -210,6 +210,8 @@ public enum RepairNotice: Hashable, Sendable {
     case missingSceneID(given: SceneID)
     case duplicateSceneID(SceneID, given: SceneID)
     case missingModified(setTo: Timestamp)
+    /// A filed copy's section in `Archive/index.md` (book format §8).
+    case missingFiledDate(setTo: CalendarDay)
 
     public var entry: ErrorEntry {
         ErrorEntry(.notice, payload)
@@ -231,6 +233,8 @@ public enum RepairNotice: Hashable, Sendable {
             "This scene's id \(old) was already used by an earlier scene, so it was given \(given)."
         case .missingModified(let timestamp):
             "This scene had no modified date, so it was set to \(timestamp)."
+        case .missingFiledDate(let day):
+            "This filed copy had no filed date, so it was set to \(day)."
         }
     }
 

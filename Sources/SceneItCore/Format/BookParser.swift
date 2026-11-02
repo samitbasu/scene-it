@@ -29,21 +29,8 @@ private enum SceneSection {
     case body, notes, comments, marks, unparsed
 }
 
-/// An entry (or a stray line) and the line it started on, so entries found at different
-/// times can be put in file order.
-private struct LogicalLine {
-    let line: Int
-    var text: [UInt8]
-}
-
 private enum SceneList {
     case story, boneyard
-}
-
-private struct Positioned {
-    let line: Int
-    let entry: ErrorEntry
-    var origin = EntryOrigin.new
 }
 
 private final class SceneDraft {
@@ -71,8 +58,7 @@ private final class SceneDraft {
 
 private final class Reader {
     private let lines: [[UInt8]]
-    private let replacements: [Replacement]
-    private var nextReplacement = 0
+    private var replacements: ReplacementCursor
 
     private var bookEntries: [Positioned] = []
     private var bookReplaced: [Unicode.Scalar] = []
@@ -89,35 +75,22 @@ private final class Reader {
 
     init(lines: [[UInt8]], replacements: [Replacement]) {
         self.lines = lines
-        self.replacements = replacements
+        self.replacements = ReplacementCursor(replacements)
     }
 
     func read() {
-        var index = 0
-        if let first = lines.firstIndex(where: { !$0.isEmpty }), lines[first] == Self.frontMatterFence {
-            index = first + 1
-            while index < lines.count {
-                let line = lines[index]
-                if line == Self.frontMatterFence {
-                    index += 1
-                    break
-                }
-                if case .heading = Lexical.kind(of: line) { break }
-                if !line.isEmpty { frontMatter(line, index) }
-                index += 1
-            }
+        let frontMatter = Lexical.frontMatter(lines)
+        for number in frontMatter.lines {
+            self.frontMatter(lines[number], number)
         }
-        for number in 0..<index {
-            bookReplaced += replaced(on: number)
+        for number in 0..<frontMatter.end {
+            bookReplaced += replacements.through(line: number)
         }
-        while index < lines.count {
-            process(index)
-            index += 1
+        for number in frontMatter.end..<lines.count {
+            process(number)
         }
         endScene()
     }
-
-    private static let frontMatterFence = Array("---".utf8)
 
     // MARK: Front matter (§1.5)
 
@@ -130,16 +103,11 @@ private final class Reader {
         let unescaped = Lexical.fieldUnescaped(value)
         if key == "title" {
             title = Lexical.string(unescaped)
-        } else if let number = decimal(unescaped) {
+        } else if let number = Lexical.formatNumber(unescaped) {
             format = number
         } else {
             bookEntry(.frontMatter, line, number)
         }
-    }
-
-    private func decimal(_ digits: [UInt8]) -> Int? {
-        guard !digits.isEmpty, digits.allSatisfy({ (0x30...0x39).contains($0) }) else { return nil }
-        return Int(String(decoding: digits, as: UTF8.self))
     }
 
     // MARK: Lines
@@ -162,9 +130,9 @@ private final class Reader {
             startsAPart = false
         }
         if let current {
-            current.replaced += replaced(on: number)
+            current.replaced += replacements.through(line: number)
         } else {
-            bookReplaced += replaced(on: number)
+            bookReplaced += replacements.through(line: number)
         }
         guard !startsAPart else { return }
         switch kind {
@@ -294,31 +262,7 @@ private final class Reader {
             }
             scene.modified = timestamp
         default:
-            scene.tags = Self.tags(value)
-        }
-    }
-
-    static func tags(_ value: ArraySlice<UInt8>) -> [String] {
-        var pieces: [ArraySlice<UInt8>] = []
-        var start = value.startIndex
-        var index = value.startIndex
-        while index < value.endIndex {
-            if value[index] == Lexical.backslash {
-                index += 2
-                continue
-            }
-            if value[index] == Lexical.comma {
-                pieces.append(value[start..<index])
-                start = index + 1
-            }
-            index += 1
-        }
-        pieces.append(value[min(start, value.endIndex)...])
-        return pieces.compactMap { piece in
-            var tag = Lexical.trim(piece)[...]
-            if tag.first == Lexical.hash { tag = tag.dropFirst() }
-            let unescaped = Lexical.fieldUnescaped(tag)
-            return unescaped.isEmpty ? nil : Lexical.string(unescaped)
+            scene.tags = Lexical.tags(value)
         }
     }
 
@@ -388,15 +332,6 @@ private final class Reader {
         bookEntries.append(Positioned(line: number, entry: ErrorEntry(tag, Lexical.string(line))))
     }
 
-    private func replaced(on line: Int) -> [Unicode.Scalar] {
-        var found: [Unicode.Scalar] = []
-        while nextReplacement < replacements.count, replacements[nextReplacement].line <= line {
-            found.append(replacements[nextReplacement].scalar)
-            nextReplacement += 1
-        }
-        return found
-    }
-
     // MARK: The book
 
     func finish(windows1252ByteCount: Int, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
@@ -418,9 +353,9 @@ private final class Reader {
             if draft.modified == nil {
                 notices.append(.missingModified(setTo: opened))
             }
-            notices += replacedNotice(draft.replaced)
-            let entries = Self.inFileOrder(draft.entries)
-            newInScenes += Self.new(entries) + notices.map(\.entry)
+            notices += RepairNotice.replaced(draft.replaced)
+            let entries = Positioned.inFileOrder(draft.entries)
+            newInScenes += Positioned.new(entries) + notices.map(\.entry)
             let scene = BookScene(
                 id: id, modified: draft.modified ?? opened, title: SceneTitle(draft.title), tags: draft.tags,
                 body: draft.paragraphs.body, notes: draft.paragraphs.notes, comments: draft.comments,
@@ -433,32 +368,14 @@ private final class Reader {
         var notices: [RepairNotice] = []
         if windows1252ByteCount > 0 { notices.append(.invalidUTF8(byteCount: windows1252ByteCount)) }
         if title == nil { notices.append(.missingTitle) }
-        if let format, format != FormatVersion.current.number {
-            notices.append(.otherFormat(format))
-        } else if format == nil {
-            notices.append(.missingFormat)
-        }
-        notices += replacedNotice(bookReplaced)
-        let entries = Self.inFileOrder(bookEntries)
+        notices += RepairNotice.format(format) + RepairNotice.replaced(bookReplaced)
+        let entries = Positioned.inFileOrder(bookEntries)
         let book = Book(
             title: title ?? BookFormat.untitled, scenes: story, boneyard: boneyard,
             errors: entries.map(\.entry) + notices.map(\.entry))
         return ParsedBook(
             book: book, declaredFormat: format.map(FormatVersion.init),
-            newEntries: Self.new(entries) + notices.map(\.entry) + newInScenes)
-    }
-
-    private func replacedNotice(_ scalars: [Unicode.Scalar]) -> [RepairNotice] {
-        scalars.isEmpty ? [] : [.replacedCharacters(CharacterPolicy.distinct(scalars))]
-    }
-
-    private static func inFileOrder(_ entries: [Positioned]) -> [Positioned] {
-        entries.enumerated().sorted { ($0.element.line, $0.offset) < ($1.element.line, $1.offset) }.map(
-            \.element)
-    }
-
-    private static func new(_ entries: [Positioned]) -> [ErrorEntry] {
-        entries.filter { $0.origin == .new }.map(\.entry)
+            newEntries: Positioned.new(entries) + notices.map(\.entry) + newInScenes)
     }
 
     /// A fresh id that no scene in the file uses. A source that keeps repeating itself gets

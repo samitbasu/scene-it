@@ -51,11 +51,12 @@ typealias TestStore = BookStore<ManualClock>
 func makeStore(
     in folder: URL, prompts: ScriptedPrompts = ScriptedPrompts(),
     memory: TransientBookMemory = TransientBookMemory(),
-    fileSystem: any FileSystem = LocalFileSystem(), clock: ManualClock = ManualClock()
+    fileSystem: any FileSystem = LocalFileSystem(), clock: ManualClock = ManualClock(),
+    parseDefaults: ParseDefaults = .system
 ) -> TestStore {
     BookStore(
         clock: clock, fileSystem: fileSystem, mirror: BackupMirror(root: folder.appending(path: "Mirror")),
-        memory: memory, prompts: prompts)
+        memory: memory, prompts: prompts, parseDefaults: parseDefaults)
 }
 
 /// A fresh directory under the system temporary directory, removed when `body` returns.
@@ -80,17 +81,17 @@ func eventually(
     Issue.record("the condition never held", sourceLocation: sourceLocation)
 }
 
-/// The book in `package`'s `book.json`, parsed.
-func bookOnDisk(_ package: URL, file: String = "book.json") throws -> Book {
+/// The book in `package`'s `book.md`, parsed.
+func bookOnDisk(_ package: URL, file: String = "book.md") throws -> Book {
     var ids = IDGenerator.system
     return BookFormat.parse(
         try Data(contentsOf: package.appending(path: file)), opened: Timestamp(.now, in: .current), ids: &ids
     ).book
 }
 
-/// What another program (a sync service, say) does: replaces `book.json` with `book`.
+/// What another program (a sync service, say) does: replaces `book.md` with `book`.
 func writeExternally(_ book: Book, to package: URL) throws {
-    try BookFormat.serialize(book).write(to: package.appending(path: "book.json"), options: .atomic)
+    try BookFormat.serialize(book).write(to: package.appending(path: "book.md"), options: .atomic)
 }
 
 extension OpenBook {

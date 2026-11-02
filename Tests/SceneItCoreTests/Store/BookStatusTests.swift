@@ -4,9 +4,9 @@ import Testing
 @testable import SceneItCore
 
 private let rotationFailure = FileSystemError(
-    .publish, URL(filePath: "/Books/Novel.sceneit/book.json.bak1"), .io)
+    .publish, URL(filePath: "/Books/Novel.sceneit/book.md.bak1"), .io)
 private let snapshotFailure = SnapshotFailure.fileSystem(
-    .write, FileSystemError(.write, URL(filePath: "/Mirror/book.json"), .noSpace))
+    .write, FileSystemError(.write, URL(filePath: "/Mirror/book.md"), .noSpace))
 
 private func backups(_ rotation: BackupStatus, _ package: SnapshotOutcome, _ mirror: SnapshotOutcome)
     -> SavedBackups
@@ -56,7 +56,7 @@ private func state(after events: [AutosaveEvent]) -> Scheduler.State {
     #expect(BookStatus(autosave: retrying, lastBackups: nil) == .saving)
     for error in [
         changedOnDisk, .externallyModified(.removed), .externallyModified(.notAFile),
-        .externallyModified(.keptAsConflict(fileName: "book.json.conflict-20261102T120000Z")),
+        .externallyModified(.keptAsConflict(fileName: "book.md.conflict-20261102T120000Z")),
         .couldNotBackUpTheirVersion(rotationFailure),
     ] {
         let paused = state(after: [.edited, .saveCommand, .saveFailed(error)])
@@ -92,18 +92,18 @@ private func state(after events: [AutosaveEvent]) -> Scheduler.State {
         StoreWording.externalChangeAlert(.externallyModified(.notAFile), myEditsName: name).choices
             == [.openOtherVersion])
     let conflict = StoreWording.externalChangeAlert(
-        .externallyModified(.keptAsConflict(fileName: "book.json.conflict-X")), myEditsName: name)
+        .externallyModified(.keptAsConflict(fileName: "book.md.conflict-X")), myEditsName: name)
     #expect(conflict.choices == [.keepMyVersion])
-    #expect(conflict.message.contains("book.json.conflict-X"))
+    #expect(conflict.message.contains("book.md.conflict-X"))
 }
 
 @Test func theReadOnlyAlertOffersOpenAnywayOnlyForARecord() {
     let record = LockRecord(host: "Studio", hostID: "X", userID: 501, processID: 9, since: .now)
-    let onAnotherMac = LockWording.alert(for: .openOnAnotherMac(record))
+    let onAnotherMac = ReadOnlyWording.alert(for: .openOnAnotherMac(record))
     #expect(onAnotherMac.choices == [.keepReadOnly, .openAnyway(record)])
-    #expect(onAnotherMac.message.hasSuffix(LockWording.openAnywayWarning))
-    #expect(LockWording.alert(for: .openElsewhere).choices == [.keepReadOnly])
-    #expect(LockWording.alert(for: .lockUnavailable(rotationFailure)).choices == [.keepReadOnly])
+    #expect(onAnotherMac.message.hasSuffix(ReadOnlyWording.openAnywayWarning))
+    #expect(ReadOnlyWording.alert(for: .openElsewhere).choices == [.keepReadOnly])
+    #expect(ReadOnlyWording.alert(for: .lockUnavailable(rotationFailure)).choices == [.keepReadOnly])
 }
 
 @Test func closingABookWordsTheQuitAlertForClosing() {

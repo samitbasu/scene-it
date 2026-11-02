@@ -83,6 +83,52 @@ public struct Timestamp: Hashable, Sendable, CustomStringConvertible {
     }
 }
 
+/// A date with no time or zone, written `2026-10-31`: the day a copy was filed, as the writer
+/// gave it (PLAN §7.1, book format §8). Years 0000–9999, like `Timestamp`.
+public struct CalendarDay: Hashable, Comparable, Sendable, CustomStringConvertible {
+    public let year: Int
+    public let month: Int
+    public let day: Int
+
+    /// `nil` for a day the proleptic Gregorian calendar doesn't have, or a year outside 0000–9999.
+    public init?(year: Int, month: Int, day: Int) {
+        guard (0...9999).contains(year), (1...12).contains(month),
+            (1...LocalDateTime.daysIn(month: month, year: year)).contains(day)
+        else { return nil }
+        self.init(LocalDateTime(year: year, month: month, day: day, hour: 0, minute: 0, second: 0))
+    }
+
+    /// The day `date` falls on in `timeZone`.
+    public init(_ date: Date, in timeZone: TimeZone) {
+        let timestamp = Timestamp(date, in: timeZone)
+        self.init(
+            LocalDateTime(secondsSince1970: timestamp.secondsSince1970 + Int64(timestamp.offset.minutes * 60))
+        )
+    }
+
+    /// Reads exactly `description`'s form, `YYYY-MM-DD`.
+    public init?(_ text: some StringProtocol) {
+        guard let local = LocalDateTime(ArraySlice(Array(text.utf8) + Array("T00:00:00".utf8))) else {
+            return nil
+        }
+        self.init(local)
+    }
+
+    private init(_ local: LocalDateTime) {
+        year = local.year
+        month = local.month
+        day = local.day
+    }
+
+    public var description: String {
+        zeroPadded(year, width: 4) + "-" + zeroPadded(month, width: 2) + "-" + zeroPadded(day, width: 2)
+    }
+
+    public static func < (lhs: Self, rhs: Self) -> Bool {
+        (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
+    }
+}
+
 /// A proleptic Gregorian wall-clock time. The day arithmetic is Howard Hinnant's
 /// `days_from_civil`/`civil_from_days`, which avoids `Calendar`'s Julian switch in 1582.
 struct LocalDateTime: Equatable, CustomStringConvertible {

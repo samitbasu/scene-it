@@ -4,7 +4,7 @@ How a book gets onto disk without ever being lost or half-loaded, explained for 
 who has written `tempfile` + `persist` in Rust.
 
 The rules come from [WORKFLOW.md](../dev/WORKFLOW.md)'s trust section: never write
-`book.json` without serialize → verify → rotate → atomic write; a failed load never
+`book.md` without serialize → verify → rotate → atomic write; a failed load never
 half-loads or overwrites anything; refuse with a clear error rather than guess. Two
 decision records refine them: [ADR 0018](../decisions/0018-external-change-ux.md) (what
 happens when another program changed the book) and
@@ -29,7 +29,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 | [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
 | [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the advisory record, `LockRecordPolicy`, `ThisMac` |
-| [`LockWording.swift`](../../Sources/SceneItCore/Persistence/LockWording.swift) | what the writer is told when a book opens read-only |
+| [`ReadOnlyWording.swift`](../../Sources/SceneItCore/Persistence/ReadOnlyWording.swift) | what the writer is told when a book opens read-only |
 | [`Launch/LaunchGate.swift`](../../Sources/SceneItCore/Launch/LaunchGate.swift) | the app-wide lock at launch, `ProcessRole` |
 
 The tests are in [`Tests/SceneItCoreTests/Persistence/`](../../Tests/SceneItCoreTests/Persistence/).
@@ -43,22 +43,30 @@ A book is a directory named `My Novel.sceneit` that Finder shows as one document
 
 ```
 My Novel.sceneit/
-  book.json
-  book.json.bak1 … bak3     the last three versions, newest first
-  Archive/index.json        {"copies":[]} in a new book (PLAN §5.5)
+  book.md                   the book, format 2 (ADR 0022)
+  book.md.bak1 … bak3       the last three versions, newest first
+  book.md.original-<time>.md  a damaged book's original, kept by Make Editable (ADR 0024, §13)
+  Archive/index.md          just "format: 2" front matter in a new book (PLAN §5.5, format §8)
+  Archive/save0001.md …     filed copies, exact copies of book.md (the archive, #32)
   Backups/                  tiered snapshots and book-id (ADR 0005, §11)
   .lock                     locked while the book is open for editing (ADR 0020, §12)
 ```
 
+Every copy of the book is a `.md` file named after `book.md`. There's no migration from
+the JSON `book.json` of builds before format 2 (ADR 0022): a package holding only that
+fails to open with `LoadProblem.legacyJSONBook`, rather than opening as an empty book that
+the writer might type into. `PackageLayout.legacyBookFileName` is the one place in the
+sources that still names it, and a test checks that.
+
 `PackageLayout` is the one place that knows those names. Everything else asks it,
 for example `layout.backup(.bak2)`. A new book is created empty, with no scenes,
-which PLAN §4.2 allows (the rail's "current scene" is grayed out). `book.json` is
+which PLAN §4.2 allows (the rail's "current scene" is grayed out). `book.md` is
 the last thing `create` writes, so a creation interrupted halfway leaves a package
-that `open` refuses with "the package has no book.json" instead of something that
+that `open` refuses with "the package has no book.md" instead of something that
 looks like a book.
 
 `BookPackage` is a `final class`, not a struct. It remembers a digest of the
-`book.json` it last read or wrote (§7), and two copies of a struct could each remember
+`book.md` it last read or wrote (§7), and two copies of a struct could each remember
 something different and then disagree about whether the file had changed. Its state is
 behind a `Mutex`, so two saves can't interleave either.
 
@@ -155,10 +163,10 @@ In order:
    "equal" books can serialize differently, and comparing values would hide exactly
    the kind of drift this step exists to catch. A failure is `SaveError.encoding`, and
    nothing is written.
-2. **Read `book.json`, and decide whose it is.** Refuse a read-only or locked file (§8).
+2. **Read `book.md`, and decide whose it is.** Refuse a read-only or locked file (§8).
    Compare the bytes' digest with the one remembered: equal means *ours*, otherwise
    *theirs*, which `.refuse` turns into an error (§7).
-3. **Skip unchanged.** If `book.json` already holds these exact bytes, return
+3. **Skip unchanged.** If `book.md` already holds these exact bytes, return
    `.unchanged` without touching anything. Autosave runs every couple of seconds;
    if it rotated each time, three idle autosaves would push every real backup out.
 4. **Replace,** in two phases: write everything, then rename (§4).
@@ -170,16 +178,16 @@ never the path: a path contains the book's title, and the `Log` API only accepts
 
 ## 4. Write everything, then rename
 
-PLAN §5.4 says "rotate `bak2`→`bak3`, `bak1`→`bak2`, `book.json`→`bak1`, then write".
+PLAN §5.4 says "rotate `bak2`→`bak3`, `bak1`→`bak2`, `book.md`→`bak1`, then write".
 Done in that order, the rotation has already happened when the write fails, so a full
 disk costs a backup every time. And done literally with renames, there's a moment
-with no `book.json` at all.
+with no `book.md` at all.
 
 So the save splits into two phases. **Phase 1 writes**: a durable temporary copy of
-the current `book.json` (the new `bak1`) and a durable temporary copy of the new book.
+the current `book.md` (the new `bak1`) and a durable temporary copy of the new book.
 Those writes are the only steps that can fail because the disk is full or a sector
 is bad, and when they fail nothing visible has changed yet. **Phase 2 only renames.**
-`book.json` is never moved, just replaced in one step by its new version.
+`book.md` is never moved, just replaced in one step by its new version.
 
 ```swift
     private func replaceBook(
@@ -255,19 +263,19 @@ The rotation stops at its first failure:
 One rule covers the rotation: **a save destroys nothing but the version in `bak3`**. Every
 shift moves into a slot the previous shift emptied, `publish` refuses to replace anything
 (§5), and the first failure stops the rotation before it can overwrite a distinct version.
-What happens next depends on whose version `book.json` holds:
+What happens next depends on whose version `book.md` holds:
 
-| `book.json` holds | The rotation fails | Result |
+| `book.md` holds | The rotation fails | Result |
 | --- | --- | --- |
 | our own last save | at any step | **Save anyway**: `.saved(.previousVersionNotBackedUp(error, olderBackups:), _)`. The new book contains the old one plus the edits; refusing would leave the session's typing only in memory. The store shows "Backups aren't working". |
-| another program's version (`.overwriteKeepingTheirsAsBackup(theirs:)`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.json`. |
+| another program's version (`.overwriteKeepingTheirsAsBackup(theirs:)`) | at any step | **Refuse**: `SaveError.couldNotBackUpTheirVersion`. Nothing is published, and their version stays in `book.md`. |
 
 Other details:
 
 - **A missing slot absorbs the shift.** A missing `bak2` is `.notFound` and is skipped,
   so `bak3` keeps its version. A missing `bak1` means nothing shifts at all. A retry
   after a crash fills the gap instead of discarding another version.
-- **`bak1 == book.json` means "already backed up".** If the final rename failed, `bak1`
+- **`bak1 == book.md` means "already backed up".** If the final rename failed, `bak1`
   already holds the current version. Without this check, every failing autosave would
   shift again, and three of them would replace all the backups with copies of the
   current book. `bak1Holding` compares sizes before reading, and anything it can't read
@@ -284,7 +292,7 @@ A backup's modification time is *when that version was superseded*: the copy int
 ### What `rename(2)` gives you
 
 POSIX `rename` replaces the destination name in one step: any process looking at
-`book.json` sees the old file or the new one, never a mix or nothing. APFS keeps that
+`book.md` sees the old file or the new one, never a mix or nothing. APFS keeps that
 true across a crash, because its metadata updates are copy-on-write transactions. That's
 the "atomic" in atomic write: write a temporary file next to the target, then rename
 it over the target.
@@ -383,7 +391,7 @@ renames so that each call states what it may replace:
 - **`publish`** may replace *nothing*: `renamex_np(…, RENAME_EXCL)` fails with `EEXIST`
   if the destination exists. It's used for a new `bak1` and for a new package's files,
   so a rotation can never overwrite a version by mistake.
-- **`exchange`** swaps two names in one step (`RENAME_SWAP`). It's used for `book.json`
+- **`exchange`** swaps two names in one step (`RENAME_SWAP`). It's used for `book.md`
   (§7).
 - **`move`** is plain `rename`, used only to shift backups down.
 
@@ -407,10 +415,10 @@ destination is absent and then renames, which leaves a window of microseconds.
 
 ### Other details
 
-- **Permissions** follow Foundation: the new `book.json` gets the old one's permission
-  bits. The new `bak1` gets `book.json`'s bits too, not the old `bak1`'s, so a private
+- **Permissions** follow Foundation: the new `book.md` gets the old one's permission
+  bits. The new `bak1` gets `book.md`'s bits too, not the old `bak1`'s, so a private
   (0600) book keeps private backups, and an unreadable old `bak1` doesn't make the new one
-  unreadable. Older backups keep the bits they had, so a change to `book.json`'s
+  unreadable. Older backups keep the bits they had, so a change to `book.md`'s
   permissions reaches all three backups over three saves. Only the 0o777 bits are copied:
   setuid, setgid and sticky are dropped. ACLs and extended attributes are not carried
   over.
@@ -422,7 +430,7 @@ destination is absent and then renames, which leaves a window of microseconds.
   not thrown: the change is already in place, so reporting failure would be false.
   `createDirectory` flushes the parent directory for the same reason.
 - **The temporary name** is unique (a UUID), so two processes saving at once can't
-  write into the same file. A crash can leave a hidden `.book.json.<uuid>.tmp` behind.
+  write into the same file. A crash can leave a hidden `.book.md.<uuid>.tmp` behind.
   Nothing reads it; a later save clears it away (§6).
 
 ### Other volumes
@@ -438,50 +446,50 @@ applies if the call is refused.
 
 ## 6. What a crash or a failure leaves behind
 
-Start from a package where `book.json` is version V0 (our own last save) and the
+Start from a package where `book.md` is version V0 (our own last save) and the
 backups are V1–V3, and save V9. Each row is the state on disk if the process dies right
 after that step. Every step is either in memory, a read, a durable write under a hidden
 name, or a rename, so there are no torn states between rows, at worst a stray temporary
 file.
 
-| Crash after | `book.json` | `bak1` | `bak2` | `bak3` | Opens as |
+| Crash after | `book.md` | `bak1` | `bak2` | `bak3` | Opens as |
 | --- | --- | --- | --- | --- | --- |
 | encode, verify, the checks, the reads | V0 | V1 | V2 | V3 | V0 |
-| writing the temporary `bak1` and `book.json` | V0 | V1 | V2 | V3 | V0, plus stray temporary files |
+| writing the temporary `bak1` and `book.md` | V0 | V1 | V2 | V3 | V0, plus stray temporary files |
 | `bak2` → `bak3` | V0 | V1 | — | V2 | V0 |
 | `bak1` → `bak2` | V0 | — | V1 | V2 | V0 |
 | publishing `bak1` | V0 | V0 | V1 | V2 | V0 |
-| exchanging `book.json` | V9 | V0 | V1 | V2 | V9 (V0 also at a stray temporary name) |
+| exchanging `book.md` | V9 | V0 | V1 | V2 | V9 (V0 also at a stray temporary name) |
 
-- **`book.json` is always present and whole**, and it's V0 or V9.
+- **`book.md` is always present and whole**, and it's V0 or V9.
 - **Nothing but V3 is ever lost**, and V3 is the version this save retires anyway.
 - **The next save repairs the gaps.** In every row, saving V9 again ends with
   `bak1`–`bak3` = V0, V1, V2.
 
-Errors (as opposed to crashes), when `book.json` holds our own last save:
+Errors (as opposed to crashes), when `book.md` holds our own last save:
 
-| Failing step | Result | `book.json`, `bak1`–`bak3` afterwards |
+| Failing step | Result | `book.md`, `bak1`–`bak3` afterwards |
 | --- | --- | --- |
-| encode, verify, inspecting or reading `book.json` | throws; nothing changed | V0; V1, V2, V3 |
+| encode, verify, inspecting or reading `book.md` | throws; nothing changed | V0; V1, V2, V3 |
 | writing either temporary file (full disk, I/O) | throws; nothing changed | V0; V1, V2, V3 |
 | inspecting or reading `bak1` | treated as "different"; saves normally | V9; V0, V1, V2 |
 | `bak2` → `bak3` | `.saved(.previousVersionNotBackedUp(_, .untouched), _)` | V9; V1, V2, V3 |
 | `bak1` → `bak2` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired), _)` | V9; V1, —, V2 |
 | publishing `bak1` | `.saved(.previousVersionNotBackedUp(_, .oldestRetired), _)` | V9; —, V1, V2 |
-| exchanging `book.json` | throws; retries don't rotate again | V0; V0, V1, V2 |
+| exchanging `book.md` | throws; retries don't rotate again | V0; V0, V1, V2 |
 | reading the displaced file after the exchange | swapped back; `.externallyModified(.changed(theirs:))` | V0; V0, V1, V2 |
 
-When `book.json` holds another program's version (saving with
+When `book.md` holds another program's version (saving with
 `.overwriteKeepingTheirsAsBackup(theirs:)`), the three rotation rows throw
-`.couldNotBackUpTheirVersion` instead, and `book.json` keeps their version.
+`.couldNotBackUpTheirVersion` instead, and `book.md` keeps their version.
 
 ### Clearing away stray temporary files
 
-A crash in the second row leaves hidden `.book.json.<UUID>.tmp` and
-`.book.json.bak1.<UUID>.tmp` files behind. Every save that writes then calls
+A crash in the second row leaves hidden `.book.md.<UUID>.tmp` and
+`.book.md.bak1.<UUID>.tmp` files behind. Every save that writes then calls
 `StrayTemporaryFiles.sweep(now:)`
 ([`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift)),
-after `book.json` is published and while the book's lock is held (§12), so no other copy of
+after `book.md` is published and while the book's lock is held (§12), so no other copy of
 Scene It is writing into the package. `open` never sweeps (loading never writes), and a
 read-only book has no `BookPackage`, so it can't. An `.unchanged` save doesn't sweep either.
 
@@ -490,17 +498,17 @@ The rules, each one there to keep a version from being lost:
 - **The name must match exactly.** `TemporaryFile.name(for:id:)` is the one place the
   temporary name is made, and `TemporaryFile.destination(ofName:)` parses it back with
   `^\.(.+)\.[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.tmp$` (upper-case
-  UUID, matched scalar by scalar); the destination must be `book.json` or `book.json.bak1`,
+  UUID, matched scalar by scalar); the destination must be `book.md` or `book.md.bak1`,
   the only two a save writes. Only regular files count: a link or a folder with that name is
   left alone.
 - **It must be at least 10 minutes old** (`minimumAge`, an `Interval`), so a write still in
   progress elsewhere isn't touched.
 - **It's removed only if its bytes are already kept**: the same size and bytes as
-  `book.json`, `bak1`–`bak3` or a snapshot in `Backups/`. A crash during a save leaves
-  either the new book (now in `book.json`) or the old one (in a backup), so this is the
+  `book.md`, `bak1`–`bak3` or a snapshot in `Backups/`. A crash during a save leaves
+  either the new book (now in `book.md`) or the old one (in a backup), so this is the
   normal case. The size comes first: a stray whose size no kept file has isn't even read,
   and each kept file is read (and hashed) at most once per sweep.
-- **Anything else is renamed, never removed**, to `book.json.recovered-<UTC time>.json`
+- **Anything else is renamed, never removed**, to `book.md.recovered-<UTC time>.md`
   (the file's modification time; `-2`, `-3`, … on a clash, never replacing anything). This is
   §7's double fault: another program's version left at the temporary name when it couldn't
   be swapped back or renamed. `keepAsConflict` and this rename share one helper,
@@ -517,20 +525,20 @@ Nothing in the sweep throws. Each failure is logged (metadata only) and leaves t
 where it is, and the save's outcome is the same as without it.
 
 `BackupKeeper` (§11) writes snapshots, `book-id` and the mirror's `package.json` the same
-way, so a crash there leaves `.book-<time>.json.<UUID>.tmp`, `.book-id.<UUID>.tmp` or
+way, so a crash there leaves `.book-<time>.md.<UUID>.tmp`, `.book-id.<UUID>.tmp` or
 `.package.json.<UUID>.tmp` in `Backups/` or the book's mirror folder. The same
 `StrayTemporaryFiles` sweeps those folders too: one implementation, given the folder and what
 each destination's temporary file holds (its private `Contents` enum). Its two initializers
 are the whole difference:
 
-| Folder | Destinations | A copy of `book.json` is kept if it matches | Metadata |
+| Folder | Destinations | A copy of `book.md` is kept if it matches | Metadata |
 | --- | --- | --- | --- |
-| package root, `init(packageRoot:fileSystem:)` | `book.json`, `book.json.bak1` | `book.json`, `bak1`–`bak3`, a snapshot in `Backups/` | — |
-| `Backups/`, `init(snapshotsIn:metadata:…)` | any snapshot name, `book-id` | a snapshot in `Backups/`, `book.json`, `bak1`–`bak3` | `book-id` |
+| package root, `init(packageRoot:fileSystem:)` | `book.md`, `book.md.bak1` | `book.md`, `bak1`–`bak3`, a snapshot in `Backups/` | — |
+| `Backups/`, `init(snapshotsIn:metadata:…)` | any snapshot name, `book-id` | a snapshot in `Backups/`, `book.md`, `bak1`–`bak3` | `book-id` |
 | mirror folder, `init(snapshotsIn:metadata:…)` | any snapshot name, `package.json` | a snapshot in that folder | `package.json` |
 
 The mirror counts only its own snapshots, because it has to outlive the package. A copy of
-`book.json` kept nowhere is recovered as `book.json.recovered-<time>.json` *in the folder it
+`book.md` kept nowhere is recovered as `book.md.recovered-<time>.md` *in the folder it
 was found in*, a name `SnapshotName` doesn't parse, so pruning never removes it.
 
 Metadata is treated differently. A temporary `book-id` or `package.json` was never published,
@@ -543,9 +551,9 @@ UUID beside the user's books.
 
 ## 7. Noticing someone else's changes
 
-Dropbox, `git checkout` or a text editor can replace `book.json` while the app has
+Dropbox, `git checkout` or a text editor can replace `book.md` while the app has
 it open. Saving over that would silently throw their version away. So `BookPackage`
-remembers a SHA-256 digest of the `book.json` it last read or wrote, and a save compares
+remembers a SHA-256 digest of the `book.md` it last read or wrote, and a save compares
 the digest of what's there now. The bytes are read anyway (for the unchanged check and
 the backup), so there's no cheaper signal worth trusting more: size and modification time
 can be restored by a careful writer, and one of the tests does exactly that.
@@ -567,8 +575,8 @@ can be restored by a careful writer, and one of the tests does exactly that.
   rotated into `bak1` first (and the save is refused if that fails, §4). If a sync writes yet
   another version before the save, its digest differs, and the save throws `.changed` again
   with the new digest, so the writer is asked again (ADR 0018: each external change asks).
-- A **removed** `book.json` throws `.removed`, unless the caller passes `.recreate`.
-- Anything that **isn't a file** (a directory or a link where `book.json` was) is
+- A **removed** `book.md` throws `.removed`, unless the caller passes `.recreate`.
+- Anything that **isn't a file** (a directory or a link where `book.md` was) is
   `.notAFile` and is refused under every policy.
 
 The approval is a value carrying the digest, not a flag. A `Bool` named `keepMine` could
@@ -579,7 +587,7 @@ ADR 0018 decides what the writer sees.
 ### A write that lands during the save
 
 The check above happens before the temporary files are written. Another program could
-write `book.json` after it, and a plain rename would then replace their version without
+write `book.md` after it, and a plain rename would then replace their version without
 anyone noticing. So the final step is a compare-and-swap:
 
 ```swift
@@ -617,10 +625,10 @@ anyone noticing. So the final step is a compare-and-swap:
     }
 ```
 
-After the swap, the temporary name holds whatever `book.json` held *at the instant of the
+After the swap, the temporary name holds whatever `book.md` held *at the instant of the
 swap*. If those aren't the bytes the save checked, another program renamed a new version
 into place in between, and a second swap puts their version back. The save then throws
-`.externallyModified(.changed(theirs:))` (`changedDuringSave` reads `book.json` again to name the
+`.externallyModified(.changed(theirs:))` (`changedDuringSave` reads `book.md` again to name the
 version that's there now),
 which leads to ADR 0018's choice like any other external change. Swapping back, rather
 than keeping their bytes under another name, leaves the package exactly as the other
@@ -629,26 +637,26 @@ program meant it, and needs nothing new from the store.
 Two fallbacks remain, each documented in code:
 
 - **The swap back fails** (a double fault). Their version is renamed to
-  `book.json.conflict-<UTC time>` (with `-2`, `-3`, … if that name is taken), and the save
+  `book.md.conflict-<UTC time>` (with `-2`, `-3`, … if that name is taken), and the save
   throws `.externallyModified(.keptAsConflict(fileName:))`. If even that rename fails, the
   error names the hidden temporary file that holds it. The package then records the digest
-  of the bytes *this save* wrote, never a fresh read of `book.json`: a third write landing
+  of the bytes *this save* wrote, never a fresh read of `book.md`: a third write landing
   at that moment would otherwise be taken for ours, and a later save could replace it
   without a backup. A regression test injects exactly that triple fault.
-- **The volume can't swap** (FAT, exFAT, HFS+). The save re-reads `book.json` just
+- **The volume can't swap** (FAT, exFAT, HFS+). The save re-reads `book.md` just
   before a plain rename. A write landing in the microseconds between the two is the one
   residual window.
 
 Where the volume can swap, this closes the window for writers that **rename a new
 version into place**, which is what sync services and most editors do. A writer that
-already had `book.json` open and **edits it in place** can still write into the displaced
+already had `book.md` open and **edits it in place** can still write into the displaced
 file after the comparison, and that write is lost when the file is discarded. That window
 is small, and closing it would need a lock that other programs honour, which they don't.
 Two copies of Scene It can't get here: the book lock of §12 lets only one of them edit.
 
 ## 8. Permissions and locks
 
-A save would succeed on a read-only (0444) or locked `book.json`, because a rename only
+A save would succeed on a read-only (0444) or locked `book.md`, because a rename only
 needs permission on the *directory*. That would silently undo the writer's protection, so
 the save refuses with `SaveError.writeProtected(.readOnly)` or `(.locked)` before writing
 anything. `.locked` covers Finder's "Locked" (the immutable flag) and the append-only
@@ -660,16 +668,25 @@ writable" state to handle.
 
 ```swift
     public static func open(
-        at url: URL, onLockRecord policy: LockRecordPolicy = .respect,
+        at url: URL, onLockRecord policy: LockRecordPolicy = .respect, defaults: ParseDefaults = .system,
         fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
 ```
 
 The only thing a successful `open` writes is the book's `.lock` (§12), and it takes that
-lock *after* the read, so a book that fails to load never gains one.
+lock *after* the read, so a book that fails to load never gains one. Nor does a book whose
+contents make it read-only (§13).
 
-`open` checks the extension, that the package is a directory and that `book.json` is a
-regular file. It doesn't follow links: a symbolic link at `book.json` is
+`defaults` is where the parse gets what a file leaves out: the time the book was opened (a
+scene with no `modified`) and fresh scene ids. `.system` is the clock and ULIDs; the store
+takes a `ParseDefaults` in its initializer and passes it down, so a test can make both
+predictable (`ParseDefaults(opened: { fixedTime }, ids: { LetteredIDs() })`). Each parse
+asks for a new id source, which is why it's a closure returning one rather than one shared
+generator: the value crosses to the background task that does the I/O, so it must be
+`Sendable`, and a mutable generator shared between parses wouldn't be.
+
+`open` checks the extension, that the package is a directory and that `book.md` is a
+regular file. It doesn't follow links: a symbolic link at `book.md` is
 `.bookNotAFile`, and so is a named pipe, which would block a read forever. Then it
 reads and parses. The parse never fails (chapter 02): damaged contents open, with what
 couldn't be read kept as error entries. So only the file system can make `open` fail, and
@@ -678,11 +695,11 @@ problem, plus the backups that exist with their modification times, so the messa
 tells the writer what they could restore by hand:
 
 ```
-Couldn't open Novel.sceneit: the package's book.json isn't a regular file (it may be a folder or a link)
+Couldn't open Novel.sceneit: the package's book.md isn't a regular file (it may be a folder or a link)
 Backups in the package:
-- book.json.bak1 (last modified 2026-11-01T17:03:12Z)
-- book.json.bak2 (last modified 2026-11-01T17:03:12Z)
-- book.json.bak3 (last modified 2026-11-01T17:03:12Z)
+- book.md.bak1 (last modified 2026-11-01T17:03:12Z)
+- book.md.bak2 (last modified 2026-11-01T17:03:12Z)
+- book.md.bak3 (last modified 2026-11-01T17:03:12Z)
 ```
 
 Nothing is restored automatically: guessing which backup the writer wants is
@@ -763,7 +780,7 @@ tests run against real temporary directories) and records every call. It can fai
 chosen call (with a chosen cause, optionally after letting the first few through),
 simulate the process dying there (that call and every later one do nothing, and a
 temporary file being written is left half-written), or run an action just before a
-call, which is how the tests play "another program writes `book.json` mid-save". Its
+call, which is how the tests play "another program writes `book.md` mid-save". Its
 state is behind a `Mutex` from the `Synchronization` module, the equivalent of
 `std::sync::Mutex`, which is what lets a `final class` be `Sendable` without
 `@unchecked`. `BookPackage` uses the same pattern.
@@ -776,7 +793,7 @@ The tests that use it:
   parameterized test fails each step (twice in a row for the steps that throw) and
   checks the files against the row, that no temporary file is left behind, and that a
   clean retry ends in the standard layout. Another fails each rotation step while
-  `book.json` holds their version, and checks that nothing is published.
+  `book.md` holds their version, and checks that nothing is published.
 - **Crashes.** Each step with a simulated crash: the files must match §6's crash table, a
   fresh `open` on the real file system must load the right version, and the next save
   must converge.
@@ -787,10 +804,10 @@ The tests that use it:
   `bak1`: the versions stay where they are, and our own save goes ahead and says so.
 - **External changes and protection.** Rewritten, rewritten in place with the size and
   modification time restored, removed, touched, replaced with identical bytes, and
-  replaced by a directory; a read-only, locked or append-only `book.json`; permissions
+  replaced by a directory; a read-only, locked or append-only `book.md`; permissions
   kept across a save.
-- **Loading damaged packages.** A missing `book.json`, a directory, a link or a dangling
-  link where `book.json` should be, an unreadable `book.json`, a file where the package
+- **Loading damaged packages.** A missing `book.md`, a directory, a link or a dangling
+  link where `book.md` should be, an unreadable `book.md`, a file where the package
   should be, a missing package and a missing extension. Each must throw the right
   `LoadProblem`, make no mutating call, and leave the directory listing, contents and
   modification times unchanged.
@@ -809,24 +826,24 @@ The tests that use it:
 `bak1…bak3` protect against a bad write, but with a 2-second autosave they can all be
 seconds old. [ADR 0005](../decisions/0005-backups.md) adds history: after a save,
 [`BackupKeeper`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) may copy
-`book.json` to a snapshot in two places:
+`book.md` to a snapshot in two places:
 
 ```
 My Novel.sceneit/Backups/
   book-id                         this book's UUID
-  book-20261101T143005Z.json      a snapshot: the UTC second it was taken
+  book-20261101T143005Z.md      a snapshot: the UTC second it was taken
 ~/Library/Application Support/Scene It/Backups/<book-id>/
   package.json                    the package that writes here (see below)
-  book-20261101T143005Z.json      the same snapshot
+  book-20261101T143005Z.md      the same snapshot
 ```
 
 The mirror survives the package being deleted or mangled, for example by a sync service.
-Snapshot names and `book.json.conflict-…` (§7) share one formatter, `UTCStamp`.
+Snapshot names and `book.md.conflict-…` (§7) share one formatter, `UTCStamp`.
 
 ### Getting the exact bytes
 
 A snapshot must hold exactly what was published, not a re-encoding. So a save that wrote
-`book.json` says what it wrote: `SaveOutcome.saved(BackupStatus, PublishedBook)`.
+`book.md` says what it wrote: `SaveOutcome.saved(BackupStatus, PublishedBook)`.
 
 ```swift
 if case .saved(_, let published) = try package.save(book) {
@@ -875,7 +892,7 @@ every week, and every day and window still in its tier, keeps its first snapshot
 its own, and the result is a `SnapshotReport` holding a `SnapshotOutcome` for each:
 `.written`, `.notDue` or `.failed(SnapshotFailure)`, which names the step and the
 `FileSystemError`. Every failure is also logged (metadata only, never a path). By the time
-`keep` runs, `book.json` is already saved (ADR 0019). If two `keep`s race to write the same
+`keep` runs, `book.md` is already saved (ADR 0019). If two `keep`s race to write the same
 snapshot name, the loser finds the same bytes there and counts it as written.
 
 Pruning only removes regular files whose names round-trip exactly through `SnapshotName`:
@@ -1033,15 +1050,17 @@ The lock belongs to the package, not to the process. Opening a book this process
 has open gives `.openElsewhere`, so the store must reuse the package it has (or release it
 first), for example for ADR 0018's "Open Other Version".
 
-`open` reads `book.json` before taking the lock, then reads it once more under the lock;
-if it changed in between, it's loaded again, and if it no longer loads, the lock is
-released and the open fails like any other load.
+`open` reads `book.md` before taking the lock, then reads it once more under the lock;
+if it changed in between, it's loaded again. If it no longer loads, the lock is released
+and the open fails like any other load; if it now needs a repair (§13), the lock is
+released and the book opens read-only.
 
 `ReadOnlyReason` says why: `.openElsewhere` (the `flock` is held: another user account, or
 a copy that didn't go through the app lock), `.lockUnavailable(error)` (a read-only disk,
-or a folder without write permission, where a save would fail anyway), or
-`.openOnAnotherMac(record)` and `.openInAnotherProcess(record)` (below). The words the
-writer sees are in `LockWording`.
+or a folder without write permission, where a save would fail anyway),
+`.openOnAnotherMac(record)` and `.openInAnotherProcess(record)` (below), or, from the
+contents rather than the lock, `.repairedOnOpen(repair)` and `.newerFormat(version)` (§13).
+The words the writer sees are in `ReadOnlyWording`.
 
 ### The app-wide lock
 
@@ -1104,7 +1123,7 @@ its own. If `.lock` can't be opened for writing, it's locked through a read-only
 descriptor (`flock` doesn't need write access), and only the record is skipped.
 
 This is advisory twice over, so §7's digest check remains the backstop: if two Macs both
-end up editing, each save still refuses to replace a `book.json` it didn't write.
+end up editing, each save still refuses to replace a `book.md` it didn't write.
 
 ### Rust comparison
 
@@ -1115,3 +1134,127 @@ end up editing, each save still refuses to replace a `book.json` it didn't write
 | `~Copyable` + `deinit` | a type without `Clone`, with `Drop` |
 | `consuming func release()` | `drop(guard)` |
 | `switch consume attempt { case .acquired(let lock): … }` | `match attempt { Ok(guard) => … }`, moving out of the enum |
+
+## 13. Damaged books: read-only until the original is safe
+
+The format-2 parser never fails (chapter 02), which creates a new danger. A `book.md` that
+a sync tool emptied, truncated or re-encoded opens as a *repaired* book: maybe an empty
+one. If it opened for editing, autosave would write the repair over the file, and after
+three more saves the damaged original would have rotated out of `bak1…3`. Snapshots don't
+help either: they copy only what Scene It wrote. Whatever the writer could have recovered
+by hand from the damaged file would be gone.
+[ADR 0024](../decisions/0024-damaged-books-open-read-only.md) closes that window.
+
+### Which books open read-only
+
+`BookFormat.parse` reports `ParsedBook.newEntries`: the error entries *this* parse made.
+Entries the file already carried in `### Unparsed` (from an earlier session the writer
+hasn't cleaned up) aren't new, so they don't count. `open` decides from the contents first,
+before it takes the lock:
+
+```swift
+        var readOnlyReason: ReadOnlyReason? {
+            if parsed.isNewerThanSupported, let format = parsed.declaredFormat { return .newerFormat(format) }
+            guard parsed.wasRepaired else { return nil }
+            return .repairedOnOpen(Repair(newEntries: parsed.newEntries, original: data))
+        }
+```
+
+- **`.newerFormat(version)`** (format §10 Q7): a `format: 3` file from a newer Scene It.
+  This version would save it as format 2, losing what it doesn't understand, so it stays
+  read-only. There's no way to edit it here, and the order matters: a newer file also
+  gets a notice (a new entry), and the newer format must win so that Make Editable is never
+  offered.
+- **`.repairedOnOpen(repair)`**: the parse made new entries. `Repair` carries them (for the
+  alert, and later the Errors tab, #63) and, internally, `original`: **the exact bytes that
+  were parsed**.
+
+### Make Editable
+
+Make Editable is two calls, and the type system orders them:
+
+```swift
+    public static func keepOriginal(
+        of repair: Repair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
+    ) throws(FileSystemError) -> KeptOriginal
+
+    public static func edit(
+        _ kept: consuming KeptOriginal, onLockRecord policy: LockRecordPolicy = .respect,
+        fileSystem: any FileSystem = LocalFileSystem()
+    ) -> MadeEditable
+```
+
+1. `keepOriginal` writes `repair.original` through the usual durable path
+   (`writeTemporary`, flushed with `F_FULLFSYNC`, then a rename that never replaces
+   anything) to `book.md.original-<UTC time>.md`, with `-2`, `-3`, … if that name is taken
+   (the shared `publishUnderFreeName`). It returns a `KeptOriginal`.
+2. `edit` consumes that `KeptOriginal`, takes the lock as `open` would, and returns an
+   editable book whose package believes it last read the original's bytes. If the lock
+   can't be had, `MadeEditable.readOnly` hands the `KeptOriginal` back with the reason, for
+   another try.
+
+Three types make the order the only one that compiles:
+
+- `Repair`, the payload of `.repairedOnOpen`, holds the package's layout, the book and the
+  bytes together, and its initializer is `fileprivate`: only `open` makes one. So
+  `keepOriginal` can't be handed one book's bytes and another book's package.
+- `KeptOriginal`'s initializer is `fileprivate` too, so the only way to get one is a
+  successful `keepOriginal`, and the only way into `edit` is with one. "The first save
+  happens only after the original is on disk" isn't a convention the store has to remember.
+- `KeptOriginal` is `~Copyable` and `edit` takes it `consuming`, so one kept original makes
+  at most one editable package: using it twice is a compile error ("'kept' used after
+  consume"), not a runtime check.
+
+In Rust this is a *witness* or *proof token*: a struct with a private field and no `Clone`,
+returned only by the function that did the work and taken by value by the next one.
+`MadeEditable` is the `Result<EditableBook, (KeptOriginal, Reason)>` that gives the token
+back on failure.
+
+**Why the bytes come from the open, not a second read.** Between showing the read-only
+book and the writer clicking Make Editable, another program can change `book.md`. Reading
+it again would keep a version the writer never saw as the "original", and the package would
+then silently believe the new version was its own. Instead, `edit` sets the package's
+`lastSeen` digest to the *kept* bytes. If `book.md` changed in the meantime, the first
+save finds a digest it doesn't recognize and stops with ADR 0018's "changed on disk",
+exactly as for any other external change. The test
+`theOriginalIsTheBytesThatWereParsedNeverALaterVersion` does precisely this.
+
+**Why nothing ever removes it.** Each thing that removes files in a package only looks at
+names it owns:
+
+| Mechanism | What it touches | `book.md.original-…md`? |
+| --- | --- | --- |
+| Rotation | `book.md.bak1…3` (`BackupSlot`) | no |
+| Snapshot pruning | names `SnapshotName(fileName:)` accepts, in `Backups/` | no: wrong prefix and folder |
+| Stray-file sweep | `.<destination>.<UUID>.tmp`, for `book.md`, `bak1` and an original | no: it isn't a temporary name |
+
+An original whose own temporary file was orphaned by a crash (`.book.md.original-<time>.md.<UUID>.tmp`) is swept like a
+save's: it holds the bytes `book.md` held when it was written, so it's removed only if `book.md`, a backup or a
+snapshot holds exactly those bytes, and otherwise renamed to `book.md.recovered-<time>.md`.
+
+The tests plant it among the sweep's and the pruning's decoys, and one test runs 120 saves
+with snapshots over 40 simulated days (with pruning and a sweep) and checks the original is
+still byte-for-byte the damaged file, long after the rotation has dropped it.
+
+**After Make Editable** the store marks the repaired book unsaved, so autosave writes it:
+the notices the parse made go into `### Unparsed`, and the next open finds them already
+there, not new, and opens for editing. If the lock can't be had (the book is open
+elsewhere), the original is kept anyway and the book stays read-only with its
+`.repairedOnOpen` reason, so the writer can try again.
+
+### In the store and the app
+
+`BookStore.open` shows the read-only alert from `ReadOnlyWording`. For `.repairedOnOpen` it
+offers **Keep Read-Only** (first, so it's the default) and **Make Editable**;
+`.newerFormat` offers only Keep Read-Only. `BookStore.makeEditable()` runs the two steps off
+the main actor and then switches the open book to editing in place
+(`OpenBook.becomeEditable`), keeping the selected scene. The owner approved the wording; a
+persistent banner and File → Make Editable… (#67) will call the same operation.
+
+### Rust comparison
+
+| Swift | Rust |
+| --- | --- |
+| `KeptOriginal: ~Copyable` with a `fileprivate init` | `pub struct KeptOriginal { _private: () }` (no `Clone`), returned only by `keep_original` |
+| `edit(_ kept: consuming KeptOriginal) -> MadeEditable` | `fn edit(kept: KeptOriginal) -> Result<EditableBook, (KeptOriginal, Reason)>` |
+| `ParseDefaults` holding `@Sendable` closures | a `Send + Sync` struct of `Arc<dyn Fn() -> … + Send + Sync>` |

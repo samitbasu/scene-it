@@ -144,7 +144,7 @@ It *looks* like YAML but isn't: there's no quoting, and a value is simply the re
 | Closing | The next line that is exactly `---`. If a heading-shaped line or the end of the file comes first, the front matter ends there, silently †; the closing `---` is written back on the next save. |
 | Lines | `key: value`. A key is one or more ASCII letters, matched case-insensitively. The value is everything after the first `:`, trimmed (§1.3), then field-unescaped (§4.1). Blank lines are ignored. |
 | `title` | The book's title (plain text, may be empty). **Missing → `Untitled`** † plus a notice. |
-| `format` | A decimal integer. **Missing → read as 2**, plus a notice. **Not 2 → read as 2 anyway**, plus a notice naming the number (§10 Q7). Not an integer → the line is a `[front matter]` error entry, and then it's missing. |
+| `format` | A decimal integer: ASCII digits, optionally after one `+` (`03` and `+2` are numbers; leading zeros and the `+` are dropped on save). A number too large for the implementation counts as larger than any format, so the file reads as newer, never as damaged. **Missing → read as 2**, plus a notice. **Not 2 → read as 2 anyway**, plus a notice naming the number (§10 Q7). Not an integer (`-3`, `3.0`, `two`) → the line is a `[front matter]` error entry, and then it's missing. |
 | Unknown key, duplicate key, or a line that isn't `key: value` | A `[front matter]` error entry, kept verbatim. The first occurrence of a key wins. |
 
 **Written as:** `---⏎title: <title>⏎format: 2⏎---⏎`, with `title:` (no trailing space) for an empty title. The

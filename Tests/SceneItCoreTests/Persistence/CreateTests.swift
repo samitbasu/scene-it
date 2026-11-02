@@ -12,10 +12,10 @@ import Testing
             #expect(created.book.scenes.isEmpty)
 
             let entries = try DirectorySnapshot(url).entries
-            #expect(Set(entries.keys) == ["book.json", "Archive", "Archive/index.json", "Backups", ".lock"])
+            #expect(Set(entries.keys) == ["book.md", "Archive", "Archive/index.md", "Backups", ".lock"])
             #expect(entries[".lock"]?.contents == Data(), "a local volume gets no record")
-            #expect(entries["Archive/index.json"]?.contents == Data(#"{"copies":[]}"#.utf8))
-            #expect(entries["book.json"]?.contents == (try encoded(Book(title: "My Novel"))))
+            #expect(entries["Archive/index.md"]?.contents == Data("---\nformat: 2\n---\n".utf8))
+            #expect(entries["book.md"]?.contents == (try encoded(Book(title: "My Novel"))))
 
             #expect(try BookPackage.open(at: url).book == created.book)
         }
@@ -53,7 +53,7 @@ import Testing
         try withTemporaryDirectory { directory in
             let url = directory.appending(path: "Novel.sceneit")
             let fileSystem = FaultInjectingFileSystem(root: url)
-            fileSystem.inject(.fail(.writeTemporary("book.json")))
+            fileSystem.inject(.fail(.writeTemporary("book.md")))
             #expect(throws: CreateError.self) {
                 try BookPackage.create(at: url, title: "Novel", fileSystem: fileSystem)
             }

@@ -39,7 +39,7 @@ private final class Gate: Sendable {
 
 private let copyName = "Novel (my edits).sceneit"
 
-/// A saved book "Novel" whose `book.json` another program then replaced, with one scene.
+/// A saved book "Novel" whose `book.md` another program then replaced, with one scene.
 @MainActor
 private func changedBook(
     in folder: URL, prompts: ScriptedPrompts, fileSystem: FaultInjectingFileSystem
@@ -88,7 +88,7 @@ struct StoreRaceTests {
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
             let gate = Gate()
-            fileSystem.before(.exchange("\(copyName)/book.json")) { gate.pass() }
+            fileSystem.before(.exchange("\(copyName)/book.md")) { gate.pass() }
 
             book.replaceBody(of: scene, with: [[Run("Mine")]])
             store.saveNow()
@@ -111,7 +111,7 @@ struct StoreRaceTests {
                 in: folder, prompts: prompts, fileSystem: fileSystem)
             let gate = Gate()
             @Sendable func holdEveryCopySave() {
-                fileSystem.before(.exchange("\(copyName)/book.json")) {
+                fileSystem.before(.exchange("\(copyName)/book.md")) {
                     gate.pass()
                     holdEveryCopySave()
                 }
@@ -140,7 +140,7 @@ struct StoreRaceTests {
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
-            fileSystem.inject(.fail(.exchange("\(copyName)/book.json"), cause: .noSpace))
+            fileSystem.inject(.fail(.exchange("\(copyName)/book.md"), cause: .noSpace))
 
             book.replaceBody(of: scene, with: [[Run("Mine")]])
             store.saveNow()
@@ -199,9 +199,9 @@ struct StoreRaceTests {
             book.write("Mine")
             store.saveNow()
             await eventually { book.status == .saved }
-            try FileManager.default.removeItem(at: url.appending(path: "book.json"))
+            try FileManager.default.removeItem(at: url.appending(path: "book.md"))
             try FileManager.default.createDirectory(
-                at: url.appending(path: "book.json"), withIntermediateDirectories: false)
+                at: url.appending(path: "book.md"), withIntermediateDirectories: false)
 
             book.write("More of mine")
             let mine = book.book
@@ -230,7 +230,7 @@ struct StoreRaceTests {
             try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
             let gate = Gate()
-            fileSystem.before(.writeTemporary("First.sceneit/book.json")) { gate.pass() }
+            fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
             book.write("Stuck")
             await gate.waitForArrival()
 
