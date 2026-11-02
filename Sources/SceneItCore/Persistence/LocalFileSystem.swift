@@ -150,15 +150,31 @@ public struct LocalFileSystem: FileSystem {
     }
 
     /// The file number is the inode; `st_dev` isn't used because it can change between mounts.
+    /// Both `stat` and the resource lookup follow a link, so both describe the same target.
+    /// The lookup uses a fresh `URL`, because Foundation caches resource values on a `URL`.
     public func identity(of url: URL) throws(FileSystemError) -> FileIdentity? {
         var info = stat()
-        guard (url.withUnsafeFileSystemRepresentation { lstat($0!, &info) }) == 0 else {
+        guard (url.withUnsafeFileSystemRepresentation { stat($0!, &info) }) == 0 else {
             throw FileSystemError(.inspect, url, .init(errno: errno))
         }
-        guard let volume = try? url.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString else {
-            return nil
+        let fresh = URL(filePath: url.path(percentEncoded: false))
+        let values: URLResourceValues
+        do {
+            values = try fresh.resourceValues(forKeys: [.volumeUUIDStringKey])
+        } catch {
+            throw FileSystemError(.inspect, url, Self.cause(of: error))
         }
+        guard let volume = values.volumeUUIDString else { return nil }
         return FileIdentity(volume: volume, file: UInt64(info.st_ino))
+    }
+
+    private static func cause(of error: any Error) -> FileSystemError.Cause {
+        let bridged = error as NSError
+        let posix =
+            bridged.domain == NSPOSIXErrorDomain
+            ? bridged : bridged.userInfo[NSUnderlyingErrorKey] as? NSError
+        guard let posix, posix.domain == NSPOSIXErrorDomain else { return .io }
+        return FileSystemError.Cause(errno: Int32(posix.code))
     }
 
     /// Some volumes don't fill in `d_type`; those entries are inspected one by one.

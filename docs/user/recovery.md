@@ -26,6 +26,10 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
   it belongs to. A duplicated book gets its own id, and so its own folder, the first time
   it's saved; its earlier history stays in the original's folder and in its own
   `Backups/`.
+- One limit: an exact clone that sits where the original was can't be told apart from it.
+  That means a whole drive cloned block by block, or a copy put in the original's place on
+  a volume without a UUID (some network shares). If you use both, their snapshots in the
+  `Application Support` folder can mix. Each book's own `Backups/` folder is still right.
 - To open `~/Library`, choose **Go ▸ Go to Folder…** in Finder and type
   `~/Library/Application Support/Scene It/Backups`.
 

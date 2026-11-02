@@ -47,23 +47,8 @@ public struct BackupKeeper: Sendable {
     }
 
     /// Only regular files whose names are exactly snapshot names; nothing else is ever pruned.
-    /// A folder that's a symbolic link is refused, so pruning never reaches outside.
     private func existingSnapshots(in directory: URL) throws(SnapshotFailure) -> [SnapshotName] {
-        let item: FileItem?
-        do {
-            item = try fileSystem.item(at: directory)
-        } catch {
-            throw .fileSystem(.list, error)
-        }
-        switch item {
-        case nil:
-            try createDirectories([directory])
-            return []
-        case .directory:
-            break
-        case .file, .symbolicLink, .other:
-            throw .fileSystem(.list, FileSystemError(.list, directory, .other(.ENOTDIR)))
-        }
+        try requireRealFolder(directory, ifMissing: .create)
         let entries: [DirectoryEntry]
         do {
             entries = try fileSystem.contents(of: directory)
@@ -102,8 +87,10 @@ public struct BackupKeeper: Sendable {
     /// This book's folder in the mirror, claimed for this package. See `BackupMirror` for how
     /// a copied package is told apart from a moved one.
     private func mirrorFolder() throws(SnapshotFailure) -> URL {
+        try requireRealFolder(layout.snapshots, ifMissing: .create)
         let id = try bookID()
         let folder = mirror.folder(for: id)
+        try requireRealFolder(folder, ifMissing: .leave)
         let us = try ourRecord()
         switch try recordedPackage(of: folder) {
         case .none:
@@ -250,6 +237,7 @@ public struct BackupKeeper: Sendable {
         throws(SnapshotFailure)
     {
         try createDirectories([mirror.root.deletingLastPathComponent(), mirror.root, folder])
+        try requireRealFolder(folder, ifMissing: .leave)
         let data: Data
         do {
             data = try Self.recordEncoder.encode(record)
@@ -294,6 +282,27 @@ public struct BackupKeeper: Sendable {
             // Another keeper raced us to the same name with the same bytes: what we wanted.
             if error.cause == .alreadyExists, (try? fileSystem.read(url)) == data { return }
             throw .fileSystem(step, error)
+        }
+    }
+
+    private enum Missing {
+        case create
+        case leave
+    }
+
+    /// Refuses a link (or anything else) where one of our folders should be, before anything
+    /// in it is read or written: through a link, `book-id` could be another book's.
+    private func requireRealFolder(_ url: URL, ifMissing missing: Missing) throws(SnapshotFailure) {
+        let item: FileItem?
+        do {
+            item = try fileSystem.item(at: url)
+        } catch {
+            throw .fileSystem(.list, error)
+        }
+        switch (item, missing) {
+        case (.directory?, _), (nil, .leave): return
+        case (nil, .create): try createDirectories([url])
+        case (.file?, _), (.symbolicLink?, _), (.other?, _): throw .notARealFolder
         }
     }
 
@@ -379,6 +388,9 @@ public enum SnapshotFailure: Error, Hashable, Sendable {
     case fileSystem(SnapshotStep, FileSystemError)
     /// The clock reads a year outside 1970…9999, which a snapshot name doesn't express.
     case clockOutOfRange
+    /// The package's `Backups/` or the book's mirror folder is a symbolic link or not a
+    /// folder, so nothing in it is read, written or pruned.
+    case notARealFolder
 }
 
 public enum SnapshotStep: Hashable, Sendable {
@@ -421,6 +433,10 @@ extension SnapshotFailure {
         case .clockOutOfRange:
             Log.backup.error(
                 "couldn't take a snapshot: the clock is out of range",
+                ["destination": .symbol(destination.logSymbol)])
+        case .notARealFolder:
+            Log.backup.error(
+                "couldn't take a snapshot: its folder is a link or not a folder",
                 ["destination": .symbol(destination.logSymbol)])
         case .fileSystem(let step, let error):
             let reason: LogValue =

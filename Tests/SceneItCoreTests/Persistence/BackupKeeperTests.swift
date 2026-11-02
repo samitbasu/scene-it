@@ -333,25 +333,66 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
         }
     }
 
-    @Test func aSymlinkedBackupsFolderIsNeverPruned() throws {
+    /// Nothing is read, written or pruned through the link: not snapshots, not `book-id`.
+    @Test func aSymlinkedBackupsFolderIsRefusedByBothDestinations() throws {
         try withTemporaryDirectory { directory in
             let fixture = try KeeperFixture(directory)
             let outside = directory.appending(path: "Outside")
             try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
             let names = [try snapshotName(start - .days(5)), try snapshotName(start - .days(5) + .hours(1))]
             for name in names { try Data(name.utf8).write(to: outside.appending(path: name)) }
+            try Data("not a uuid".utf8).write(to: outside.appending(path: "book-id"))
             try FileManager.default.removeItem(at: fixture.layout.snapshots)
             try FileManager.default.createSymbolicLink(
                 at: fixture.layout.snapshots, withDestinationURL: outside)
+            let before = try DirectorySnapshot(outside)
 
             let report = try fixture.save(draft(1), at: start)
-            guard case .failed(.fileSystem(.list, _)) = report.package else {
-                Issue.record("unexpected report \(report)")
-                return
-            }
-            let left = try FileManager.default.contentsOfDirectory(
-                atPath: outside.path(percentEncoded: false))
-            #expect(left.filter { SnapshotName(fileName: $0) != nil }.sorted() == names)
+            #expect(
+                report == SnapshotReport(package: .failed(.notARealFolder), mirror: .failed(.notARealFolder)))
+            #expect(try DirectorySnapshot(outside) == before)
+            #expect(!FileManager.default.fileExists(atPath: fixture.mirror.root.path(percentEncoded: false)))
+        }
+    }
+
+    @Test func aBackupsFolderLinkedToAnotherBookLeavesThatBookAlone() throws {
+        try withTemporaryDirectory { directory in
+            var fixture = try KeeperFixture(directory)
+            try fixture.save(draft(1), at: start)
+            let other = fixture.layout
+            let otherBefore = try DirectorySnapshot(other.snapshots)
+            let foldersBefore = try fixture.mirrorFolders()
+
+            let second = directory.appending(path: "Second.sceneit")
+            _ = try BookPackage.create(at: second, title: "Second")
+            let secondLayout = PackageLayout(root: second)
+            try FileManager.default.removeItem(at: secondLayout.snapshots)
+            try FileManager.default.createSymbolicLink(
+                at: secondLayout.snapshots, withDestinationURL: other.snapshots)
+            try fixture.switchTo(second)
+
+            let report = try fixture.save(draft(2), at: start + .minutes(10))
+            #expect(
+                report == SnapshotReport(package: .failed(.notARealFolder), mirror: .failed(.notARealFolder)))
+            #expect(
+                try DirectorySnapshot(other.snapshots) == otherBefore, "the other book's id and snapshots")
+            #expect(try fixture.mirrorFolders() == foldersBefore)
+        }
+    }
+
+    @Test func aSymlinkedMirrorFolderIsRefused() throws {
+        try withTemporaryDirectory { directory in
+            let fixture = try KeeperFixture(directory)
+            try fixture.save(draft(1), at: start)
+            let folder = try fixture.mirrorFolder()
+            let outside = directory.appending(path: "Outside")
+            try FileManager.default.moveItem(at: folder, to: outside)
+            try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: outside)
+            let before = try DirectorySnapshot(outside)
+
+            let report = try fixture.save(draft(2), at: start + .minutes(10))
+            #expect(report == SnapshotReport(package: .written, mirror: .failed(.notARealFolder)))
+            #expect(try DirectorySnapshot(outside) == before)
         }
     }
 

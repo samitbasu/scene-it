@@ -654,7 +654,8 @@ public protocol FileSystem: Sendable {
     func remove(_ file: URL) throws(FileSystemError)
 
     /// Which file or directory is at `url`, whatever its path: `nil` if its volume has no
-    /// UUID to tell it apart. Doesn't follow a symbolic link at `url` itself.
+    /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
+    /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
     func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
 }
 ```
@@ -735,8 +736,7 @@ My Novel.sceneit/Backups/
 ```
 
 The mirror survives the package being deleted or mangled, for example by a sync service.
-Every stamped name (snapshots, and `book.json.conflict-…` from §7) uses one formatter,
-`UTCStamp`.
+Snapshot names and `book.json.conflict-…` (§7) share one formatter, `UTCStamp`.
 
 ### Getting the exact bytes
 
@@ -797,8 +797,9 @@ Pruning only removes regular files whose names round-trip exactly through `Snaps
 `book-20261101T143005Z.JSON`, `notes.txt`, a directory, link or pipe with a snapshot's
 name, and the hidden temporary files are never touched. The new `FileSystem.contents(of:)`
 reports each entry's kind from `readdir`'s `d_type`, so this costs no extra system calls.
-A `Backups/` folder that is itself a symbolic link is refused, so pruning never reaches
-outside the package.
+If `Backups/` or the book's mirror folder is itself a symbolic link (or not a folder), that
+destination reports `.notARealFolder` before anything in it is read or written: through a
+link, `book-id` could be another book's, and pruning could reach outside the package.
 
 ### The book's id, and copied packages
 

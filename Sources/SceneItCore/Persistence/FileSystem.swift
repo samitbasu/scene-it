@@ -47,7 +47,8 @@ public protocol FileSystem: Sendable {
     func remove(_ file: URL) throws(FileSystemError)
 
     /// Which file or directory is at `url`, whatever its path: `nil` if its volume has no
-    /// UUID to tell it apart. Doesn't follow a symbolic link at `url` itself.
+    /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
+    /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
     func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
 }
 

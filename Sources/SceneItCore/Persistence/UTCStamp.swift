@@ -1,7 +1,8 @@
 import Foundation
 
 /// A time to the second in UTC, written `20261101T143005Z` (ISO 8601's basic format). It
-/// sorts by date and is safe in a file name. Every stamped file name uses it.
+/// sorts by date and is safe in a file name. Snapshot and conflict names in a package use it;
+/// diagnostics files keep their own stamps, with fractions of a second.
 enum UTCStamp {
     /// Fractions of a second are dropped.
     static func string(for date: Date) -> String {
