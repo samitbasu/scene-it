@@ -152,7 +152,7 @@ struct BookStoreIntegrationTests {
 
             var theirs = try bookOnDisk(url)
             theirs.title = "Their version"
-            try BookCoding.encode(theirs).write(to: url.appending(path: "book.json"), options: .atomic)
+            try BookFormat.serialize(theirs).write(to: url.appending(path: "book.json"), options: .atomic)
             book.setTitle(of: scene, to: "My version")
             store.saveNow()
             await eventually { prompts.titles == ["This book was changed by another program."] }

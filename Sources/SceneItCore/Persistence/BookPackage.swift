@@ -63,7 +63,7 @@ public final class BookPackage: Sendable {
         let book = Book(title: title)
         let data: Data
         do {
-            data = try verifiedEncoding(of: book)
+            data = try BookFormat.verifiedSerialization(of: book)
         } catch {
             throw .encoding(error)
         }
@@ -96,7 +96,7 @@ public final class BookPackage: Sendable {
         return EditableBook(package: package, book: book)
     }
 
-    /// Reads, decodes and validates `book.json`, all or nothing, then locks the book for
+    /// Reads and parses `book.json` (the parse never fails; see `BookFormat`), then locks the book for
     /// editing; if it can't, the book opens read-only. A failure writes nothing and holds no
     /// lock. A success writes nothing but `.lock` (created empty, and where the `flock` can't
     /// be trusted, given a `LockRecord`).
@@ -215,22 +215,9 @@ public final class BookPackage: Sendable {
     ) throws(SaveError) -> SaveOutcome {
         let data: Data
         do {
-            data = try BookCoding.encode(book)
+            data = try BookFormat.verifiedSerialization(of: book)
         } catch {
-            Log.store.error(
-                "refused to save a book that doesn't encode", ["error": .error(LoggedError(error))])
-            throw .encoding(.rejected(error))
-        }
-        return try save(encoded: data, onExternalChange: policy)
-    }
-
-    func save(
-        encoded data: Data, onExternalChange policy: ExternalChangePolicy = .refuse
-    ) throws(SaveError) -> SaveOutcome {
-        do {
-            try Self.verify(data)
-        } catch {
-            Log.store.fault("the encoded book failed verification", ["error": .error(LoggedError(error))])
+            Log.store.fault("the serialized book failed verification", ["error": .error(LoggedError(error))])
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
@@ -499,36 +486,6 @@ public final class BookPackage: Sendable {
         try fileSystem.publish(temporary, as: url)
     }
 
-    /// Encodes `book` and checks that the bytes are a fixed point of decode → encode.
-    static func verifiedEncoding(of book: Book) throws(EncodingFailure) -> Data {
-        let data: Data
-        do {
-            data = try BookCoding.encode(book)
-        } catch {
-            throw .rejected(error)
-        }
-        try verify(data)
-        return data
-    }
-
-    /// Compares bytes, not `Book`s: `String`'s `==` treats canonically equivalent text
-    /// (NFC and NFD) as equal, so equal books can still encode differently.
-    static func verify(_ data: Data) throws(EncodingFailure) {
-        let decoded: Book
-        do {
-            decoded = try BookCoding.decode(data)
-        } catch {
-            throw .undecodable(error)
-        }
-        let reencoded: Data
-        do {
-            reencoded = try BookCoding.encode(decoded)
-        } catch {
-            throw .reencodingRejected(error)
-        }
-        guard reencoded == data else { throw .unstable }
-    }
-
     private static func load(_ layout: PackageLayout, _ fileSystem: any FileSystem) throws(LoadProblem) -> (
         Book, Data
     ) {
@@ -549,15 +506,9 @@ public final class BookPackage: Sendable {
         case .file: break
         }
         let data = try wrapping(unreadable) { () throws(FileSystemError) in try fileSystem.read(layout.book) }
-        let book: Book
-        do {
-            book = try BookCoding.decode(data)
-        } catch {
-            throw .undecodable(error)
-        }
-        let problems = BookValidator.problems(in: book)
-        guard problems.isEmpty else { throw .invalid(problems) }
-        return (book, data)
+        var ids = IDGenerator.system
+        let parsed = BookFormat.parse(data, opened: Timestamp(.now, in: .current), ids: &ids)
+        return (parsed.book, data)
     }
 
     private static func existingBackups(_ layout: PackageLayout, _ fileSystem: any FileSystem) -> [Backup] {

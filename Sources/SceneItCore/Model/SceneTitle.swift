@@ -1,9 +1,8 @@
 /// A scene's title: one line of plain text (decision 0015).
 ///
-/// `book.json` keeps PLAN §5.2's shape, a paragraph of runs: `[{"text": "…"}]`, or `[]`
-/// when empty. Decoding a formatted title keeps its text and drops the attributes,
-/// including comment ids, so its next save writes a single plain run. `BookValidator`
-/// rejects a line break, since the type doesn't prevent one.
+/// `book.md` writes it as the scene's `## ` heading; formatting typed into a heading by hand
+/// is dropped on load, keeping the text. The type doesn't prevent a line break, but a book
+/// whose title holds one fails save verification.
 public struct SceneTitle: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     public var text: String
 
@@ -22,14 +21,4 @@ public struct SceneTitle: Hashable, Sendable, ExpressibleByStringLiteral, Custom
     }
 
     public var description: String { text }
-}
-
-extension SceneTitle: Codable {
-    public init(from decoder: any Decoder) throws {
-        text = try Paragraph(from: decoder).text
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        try Paragraph(text.isEmpty ? [] : [Run(text)]).encode(to: encoder)
-    }
 }

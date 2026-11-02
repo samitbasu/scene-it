@@ -24,11 +24,11 @@ public struct UTCOffset: Hashable, Sendable {
 
 /// An instant with whole-second precision, plus the UTC offset it's written with.
 ///
-/// `book.json` stores times as `2026-10-31T20:54:00-07:00`. Keeping the offset makes
-/// encoding independent of the machine's time zone, and dropping sub-second precision
-/// makes encode → decode an identity. Equality compares the offset too, because it's
-/// part of what's encoded.
-public struct Timestamp: Hashable, Sendable, Codable, CustomStringConvertible {
+/// `book.md` writes times as `2026-10-31T20:54:00-07:00`. Keeping the offset makes the text
+/// independent of the machine's time zone, and dropping sub-second precision makes
+/// write → read an identity. Equality compares the offset too, because it's part of what's
+/// written.
+public struct Timestamp: Hashable, Sendable, CustomStringConvertible {
     public let secondsSince1970: Int64
     public let offset: UTCOffset
 
@@ -59,8 +59,14 @@ public struct Timestamp: Hashable, Sendable, Codable, CustomStringConvertible {
             + zeroPadded(magnitude % 60, width: 2)
     }
 
+    /// Reads `description`'s form, and also `Z` for `+00:00` (book format §2.2), which
+    /// `description` never writes.
     public init?(_ text: String) {
         let bytes = Array(text.utf8)
+        if bytes.count == 20, bytes[19] == UInt8(ascii: "Z"), let local = LocalDateTime(bytes[0..<19]) {
+            self.init(secondsSince1970: local.secondsSince1970, offset: .zero)
+            return
+        }
         guard bytes.count == 25, let local = LocalDateTime(bytes[0..<19]) else { return nil }
         let sign: Int
         switch bytes[19] {
@@ -74,24 +80,6 @@ public struct Timestamp: Hashable, Sendable, Codable, CustomStringConvertible {
             let offset = UTCOffset(minutes: sign * (hours * 60 + minutes))
         else { return nil }
         self.init(secondsSince1970: local.secondsSince1970 - Int64(offset.minutes * 60), offset: offset)
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let text = try container.decode(String.self)
-        guard let timestamp = Timestamp(text) else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription:
-                    "\"\(text)\" is not a date of the form 2026-10-31T20:54:00-07:00 "
-                    + "(whole seconds, numeric UTC offset)")
-        }
-        self = timestamp
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(description)
     }
 }
 

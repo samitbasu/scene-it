@@ -1,25 +1,24 @@
-/// The whole of `book.json` (PLAN §5.2).
-///
-/// `format` isn't stored: this version reads and writes only `BookFormat.current`, and a
-/// file in any other format is refused before the rest of it is interpreted.
+/// A whole book, as `book.md` holds it (docs/format/book-format.md).
 public struct Book: Hashable, Sendable {
     public var title: String
-    public var settings: BookSettings
     /// Story order.
     public var scenes: [BookScene]
     /// Cut scenes, most recently cut first.
     public var boneyard: [BookScene]
+    /// What the parser found outside any scene and couldn't understand, kept verbatim until
+    /// the writer deletes or repairs it.
+    public var errors: [ErrorEntry]
 
     public init(
         title: String,
-        settings: BookSettings = BookSettings(),
         scenes: [BookScene] = [],
-        boneyard: [BookScene] = []
+        boneyard: [BookScene] = [],
+        errors: [ErrorEntry] = []
     ) {
         self.title = title
-        self.settings = settings
         self.scenes = scenes
         self.boneyard = boneyard
+        self.errors = errors
     }
 }
 
@@ -29,37 +28,10 @@ extension Book {
         guard let id else { return nil }
         return scenes.first { $0.id == id } ?? boneyard.first { $0.id == id }
     }
-}
 
-public enum BookFormat {
-    public static let current = 1
-}
-
-extension Book: Codable {
-    enum CodingKeys: String, CodingKey, CaseIterable {
-        case format, title, settings, boneyard, scenes
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let lenient = try decoder.container(keyedBy: CodingKeys.self)
-        let format = try lenient.decode(Int.self, forKey: .format)
-        guard format == BookFormat.current else {
-            throw lenient.corrupted(
-                .format, "format \(format) is not supported; this version reads format \(BookFormat.current)")
-        }
-        let container = try decoder.strictContainer(keyedBy: CodingKeys.self)
-        title = try container.decode(String.self, forKey: .title)
-        settings = try container.decode(BookSettings.self, forKey: .settings)
-        scenes = try container.decode([BookScene].self, forKey: .scenes)
-        boneyard = try container.decode([BookScene].self, forKey: .boneyard)
-    }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(BookFormat.current, forKey: .format)
-        try container.encode(title, forKey: .title)
-        try container.encode(settings, forKey: .settings)
-        try container.encode(boneyard, forKey: .boneyard)
-        try container.encode(scenes, forKey: .scenes)
+    /// Every error entry, grouped in the Errors tab's order: the book's, then each story
+    /// scene's, then each Boneyard scene's.
+    public var errorEntries: [[ErrorEntry]] {
+        [errors] + scenes.map(\.errors) + boneyard.map(\.errors)
     }
 }

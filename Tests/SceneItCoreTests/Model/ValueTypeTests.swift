@@ -62,6 +62,17 @@ import Testing
     }
 }
 
+@Suite struct IdentifierTests {
+    @Test func idsCompareByBytesNotCanonicalEquivalence() {
+        let composed = CommentID(rawValue: "caf\u{E9}")
+        let decomposed = CommentID(rawValue: "cafe\u{301}")
+        #expect(composed.rawValue == decomposed.rawValue, "precondition: String == is canonical")
+        #expect(composed != decomposed)
+        #expect(Set([composed, decomposed]).count == 2)
+        #expect(decomposed < composed)
+    }
+}
+
 @Suite struct BoundedScalarTests {
     @Test func zoomClampsToItsRange() {
         #expect(Double(Zoom(clamping: 9)) == 3)

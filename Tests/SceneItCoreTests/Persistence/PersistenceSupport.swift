@@ -321,7 +321,7 @@ func draft(_ number: Int) throws -> Book {
 }
 
 func encoded(_ book: Book) throws -> Data {
-    try BookCoding.encode(book)
+    BookFormat.serialize(book)
 }
 
 /// The digest of `draft(number)` as written to disk.

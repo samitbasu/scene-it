@@ -202,7 +202,7 @@ enum Editor: CaseIterable, Sendable {
                 }
             }
         }
-        #expect(BookValidator.problems(in: book).isEmpty)
+        #expect(throws: Never.self) { try BookFormat.verifiedSerialization(of: book) }
     }
 
     @Test func randomSeparatorsAndForeignAttributesSaveToValidParagraphs() {

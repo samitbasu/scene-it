@@ -18,9 +18,11 @@ import AppKit
 /// - Text with no line breaks and nothing left to save is no paragraphs, so `[[]]` (one
 ///   empty paragraph) saves as `[]`.
 ///
-/// The output therefore satisfies `BookValidator` except for one rule the codec can't
-/// see: comment ids must exist in the scene's `comments`, or encoding fails. Whoever
-/// accepts the edit must remap or strip unknown ids (decision 0017);
+/// Two of the model's rules (book format §7.5) are beyond the codec. Text may only hold
+/// the characters `CharacterPolicy` allows, which the editor ensures as text is typed or
+/// pasted. And comment ids must exist in the scene's `comments`: `book.md` writes a
+/// comment's ranges from that list, so an id missing from it is lost on the next save.
+/// Whoever accepts the edit must remap or strip unknown ids (decision 0017);
 /// `Paragraph.commentIDs(in:)` lists the ids to check.
 ///
 /// Main-actor isolated, because the `NSTextStorage` it reads and fills is.

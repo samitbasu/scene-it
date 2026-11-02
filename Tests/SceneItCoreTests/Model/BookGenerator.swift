@@ -2,7 +2,9 @@ import Foundation
 
 @testable import SceneItCore
 
-/// Random valid books from a seed, for round-trip properties.
+/// Random books from a seed that satisfy the model's invariants (book format §7.5), for
+/// round-trip properties. Runs are maximal, as the parser makes them, so a parsed book can
+/// be compared with the one that was written.
 struct BookGenerator {
     private var random: SplitMix64
     private var ids: IDGenerator<SplitMix64>
@@ -15,24 +17,18 @@ struct BookGenerator {
             random: SplitMix64(seed: seed &* 31))
     }
 
-    private static let lineAlphabet = Array("abc XYZ é\"\\/\t\u{0}😀☕️—'<>&{}[]:,")
-    private static let anyAlphabet = lineAlphabet + ["\n", "\r\n", "\u{2028}"]
+    /// Characters that need escaping or look like structure, plus Latin-1 beyond ASCII.
+    static let lineAlphabet = Array("abc XYZ  \u{E9}\u{FF}\u{A0}\"\\/<>&{}[]:,*_~#-|!`.")
+    private static let anyAlphabet = lineAlphabet + ["\n"]
+    private static let words = [
+        "# ", "- ", "---", "<br>", "**", "* ", " *", "~~", "\\", "## x", "c1-2", "\"q\"",
+    ]
 
     mutating func book() -> Book {
         let scenes = (0..<int(0...4)).map { _ in scene() }
         let boneyard = (0..<int(0...2)).map { _ in scene() }
         return Book(
-            title: string(Self.anyAlphabet, 0...12), settings: settings(), scenes: scenes, boneyard: boneyard)
-    }
-
-    private mutating func settings() -> BookSettings {
-        BookSettings(
-            zoom: Zoom(clamping: Double.random(in: ZoomBounds.range, using: &random)),
-            voice: Bool.random(using: &random) ? string(Self.lineAlphabet, 1...20) : nil,
-            rate: SpeechRate(clamping: Float.random(in: SpeechRateBounds.range, using: &random)),
-            rightPanel: pick(RightPanelTab.allCases),
-            rightPanelOpen: pick([.open, .closed]),
-            scenesView: pick(ScenesView.allCases))
+            title: string(Self.anyAlphabet, 0...12), scenes: scenes, boneyard: boneyard, errors: errors())
     }
 
     private mutating func scene() -> BookScene {
@@ -50,19 +46,47 @@ struct BookGenerator {
             tags: (0..<int(0...3)).map { _ in string(Self.anyAlphabet, 1...8) },
             body: (0..<int(0...4)).map { _ in paragraph(commentIDs) },
             notes: (0..<int(0...2)).map { _ in paragraph(commentIDs) },
-            comments: comments)
+            comments: comments,
+            errors: errors())
     }
 
     private mutating func paragraph(_ commentIDs: [CommentID]) -> Paragraph {
-        Paragraph(
-            (0..<int(0...4)).map { _ in
-                Run(
-                    string(Self.lineAlphabet, 1...16),
-                    styles: Set(TextStyle.allCases.filter { _ in Bool.random(using: &random) }),
-                    color: Bool.random(using: &random) ? pick(TextColor.allCases) : nil,
-                    highlight: Bool.random(using: &random) ? pick(HighlightColor.allCases) : nil,
-                    comments: Set(commentIDs.filter { _ in Bool.random(using: &random) }))
-            })
+        let runs = (0..<int(0...4)).map { _ in
+            Run(
+                text(),
+                styles: Set(TextStyle.allCases.filter { _ in Bool.random(using: &random) }),
+                color: Bool.random(using: &random) ? pick(TextColor.allCases) : nil,
+                highlight: Bool.random(using: &random) ? pick(HighlightColor.allCases) : nil,
+                comments: Set(commentIDs.filter { _ in Bool.random(using: &random) }))
+        }
+        return Paragraph(Self.merged(runs))
+    }
+
+    private mutating func text() -> String {
+        Bool.random(using: &random)
+            ? pick(Self.words) + string(Self.lineAlphabet, 0...6) : string(Self.lineAlphabet, 1...16)
+    }
+
+    static func merged(_ runs: [Run]) -> [Run] {
+        runs.reduce(into: []) { merged, run in
+            if var last = merged.last, last.styles == run.styles, last.color == run.color,
+                last.highlight == run.highlight, last.comments == run.comments
+            {
+                last.text += run.text
+                merged[merged.count - 1] = last
+            } else {
+                merged.append(run)
+            }
+        }
+    }
+
+    private mutating func errors() -> [ErrorEntry] {
+        (0..<int(0...2)).map { _ in
+            var payload = string(Self.lineAlphabet, 0...20).trimmingCharacters(in: .init(charactersIn: " "))
+            while payload.hasSuffix("\\") { payload.removeLast() }
+            return ErrorEntry(
+                pick(ErrorTag.allCases), payload.trimmingCharacters(in: .init(charactersIn: " ")))
+        }
     }
 
     private mutating func timestamp() -> Timestamp {
