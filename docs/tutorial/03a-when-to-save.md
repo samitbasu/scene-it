@@ -12,7 +12,7 @@ Everything lives in [`Sources/SceneItCore/Autosave/`](../../Sources/SceneItCore/
 | File | What it holds |
 | --- | --- |
 | [`AutosaveScheduler.swift`](../../Sources/SceneItCore/Autosave/AutosaveScheduler.swift) | the pure state machine: events in, a decision out; `AutosavePolicy`'s timings |
-| [`AutosaveDriver.swift`](../../Sources/SceneItCore/Autosave/AutosaveDriver.swift) | runs the machine on the main actor with one timer task and an injected `save` |
+| [`AutosaveDriver.swift`](../../Sources/SceneItCore/Autosave/AutosaveDriver.swift) | runs the machine on the main actor with one timer task and a weakly held `AutosaveSaver` |
 | [`QuitDecision.swift`](../../Sources/SceneItCore/Autosave/QuitDecision.swift) | what quitting does, as a function of the autosave state |
 | [`QuitWording.swift`](../../Sources/SceneItCore/Autosave/QuitWording.swift) | the alert shown when quitting would lose edits |
 
@@ -27,7 +27,8 @@ a hand-advanced test clock in [`ManualClock.swift`](../../Tests/SceneItCoreTests
 - Never start a save while one is running. Edits made during a save are saved by the next one.
 - After a failure, retry after 2 s, 5 s, 15 s, then every 30 s, for as long as edits are unsaved.
 - If another program changed the book, pause until the writer decides what to keep
-  ([ADR 0018](../decisions/0018-external-change-ux.md)).
+  ([ADR 0018](../decisions/0018-external-change-ux.md)). After "Keep My Version", saves may
+  replace the other program's version (keeping it as a backup) until one succeeds.
 - Never lose edits on quit without asking.
 
 ---
@@ -51,9 +52,12 @@ public mutating func handle(_ event: AutosaveEvent, at now: Instant) -> Decision
 public enum Decision: Hashable, Sendable {
     case idle
     case waitUntil(Instant)
-    case saveNow(SaveTrigger)
+    case saveNow(SaveRequest)
 }
 ```
+
+A `SaveRequest` carries the `SaveTrigger` (why) and the `ExternalChangePolicy` the save must
+pass to `BookPackage.save`.
 
 The state is **one enum**, so the illegal combinations can't be written down
 (CLAUDE.md, "illegal states should be unrepresentable"):
@@ -74,6 +78,12 @@ Each case carries only what makes sense in it. `Saving` remembers which edits th
 save covers and which arrived since; `Unsaved` may carry the last `Failure`, which is what the
 status bar shows and what the retry backoff counts. There's no `isSaving` to forget to reset:
 a save is running exactly when the state is `.saving`.
+
+The writer's "Keep My Version" lives in the state too, as `onExternalChange` on `Unsaved` and
+`Saving`, rather than in a flag on the store. `externalChangeResolved` sets it while leaving
+`.paused`. It survives ordinary failures (the retry still needs it), and a successful save or a
+new pause clears it. Outside `.paused`, the event does nothing, so there's no way to approve an
+overwrite the writer was never asked about.
 
 `.saveNow` isn't advice. When `handle` returns it, the state has already moved to
 `.saving`, so the driver can't start a save and forget to say so. The only thing the driver
@@ -208,12 +218,37 @@ isolation, so it says so explicitly). That buys three things:
   save, is handled on the main actor, one at a time.
 - **Tasks inherit it.** A `Task { … }` created in a `@MainActor` method runs its body on the
   main actor, so the timer task can call `self.send(.tick)` without an `await`.
-- **The injected save is main-actor too:**
-  `public typealias Save = @MainActor () async throws(SaveError) -> Void`. The store's save
-  takes its snapshot of the book synchronously, before its first `await`, so it saves exactly
-  the book as it was when the scheduler said `.saveNow`. Edits during the save arrive as
-  `.edited` events and the scheduler saves them next. This is chapter 00 §8.4's reentrancy
-  rule turned into a protocol: capture before you `await`.
+- **The saver is main-actor too.** It's a protocol, held weakly:
+
+  ```swift
+  @MainActor
+  public protocol AutosaveSaver: AnyObject {
+      func save(_ request: SaveRequest) async throws(SaveError)
+  }
+  ```
+
+  The store owns its driver and is also its saver. A closure that captured the store would
+  make a cycle (store → driver → closure → store), and ARC never frees a cycle (chapter 00
+  §7.1). A `weak` reference to a protocol is the Swift version of Rust's `Weak<dyn Trait>`, and
+  it's why the protocol must be `AnyObject` (class-only): only class instances can be
+  referenced weakly.
+
+- **The save starts in the same turn as `.saveNow`.** The driver runs it with
+  `Task.immediate` (new in macOS 26), which runs the task body synchronously on the current
+  actor until its first suspension. A plain `Task { … }` would only be *enqueued*, so another
+  event (another keystroke) could slip in before the save looked at the book. With
+  `Task.immediate`, the saver's code before its first `await` (taking the snapshot) runs before
+  `send` returns, so a save covers exactly the edits the scheduler thinks it covers. Edits after
+  that arrive as `.edited` and are saved next. This is chapter 00 §8.4's reentrancy rule turned
+  into a protocol: capture before you `await`.
+
+  There's a consequence: a saver that finishes without suspending (one that throws at once,
+  for example) reports its outcome *inside* `send`, which re-enters `send`. That's safe because
+  `send` finishes changing the state before it starts the save, and does nothing with the
+  state afterwards. A test covers it.
+
+  For the same reason, the store must send `.edited` in the same main-actor turn as the
+  change to the model.
 
 The driver is also `@Observable`, so the status bar can read `driver.state` and redraw when it
 changes.
@@ -231,10 +266,19 @@ The decision itself is pure, a computed property on the scheduler's state:
 | `.saving`, or `.unsaved` with a save about to start | wait for the save, then decide again |
 | `.unsaved` after a failed save | ask the writer: Retry / Cancel / Quit Anyway |
 | `.paused` (changed on disk) | ask the writer: Cancel / Quit Anyway |
+| still `.saving` after 10 s (`AutosavePolicy.quitGracePeriod`) | ask the writer: Wait / Quit Anyway |
 
 `quitRequested` asks for an immediate save, so a book with unsaved edits always gets one more
 attempt before the writer is asked. A request made during a save that then fails is dropped
 (the failure answers it), which is how a quit sees the failure and asks instead of looping.
 
 `AutosaveDriver.prepareToQuit()` sends `quitRequested` and awaits until the decision settles,
-returning `.terminate` or `.askWriter(problem)`. The alert's Retry calls it again.
+returning `.terminate` or `.askWriter(problem)`. The alert's Retry and Wait call it again. A save
+that never returns would otherwise hang the quit forever, so after the grace period it returns
+`.askWriter(.stillSaving)` while the save keeps running. It never terminates on its own.
+
+It also responds to cancellation: it's declared `async throws(CancellationError)`. Waiting is a
+continuation parked in a dictionary. `withTaskCancellationHandler` resumes it when the task is
+cancelled, and a second task sleeping on the clock resumes it at the grace deadline. Whichever
+comes first wins; the other finds the continuation already gone. That's Swift's equivalent of
+`tokio::select!` over a notification, a timer and cancellation, written out by hand.

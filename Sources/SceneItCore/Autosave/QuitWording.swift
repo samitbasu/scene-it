@@ -1,9 +1,9 @@
-/// The alert shown when quitting would lose edits. A draft awaiting the owner's approval of
-/// its wording (CLAUDE.md: aesthetic choices are the owner's).
+/// The alert shown when quitting would lose edits. The owner approved the `.saveFailed` and
+/// `.changedOnDisk` wording; `.stillSaving` is a draft awaiting approval.
 public struct QuitAlert: Hashable, Sendable {
     public let title: String
     public let message: String
-    /// In button order: the first is the default (Return), and `.cancel` answers Escape.
+    /// In button order: the first is the default (Return), and `.cancel`, if present, answers Escape.
     public let choices: [QuitAlertChoice]
 }
 
@@ -24,12 +24,19 @@ public enum QuitWording {
                     + "If you quit now, the changes you made since the last save will be lost. "
                     + "Choose Cancel to go back and decide which version to keep.",
                 choices: [.cancel, .quitAnyway])
+        case .stillSaving:
+            QuitAlert(
+                title: "Scene It is still saving your book.",
+                message: "Saving is taking longer than usual. "
+                    + "If you quit now, the changes you made since the last save may be lost.",
+                choices: [.wait, .quitAnyway])
         }
     }
 
     public static func label(_ choice: QuitAlertChoice) -> String {
         switch choice {
         case .retry: "Retry"
+        case .wait: "Wait"
         case .quitAnyway: "Quit Anyway"
         case .cancel: "Cancel"
         }

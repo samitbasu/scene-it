@@ -3,6 +3,8 @@ public enum QuitProblem: Hashable, Sendable {
     case saveFailed(SaveError)
     /// Autosave is paused on an external change (ADR 0018).
     case changedOnDisk(SaveError)
+    /// A save has run for `AutosavePolicy.quitGracePeriod` without finishing. It keeps running.
+    case stillSaving
 }
 
 public enum QuitVerdict: Hashable, Sendable {
@@ -21,6 +23,8 @@ public enum QuitDecision: Hashable, Sendable {
 public enum QuitAlertChoice: Hashable, Sendable {
     /// Send `quitRequested` again and decide again.
     case retry
+    /// Keep waiting for the running save, then decide again.
+    case wait
     /// Terminate, losing the unsaved edits. Only ever the writer's explicit choice.
     case quitAnyway
     /// Don't quit.

@@ -3,7 +3,8 @@ import Testing
 @testable import SceneItCore
 
 /// Plays a scheduler the way the driver does (ticks at its deadlines, saves when told, one at a
-/// time), and tracks which edits a successful save has covered.
+/// time), and tracks which edits a successful save has covered and whether the writer chose
+/// "Keep My Version" since the last pause.
 private struct Simulation {
     var scheduler = Scheduler()
     var now = at(.zero)
@@ -11,8 +12,17 @@ private struct Simulation {
     var editCount = 0
     var savedEditCount = 0
     var inFlightCovers: Int?
+    var onExternalChange = ExternalChangePolicy.refuse
 
     mutating func send(_ event: AutosaveEvent) {
+        switch (scheduler.state, event) {
+        case (.paused, .externalChangeResolved):
+            onExternalChange = .overwriteKeepingTheirsAsBackup
+        case (.saving, .saveSucceeded), (.saving, .saveFailed(changedOnDisk)):
+            onExternalChange = .refuse
+        default:
+            break
+        }
         if event == .saveSucceeded, let covers = inFlightCovers {
             savedEditCount = covers
         }
@@ -28,8 +38,9 @@ private struct Simulation {
         case .waitUntil(let instant):
             #expect(instant > now, "a deadline must lie in the future")
             deadline = instant
-        case .saveNow:
+        case .saveNow(let request):
             #expect(inFlightCovers == nil, "two saves must never overlap")
+            #expect(request.onExternalChange == onExternalChange, "only Keep My Version overwrites")
             inFlightCovers = editCount
         }
         checkInvariants(after: decision)

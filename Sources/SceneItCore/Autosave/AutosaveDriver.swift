@@ -1,56 +1,87 @@
+import Foundation
 import Observation
 
+/// Saves the book when an `AutosaveDriver` asks. The driver holds its saver weakly, so a store
+/// that owns its driver and is also its saver doesn't form a retain cycle.
+@MainActor
+public protocol AutosaveSaver: AnyObject {
+    /// Starts in the same main-actor turn as the scheduler's `.saveNow`, so everything before its
+    /// first `await` (taking the snapshot of the book) sees exactly the edits the save covers.
+    /// Edits made after that arrive as `edited` and are saved by a later call.
+    func save(_ request: SaveRequest) async throws(SaveError)
+}
+
 /// Runs an `AutosaveScheduler` against a real clock: one timer task for the next deadline, and
-/// the injected `save` for each save the scheduler starts. The scheduler never lets two saves
-/// overlap, so the driver doesn't have to.
+/// the saver for each save the scheduler starts. The scheduler never lets two saves overlap, so
+/// the driver doesn't have to.
 @MainActor
 @Observable
 public final class AutosaveDriver<C: Clock<Duration>> {
-    /// Saves the book as it is when called. Edits made while it runs are reported as `edited`
-    /// and saved by a later call.
-    public typealias Save = @MainActor () async throws(SaveError) -> Void
-
     public private(set) var scheduler = AutosaveScheduler<C.Instant>()
 
     @ObservationIgnored private let clock: C
-    @ObservationIgnored private let save: Save
+    @ObservationIgnored private weak var saver: (any AutosaveSaver)?
     @ObservationIgnored private var timer: (deadline: C.Instant, task: Task<Void, Never>)?
-    @ObservationIgnored private var waiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    public init(clock: C, save: @escaping Save) {
+    /// Once `saver` is gone, saves stop; the driver is meant to go with it.
+    public init(clock: C, saver: any AutosaveSaver) {
         self.clock = clock
-        self.save = save
+        self.saver = saver
     }
 
     public var state: AutosaveScheduler<C.Instant>.State { scheduler.state }
 
+    /// Send `.edited` in the same main-actor turn as the change to the model.
     public func send(_ event: AutosaveEvent) {
         perform(scheduler.handle(event, at: clock.now))
-        let waiting = waiters
-        waiters = []
+        let waiting = waiters.values
+        waiters = [:]
         for waiter in waiting { waiter.resume() }
     }
 
-    /// The `applicationShouldTerminate` hook: requests a save and waits until quitting is
-    /// either safe or needs the writer's choice. Call it again for the alert's Retry.
-    public func prepareToQuit() async -> QuitVerdict {
+    /// The `applicationShouldTerminate` hook: requests a save and waits until quitting is safe or
+    /// needs the writer's choice. A save still running after `AutosavePolicy.quitGracePeriod`
+    /// gives `.askWriter(.stillSaving)` and keeps running. Call it again for Retry or Wait.
+    public func prepareToQuit() async throws(CancellationError) -> QuitVerdict {
         send(.quitRequested)
+        let deadline = clock.now.advanced(by: AutosavePolicy.quitGracePeriod.duration)
         while true {
-            switch state.quitDecision {
-            case .settled(let verdict): return verdict
-            case .waitForSave: await nextStateChange()
+            if case .settled(let verdict) = state.quitDecision { return verdict }
+            guard clock.now < deadline else { return .askWriter(.stillSaving) }
+            try await nextStateChange(orUntil: deadline)
+        }
+    }
+
+    func nextStateChange(orUntil deadline: C.Instant?) async throws(CancellationError) {
+        let id = UUID()
+        let alarm = deadline.map { deadline in
+            Task { [weak self, clock] in
+                do {
+                    try await clock.sleep(until: deadline, tolerance: nil)
+                } catch {
+                    return
+                }
+                self?.wake(id)
             }
         }
-    }
-
-    func wait(until condition: (AutosaveScheduler<C.Instant>.State) -> Bool) async {
-        while !condition(state) {
-            await nextStateChange()
+        defer { alarm?.cancel() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.wake(id) }
         }
+        if Task.isCancelled { throw CancellationError() }
     }
 
-    private func nextStateChange() async {
-        await withCheckedContinuation { waiters.append($0) }
+    private func wake(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
     }
 
     private func perform(_ decision: AutosaveScheduler<C.Instant>.Decision) {
@@ -73,12 +104,15 @@ public final class AutosaveDriver<C: Clock<Duration>> {
                 self.send(.tick)
             }
             timer = (deadline, task)
-        case .saveNow:
+        case .saveNow(let request):
             cancelTimer()
-            Task { [weak self, save] in
+            guard let saver else { return }
+            // Runs synchronously up to the saver's first suspension, so a saver that finishes
+            // without suspending re-enters `send` from here.
+            Task.immediate { [weak self] in
                 let outcome: AutosaveEvent
                 do throws(SaveError) {
-                    try await save()
+                    try await saver.save(request)
                     outcome = .saveSucceeded
                 } catch {
                     outcome = .saveFailed(error)

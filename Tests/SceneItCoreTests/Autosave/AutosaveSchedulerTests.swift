@@ -23,8 +23,24 @@ extension Scheduler {
         return scheduler
     }
 
+    var isPaused: Bool {
+        if case .paused = state { true } else { false }
+    }
+
     var isSaving: Bool {
         if case .saving = state { true } else { false }
+    }
+}
+
+extension Scheduler.Decision {
+    /// A save that refuses to replace another program's version, as every save does except
+    /// those after "Keep My Version".
+    static func saveNow(_ trigger: SaveTrigger) -> Self {
+        .saveNow(SaveRequest(trigger))
+    }
+
+    static func overwriting(_ trigger: SaveTrigger) -> Self {
+        .saveNow(SaveRequest(trigger, onExternalChange: .overwriteKeepingTheirsAsBackup))
     }
 }
 
@@ -51,8 +67,8 @@ extension Scheduler {
     var saves: [(Duration, SaveTrigger)] = []
     for second in 0..<100 {
         let now = at(.seconds(second))
-        if case .saveNow(let trigger) = scheduler.handle(.edited, at: now) {
-            saves.append((.seconds(second), trigger))
+        if case .saveNow(let request) = scheduler.handle(.edited, at: now) {
+            saves.append((.seconds(second), request.trigger))
             #expect(scheduler.handle(.saveSucceeded, at: now) == .idle)
         }
     }
@@ -120,7 +136,9 @@ func anImmediateRequestDuringASaveWaitsForIt(event: AutosaveEvent) {
     var withEdits = Scheduler.saving()
     _ = withEdits.handle(.edited, at: at(.seconds(3)))
     #expect(withEdits.handle(event, at: at(.seconds(3))) == .idle)
-    guard case .saveNow(.immediate) = withEdits.handle(.saveSucceeded, at: at(.seconds(4))) else {
+    guard case .saveNow(let request) = withEdits.handle(.saveSucceeded, at: at(.seconds(4))),
+        case .immediate = request.trigger
+    else {
         Issue.record("the request must start a save as soon as the running one ends")
         return
     }
@@ -202,7 +220,7 @@ func anExternalChangePausesAutosaveUntilResolved(error: SaveError) {
 
     #expect(
         scheduler.handle(.externalChangeResolved, at: at(.seconds(360)))
-            == .saveNow(.immediate(.externalChangeResolved)))
+            == .overwriting(.immediate(.externalChangeResolved)))
     #expect(scheduler.handle(.saveSucceeded, at: at(.seconds(360))) == .idle)
     #expect(scheduler.state == .clean)
 }
