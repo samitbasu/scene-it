@@ -25,6 +25,8 @@ public enum LogValue: Sendable {
     /// One of a fixed set of words chosen in code, such as a state or mode name.
     case symbol(StaticString)
     case error(LoggedError)
+    /// A POSIX error number, such as `errno` after a failed system call.
+    case errno(Int32)
 
     var rendered: String {
         switch self {
@@ -34,6 +36,7 @@ public enum LogValue: Sendable {
         case .id(let id): id.uuidString
         case .symbol(let symbol): symbol.description
         case .error(let error): error.rendered
+        case .errno(let code): "errno(\(code))"
         }
     }
 }

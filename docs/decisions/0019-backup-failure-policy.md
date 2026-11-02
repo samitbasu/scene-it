@@ -16,6 +16,8 @@ keep separate history.
 ## Also
 - No external version is ever lost silently. A write that lands *during* our save (between the check and
   the final rename) is caught: where the volume supports it, an atomic swap keeps the displaced
-  bytes; elsewhere the save re-checks immediately before renaming.
+  bytes; elsewhere the save re-checks immediately before renaming. This covers writers that rename a
+  new version into place (as sync services do); a writer that edits `book.json` in place, with the file
+  already open, has a small residual window.
 - Backup degradation is typed: "an older backup was lost" is distinct from "the version just replaced has no
   backup", and the store reports both.
