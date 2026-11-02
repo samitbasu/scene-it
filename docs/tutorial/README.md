@@ -16,7 +16,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 08 | The search engine: the `SearchIndex` protocol and `KeywordSearch` | planned, lands with #30 |
 | 09 | Printing and export: `NSPrintOperation`, Word export | planned, lands with #35 |
 | 10 | Shipping: signing, notarization, the DMG | planned, lands with #3 and #4 |
-| 11 | Crash reporting: logging, MetricKit, Report a Problem | planned, lands with #12 |
+| 11 | [Crash reporting](11-crash-reporting.md): logging, MetricKit, Report a Problem | written |
 
 Chapter 06 follows 05 in reading order even if #14 merges first. Read 06 after 05.
 

@@ -4,6 +4,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/lib.sh"
+source scripts/guards.sh
 
 readonly log_dir=build/check
 readonly result_bundle="$log_dir/SceneIt.xcresult"
@@ -43,27 +44,10 @@ run() {
     "$@" >"$log" 2>&1 || fail "$step" "$log"
 }
 
-forbid_textkit1() {
-    # TextKit 2 only (PLAN §2): any of these silently puts a text view on TextKit 1.
-    local path hits status=0
-    # BSD grep applies --include to its operands too, so it skips a missing directory silently.
-    for path in "${swift_paths[@]}"; do
-        [[ -e $path ]] || { echo "$path: error: no such file or directory"; return 2; }
-    done
-    hits=$(grep -rnE --include='*.swift' \
-        '\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false' "${swift_paths[@]}") \
-        || status=$?
-    case $status in
-        0)
-            sed -E 's/^([^:]+:[0-9]+):[[:space:]]*/\1: error: TextKit 1 is forbidden (PLAN §2): /' <<<"$hits"
-            return 1
-            ;;
-        1) return 0 ;;
-        *) return "$status" ;;
-    esac
-}
-
-run textkit1-guard forbid_textkit1
+run guard-tests scripts/test-guards.sh
+run textkit1-guard forbid_textkit1 "${swift_paths[@]}"
+run logging-guard forbid_unchecked_logging "${swift_paths[@]}"
+run trap-message-guard forbid_interpolated_traps "${swift_paths[@]}"
 run lint swift format lint --strict --recursive --parallel "${swift_paths[@]}"
 run swift-test swift test
 run xcodebuild xcodebuild \

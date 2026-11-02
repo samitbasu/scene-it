@@ -374,6 +374,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneIt;
 				PRODUCT_MODULE_NAME = SceneIt;
 				PRODUCT_NAME = "Scene It";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 			};
 			name = Debug;
 		};
@@ -392,6 +394,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneIt;
 				PRODUCT_MODULE_NAME = SceneIt;
 				PRODUCT_NAME = "Scene It";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 			};
 			name = Release;
 		};
@@ -402,6 +406,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneItTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Scene It.app/Contents/MacOS/Scene It";
 			};
 			name = Debug;
@@ -413,6 +419,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.samitbasu.SceneItTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Scene It.app/Contents/MacOS/Scene It";
 			};
 			name = Release;
