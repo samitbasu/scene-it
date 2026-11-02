@@ -194,7 +194,7 @@ public final class BookPackage: Sendable {
                 }
             }
             unpublished = []
-            try replace(with: replacement, expecting: current?.data, &lastSeen)
+            try replace(with: replacement, holding: data, expecting: current?.data, &lastSeen)
             return status
         } catch {
             unpublished.forEach(fileSystem.discard)
@@ -251,14 +251,19 @@ public final class BookPackage: Sendable {
         let olderBackups: OlderBackups
     }
 
-    /// Replaces `book.json` only if it still holds `expected` (or, for `nil`, nothing), and
-    /// disposes of `replacement`.
+    /// Replaces `book.json` with `replacement` (which holds `data`) only if it still holds
+    /// `expected` (or, for `nil`, nothing), and disposes of `replacement`.
     ///
-    /// With `exchange`, the check happens after the swap, so no window remains: if the
-    /// displaced file isn't `expected`, another program wrote it after `readCurrent`, and it's
-    /// swapped back. Volumes that can't swap get a re-check just before a plain rename.
+    /// With `exchange`, the check happens after the swap: if the displaced file isn't
+    /// `expected`, another program renamed a new version into place after `readCurrent`, and
+    /// it's swapped back. That closes the window for writers that rename into place, as sync
+    /// services and most editors do. A writer that already had `book.json` open and edits it
+    /// in place can still write to the displaced file after the comparison, and that write is
+    /// lost when the file is discarded. Volumes that can't swap get a re-check just before a
+    /// plain rename.
     private func replace(
-        with replacement: TemporaryFile, expecting expected: Data?, _ lastSeen: inout ContentDigest
+        with replacement: TemporaryFile, holding data: Data, expecting expected: Data?,
+        _ lastSeen: inout ContentDigest
     ) throws(SaveError) {
         guard let expected else {
             do {
@@ -283,7 +288,7 @@ public final class BookPackage: Sendable {
         do {
             try fileSystem.exchange(replacement, with: layout.book)
         } catch {
-            throw keepAsConflict(replacement, &lastSeen)
+            throw keepAsConflict(replacement, published: data, &lastSeen)
         }
         fileSystem.discard(replacement.url)
         throw refusal(.changed)
@@ -306,21 +311,35 @@ public final class BookPackage: Sendable {
         }
     }
 
-    /// `book.json` now holds this save and the other program's version sits at the temporary
+    /// `book.json` now holds `published` and the other program's version sits at the temporary
     /// name, which nothing reads; give it a visible name so it isn't lost.
-    private func keepAsConflict(_ displaced: TemporaryFile, _ lastSeen: inout ContentDigest) -> SaveError {
-        if let ours = try? fileSystem.read(layout.book) { lastSeen = ContentDigest(ours) }
-        let conflict = layout.conflict(at: .now)
-        do {
-            try fileSystem.publish(displaced, as: conflict)
-        } catch {
-            Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
-            guard case .file? = try? fileSystem.item(at: displaced.url) else { return refusal(.changed) }
-            return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
+    ///
+    /// `lastSeen` becomes the digest of what this save wrote, not of a fresh read: a third
+    /// write landing now must not be mistaken for ours.
+    private func keepAsConflict(
+        _ displaced: TemporaryFile, published: Data, _ lastSeen: inout ContentDigest
+    ) -> SaveError {
+        lastSeen = ContentDigest(published)
+        let now = Date.now
+        for attempt in 1...Self.conflictNameAttempts {
+            let conflict = layout.conflict(at: now, attempt: attempt)
+            do {
+                try fileSystem.publish(displaced, as: conflict)
+                Log.store.fault(
+                    "another program changed book.json during a save; kept its version separately")
+                return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
+            } catch  where error.cause == .alreadyExists {
+                continue
+            } catch {
+                Log.store.fault("couldn't rename another program's version of book.json", error.logMetadata)
+                break
+            }
         }
-        Log.store.fault("another program changed book.json during a save; kept its version separately")
-        return .externallyModified(.keptAsConflict(fileName: conflict.lastPathComponent))
+        guard case .file? = try? fileSystem.item(at: displaced.url) else { return refusal(.changed) }
+        return .externallyModified(.keptAsConflict(fileName: displaced.url.lastPathComponent))
     }
+
+    private static let conflictNameAttempts = 100
 
     private static func writeNewFile(_ data: Data, at url: URL, _ fileSystem: any FileSystem)
         throws(FileSystemError)

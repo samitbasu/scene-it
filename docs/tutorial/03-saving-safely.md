@@ -205,7 +205,7 @@ is bad, and when they fail nothing visible has changed yet. **Phase 2 only renam
                 }
             }
             unpublished = []
-            try replace(with: replacement, expecting: current?.data, &lastSeen)
+            try replace(with: replacement, holding: data, expecting: current?.data, &lastSeen)
             return status
         } catch {
             unpublished.forEach(fileSystem.discard)
@@ -381,7 +381,7 @@ Both flags depend on the volume, and the volume's *declared* capability is what 
     /// Only on volumes that declare swap support: FAT32 on macOS 27 returns success from
     /// `RENAME_SWAP` but performs a plain rename, destroying the destination.
     public func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
-        guard Self.volume(of: destination, declares: .volumeSupportsSwapRenamingKey) else {
+        guard Self.volume(of: destination, declares: .swapRename) else {
             throw FileSystemError(.exchange, destination, .unsupported)
         }
 ```
@@ -497,7 +497,8 @@ anyone noticing. So the final step is a compare-and-swap:
 
 ```swift
     private func replace(
-        with replacement: TemporaryFile, expecting expected: Data?, _ lastSeen: inout ContentDigest
+        with replacement: TemporaryFile, holding data: Data, expecting expected: Data?,
+        _ lastSeen: inout ContentDigest
     ) throws(SaveError) {
         guard let expected else {
             do {
@@ -522,7 +523,7 @@ anyone noticing. So the final step is a compare-and-swap:
         do {
             try fileSystem.exchange(replacement, with: layout.book)
         } catch {
-            throw keepAsConflict(replacement, &lastSeen)
+            throw keepAsConflict(replacement, published: data, &lastSeen)
         }
         fileSystem.discard(replacement.url)
         throw refusal(.changed)
@@ -530,8 +531,8 @@ anyone noticing. So the final step is a compare-and-swap:
 ```
 
 After the swap, the temporary name holds whatever `book.json` held *at the instant of the
-swap*. If those aren't the bytes the save checked, another program wrote in between, and
-a second swap puts their version back. The save then throws `.externallyModified(.changed)`,
+swap*. If those aren't the bytes the save checked, another program renamed a new version
+into place in between, and a second swap puts their version back. The save then throws `.externallyModified(.changed)`,
 which leads to ADR 0018's choice like any other external change. Swapping back, rather
 than keeping their bytes under another name, leaves the package exactly as the other
 program meant it, and needs nothing new from the store.
@@ -539,16 +540,23 @@ program meant it, and needs nothing new from the store.
 Two fallbacks remain, each documented in code:
 
 - **The swap back fails** (a double fault). Their version is renamed to
-  `book.json.conflict-<UTC time>`, and the save throws
-  `.externallyModified(.keptAsConflict(fileName:))`. If even that rename fails, the error
-  names the hidden temporary file that holds it.
+  `book.json.conflict-<UTC time>` (with `-2`, `-3`, … if that name is taken), and the save
+  throws `.externallyModified(.keptAsConflict(fileName:))`. If even that rename fails, the
+  error names the hidden temporary file that holds it. The package then records the digest
+  of the bytes *this save* wrote, never a fresh read of `book.json`: a third write landing
+  at that moment would otherwise be taken for ours, and a later save could replace it
+  without a backup. A regression test injects exactly that triple fault.
 - **The volume can't swap** (FAT, exFAT, HFS+). The save re-reads `book.json` just
   before a plain rename. A write landing in the microseconds between the two is the one
   residual window.
 
-This narrows the race to nothing where the volume can swap, but it isn't a lock: two
-copies of the app saving the same book will keep refusing each other's changes, which is
-the intended outcome. ADR 0005 leaves real locking for later.
+Where the volume can swap, this closes the window for writers that **rename a new
+version into place**, which is what sync services and most editors do. A writer that
+already had `book.json` open and **edits it in place** can still write into the displaced
+file after the comparison, and that write is lost when the file is discarded. That window
+is small, and closing it would need a lock. It isn't a lock either way: two copies of the
+app saving the same book will keep refusing each other's changes, which is the intended
+outcome. ADR 0005 leaves real locking for later.
 
 ## 8. Permissions and locks
 

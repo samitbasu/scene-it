@@ -24,12 +24,14 @@ public struct PackageLayout: Hashable, Sendable {
         file(slot.fileName, in: root)
     }
 
-    /// Where a version of `book.json` that another program wrote during a save is kept.
-    public func conflict(at date: Date) -> URL {
+    /// Where a version of `book.json` that another program wrote during a save is kept:
+    /// `book.json.conflict-<UTC time>`, then `-2`, `-3`, … for later attempts in the same second.
+    public func conflict(at date: Date, attempt: Int) -> URL {
         let stamp = date.formatted(
             .iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false)
                 .timeSeparator(.omitted))
-        return file("book.json.conflict-\(stamp)", in: root)
+        let suffix = attempt > 1 ? "-\(attempt)" : ""
+        return file("book.json.conflict-\(stamp)\(suffix)", in: root)
     }
 
     private func file(_ name: String, in directory: URL) -> URL {

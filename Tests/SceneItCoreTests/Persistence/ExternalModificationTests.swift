@@ -212,6 +212,46 @@ import Testing
     }
 }
 
+extension ConcurrentChangeTests {
+    /// Triple fault: theirs1 lands before the swap, theirs2 lands after it, and the swap-back
+    /// fails. book.json now holds theirs2, which must never be mistaken for our own save.
+    @Test func aThirdWriteAfterAFailedSwapBackIsNotTakenForOurs() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let package = try makeFullPackage(at: url, fileSystem: fileSystem)
+            let book = url.layout.book
+            let theirs1 = try encoded(draft(7))
+            let theirs2 = try encoded(draft(8))
+            fileSystem.before(.writeTemporary("book.json")) { try? theirs1.write(to: book) }
+            fileSystem.before(.read("temporary book.json")) { try? theirs2.write(to: book) }
+            fileSystem.inject(.fail(.exchange("book.json"), skipping: 1))
+            let error = try #require(throws: SaveError.self) { try package.save(draft(9)) }
+            guard case .externallyModified(.keptAsConflict(let fileName)) = error else {
+                Issue.record("unexpected error \(error)")
+                return
+            }
+            #expect(try Data(contentsOf: url.appending(path: fileName)) == theirs1)
+            #expect(url.layout.contents().book == theirs2, "precondition: theirs2 landed in book.json")
+
+            fileSystem.inject(.fail(.publish("book.json.bak1")))
+            #expect(throws: SaveError.externallyModified(.changed)) { try package.save(draft(10)) }
+            #expect(url.layout.contents().book == theirs2)
+        }
+    }
+
+    @Test func conflictsInTheSameSecondGetDistinctVisibleNames() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appending(path: "Novel.sceneit")
+            let layout = url.layout
+            let now = Date.now
+            #expect(layout.conflict(at: now, attempt: 1).lastPathComponent.hasPrefix("book.json.conflict-"))
+            #expect(layout.conflict(at: now, attempt: 2).lastPathComponent.hasSuffix("-2"))
+            #expect(layout.conflict(at: now, attempt: 1) != layout.conflict(at: now, attempt: 2))
+        }
+    }
+}
+
 @Suite struct WriteProtectionTests {
     @Test func aSaveKeepsBookJsonsPermissionsAndGivesThemToTheNewBackup() throws {
         try withTemporaryDirectory { directory in

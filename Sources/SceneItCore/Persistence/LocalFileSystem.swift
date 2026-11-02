@@ -73,7 +73,7 @@ public struct LocalFileSystem: FileSystem {
     /// (FAT, exFAT) get a check followed by a plain rename, which leaves a tiny window.
     public func publish(_ temporary: TemporaryFile, as destination: URL) throws(FileSystemError) {
         do throws(FileSystemError.Cause) {
-            if Self.volume(of: destination, declares: .volumeSupportsExclusiveRenamingKey) {
+            if Self.volume(of: destination, declares: .exclusiveRename) {
                 try Self.rename(temporary.url, to: destination, flags: UInt32(RENAME_EXCL))
             } else {
                 var info = stat()
@@ -91,7 +91,7 @@ public struct LocalFileSystem: FileSystem {
     /// Only on volumes that declare swap support: FAT32 on macOS 27 returns success from
     /// `RENAME_SWAP` but performs a plain rename, destroying the destination.
     public func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
-        guard Self.volume(of: destination, declares: .volumeSupportsSwapRenamingKey) else {
+        guard Self.volume(of: destination, declares: .swapRename) else {
             throw FileSystemError(.exchange, destination, .unsupported)
         }
         do {
@@ -181,12 +181,19 @@ public struct LocalFileSystem: FileSystem {
         }
     }
 
-    private static func volume(of url: URL, declares capability: URLResourceKey) -> Bool {
-        let values = try? url.deletingLastPathComponent().resourceValues(forKeys: [capability])
-        return switch capability {
-        case .volumeSupportsSwapRenamingKey: values?.volumeSupportsSwapRenaming == true
-        case .volumeSupportsExclusiveRenamingKey: values?.volumeSupportsExclusiveRenaming == true
-        default: false
+    private enum RenameCapability {
+        case swapRename, exclusiveRename
+    }
+
+    private static func volume(of url: URL, declares capability: RenameCapability) -> Bool {
+        let directory = url.deletingLastPathComponent()
+        switch capability {
+        case .swapRename:
+            let values = try? directory.resourceValues(forKeys: [.volumeSupportsSwapRenamingKey])
+            return values?.volumeSupportsSwapRenaming == true
+        case .exclusiveRename:
+            let values = try? directory.resourceValues(forKeys: [.volumeSupportsExclusiveRenamingKey])
+            return values?.volumeSupportsExclusiveRenaming == true
         }
     }
 

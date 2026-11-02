@@ -54,7 +54,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var fault: Fault?
         var crashed = false
         var matched = 0
-        var hook: (call: Call, action: @Sendable () -> Void)?
+        var hooks: [(call: Call, action: @Sendable () -> Void)] = []
     }
 
     private let base = LocalFileSystem()
@@ -84,7 +84,7 @@ final class FaultInjectingFileSystem: FileSystem {
 
     /// Runs `action` once, just before the next call equal to `call`.
     func before(_ call: Call, run action: @escaping @Sendable () -> Void) {
-        state.withLock { $0.hook = (call, action) }
+        state.withLock { $0.hooks.append((call, action)) }
     }
 
     func item(at url: URL) throws(FileSystemError) -> FileItem? {
@@ -152,9 +152,8 @@ final class FaultInjectingFileSystem: FileSystem {
         let (failure, hook) = state.withLock { state -> (FileSystemError.Cause?, (@Sendable () -> Void)?) in
             state.calls.append(call)
             var hook: (@Sendable () -> Void)?
-            if let pending = state.hook, pending.call == call {
-                hook = pending.action
-                state.hook = nil
+            if let index = state.hooks.firstIndex(where: { $0.call == call }) {
+                hook = state.hooks.remove(at: index).action
             }
             switch state.fault {
             case .fail(call, let cause, let skipping):
