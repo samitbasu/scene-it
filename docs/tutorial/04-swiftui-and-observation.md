@@ -7,9 +7,9 @@ It covers `@Observable` (and why it isn't Rust's usual answer to shared mutable 
 `@MainActor` across a whole object graph, `@concurrent` work off the main actor,
 `NSApplicationDelegateAdaptor`, `.commands`, and calling AppKit's `NSAlert` from async code.
 
-The window you'll see is **temporary scaffolding** ([`ContentView.swift`](../../SceneIt/ContentView.swift)):
-a start state, a scene list, a plain-text editor and a status line. The real window (#13) and
-editor (#15) replace it; nothing about its look has been decided.
+The window ([`SceneIt/Window/`](../../SceneIt/Window/), #13) has PLAN §4's skeleton: toolbar,
+rail, page, right panel and status bar. Two pieces of it are still **temporary scaffolding**: the
+plain-text body editor on the page (#15 replaces it) and the scene list in the Scenes sheet (#28).
 
 ## Where the code is
 
@@ -113,13 +113,13 @@ An edit that changes nothing is not an edit, so a text field re-setting the same
 doesn't schedule a save. A read-only book has no driver, so `edit` returns at its first
 line: there's nothing to save it with (ADR 0020, and §4 below).
 
-The scaffold's text field uses a hand-made `Binding` whose setter calls the store, which is
-the pattern #15's editor will follow:
+The scene's title field (ADR 0015) uses a hand-made `Binding` whose setter calls the store,
+which is the pattern #15's editor will follow:
 
 ```swift
-                    text: Binding(
-                        get: { PlainBody.text(scene.body) },
-                        set: { book.replaceBody(of: scene.id, with: PlainBody.paragraphs($0)) })
+        let text = Binding(
+            get: { book.book.scene(scene)?.title.text ?? "" },
+            set: { book.setTitle(of: scene, to: SceneTitle(pasted: $0)) })
 ```
 
 ## 2. `@MainActor` on a whole object graph, and `@concurrent` off it
@@ -413,10 +413,13 @@ struct SceneItApp: App {
     /// One window, holding at most one book (ADR 0021).
     var body: some Scene {
         Window(StoreWording.windowTitle, id: "main") {
-            ContentView(books: .shared)
+            MainWindow(books: .shared)
         }
+        .defaultSize(width: 1440, height: 900)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             BookCommands(books: .shared)
+            WindowCommands(books: .shared)
             DiagnosticsCommands(diagnostics: .shared)
         }
     }
@@ -473,6 +476,52 @@ groups for ours:
 
 A menu action is synchronous, so anything async starts a `Task`. In the app target that
 `Task` inherits the main actor (ADR 0011), so it can call the store without hopping.
+
+### The window's state (#13)
+
+What the window shows over a book is one enum, `WindowMode` (`page`, `scenes`, `search`,
+`fileCabinet`), in `SceneItCore` so its transitions are pure and tested with `swift test`. Two
+choices keep illegal combinations out:
+
+- **No sheet without a book.** The mode is `@State` inside `BookWindow`, which only exists while
+  a book is open, and `MainWindow` gives it `.id(ObjectIdentifier(book))`. A new identity is a
+  new view, so switching books starts again at the page. It's the SwiftUI spelling of "this
+  state is owned by that value".
+- **No second copy of "can I edit?".** Read-only is the book's own state (`OpenBook.isEditable`),
+  so the window reads it instead of storing it again.
+
+The rail badge, the breadcrumb and the status bar all show where the open scene is. They read
+one value, `SceneLocation`, which carries the open scene itself, so they can't disagree.
+
+**Word counts match Microsoft Word** (the owner's decision): a word is a maximal run of
+non-whitespace characters, and a run of punctuation alone (`--`, `...`) isn't one. So
+"well-known" and "dawn--and" are one word each. Counting is per scene and cached in `OpenBook`
+(`SceneWordCounts`): an edit recounts only the scene whose *body* changed, and the book's total
+is a sum over the cache. A view body runs on the main actor on every change it observes, so
+recounting a 120,000-word book there (about 290 ms) on each keystroke would stall typing. Caching
+per scene exploits an invariant: an edit touches one scene. Reordering or cutting scenes needs
+no recount at all, because the total sums the counts of whatever scenes the story now holds.
+
+While a sheet is open, the page and panel under it are `.disabled`, and the sheet takes the
+keyboard focus (a small `NSViewRepresentable` that makes itself first responder), so keystrokes
+and Tab can't reach the hidden editors. A hosted test checks the first responder.
+
+Menus reach the window's state through **focused values**: `BookWindow` publishes a binding with
+`.focusedSceneValue(\.windowMode, $mode)`, and `WindowCommands` reads it with
+`@FocusedBinding(\.windowMode)`. It's `nil` when no book window is focused, which disables the
+items.
+
+Toggle Right Panel is greyed out with no book open: `.disabled(books.store.current == nil)`.
+SwiftUI refreshes its menu items **lazily**, when AppKit asks a menu to update (the writer
+opening it, or a shortcut), not when the store changes. So a test that reads `isEnabled` right
+after opening a book sees the old value forever. The hosted test does what opening the menu
+does, `menu.delegate?.menuNeedsUpdate?(menu)`, and then looks the item up again, because SwiftUI
+may have replaced it.
+
+The right panel's open state and tab are **app preferences**, not book data (ADR 0022):
+`AppPreferences`, also `@Observable`, kept in `UserDefaults` for the app and in memory for the
+test host and previews (chosen by `ProcessRole`, like `BookMemory`). Toggling the panel never
+marks the book unsaved.
 
 ### Remembering the last book
 

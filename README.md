@@ -129,6 +129,24 @@ findings (naming, for example) can't be fixed automatically and still need a
 manual edit. **Output:** modified source files only; review them
 with `git diff`.
 
+### Rendering the window for review
+
+Not a script: a hosted test, `SceneItTests/WindowRenders.swift`, that draws the main window
+offscreen into PNGs (no screen capture), for aesthetic reviews (CLAUDE.md: show the owner
+rendered candidates). It's skipped unless an output folder is given:
+
+```sh
+TEST_RUNNER_SCENEIT_RENDER_DIR=/tmp/window-renders xcodebuild -project SceneIt.xcodeproj \
+    -scheme SceneIt -destination 'platform=macOS' -derivedDataPath build/DerivedData \
+    test -only-testing:SceneItTests/WindowRenders
+```
+
+**Output:** for each window state (`final-window`, `final-scenes-sheet`, `final-panel-collapsed`,
+`final-boneyard-scene`, `final-no-scene`, `final-start`), `<name>@1x.png` and `<name>@2x.png`
+at 1440 × 900 pt, and `<name>-vs-mockup.png` beside `01-main-window.png`. Its books and
+preferences are throwaway (a temporary folder, a test-host `BookController`). To compare
+candidates for a future look change, render each candidate the same way with a different name.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile
