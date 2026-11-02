@@ -13,7 +13,7 @@ It's written for two readers:
 
 **Conventions**
 
-- **†** marks a rule that is this document's proposal, not something ADR 0022 settles. Everything unmarked follows
+- **†** marks a rule this document added (not settled by ADR 0022); all † rules were accepted by the owner (§10). Everything unmarked follows
   ADR 0022 directly, or follows from it with no real choice. §10 collects the proposals that most need a decision.
 - `␠` stands for a space (U+0020) where it matters. `⏎` is the end of a line.
 - "Character" means one Unicode scalar value. After §1.2's filtering every character is printable Latin-1, so a
@@ -913,9 +913,11 @@ with `\n` endings, the joined paragraph, `"` for the curly quotes, `[?]` for the
 
 ---
 
-## 10. Open questions for the owner
+## 10. Decisions on the open questions
 
-ADR 0022 settles the format's shape; these are the gaps this draft had to fill, each with a recommendation.
+ADR 0022 settles the format's shape; these were the gaps this spec had to fill. **The owner accepted every recommendation
+below on 2026-11-02** (Q1, Q4 and Q13 were considered individually), so † rules are now as binding as the ADR's. Notice wording
+(Q5) is still to be approved when the Errors tab is built.
 
 The demo book's assumptions (end-exclusive ranges over the body's plain text with paragraphs joined by `\n`; comment
 fields `id | color | created | range | "quote" | text`; mark fields `color|highlight <name> | [notes ]range | "quote"`;
@@ -923,7 +925,7 @@ metadata keys `id`/`modified`/`tags`; no escaping in its text) are **all kept**:
 v2 as written. This spec only adds forms the demo doesn't use: range and quote **lists** (Q4), the `detached` form
 (Q4), escapes, `<br>` (Q1), and Unparsed entries.
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 | --- | --- | --- |
 | Q1 | **Empty paragraphs.** The model allows them and they count in offsets, but blank lines can't express them. Write them as `<br>` (renders as a blank line in Markdown viewers), or drop them on save? | `<br>`. Dropping them would silently change the writer's text and shift every later offset. |
 | Q2 | **Invalid UTF-8: Latin-1 or Windows-1252?** ADR 0022 says "decoded as their Latin-1 characters" but also that "an editor that saved … Windows-1252 loses nothing". Under Latin-1, bytes 0x80–0x9F (1252's curly quotes, dashes, €) are control characters and would become `[?]`. | Decode as Windows-1252, so 1252's typographic characters then straighten like pasted ones. Bytes 0xA0–0xFF are identical either way. |
