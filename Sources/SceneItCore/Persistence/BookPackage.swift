@@ -2,30 +2,54 @@ import CryptoKit
 import Foundation
 import Synchronization
 
-/// An open `.sceneit` package: creates, opens and saves `book.json`, rotating
+/// An open `.sceneit` package, editable: creates, opens and saves `book.json`, rotating
 /// `book.json.bak1…3` on each save that changes it.
 ///
 /// It remembers a digest of the `book.json` it last read or wrote, and won't silently save
 /// over a different one. A class, so that two copies can't disagree about that; saves are
-/// serialized by its lock.
+/// serialized by its mutex.
+///
+/// It holds the book's `.lock` (ADR 0020) for as long as it lives, so another `open`
+/// finds the book read-only until the last reference to this package is dropped.
 public final class BookPackage: Sendable {
     public let layout: PackageLayout
     let fileSystem: any FileSystem
     private let lastSeen: Mutex<ContentDigest>
+    private let lock: ExclusiveFileLock
+    /// What this package wrote into `.lock`, on a network volume.
+    private let record: LockRecord?
 
-    private init(layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest) {
+    private init(
+        layout: PackageLayout, fileSystem: any FileSystem, lastSeen: ContentDigest,
+        lock: consuming EditingLock
+    ) {
         self.layout = layout
         self.fileSystem = fileSystem
         self.lastSeen = Mutex(lastSeen)
+        self.record = lock.record
+        self.lock = lock.lock
+    }
+
+    /// Takes the record back out of `.lock` while the `flock` is still held, so other Macs
+    /// don't have to wait for it to go stale. A record that isn't ours (another Mac chose
+    /// "Open Anyway") is left alone. The file itself stays: see `ExclusiveFileLock`.
+    deinit {
+        guard let record, (try? lock.contents()).flatMap(LockRecord.decode) == record else { return }
+        do {
+            try lock.replaceContents(with: Data())
+        } catch {
+            Log.store.error("couldn't clear this Mac's record from a book's lock file", error.logMetadata)
+        }
     }
 
     static let emptyArchiveIndex = Data(#"{"copies":[]}"#.utf8)
 
     /// A new package holding an empty book: no scenes, as PLAN §4.2 allows.
     /// `book.json` is written last, so a package left half-made by a failure won't open.
+    /// The new package is locked before anything is written into it.
     public static func create(
         at url: URL, title: String, fileSystem: any FileSystem = LocalFileSystem()
-    ) throws(CreateError) -> OpenedBook {
+    ) throws(CreateError) -> EditableBook {
         let layout = PackageLayout(root: url)
         guard layout.hasPackageExtension else { throw .missingPackageExtension(url) }
         let book = Book(title: title)
@@ -42,31 +66,45 @@ public final class BookPackage: Sendable {
         } catch {
             throw .fileSystem(error)
         }
+        let lock: EditingLock
+        switch access(layout, fileSystem, .respect) {
+        case .editing(let editing):
+            lock = editing
+        case .readOnly(let reason):
+            if case .lockUnavailable(let error) = reason { throw .fileSystem(error) }
+            throw .alreadyExists(url)
+        }
         do {
             try fileSystem.createDirectory(at: layout.archive)
             try writeNewFile(emptyArchiveIndex, at: layout.archiveIndex, fileSystem)
             try fileSystem.createDirectory(at: layout.snapshots)
             try writeNewFile(data, at: layout.book, fileSystem)
-            let package = BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data))
-            return OpenedBook(package: package, book: book)
         } catch {
             Log.store.error("couldn't create a book package", error.logMetadata)
             throw .fileSystem(error)
         }
+        let package = BookPackage(
+            layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data), lock: lock)
+        return EditableBook(package: package, book: book)
     }
 
-    /// Reads, decodes and validates `book.json`, all or nothing. Never writes.
+    /// Reads, decodes and validates `book.json`, all or nothing, then locks the book for
+    /// editing; if it can't, the book opens read-only. A failure writes nothing. A success
+    /// writes nothing but `.lock` (created empty, and on a network volume given a
+    /// `LockRecord` naming this Mac).
+    ///
+    /// The lock is taken after the read, so a book that won't load gains no `.lock`. A save
+    /// by another writer between the two would only make this package's first save refuse,
+    /// as for any external change (ADR 0018).
     public static func open(
-        at url: URL, fileSystem: any FileSystem = LocalFileSystem()
+        at url: URL, onAnotherMac policy: OtherMacPolicy = .respect,
+        fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
         let layout = PackageLayout(root: url)
+        let book: Book
+        let data: Data
         do {
-            let (book, data) = try load(layout, fileSystem)
-            Log.store.info(
-                "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
-            return OpenedBook(
-                package: BookPackage(layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data)),
-                book: book)
+            (book, data) = try load(layout, fileSystem)
         } catch {
             let backups = existingBackups(layout, fileSystem)
             Log.store.error(
@@ -74,6 +112,61 @@ public final class BookPackage: Sendable {
                 ["problem": .symbol(error.logSymbol), "backups": .count(backups.count)])
             throw LoadError(package: url, problem: error, backups: backups)
         }
+        switch access(layout, fileSystem, policy) {
+        case .editing(let lock):
+            Log.store.info(
+                "opened a book", ["bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count)])
+            let package = BookPackage(
+                layout: layout, fileSystem: fileSystem, lastSeen: ContentDigest(data), lock: lock)
+            return .editing(EditableBook(package: package, book: book))
+        case .readOnly(let reason):
+            Log.store.info(
+                "opened a book read-only",
+                [
+                    "bytes": .bytes(Int64(data.count)), "scenes": .count(book.scenes.count),
+                    "reason": .symbol(reason.logSymbol),
+                ])
+            return .readOnly(ReadOnlyBook(layout: layout, book: book), reason)
+        }
+    }
+
+    private enum Access: ~Copyable {
+        case editing(EditingLock)
+        case readOnly(ReadOnlyReason)
+    }
+
+    /// The book's `flock`, and on a network volume the record that tells other Macs about it.
+    private struct EditingLock: ~Copyable {
+        let lock: ExclusiveFileLock
+        let record: LockRecord?
+    }
+
+    private static func access(
+        _ layout: PackageLayout, _ fileSystem: any FileSystem, _ policy: OtherMacPolicy, now: Date = .now
+    ) -> Access {
+        let lock: ExclusiveFileLock
+        switch fileSystem.lock(layout.lock) {
+        case .acquired(let acquired): lock = acquired
+        case .heldElsewhere: return .readOnly(.openElsewhere)
+        case .failed(let error): return .readOnly(.lockUnavailable(error))
+        }
+        guard fileSystem.locality(of: layout.lock) == .network else {
+            return .editing(EditingLock(lock: lock, record: nil))
+        }
+        let existing = (try? lock.contents()).flatMap(LockRecord.decode)
+        if let other = LockRecord.blocking(existing, thisMac: .current, now: now, policy: policy) {
+            return .readOnly(.openOnAnotherMac(other))
+        }
+        let ours = LockRecord(.current, processID: getpid(), since: now)
+        do {
+            try lock.replaceContents(with: ours.encoded())
+        } catch {
+            Log.store.error(
+                "couldn't record this Mac in a book's lock file; other Macs won't see it's open",
+                ["error": .error(LoggedError(error))])
+            return .editing(EditingLock(lock: lock, record: nil))
+        }
+        return .editing(EditingLock(lock: lock, record: ours))
     }
 
     /// Writes `book` unless `book.json` already holds exactly its encoding.
@@ -475,7 +568,48 @@ public struct PublishedBook: Hashable, Sendable {
     }
 }
 
-public struct OpenedBook: Sendable {
+/// A book as `open` found it. Only the editable form has a `BookPackage`, and so a way to save.
+public enum OpenedBook: Sendable {
+    case editing(EditableBook)
+    case readOnly(ReadOnlyBook, ReadOnlyReason)
+
+    public var book: Book {
+        switch self {
+        case .editing(let editable): editable.book
+        case .readOnly(let readOnly, _): readOnly.book
+        }
+    }
+}
+
+public struct EditableBook: Sendable {
+    /// Holds the book's lock until the last reference to it is dropped.
     public let package: BookPackage
     public let book: Book
+}
+
+/// A book open for reading only: there's no `BookPackage`, so nothing can save it.
+public struct ReadOnlyBook: Sendable {
+    public let layout: PackageLayout
+    public let book: Book
+}
+
+/// Why a book opened read-only. `LockWording` has the message for each.
+public enum ReadOnlyReason: Hashable, Sendable {
+    /// Its `flock` is held: by Scene It in another user account, or a copy that didn't go
+    /// through the app lock. Never two writers, so there's no "Open Anyway".
+    case openElsewhere
+    /// On a network volume, another Mac's `LockRecord` is in `.lock` and isn't stale.
+    /// `OtherMacPolicy.openAnyway(record)` opens it for editing.
+    case openOnAnotherMac(LockRecord)
+    /// `.lock` couldn't be created or locked: typically a read-only volume or a folder
+    /// without write permission, where a save would fail anyway.
+    case lockUnavailable(FileSystemError)
+
+    var logSymbol: StaticString {
+        switch self {
+        case .openElsewhere: "openElsewhere"
+        case .openOnAnotherMac: "openOnAnotherMac"
+        case .lockUnavailable: "lockUnavailable"
+        }
+    }
 }

@@ -50,6 +50,21 @@ public protocol FileSystem: Sendable {
     /// UUID to tell it apart. Follows a symbolic link at `url`. Throws, rather than returning
     /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
     func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
+
+    /// An exclusive, non-blocking `flock` on `file`, created empty if it's missing.
+    func lock(_ file: URL) -> LockAttempt
+
+    /// Whether a `flock` on `url`'s volume also keeps out other Macs.
+    func locality(of url: URL) -> VolumeLocality
+}
+
+public enum VolumeLocality: Hashable, Sendable {
+    /// Every process that can open the volume's files runs on this Mac, so its kernel
+    /// enforces every `flock`.
+    case local
+    /// A network volume (SMB, NFS, AFP), or one whose locality couldn't be read: another Mac
+    /// can open the same files, and won't see a `flock` taken here (ADR 0020).
+    case network
 }
 
 /// A volume's UUID and the file number within it. Unlike a path, it doesn't change when a
@@ -106,7 +121,7 @@ public struct TemporaryFile: Hashable, Sendable {
 
 public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertible {
     public enum Operation: String, Hashable, Sendable {
-        case inspect, read, write, publish, exchange, move, list, remove
+        case inspect, read, write, publish, exchange, move, list, remove, lock
         case createDirectory = "create a directory"
     }
 
@@ -181,6 +196,7 @@ extension FileSystemError.Operation {
         case .move: "move"
         case .list: "list"
         case .remove: "remove"
+        case .lock: "lock"
         case .createDirectory: "createDirectory"
         }
     }

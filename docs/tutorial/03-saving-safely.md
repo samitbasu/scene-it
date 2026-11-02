@@ -26,6 +26,10 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
 | [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
+| [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
+| [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the network-volume record, `OtherMacPolicy`, `ThisMac` |
+| [`LockWording.swift`](../../Sources/SceneItCore/Persistence/LockWording.swift) | what the writer is told when a book opens read-only |
+| [`Launch/LaunchGate.swift`](../../Sources/SceneItCore/Launch/LaunchGate.swift) | the app-wide lock at launch, `ProcessRole` |
 
 The tests are in [`Tests/SceneItCoreTests/Persistence/`](../../Tests/SceneItCoreTests/Persistence/).
 
@@ -42,6 +46,7 @@ My Novel.sceneit/
   book.json.bak1 … bak3     the last three versions, newest first
   Archive/index.json        {"copies":[]} in a new book (PLAN §5.5)
   Backups/                  tiered snapshots and book-id (ADR 0005, §11)
+  .lock                     locked while the book is open for editing (ADR 0020, §12)
 ```
 
 `PackageLayout` is the one place that knows those names. Everything else asks it,
@@ -568,9 +573,8 @@ Where the volume can swap, this closes the window for writers that **rename a ne
 version into place**, which is what sync services and most editors do. A writer that
 already had `book.json` open and **edits it in place** can still write into the displaced
 file after the comparison, and that write is lost when the file is discarded. That window
-is small, and closing it would need a lock. It isn't a lock either way: two copies of the
-app saving the same book will keep refusing each other's changes, which is the intended
-outcome. ADR 0005 leaves real locking for later.
+is small, and closing it would need a lock that other programs honour, which they don't.
+Two copies of Scene It can't get here: the book lock of §12 lets only one of them edit.
 
 ## 8. Permissions and locks
 
@@ -582,14 +586,17 @@ flag, both of which make the final rename fail anyway. A writable file has no pr
 value at all (`FileItem.file(_, protection: nil)`), so there's no "write-protected:
 writable" state to handle.
 
-## 9. Loading: all or nothing, and never a write
+## 9. Loading: all or nothing, and a failure never writes
 
 ```swift
-    /// Reads, decodes and validates `book.json`, all or nothing. Never writes.
     public static func open(
-        at url: URL, fileSystem: any FileSystem = LocalFileSystem()
+        at url: URL, onAnotherMac policy: OtherMacPolicy = .respect,
+        fileSystem: any FileSystem = LocalFileSystem()
     ) throws(LoadError) -> OpenedBook {
 ```
+
+The only thing a successful `open` writes is the book's `.lock` (§12), and it takes that
+lock *after* the read, so a book that fails to load never gains one.
 
 `open` checks the extension, that the package is a directory and that `book.json` is a
 regular file. It doesn't follow links: a symbolic link at `book.json` is
@@ -845,3 +852,157 @@ The keeper is a plain `struct` holding `any FileSystem`, like `struct Keeper { f
 FileSystem> }`. `SnapshotFailure` is a typed error enum, and `keep` returns it inside the
 report rather than as `Result::Err`, because it isn't a failure of the call: the save it
 follows succeeded.
+
+## 12. Locks: one app, one writer per book
+
+[ADR 0020](../decisions/0020-instance-and-book-locks.md) adds two locks. Both are
+`flock(2)` locks, held for as long as a file stays open.
+
+| Lock | File | Held by | When it's taken elsewhere |
+| --- | --- | --- | --- |
+| app-wide | `~/Library/Application Support/Scene It/instance.lock` | the running app, for its whole life | the new launch passes its books to the running one and quits |
+| per book | `My Novel.sceneit/.lock` | the `BookPackage`, while the book is open | the book opens read-only |
+
+### `flock` against a lock file
+
+There are two ways to say "I'm using this":
+
+- **A lock file whose existence is the lock** (`O_CREAT | O_EXCL`, delete on exit). If the
+  process crashes, the file stays, and the next launch has to guess whether its owner is
+  still alive ("stale lock, break it?"). Guessing wrong means two writers.
+- **A lock on an open file** (`flock`). The kernel ties the lock to the open file, and
+  drops it when the last descriptor for it is closed, which happens however the process
+  ends: `exit`, a crash, `kill -9`, a power cut (after which nothing is held at all). A
+  lock is never stale, so there's nothing to break and nothing to ask the writer.
+
+Scene It uses only the second kind. The file is just something to lock: it's opened with
+`O_CREAT` (and never `O_TRUNC`), and it's empty unless it's on a network volume.
+
+`flock` is *advisory*: it only stops other `flock` callers. Finder, a text editor or a sync
+service can still change the book, which is why §7's external-change checks stay.
+
+The lock belongs to the *open file description* (what one `open` call creates), not to
+the process. Two `open`s of the same file in one process are two descriptions, and the
+second `flock(LOCK_EX | LOCK_NB)` fails with `EWOULDBLOCK`, exactly as it would in another
+process. That's what makes the in-process tests meaningful.
+
+### The Swift type
+
+```swift
+public struct ExclusiveFileLock: ~Copyable, Sendable {
+    let descriptor: Int32
+    deinit { close(descriptor) }
+    public static func acquire(_ file: URL) -> LockAttempt
+    public consuming func release() {}
+}
+
+public enum LockAttempt: ~Copyable, Sendable {
+    case acquired(ExclusiveFileLock)
+    case heldElsewhere
+    case failed(FileSystemError)
+}
+```
+
+`~Copyable` is Swift's opt-out from implicit copying: a value has one owner, moves on
+assignment, and runs its `deinit` when its owner is done with it, like a Rust type without
+`Clone`. So this is the Swift spelling of `fd_lock::RwLockWriteGuard`, or of the `File`
+you called `fs2::FileExt::try_lock_exclusive` on: drop it and the lock is gone.
+`consuming func release()` is `drop(guard)`. A `final class` would also close on `deinit`,
+but every copy of a reference keeps it alive, so the lock's lifetime would be whatever the
+last reference happens to be.
+
+Two details from Rust carry over directly:
+
+- **`O_CLOEXEC`.** Without it, a child process started while the lock is held (a helper,
+  `ditto` for a report) inherits the descriptor, and with it the lock, which then outlives
+  the app. Rust's standard library sets `O_CLOEXEC` on every file it opens, so you never
+  had to think about it; in Swift calling `open(2)` directly, you do.
+- **Never delete the lock file.** Process A opens `.lock` and is about to `flock` it.
+  Process B, finishing, unlinks it. Process C creates a *new* `.lock` and locks it. A's
+  `flock` succeeds too, on the old, now nameless file. Both believe they hold the lock.
+  Leaving the file in place costs an empty file; deleting it costs exclusivity.
+
+### Opening a book
+
+```swift
+public enum OpenedBook: Sendable {
+    case editing(EditableBook)              // has a BookPackage, so it can save
+    case readOnly(ReadOnlyBook, ReadOnlyReason)   // a layout and a Book, nothing else
+}
+```
+
+Only `BookPackage` has `save`, and its initializer is private to the path where the lock
+was acquired. A `ReadOnlyBook` holds no package, so there is no expression that saves it:
+"read-only" is a type, not a flag the store has to remember to check. `create` returns an
+`EditableBook` directly, and takes the lock before writing anything into the new folder.
+
+The lock lives inside the `BookPackage`, so it's released when the last reference to the
+package goes. Swift may release a reference as early as its last use, not at the end of the
+scope, which is why the tests write `_ = consume package` (Swift's explicit `drop`) or
+`withExtendedLifetime` when the timing matters.
+
+`ReadOnlyReason` says why: `.openElsewhere` (the `flock` is held: another user account, or
+a copy that didn't go through the app lock), `.lockUnavailable(error)` (a read-only disk,
+or a folder without write permission, where a save would fail anyway), or
+`.openOnAnotherMac(record)` (below). The words the writer sees are in `LockWording`.
+
+### The app-wide lock
+
+`AppDelegate.applicationWillFinishLaunching` runs before any window, and the first thing it
+does is `LaunchGate.open`:
+
+```swift
+let launch = LaunchGate.open(
+    role: .current, acquire: { LaunchGate.acquire(SupportFolder.instanceLock) },
+    startSession: { diagnostics.start() })
+```
+
+`startSession` writes the crash marker of [chapter 11](11-crash-reporting.md), and the gate
+calls it only once the lock is settled, so a second instance never touches the first one's
+marker. The marker's own `anotherInstanceRunning` check stays as a backstop. If the lock
+is held, the launch collects the books AppKit hands it (`application(_:open:)` arrives
+before `applicationDidFinishLaunching`), passes them on with
+`NSWorkspace.open(_:withApplicationAt:configuration:)` naming the *running* app's bundle,
+which makes Launch Services deliver them to that process, activates it, and quits.
+
+`ProcessRole` reads the environment: under XCTest or a SwiftUI preview the gate never asks
+for the lock, so `scripts/check.sh` works while the writer has Scene It open. The same
+predicate keeps diagnostics in a temporary folder.
+
+### Network volumes
+
+On SMB and NFS shares, a `flock` taken on one Mac isn't reliably seen by another. So on a
+volume whose `volumeIsLocalKey` is false (or can't be read), the book lock also writes a
+`LockRecord` into `.lock`:
+
+```json
+{ "host" : "Samit's MacBook Pro", "hostID" : "…hardware UUID…", "processID" : 812, "since" : "2026-11-01T14:30:05Z" }
+```
+
+Opening checks it with a pure function, `LockRecord.blocking(_:thisMac:now:policy:)`:
+
+- no record, or one that isn't valid JSON: free;
+- a record from **this** Mac: free. Its writer doesn't hold the `flock`, or this Mac's
+  kernel wouldn't have granted it to us, so it's a crash leftover. No PID check needed;
+- a record **12 hours** old or more: free. A Mac that crashed or left the network with the
+  book open can't clear its record, and must not lock the book forever;
+- otherwise: read-only, `.openOnAnotherMac(record)`. The store can offer "Open Anyway",
+  which reopens with `OtherMacPolicy.openAnyway(record)`. That overrides exactly the record
+  the writer saw; a newer one is respected again, the same pattern as §7's
+  `overwriteKeepingTheirsAsBackup(theirs:)`.
+
+A package that wrote a record clears it again when it's released, while it still holds the
+`flock`, and only if the record is still its own. The file itself is never deleted.
+
+This is advisory twice over, so §7's digest check remains the backstop: if two Macs both
+end up editing, each save still refuses to replace a `book.json` it didn't write.
+
+### Rust comparison
+
+| Swift | Rust |
+| --- | --- |
+| `ExclusiveFileLock.acquire(url)` | `fd_lock::RwLock::new(file).try_write()`, or `fs2::FileExt::try_lock_exclusive` |
+| `.heldElsewhere` | `Err(e) if e.kind() == WouldBlock` |
+| `~Copyable` + `deinit` | a type without `Clone`, with `Drop` |
+| `consuming func release()` | `drop(guard)` |
+| `switch consume attempt { case .acquired(let lock): … }` | `match attempt { Ok(guard) => … }`, moving out of the enum |

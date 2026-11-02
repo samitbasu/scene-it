@@ -161,7 +161,7 @@ import Testing
                 } catch {
                     outcomes.refused += 1
                 }
-                #expect(fileSystem.calls.allSatisfy { !$0.isMutation })
+                #expect(fileSystem.calls.allSatisfy { !$0.isMutation || $0 == .lock(".lock") })
             }
             #expect(
                 outcomes.refused > 0 && outcomes.loaded > 0, "precondition: the fuzz exercised both outcomes")

@@ -22,6 +22,10 @@ public struct PackageLayout: Hashable, Sendable {
     /// The book's id, which names its folder in the external mirror (ADR 0005).
     public var bookID: URL { file("book-id", in: snapshots) }
 
+    /// Locked while the book is open for editing (ADR 0020). Never book data: nothing reads it
+    /// but the lock, and it's not in `Backups/` or `Archive/`, so no snapshot or listing sees it.
+    public var lock: URL { file(".lock", in: root) }
+
     public func backup(_ slot: BackupSlot) -> URL {
         file(slot.fileName, in: root)
     }

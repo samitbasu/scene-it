@@ -25,3 +25,18 @@ host's live record makes the book open read-only, with an "Open Anyway" escape h
 ## Learning notes
 `flock` is advisory and per open file description: the lock lives as long as the fd, and the kernel
 drops it when the process exits. That's the same mechanism as Rust's `fs2::FileExt::try_lock_exclusive`.
+
+## Details settled in the implementation (#53)
+- **Untrusted volumes** are those whose `volumeIsLocalKey` is false or unreadable.
+- **The advisory record** (`LockRecord`: computer name, hardware UUID, PID, ISO-8601 time) is
+  ignored when it comes from this Mac (this Mac's kernel granted us the `flock`, so its
+  writer no longer holds it) or is 12 hours old or more. It's cleared, while the `flock` is
+  still held, when the book closes, if it's still ours. "Open Anyway" applies to the exact
+  record the writer was shown.
+- **The lock file is never deleted** (deleting races with a process about to lock it) and
+  never opened with `O_TRUNC`. It's opened with `O_CLOEXEC`, so child processes don't
+  inherit the lock.
+- **A failed load takes no lock**: `open` reads first, then locks, so a damaged package gains
+  no `.lock`. A save landing between the two is caught by the digest check of ADR 0018.
+- **If the app lock can't be taken** (as opposed to being held), the app runs anyway and logs
+  it; each book's own lock still prevents two writers.

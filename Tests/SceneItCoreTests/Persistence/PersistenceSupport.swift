@@ -21,11 +21,13 @@ final class FaultInjectingFileSystem: FileSystem {
         case list(String)
         case remove(String)
         case identify(String)
+        /// Creates the lock file if it's missing.
+        case lock(String)
 
         var isMutation: Bool {
             switch self {
             case .inspect, .read, .list, .identify: false
-            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove: true
+            case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove, .lock: true
             }
         }
 
@@ -42,6 +44,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .list(let name): "list \(name)"
             case .remove(let name): "remove \(name)"
             case .identify(let name): "identify \(name)"
+            case .lock(let name): "lock \(name)"
             }
         }
     }
@@ -62,6 +65,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var matched = 0
         var hooks: [(call: Call, action: @Sendable () -> Void)] = []
         var identities: [String: FileIdentity?] = [:]
+        var locality: VolumeLocality?
     }
 
     private let base = LocalFileSystem()
@@ -169,6 +173,24 @@ final class FaultInjectingFileSystem: FileSystem {
             if let overridden = state.withLock({ $0.identities[key] }) { return overridden }
             return try base.identity(of: url)
         }
+    }
+
+    func lock(_ file: URL) -> LockAttempt {
+        do {
+            try perform(.lock(name(file)), .lock, file) { () throws(FileSystemError) in }
+        } catch {
+            return .failed(error)
+        }
+        return base.lock(file)
+    }
+
+    /// Makes every volume answer `locality`, such as `.network` on a local test directory.
+    func override(locality: VolumeLocality) {
+        state.withLock { $0.locality = locality }
+    }
+
+    func locality(of url: URL) -> VolumeLocality {
+        state.withLock { $0.locality } ?? base.locality(of: url)
     }
 
     private func isCrash(at call: Call) -> Bool {
@@ -304,5 +326,16 @@ extension SaveOutcome {
 
     var published: PublishedBook? {
         if case .saved(_, let published) = self { published } else { nil }
+    }
+}
+
+extension OpenedBook {
+    /// `nil` when the book opened read-only.
+    var editable: EditableBook? {
+        if case .editing(let editable) = self { editable } else { nil }
+    }
+
+    var readOnlyReason: ReadOnlyReason? {
+        if case .readOnly(_, let reason) = self { reason } else { nil }
     }
 }

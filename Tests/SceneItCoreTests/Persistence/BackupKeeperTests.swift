@@ -12,7 +12,8 @@ private struct KeeperFixture {
     let directory: URL
     let fileSystem: FaultInjectingFileSystem
     let mirror: BackupMirror
-    var package: BookPackage
+    /// `nil` only inside `switchTo`, between closing one book and opening the next.
+    private var open: BookPackage?
     var keeper: BackupKeeper
 
     init(_ directory: URL, mirrorRoot: String = "Application Support/Scene It/Backups") throws {
@@ -21,17 +22,22 @@ private struct KeeperFixture {
             at: directory.appending(path: "Application Support"), withIntermediateDirectories: false)
         fileSystem = FaultInjectingFileSystem(root: directory)
         mirror = BackupMirror(root: directory.appending(path: mirrorRoot, directoryHint: .isDirectory))
-        package = try BookPackage.create(
+        let package = try BookPackage.create(
             at: directory.appending(path: "Novel.sceneit"), title: "Novel", fileSystem: fileSystem
         ).package
+        open = package
         keeper = BackupKeeper(package: package, mirror: mirror)
     }
 
+    var package: BookPackage { open! }
     var layout: PackageLayout { package.layout }
 
-    /// Opens another package with the same mirror, as the store would.
+    /// Closes this book and opens another with the same mirror, as the store would. Closing
+    /// first releases the lock, which a moved package still holds.
     mutating func switchTo(_ url: URL) throws {
-        package = try BookPackage.open(at: url, fileSystem: fileSystem).package
+        open = nil
+        let package = try #require(BookPackage.open(at: url, fileSystem: fileSystem).editable).package
+        open = package
         keeper = BackupKeeper(package: package, mirror: mirror)
     }
 
@@ -92,6 +98,29 @@ private let bothWritten = SnapshotReport(package: .written, mirror: .written)
             #expect(record.path == BackupMirror.path(of: fixture.layout.root))
             #expect(record.identity != nil, "precondition: the temporary volume has a UUID")
             #expect(try temporaryFiles(in: fixture.layout.snapshots).isEmpty)
+        }
+    }
+
+    @Test func theLockFileIsNeverSnapshottedOrMirrored() throws {
+        try withTemporaryDirectory { directory in
+            let fixture = try KeeperFixture(directory)
+            let lockFile = fixture.layout.lock
+            #expect(
+                FileManager.default.fileExists(atPath: lockFile.path(percentEncoded: false)), "precondition")
+            #expect(try fixture.save(draft(1), at: start) == bothWritten)
+
+            let published = try Data(contentsOf: fixture.layout.book)
+            for folder in [fixture.layout.snapshots, try fixture.mirrorFolder()] {
+                let names = try FileManager.default.contentsOfDirectory(
+                    atPath: folder.path(percentEncoded: false))
+                #expect(!names.contains(".lock"))
+                for name in try fixture.snapshots(in: folder) {
+                    #expect(try Data(contentsOf: folder.appending(path: name)) == published)
+                }
+            }
+            let archive = try FileManager.default.contentsOfDirectory(
+                atPath: fixture.layout.archive.path(percentEncoded: false))
+            #expect(archive == ["index.json"])
         }
     }
 

@@ -12,7 +12,8 @@ import Testing
             #expect(created.book.scenes.isEmpty)
 
             let entries = try DirectorySnapshot(url).entries
-            #expect(Set(entries.keys) == ["book.json", "Archive", "Archive/index.json", "Backups"])
+            #expect(Set(entries.keys) == ["book.json", "Archive", "Archive/index.json", "Backups", ".lock"])
+            #expect(entries[".lock"]?.contents == Data(), "a local volume gets no record")
             #expect(entries["Archive/index.json"]?.contents == Data(#"{"copies":[]}"#.utf8))
             #expect(entries["book.json"]?.contents == (try encoded(Book(title: "My Novel"))))
 

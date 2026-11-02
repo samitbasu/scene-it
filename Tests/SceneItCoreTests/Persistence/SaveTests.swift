@@ -122,7 +122,8 @@ func unstableEncoding(of book: Book) throws -> Data {
             let package = try makeFullPackage(at: url, fileSystem: LocalFileSystem())
             let before = try DirectorySnapshot(url)
             #expect(try package.save(draft(0)) == .unchanged)
-            #expect(try BookPackage.open(at: url).package.save(draft(0)) == .unchanged)
+            _ = consume package
+            #expect(try #require(BookPackage.open(at: url).editable).package.save(draft(0)) == .unchanged)
             #expect(try DirectorySnapshot(url) == before)
         }
     }
@@ -242,7 +243,9 @@ func unstableEncoding(of book: Book) throws -> Data {
             let expected = crash.crashRow
             try expectLayout(url.layout, book: expected.book, backups: expected.backups)
 
-            let restarted = try BookPackage.open(at: url)
+            _ = consume package
+            let restarted = try #require(
+                BookPackage.open(at: url).editable, "the crashed process's lock is gone")
             #expect(restarted.book == (try draft(expected.book)))
             _ = try restarted.package.save(draft(9))
             try expectLayout(url.layout, book: 9, backups: [0, 1, 2])
