@@ -27,7 +27,7 @@ import AppKit
 /// `Paragraph.commentIDs(in:)` lists the ids to check.
 public enum RunCodec {
     public static func attributedString(forBody body: [Paragraph]) -> NSAttributedString {
-        attributedString(body, role: .body)
+        attributedString(body, in: .body)
     }
 
     public static func body(from text: NSAttributedString) -> [Paragraph] {
@@ -35,11 +35,21 @@ public enum RunCodec {
     }
 
     public static func attributedString(forNotes notes: [Paragraph]) -> NSAttributedString {
-        attributedString(notes, role: .notes)
+        attributedString(notes, in: .notes)
     }
 
     public static func notes(from text: NSAttributedString) -> [Paragraph] {
         paragraphs(from: text)
+    }
+
+    public static func attributedString(_ paragraphs: [Paragraph], in part: TextPart) -> NSAttributedString {
+        attributedString(paragraphs, role: part.role)
+    }
+
+    /// The paragraphs of a body or notes that reads as `text`; both parts read alike.
+    public static func paragraphs(from text: NSAttributedString) -> [Paragraph] {
+        let lines = lines(from: text)
+        return lines == [[]] ? [] : lines
     }
 
     private static func attributedString(_ paragraphs: [Paragraph], role: ParagraphRole) -> NSAttributedString
@@ -55,11 +65,6 @@ public enum RunCodec {
             }
         }
         return text
-    }
-
-    private static func paragraphs(from text: NSAttributedString) -> [Paragraph] {
-        let lines = lines(from: text)
-        return lines == [[]] ? [] : lines
     }
 
     /// One paragraph per line of `text`, so text with no line breaks is one paragraph.

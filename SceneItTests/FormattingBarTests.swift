@@ -17,14 +17,14 @@ private func eventEnds(_ undo: UndoManager) async {
 /// so a test that wants an undo step per command opens and closes the groups itself, as AppKit
 /// does around each event.
 @MainActor
-private func asSeparateEvents(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
+func asSeparateEvents(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
     undo.groupsByEvent = false
     defer { undo.groupsByEvent = true }
     try body()
 }
 
 @MainActor
-private func anEvent(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
+func anEvent(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
     undo.beginUndoGrouping()
     defer { undo.endUndoGrouping() }
     try body()
@@ -53,7 +53,7 @@ private let cases: [(FormattingCommand, [Paragraph], [Paragraph])] = [
 
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct FormattingBarTests {
-    /// The bar's buttons and palettes call `PageFormatting.perform`.
+    /// The bar's buttons and palettes call `EditorFormatting.perform`.
     @Test func aCommandFromTheBarFormatsTheSelectionAsOneUndoableStep() async throws {
         for (command, before, after) in cases {
             try await formatsAsOneUndoableStep(command, before, after)

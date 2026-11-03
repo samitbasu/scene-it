@@ -9,13 +9,13 @@ struct BookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     @Binding var mode: WindowMode
     @State private var undo: UndoRouter
     @State private var pageFocus = PageFocus()
 
     init(
-        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: PageFormatting,
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>
     ) {
         self.book = book
@@ -38,7 +38,7 @@ struct BookWindow: View {
                         EditorArea(
                             book: book, preferences: preferences, formatting: formatting, focus: pageFocus)
                         Divider()
-                        RightPanel(book: book, preferences: preferences)
+                        RightPanel(book: book, preferences: preferences, formatting: formatting)
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)

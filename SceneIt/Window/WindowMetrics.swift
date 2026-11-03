@@ -38,6 +38,13 @@ enum WindowMetrics {
         static let highlightTile: CGFloat = 18
         static let swatchSize: CGFloat = 18
     }
+    /// The Notes tab (#19), provisionally; the owner's pick is pending. Variables only so that
+    /// the candidates can be rendered; they become constants with the pick.
+    enum Notes {
+        /// Between the panel's edges and the notes' text.
+        static var padding = CGSize(width: 14, height: 12)
+        static var barLayout = CompactBarLayout.glyphRow
+    }
     static let statusBarHeight: CGFloat = 26
     static let titleStripPadding: CGFloat = 10
     /// Between the title's label and its field.

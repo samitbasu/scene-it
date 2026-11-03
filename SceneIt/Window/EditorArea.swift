@@ -7,14 +7,14 @@ import SwiftUI
 struct EditorArea: View {
     let book: AppOpenBook
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     let focus: PageFocus
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                FormattingBar(formatting: formatting)
+                FormattingBar(formatting: formatting, part: .body)
                 Spacer()
             }
             .padding(.horizontal, 12)

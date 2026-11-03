@@ -27,7 +27,7 @@ extension WindowRenders {
         try await withSampleBook { store, book, preferences in
             let scene = try #require(book.openScene)
             book.replaceBody(of: scene, with: Self.barBody)
-            let formatting = PageFormatting(preferences: preferences)
+            let formatting = EditorFormatting(preferences: preferences)
             let window = BookWindow(
                 book: book, store: store, preferences: preferences, formatting: formatting,
                 mode: .constant(.page))
@@ -60,7 +60,7 @@ extension WindowRenders {
             try Self.png(Self.barCloseUp(inactive.triple)).write(
                 to: output.appending(path: "final-format-bar-inactive-close-up@3x.png"))
 
-            try Self.writePalettes(preferences, to: output)
+            try Self.writePalettes(book, preferences, to: output)
         }
     }
 
@@ -72,12 +72,15 @@ extension WindowRenders {
     }
 
     /// Both palettes, the selection's color ringed (purple text, green highlight), at 3×.
-    private static func writePalettes(_ preferences: AppPreferences, to output: URL) throws {
-        let formatting = PageFormatting(preferences: preferences)
-        formatting.show(SelectionFormatting([Run("x", color: .purple, highlight: .green)]))
+    private static func writePalettes(_ book: AppOpenBook, _ preferences: AppPreferences, to output: URL)
+        throws
+    {
+        let formatting = EditorFormatting(preferences: preferences)
+        let editor = SceneTextEditor(book: book, part: .body, formatting: formatting)
+        formatting.show(SelectionFormatting([Run("x", color: .purple, highlight: .green)]), from: editor)
         for (name, kind) in [("text", PaletteKind.textColor), ("highlight", .highlight)] {
             let view = NSHostingView(
-                rootView: PaletteView(formatting: formatting, kind: kind) {}
+                rootView: PaletteView(formatting: formatting, part: .body, kind: kind) {}
                     .background(Color(nsColor: .windowBackgroundColor)))
             view.frame = NSRect(origin: .zero, size: view.fittingSize)
             view.layoutSubtreeIfNeeded()

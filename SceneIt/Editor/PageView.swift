@@ -12,10 +12,10 @@ struct PageView: NSViewRepresentable {
     /// the page whenever the body changes.
     let paragraphs: [Paragraph]
     let focus: PageFocus
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
 
-    func makeCoordinator() -> PageEditor {
-        PageEditor(book: book, focus: focus, formatting: formatting)
+    func makeCoordinator() -> SceneTextEditor {
+        SceneTextEditor(book: book, part: .body, formatting: formatting)
     }
 
     func makeNSView(context: Context) -> DeskView {
@@ -30,15 +30,20 @@ struct PageView: NSViewRepresentable {
         page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         context.coordinator.attach(page)
+        page.focus = focus
+        focus.body = page
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
         return scrollView
     }
 
     func updateNSView(_ scrollView: DeskView, context: Context) {
-        let editable = book.isEditable && context.environment.isEnabled
-        context.coordinator.show(scene, editable ? .editable : .readOnly)
+        context.coordinator.show(scene, .init(book, in: context.environment))
         scrollView.show(preferences.zoom)
+    }
+
+    static func dismantleNSView(_ view: DeskView, coordinator: SceneTextEditor) {
+        coordinator.detach()
     }
 }
 

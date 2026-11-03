@@ -1,8 +1,3 @@
-/// Which plain text a range addresses (§3.6).
-enum TextPart: Hashable, Comparable {
-    case body, notes
-}
-
 /// A range in a scene's body or notes plain text, start inclusive, end exclusive (§4.2).
 struct TextRange: Hashable {
     let part: TextPart

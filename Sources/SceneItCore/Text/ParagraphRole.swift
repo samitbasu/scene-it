@@ -74,6 +74,16 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     }
 }
 
+extension TextPart {
+    /// How the part's paragraphs are displayed.
+    public var role: ParagraphRole {
+        switch self {
+        case .body: .body
+        case .notes: .notes
+        }
+    }
+}
+
 /// Times New Roman's four faces at one size. Without Times New Roman, the system font's,
 /// for as long as the process runs.
 ///

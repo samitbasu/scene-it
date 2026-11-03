@@ -28,7 +28,7 @@ private struct OpenBookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     @State private var mode = WindowMode.page
 
     var body: some View {
