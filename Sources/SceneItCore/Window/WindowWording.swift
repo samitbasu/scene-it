@@ -73,6 +73,8 @@ public enum WindowWording {
     public static let noSceneOpen = "No scene open"
 
     // MARK: Formatting (PLAN §6.2, §11)
+    // Approved by the owner (#18): the names below, palette names in tooltips (none on the
+    // swatches), "None" for no highlight, and "Click in the page to format" on the dimmed bar.
 
     public static let formatMenu = "Format"
     public static let textColor = "Text Color"

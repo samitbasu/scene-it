@@ -12,6 +12,24 @@ private func eventEnds(_ undo: UndoManager) async {
     await eventually { undo.groupingLevel == 0 }
 }
 
+/// Runs `body` with the undo manager grouping only as `anEvent` says. A test has no events, and
+/// AppKit closes the group it opens for an event's first change only at the end of that event;
+/// so a test that wants an undo step per command opens and closes the groups itself, as AppKit
+/// does around each event.
+@MainActor
+private func asSeparateEvents(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
+    undo.groupsByEvent = false
+    defer { undo.groupsByEvent = true }
+    try body()
+}
+
+@MainActor
+private func anEvent(_ undo: UndoManager, _ body: () throws -> Void) rethrows {
+    undo.beginUndoGrouping()
+    defer { undo.endUndoGrouping() }
+    try body()
+}
+
 /// Each command, the scene it's applied to (all of it selected), and the body it leaves.
 private let cases: [(FormattingCommand, [Paragraph], [Paragraph])] = [
     (
@@ -150,6 +168,46 @@ struct FormattingBarTests {
     }
 }
 
+extension FormattingBarTests {
+    @Test func commandsInSeparateEventsAreSeparateUndoSteps() async throws {
+        try await withPage([scene("One", [[Run("Words.")]])]) { page in
+            page.focusPage(at: 0)
+            page.page.selectAll(nil)
+            let undo = try #require(page.page.undoManager)
+            await eventEnds(undo)
+            asSeparateEvents(undo) {
+                anEvent(undo) { page.formatting.perform(.toggle(.bold)) }
+                anEvent(undo) { page.formatting.perform(.textColor(.blue)) }
+            }
+            #expect(page.body() == [[Run("Words.", styles: [.bold], color: .blue)]])
+            #expect(undo.undoActionName == WindowWording.undoName(.textColor(.blue)))
+            undo.undo()
+            #expect(page.body() == [[Run("Words.", styles: [.bold])]])
+            #expect(undo.undoActionName == WindowWording.undoName(.toggle(.bold)))
+            undo.undo()
+            #expect(page.body() == [[Run("Words.")]])
+        }
+    }
+
+    /// A command can arrive while the typing's undo group is still open (in one event, or a key
+    /// equivalent's burst before the group closes): it joins the group, and nothing raises.
+    @Test func aCommandWhileTheTypingsUndoGroupIsOpenJoinsIt() async throws {
+        try await withPage([scene("One", [[Run("Words.")]])]) { page in
+            page.focusPage(at: 6)
+            page.page.insertText(" More.", replacementRange: page.page.selectedRange())
+            let undo = try #require(page.page.undoManager)
+            #expect(undo.groupingLevel == 1, "precondition: the typing's group is open")
+            page.page.selectAll(nil)
+            page.formatting.perform(.toggle(.bold))
+            page.formatting.perform(.toggle(.italic))
+            #expect(page.body() == [[Run("Words. More.", styles: [.bold, .italic])]])
+            #expect(page.pageMirrorsModel)
+            undo.undo()
+            #expect(page.body() == [[Run("Words.")]])
+        }
+    }
+}
+
 // MARK: The Format menu
 
 extension FormattingCommand {
@@ -212,7 +270,7 @@ extension BookStoreIntegrationTests {
             #expect(await store.create(at: url) == .created)
             let book = try #require(store.current)
             let scene = try #require(book.addScene(after: nil))
-            book.replaceBody(of: scene, with: [[Run("From the menu.")]])
+            book.replaceBody(of: scene, with: [[Run("From "), Run("the menu.", color: .red)]])
             @MainActor func page() -> ManuscriptTextView? {
                 NSApp.windows.lazy.flatMap { subviewTree(of: $0.contentView) }
                     .compactMap { $0 as? ManuscriptTextView }.first { $0.string == "From the menu." }
@@ -226,20 +284,35 @@ extension BookStoreIntegrationTests {
             #expect(window.makeFirstResponder(view))
             view.selectAll(nil)
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == true }
+            #expect(
+                FormattingCommand.textColors.allSatisfy { $0.menuItem?.state == .off },
+                "two colors selected: no color is checked")
+            #expect(FormattingCommand.highlight(nil).menuItem?.state == .on, "None is checked")
+
             let undo = try #require(view.undoManager)
-            for command in [FormattingCommand.toggle(.bold), .textColor(.blue), .highlight(.gray)] {
-                try perform(try #require(command.menuItem, "\(command)"))
-                #expect(undo.undoActionName == WindowWording.undoName(command))
+            let commands: [FormattingCommand] = [.toggle(.bold), .textColor(.blue), .highlight(.gray)]
+            try asSeparateEvents(undo) {
+                for command in commands {
+                    try anEvent(undo) {
+                        try perform(try #require(command.menuItem, "\(command)"))
+                    }
+                    #expect(undo.undoActionName == WindowWording.undoName(command))
+                }
             }
             let formatted: [Paragraph] = [
                 [Run("From the menu.", styles: [.bold], color: .blue, highlight: .gray)]
             ]
             #expect(book.book.scene(scene)?.body == formatted)
+            await eventually { FormattingCommand.textColor(.blue).menuItem?.state == .on }
+            #expect(FormattingCommand.textColor(.black).menuItem?.state == .off)
+            #expect(FormattingCommand.highlight(.gray).menuItem?.state == .on)
+            #expect(FormattingCommand.highlight(nil).menuItem?.state == .off)
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first { $0.id == scene }?.body == formatted)
-            // With no events between them, the three commands share one undo group.
             undo.undo()
-            #expect(book.book.scene(scene)?.body == [[Run("From the menu.")]])
+            #expect(
+                book.book.scene(scene)?.body == [[Run("From the menu.", styles: [.bold], color: .blue)]],
+                "one undo takes one command away")
 
             window.makeFirstResponder(nil)
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
