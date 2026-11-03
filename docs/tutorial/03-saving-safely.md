@@ -1282,8 +1282,11 @@ pure part).
    `renamex_np(RENAME_EXCL)`: it fails rather than replace anything, so if another filing took the number
    meanwhile, the next number is tried. A copy that doesn't read back correctly never gets a name.
 4. **Lock it**: `lchflags(UF_IMMUTABLE)` (Finder's "Locked", `chflags uchg`), then `lstat` to check that
-   the flag is really there. FAT and exFAT refuse the call; some volumes accept it and keep nothing. Either
-   way the filing still counts (the copy exists), but the outcome says `.notLocked`, and the writer is told.
+   the flag is really there. APFS, HFS+, FAT and exFAT all keep the flag on macOS 27; a volume without it
+   (some network shares) refuses, and a volume could accept it and keep nothing. Either way the filing still
+   counts (the copy exists), but the outcome says `.notLocked`, and the writer is told. A check that fails
+   after the flag was set is `.unverified`, never "not locked". A crash between publishing and locking
+   leaves an unlocked copy; the next open of the book for editing locks it.
 5. **Update the index**: read and parse it, reconcile it with the folder (below), give the new copy its
    section, verify the serialization (as for `book.md`), and replace `index.md` atomically. If that fails,
    the copy is still there, and the next reconciliation lists it (without the tags and note, which are

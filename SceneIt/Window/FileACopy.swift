@@ -8,6 +8,8 @@ import SwiftUI
 final class FilingFlow {
     /// The dialog is up exactly while there's a draft.
     var draft: FilingDraft?
+    /// The dialog's File copy is running; its buttons wait.
+    private(set) var isFiling = false
     private(set) var toast: Toast?
 
     struct Toast: Equatable {
@@ -25,15 +27,25 @@ final class FilingFlow {
         draft = nil
     }
 
-    /// The dialog's File copy. The dialog closes first; a copy that was filed, locked and
-    /// indexed gets the toast, and anything less gets the store's alert instead.
+    /// The dialog's File copy. The dialog stays up, as it was, until the copy is filed, so a
+    /// filing that fails (the store's alert says why) loses nothing the writer typed. A copy
+    /// filed, locked and indexed gets the toast; anything less gets the store's alert.
     @discardableResult
     func confirm(in store: AppBookStore) async -> FilingResult? {
-        guard let draft else { return nil }
-        self.draft = nil
+        guard let draft, !isFiling else { return nil }
+        isFiling = true
+        defer { isFiling = false }
         let record = draft.record
         let result = await store.fileACopy(as: record)
-        if case .filed(let outcome) = result, outcome.isComplete { show(ArchiveWording.toast(record)) }
+        switch result {
+        case .filed(let outcome):
+            self.draft = nil
+            if outcome.isComplete { show(ArchiveWording.toast(record)) }
+        case .unavailable:
+            self.draft = nil
+        case .failed:
+            break
+        }
         return result
     }
 
@@ -81,6 +93,7 @@ extension EnvironmentValues {
 
 struct FileACopyDialog: View {
     @Binding var draft: FilingDraft
+    let isFiling: Bool
     let cancel: () -> Void
     let confirm: () -> Void
     @Environment(\.filingDialogLayout) private var layout
@@ -126,6 +139,7 @@ struct FileACopyDialog: View {
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
         }
+        .disabled(isFiling)
     }
 
     private var stacked: some View {
@@ -293,9 +307,18 @@ struct TagTextField: NSViewRepresentable {
             self.draft = draft
         }
 
+        /// What's typed goes through `CharacterPolicy` as in the editors: the field shows only
+        /// what the tag will keep, the caret where it was.
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            draft.wrappedValue.pendingTag = field.stringValue
+            guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
+            let typed = editor.string
+            draft.wrappedValue.pendingTag = typed
+            let kept = draft.wrappedValue.pendingTag
+            guard !kept.utf16.elementsEqual(typed.utf16) else { return }
+            let caret = min(editor.selectedRange().location, (typed as NSString).length)
+            let before = CharacterPolicy.admittedLine((typed as NSString).substring(to: caret))
+            editor.string = kept
+            editor.setSelectedRange(NSRange(location: min(before.utf16.count, kept.utf16.count), length: 0))
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -320,16 +343,21 @@ struct TagTextField: NSViewRepresentable {
 private struct ChipFlow: Layout {
     let spacing: CGFloat
 
+    /// How wide a line of chips may be.
+    private struct LineWidth {
+        let points: CGFloat
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 400
-        let rows = arrange(subviews, width: width)
+        let rows = arrange(subviews, within: LineWidth(points: width))
         let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(rows.count - 1, 0))
         return CGSize(width: width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
-        for row in arrange(subviews, width: bounds.width) {
+        for row in arrange(subviews, within: LineWidth(points: bounds.width)) {
             var x = bounds.minX
             for (index, size) in row.items {
                 let isLast = index == subviews.count - 1
@@ -349,12 +377,12 @@ private struct ChipFlow: Layout {
         var height: CGFloat = 0
     }
 
-    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+    private func arrange(_ subviews: Subviews, within line: LineWidth) -> [Row] {
         var rows = [Row()]
         for index in subviews.indices {
             let size = subviews[index].sizeThatFits(.unspecified)
             let needed = (rows[rows.count - 1].items.isEmpty ? 0 : spacing) + size.width
-            if !rows[rows.count - 1].items.isEmpty, rows[rows.count - 1].width + needed > width {
+            if !rows[rows.count - 1].items.isEmpty, rows[rows.count - 1].width + needed > line.points {
                 rows.append(Row())
             }
             let gap = rows[rows.count - 1].items.isEmpty ? 0 : spacing

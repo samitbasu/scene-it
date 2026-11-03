@@ -297,7 +297,9 @@ struct FileFingerprint: Equatable {
             #expect(try !isImmutable(fixture.copy(1)))
             #expect(try Data(contentsOf: fixture.copy(1)) == (try encoded(draft(0))))
             #expect(try fixture.index().copies.map(\.number) == [Self.number(1)], "it's indexed anyway")
-            #expect(ArchiveWording.notice(for: .filed(outcome)) != nil, "the writer is told")
+            #expect(
+                ArchiveWording.notice(for: .filed(outcome), record: FilingFixture.record) != nil,
+                "the writer is told")
         }
     }
 
@@ -308,7 +310,7 @@ struct FileFingerprint: Equatable {
             let outcome = try fixture.file()
             #expect(outcome.lock == .notLocked(.flagNotKept))
             #expect(try !isImmutable(fixture.copy(1)), "precondition: the flag really isn't there")
-            #expect(ArchiveWording.notice(for: .filed(outcome)) != nil)
+            #expect(ArchiveWording.notice(for: .filed(outcome), record: FilingFixture.record) != nil)
         }
     }
 

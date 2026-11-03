@@ -314,6 +314,7 @@ public final class BookPackage: Sendable {
         lastSeen = ContentDigest(data)
         Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
         StrayTemporaryFiles(packageRoot: layout, fileSystem: fileSystem).sweep(now: .now)
+        StrayTemporaryFiles(archiveOf: layout, fileSystem: fileSystem).sweep(now: .now)
         return .saved(backups, PublishedBook(data: data))
     }
 
@@ -322,7 +323,9 @@ public final class BookPackage: Sendable {
     /// File a copy (PLAN §7.1): saves `book` (refusing another program's version, as autosave
     /// does), checks that `book.md` now holds exactly its verified bytes, and files those bytes
     /// as the next `Archive/saveNNNN.md` (`Archive.file`). No save can run in between.
-    public func fileCopy(of book: Book, as record: FilingRecord) throws(FilingFailure) -> FiledBook {
+    public func fileCopy(
+        of book: Book, as record: FilingRecord, pending: [FiledCopyNumber: FilingRecord] = [:]
+    ) throws(FilingFailure) -> FiledBook {
         let data: Data
         do {
             data = try BookFormat.verifiedSerialization(of: book)
@@ -343,15 +346,17 @@ public final class BookPackage: Sendable {
                 throw .fileSystem(error)
             }
             guard current == data else { throw .bookChangedOnDisk }
-            let outcome = try Archive(layout: layout, fileSystem: fileSystem).file(data, as: record)
+            let outcome = try Archive(layout: layout, fileSystem: fileSystem).file(
+                data, as: record, pending: pending)
             return FiledBook(saved: saved, outcome: outcome)
         }
     }
 
-    /// Reconciles `Archive/` with its index (PLAN §5.5), saving the index if it changes:
-    /// this package holds the book's lock.
-    public func reconcileArchive() -> ReconciledArchive {
-        Archive(layout: layout, fileSystem: fileSystem).reconcile(.writable)
+    /// Reconciles `Archive/` with its index (PLAN §5.5), locking any filed copy that isn't
+    /// and saving the index if it changes: this package holds the book's lock. `pending`
+    /// gives sections for filed copies whose filing couldn't save theirs.
+    public func reconcileArchive(pending: [FiledCopyNumber: FilingRecord] = [:]) -> ReconciledArchive {
+        Archive(layout: layout, fileSystem: fileSystem).reconcile(.writable, pending: pending)
     }
 
     /// What `book.md` holds now, and whose it is.

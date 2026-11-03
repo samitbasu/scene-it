@@ -35,22 +35,47 @@ public enum ArchiveWording {
     }
 
     /// What the writer is told after File copy, when something didn't happen; `nil` when the
-    /// copy is filed, locked and indexed (the toast says so).
-    public static func notice(for result: FilingResult) -> Notice? {
+    /// copy is filed, locked and indexed (the toast says so). Wherever what the writer typed
+    /// might not be kept, the message repeats it, so it can be typed again.
+    public static func notice(for result: FilingResult, record: FilingRecord) -> Notice? {
         switch result {
         case .unavailable:
-            return nil
+            return Notice(
+                title: couldntFile,
+                message: "The book isn't open for editing, so nothing was filed." + typed(record))
         case .failed(let failure):
-            return Notice(title: "Scene It couldn't file a copy.", message: reason(failure))
+            return Notice(title: couldntFile, message: reason(failure) + typed(record))
         case .filed(let outcome):
             var problems: [String] = []
-            if case .notLocked = outcome.lock { problems.append(notLocked) }
-            if case .notUpdated(let failure) = outcome.index { problems.append(reason(failure)) }
+            switch outcome.lock {
+            case .locked: break
+            case .notLocked: problems.append(notLocked)
+            case .unverified: problems.append(unverified)
+            }
+            if case .notUpdated(let failure) = outcome.index {
+                problems.append(reason(failure) + typed(record))
+            }
             guard !problems.isEmpty else { return nil }
             return Notice(
                 title: "The copy was filed, but not everything worked.",
                 message: problems.joined(separator: "\n\n"))
         }
+    }
+
+    private static let couldntFile = "Scene It couldn't file a copy."
+
+    /// "Your tags: "draft 4", "before the ending". Your note: "Before the rewrite"."
+    static func typed(_ record: FilingRecord) -> String {
+        var parts: [String] = []
+        if !record.tags.isEmpty {
+            parts.append("Your tags: " + record.tags.map(quoted).joined(separator: ", ") + ".")
+        }
+        if !record.note.isEmpty { parts.append("Your note: " + quoted(record.note) + ".") }
+        return parts.isEmpty ? "" : "\n\n" + parts.joined(separator: " ")
+    }
+
+    private static func quoted(_ text: String) -> String {
+        "\u{201C}\(text)\u{201D}"
     }
 
     private static func reason(_ failure: FilingFailure) -> String {
@@ -66,7 +91,10 @@ public enum ArchiveWording {
         case .archiveNotAFolder:
             "Something that isn't a folder is where the book's Archive folder should be."
         case .noFreeNumber:
-            "Scene It couldn't find a free name for the copy in the book's Archive folder."
+            "The book's Archive folder already holds a copy numbered \(FiledCopyNumber.highest.fileName), "
+                + "the highest number Scene It uses, or every name after the last copy is taken."
+        case .unavailable:
+            "The book was closed, so nothing was filed."
         case .fileSystem(let error):
             "The disk reported a problem: \(error.cause)."
         }
@@ -74,6 +102,9 @@ public enum ArchiveWording {
 
     private static let notLocked =
         "This disk can't lock files, so other programs could change the copy. Scene It never will."
+    private static let unverified =
+        "Scene It locked the copy but couldn't check that the lock held. It checks again the next "
+        + "time the book opens."
 
     private static func reason(_ failure: IndexFailure) -> String {
         switch failure {
@@ -81,8 +112,8 @@ public enum ArchiveWording {
             "The File Cabinet's list was saved by a newer version of Scene It, so this version leaves "
                 + "it as it is. The copy will be listed without its tags or note."
         case .couldNotRead, .notWritten:
-            "Scene It couldn't save the copy's tags and note to the File Cabinet's list. The copy will "
-                + "be listed without them."
+            "Scene It couldn't save the copy's tags and note to the File Cabinet's list yet. It tries "
+                + "again with the next save while the book is open."
         }
     }
 }

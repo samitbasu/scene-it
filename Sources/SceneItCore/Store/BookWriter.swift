@@ -55,10 +55,13 @@ final class BookWriter: Sendable {
 
     /// `BookPackage.fileCopy`, snapshotting the book if its save wrote it.
     @concurrent
-    func fileCopy(of book: Book, as record: FilingRecord) async throws(FilingFailure) -> FilingOutcome {
+    func fileCopy(of book: Book, as record: FilingRecord, pending: Archive.Pending)
+        async throws(FilingFailure)
+        -> FilingOutcome
+    {
         try held.withLock { (held) throws(FilingFailure) -> FilingOutcome in
-            guard let held else { throw .fileSystem(FileSystemError(.read, layout.book, .notFound)) }
-            let filed = try held.package.fileCopy(of: book, as: record)
+            guard let held else { throw .unavailable }
+            let filed = try held.package.fileCopy(of: book, as: record, pending: pending)
             if case .saved(_, let published) = filed.saved { _ = held.keeper.keep(published, now: .now) }
             return filed.outcome
         }
@@ -66,10 +69,13 @@ final class BookWriter: Sendable {
 
     /// `Archive.reconcile`, after any running save or filing; `nil` once released.
     @concurrent
-    func reconcileArchive(_ access: Archive.Access) async -> ReconciledArchive? {
+    func reconcileArchive(_ access: Archive.Access, pending: Archive.Pending = [:]) async
+        -> ReconciledArchive?
+    {
         held.withLock { held in
             held.map {
-                Archive(layout: $0.package.layout, fileSystem: $0.package.fileSystem).reconcile(access)
+                Archive(layout: $0.package.layout, fileSystem: $0.package.fileSystem)
+                    .reconcile(access, pending: pending)
             }
         }
     }

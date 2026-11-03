@@ -54,7 +54,8 @@ public protocol FileSystem: Sendable {
     func remove(_ file: URL) throws(FileSystemError)
 
     /// Sets the immutable flag on the file at `file` (`chflags uchg`, Finder's "Locked"), never
-    /// following a link. Some volumes (FAT, exFAT, SMB) refuse, and some accept the call without
+    /// following a link. APFS, HFS+, FAT and exFAT all keep it on macOS 27; a volume that has
+    /// no such flag (some network shares) refuses, and one could accept the call without
     /// keeping the flag: `item(at:)` tells which.
     func makeImmutable(_ file: URL) throws(FileSystemError)
 

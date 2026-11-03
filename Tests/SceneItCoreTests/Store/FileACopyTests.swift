@@ -117,6 +117,70 @@ struct FileACopyTests {
             #expect(error.cause == .noSpace)
             #expect(prompts.notices.map(\.title) == ["Scene It couldn't file a copy."])
             #expect(store.current?.archive.copies.isEmpty == true)
+            let message = try #require(prompts.notices.first?.message)
+            #expect(message.contains("\u{201C}draft 4\u{201D}"), "the tags are quoted so they can be retyped")
+            #expect(message.contains("\u{201C}Before the ending\u{201D}"))
+        }
+    }
+
+    @Test func withNoBookOpenTheWriterIsToldNothingWasFiled() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            #expect(await store.fileACopy(as: Self.record) == .unavailable)
+            #expect(prompts.notices.map(\.title) == ["Scene It couldn't file a copy."])
+            #expect(prompts.notices.first?.message.contains("\u{201C}draft 4\u{201D}") == true)
+        }
+    }
+
+    @Test func tagsAnIndexWriteLostAreRecordedByTheNextSave() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            fileSystem.inject(.fail(.move("Archive/temporary index.md", over: "Archive/index.md")))
+
+            guard case .filed(let outcome) = await store.fileACopy(as: Self.record) else {
+                Issue.record("expected a filed copy")
+                return
+            }
+            #expect(outcome.index != .updated(book.archive))
+            #expect(book.pendingRecords == [FiledCopyNumber.first: Self.record])
+            #expect(book.archive.copies.map(\.tags) == [["draft 4"]], "the cabinet shows what was typed")
+            #expect(prompts.notices.first?.message.contains("\u{201C}draft 4\u{201D}") == true)
+
+            book.write("Still failing")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            #expect(book.pendingRecords.count == 1, "kept while the index still can't be written")
+
+            fileSystem.clearFault()
+            book.write("And now it works")
+            store.saveNow()
+            await eventually { book.pendingRecords.isEmpty }
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+            #expect(copy.filed == Self.record.filed)
+        }
+    }
+
+    @Test func tagsAnIndexWriteLostAreRecordedByTheNextFiling() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            fileSystem.inject(.fail(.read("Archive/index.md"), cause: .permissionDenied))
+            _ = await store.fileACopy(as: Self.record)
+            fileSystem.clearFault()
+
+            _ = await store.fileACopy(as: FilingRecord(filed: Self.record.filed, tags: ["second"]))
+
+            #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["draft 4"], ["second"]])
+            #expect(store.current?.pendingRecords.isEmpty == true)
         }
     }
 
@@ -136,11 +200,21 @@ struct FileACopyTests {
 
             let book = try #require(store.current)
             #expect(book.archive.copies.map(\.number.value) == [4])
+            let kept = try FileManager.default.contentsOfDirectory(
+                atPath: layout.archive.path(percentEncoded: false)
+            )
+            .filter { $0.hasPrefix("index.md.original-") }
+            #expect(kept.count == 1, "the index was kept before its section was rewritten")
             #expect(
                 book.archiveNotices == [
-                    .droppedEntryWithoutFile(FiledCopyNumber(2)!), .listedWithoutEntry(FiledCopyNumber(4)!),
+                    .keptEntryWithoutFile(FiledCopyNumber(2)!), .listedWithoutEntry(FiledCopyNumber(4)!),
+                    .lockedUnlockedCopy(FiledCopyNumber(4)!),
+                    .keptOriginalIndex(fileName: try #require(kept.first)),
                 ])
+            #expect(try isImmutable(Self.filedCopy(4, in: url)), "a copy left unlocked is locked")
             #expect(try Self.indexOnDisk(url) == book.archive)
+            #expect(
+                book.archive.errors.map(\.payload).contains("tags: gone"), "the gone entry's lines are kept")
             #expect(book.archive.copies.first?.counts == FiledCopyCounts(book.book))
         }
     }

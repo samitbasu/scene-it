@@ -42,11 +42,19 @@ public struct PackageLayout: Hashable, Sendable {
     static let archiveFolderName = "Archive"
 
     /// Whether `url` names a filed copy: a `saveNNNN.md` in a folder named `Archive`, in any
-    /// package. Nothing may change or remove one (`FileSystem`).
+    /// package. Nothing may change or remove one (`FileSystem`). Case doesn't matter, as on
+    /// APFS and HFS+, where `archive/SAVE0001.MD` is the same file.
     static func isFiledCopy(_ url: URL) -> Bool {
         let folder = url.deletingLastPathComponent().lastPathComponent
-        return folder.utf8.elementsEqual(archiveFolderName.utf8)
-            && FiledCopyNumber(fileName: url.lastPathComponent) != nil
+        return folder.lowercased() == archiveFolderName.lowercased()
+            && FiledCopyNumber(fileName: url.lastPathComponent.lowercased()) != nil
+    }
+
+    /// Where an `Archive/index.md` that reconciliation is about to rewrite is kept first, when
+    /// the rewrite would change what the writer wrote: `index.md.original-<UTC time>.md` in
+    /// `Archive/`, then `-2`, `-3`, … before `.md`. Nothing rotates, prunes, sweeps or replaces it.
+    public func originalIndex(at date: Date, attempt: Int) -> URL {
+        file("index.md.original-\(Self.stamp(date, attempt)).md", in: archive)
     }
 
     /// Where a version of `book.md` that another program wrote during a save is kept:
@@ -144,9 +152,15 @@ public struct FiledCopyNumber: Hashable, Comparable, Sendable, CustomStringConve
 
     public static let first = FiledCopyNumber(1)!
 
-    /// The number after this one; `nil` past the largest.
+    /// The highest number filing uses or counts: a stray `save9223372036854775807.md` mustn't
+    /// use the numbers up. Six digits, a filing a day for 2,700 years.
+    public static let highest = FiledCopyNumber(999_999)!
+
+    /// Whether filing counts this number (`highest`).
+    public var isInRange: Bool { self <= Self.highest }
+
+    /// The number after this one; `nil` past `highest`.
     public var next: FiledCopyNumber? {
-        let (sum, overflow) = value.addingReportingOverflow(1)
-        return overflow ? nil : FiledCopyNumber(sum)
+        self < Self.highest ? FiledCopyNumber(value + 1) : nil
     }
 }

@@ -5,10 +5,16 @@ import Foundation
 public struct FilingDraft: Hashable, Sendable {
     /// Each one admitted, trimmed, non-empty and different from the others.
     public private(set) var tags: [String] = []
-    /// What's typed in the tags field, not yet a tag.
-    public var pendingTag = ""
+    /// What's typed in the tags field, not yet a tag: one line of text `CharacterPolicy`
+    /// admits, as the editors keep it, so the field never shows what the index won't keep.
+    public var pendingTag = "" {
+        didSet { pendingTag = CharacterPolicy.admittedLine(pendingTag) }
+    }
     public var filed: CalendarDay
-    public var note = ""
+    /// Text `CharacterPolicy` admits, as `pendingTag`.
+    public var note = "" {
+        didSet { note = CharacterPolicy.admittedInput(note) }
+    }
 
     /// Dated `today`, as the dialog opens.
     public init(today: CalendarDay) {
@@ -18,7 +24,7 @@ public struct FilingDraft: Hashable, Sendable {
     /// Return in the tags field: the typed text becomes the last tag, unless it's empty or
     /// already a tag. The field empties either way.
     public mutating func commitPendingTag() {
-        let tag = CharacterPolicy.admittedLine(pendingTag).trimmingCharacters(in: .whitespaces)
+        let tag = pendingTag.trimmingCharacters(in: .whitespaces)
         pendingTag = ""
         guard !tag.isEmpty, !tags.contains(tag) else { return }
         tags.append(tag)

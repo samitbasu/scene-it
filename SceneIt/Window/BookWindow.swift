@@ -56,7 +56,7 @@ struct BookWindow: View {
         .focusedSceneValue(\.filingFlow, book.isEditable ? filing : nil)
         .sheet(isPresented: isFiling) {
             FileACopyDialog(
-                draft: draft, cancel: { filing.cancel() },
+                draft: draft, isFiling: filing.isFiling, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } })
         }
     }

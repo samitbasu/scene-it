@@ -70,12 +70,48 @@ import Testing
         #expect(reconciled.index.copies.prefix(2) == parsed.index.copies[...], "the others are untouched")
     }
 
-    @Test func anEntryWhoseFileIsMissingIsDropped() {
+    @Test func anEntryWhoseFileIsMissingIsUnlistedAndKeptAsUnparsedLines() throws {
         let parsed = Self.parse(Self.twoCopies)
         let reconciled = Self.reconcile(Self.files(2), parsed)
         #expect(reconciled.index.copies.map(\.number) == [Self.number(2)])
-        #expect(reconciled.notices == [.droppedEntryWithoutFile(Self.number(1))])
-        #expect(reconciled.rewrite == .needed)
+        #expect(reconciled.notices == [.keptEntryWithoutFile(Self.number(1))])
+        #expect(reconciled.rewrite == .neededKeepingOriginal, "the writer's section is rewritten")
+        #expect(
+            reconciled.index.errors
+                == [
+                    "## save0001.md", "filed: 2026-09-14", "tags: first draft", "scenes: 22", "words: 48210",
+                    "comments: 31",
+                ].map { ErrorEntry(.line, $0) })
+        let bytes = try ArchiveIndexFormat.verifiedSerialization(of: reconciled.index)
+        let reread = ArchiveIndexFormat.parse(bytes, filed: { _ in Self.fileDay })
+        #expect(reread.newEntries.isEmpty, "the kept lines read back as entries already kept")
+        #expect(Self.reconcile(Self.files(2), reread).rewrite == .unneeded, "kept once")
+    }
+
+    @Test func aPendingRecordGivesACopyWithNoEntryItsTagsNoteAndDate() throws {
+        let record = FilingRecord(
+            filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["draft 5"], note: "Kept")
+        let reconciled = ArchiveReconciliation.reconcile(
+            listing: Self.files(1, 2, 3), index: Self.parse(Self.twoCopies), modified: { _ in Self.fileDay },
+            counts: { _ in Self.counted }, pending: [Self.number(3): record, Self.number(1): record])
+        #expect(
+            reconciled.index.copies.last
+                == FiledCopy(
+                    number: Self.number(3), filed: record.filed, tags: record.tags, note: record.note,
+                    counts: Self.counted))
+        #expect(
+            reconciled.index.copies.first == Self.parse(Self.twoCopies).index.copies.first, "an entry wins")
+        #expect(reconciled.notices == [.recordedPendingEntry(Self.number(3))])
+    }
+
+    @Test func aNumberPastTheHighestIsNotCountedAndDoesntBlockNumbering() {
+        let huge = DirectoryEntry(name: "save\(Int.max).md", kind: .file)
+        let reconciled = Self.reconcile([huge] + Self.files(4), Self.parse("---\nformat: 2\n---\n"))
+        #expect(reconciled.index.copies.map(\.number) == [Self.number(4)])
+        #expect(reconciled.next == Self.number(5))
+        #expect(reconciled.notices.first == .numberOutOfRange(FiledCopyNumber(Int.max)!))
+        #expect(Self.reconcile(Self.files(999_999), Self.parse("")).next == nil)
+        #expect(Self.reconcile(Self.files(999_998), Self.parse("")).next == FiledCopyNumber.highest)
     }
 
     @Test func numberingIsOneMoreThanTheHighestFileWhateverTheGapsAndEntries() {
@@ -138,7 +174,7 @@ import Testing
         #expect(reconciled.rewrite == .refused(newerFormat: FormatVersion(3)))
         #expect(
             reconciled.notices == [
-                .indexFromNewerVersion(FormatVersion(3)), .droppedEntryWithoutFile(Self.number(1)),
+                .indexFromNewerVersion(FormatVersion(3)), .keptEntryWithoutFile(Self.number(1)),
                 .listedWithoutEntry(Self.number(3)),
             ])
         #expect(

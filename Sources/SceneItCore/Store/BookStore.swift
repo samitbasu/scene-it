@@ -268,9 +268,8 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func fileACopy(as record: FilingRecord) async -> FilingResult {
         await exclusively {
-            guard let book = current else { return .unavailable }
-            let result = await book.fileCopy(as: record)
-            if let notice = ArchiveWording.notice(for: result) { await prompts.tell(notice) }
+            let result = await current?.fileCopy(as: record) ?? .unavailable
+            if let notice = ArchiveWording.notice(for: result, record: record) { await prompts.tell(notice) }
             return result
         }
     }

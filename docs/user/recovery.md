@@ -68,15 +68,23 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
 - A filed copy is a complete `book.md`: to read one, open it in any text editor, or copy it
   out of the package and rename it `book.md` to restore it as below.
 - Scene It locks each filed copy as it files it, so nothing (Scene It included) can change,
-  rename or delete it by accident. On a disk that can't lock files (a FAT or exFAT USB stick,
-  some network shares) Scene It says so when you file; it still never writes to the copy.
-- If `index.md` is lost or damaged, nothing is lost but the tags and notes: the next time the
-  book opens, every `saveNNNN.md` is listed again, with its date and counts. A line that
-  `index.md` doesn't understand is kept in it, under `### Unparsed`. An `index.md` saved by a
-  newer version of Scene It is left exactly as it is.
+  rename or delete it by accident. On a disk that can't lock files (some network shares)
+  Scene It says so when you file; it still never writes to the copy.
+- If `index.md` is lost, nothing is lost but the tags and notes: the next time the book opens,
+  every `saveNNNN.md` is listed again, with its date and counts. A line that `index.md`
+  doesn't understand is kept in it, under `### Unparsed`, and so is the entry of a copy whose
+  file isn't there (renamed or moved, say). Before Scene It rewrites an `index.md` like that,
+  it keeps the file exactly as it was, as `Archive/index.md.original-<time>.md` (never
+  deleted automatically). An `index.md` saved by a newer version of Scene It is left exactly
+  as it is.
 - Hidden files named `.save0001.md.<…>.tmp` or `.index.md.<…>.tmp` in `Archive/` were left by
-  a filing that was interrupted. Scene It never deletes anything in `Archive/`, so they stay
-  until you delete them; they're never a filed copy.
+  a filing that was interrupted. Once one is 10 minutes old, the next save deletes a
+  `.saveNNNN.md.<…>.tmp` if a filed copy, `book.md`, a `.bak` file or a snapshot holds exactly
+  the same text (otherwise it's renamed to `Archive/book.md.recovered-<time>.md`), and a
+  `.index.md.<…>.tmp` once `index.md` beside it reads cleanly. A filed copy itself is never
+  touched.
+- A file named `save` and more than six digits (`save1234567.md`) isn't counted as a filed
+  copy, so it can't use the numbers up; it's still never changed.
 - **To unlock a filed copy** (to delete it, say), quit Scene It, then in Terminal:
 
   ```sh

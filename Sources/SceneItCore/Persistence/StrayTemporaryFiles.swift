@@ -57,6 +57,32 @@ struct StrayTemporaryFiles {
             keptFiles: Self.packageVersions(layout), keptSnapshots: layout.snapshots)
     }
 
+    /// `Archive/`'s own: an interrupted filing's temporary `saveNNNN.md`, compared with the
+    /// filed copies, the book, its backups and the snapshots, and an interrupted index write's
+    /// temporary `index.md`, removed once `index.md` is valid. A filed copy is never a
+    /// candidate: only hidden temporary names are.
+    init(archiveOf layout: PackageLayout, fileSystem: any FileSystem) {
+        let listing = (try? fileSystem.contents(of: layout.archive)) ?? []
+        let filed = ArchiveReconciliation.filedCopies(in: listing).map(layout.filedCopy)
+        let index = layout.archiveIndex
+        self.init(
+            folder: layout.archive, fileSystem: fileSystem, log: .store,
+            contents: { destination in
+                if let number = FiledCopyNumber(fileName: destination), destination.isExactly(number.fileName)
+                {
+                    return .bookVersion
+                }
+                guard destination.isExactly(index.lastPathComponent) else { return nil }
+                return .metadata(current: index, isValid: Self.isCleanIndex)
+            },
+            keptFiles: Self.packageVersions(layout) + filed, keptSnapshots: layout.snapshots)
+    }
+
+    private static func isCleanIndex(_ bytes: Data) -> Bool {
+        let parsed = ArchiveIndexFormat.parse(bytes, filed: { _ in CalendarDay(.now, in: .gmt) })
+        return parsed.newEntries.isEmpty && !parsed.isNewerThanSupported
+    }
+
     /// A folder of snapshots and one metadata file in it (`Backups/` with `book-id`, a mirror
     /// folder with `package.json`): `BackupKeeper`'s temporary snapshots, compared with the
     /// folder's snapshots and `alsoKept`, and its temporary `metadata`.

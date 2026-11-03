@@ -72,6 +72,50 @@ struct FileACopyTests {
         }
     }
 
+    @Test func aFilingThatFailsKeepsTheDialogOpenWithWhatWasTyped() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            let url = folder.appending(path: "Failing 32.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let layout = PackageLayout(root: url)
+            try FileManager.default.removeItem(at: layout.archive)
+            try Data("not a folder".utf8).write(to: layout.archive)
+            let flow = FilingFlow()
+            flow.begin()
+            flow.draft?.pendingTag = "draft 4"
+            flow.draft?.commitPendingTag()
+            flow.draft?.note = "Keep me"
+            let typed = flow.draft
+
+            let result = await flow.confirm(in: store)
+
+            #expect(result == .failed(.archiveNotAFolder))
+            #expect(flow.draft == typed, "the dialog is still up, as the writer left it")
+            #expect(!flow.isFiling)
+            #expect(flow.toast == nil)
+            #expect((books.prompts as? HeadlessPrompts)?.takeTitles() == ["Scene It couldn't file a copy."])
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    @Test func theTagFieldKeepsOnlyWhatTheIndexWill() throws {
+        var draft = FilingDraft(today: try #require(CalendarDay(year: 2026, month: 11, day: 3)))
+        let field = TagTextField.Coordinator(draft: Binding(get: { draft }, set: { draft = $0 }))
+        let editor = NSTextView()
+        let typed = "draft \u{1F3AC} 4\tlate"
+        editor.string = typed
+        editor.setSelectedRange(NSRange(location: (typed as NSString).length, length: 0))
+        field.controlTextDidChange(
+            Notification(
+                name: NSControl.textDidChangeNotification, object: NSTextField(),
+                userInfo: ["NSFieldEditor": editor]))
+        #expect(draft.pendingTag == CharacterPolicy.admittedLine(typed))
+        #expect(draft.pendingTag != typed, "precondition: the policy changed something")
+        #expect(editor.string == draft.pendingTag, "the field shows what the tag will keep")
+        #expect(editor.selectedRange().location == (draft.pendingTag as NSString).length)
+    }
+
     @Test func aReadOnlyBookHasNoFileACopy() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
