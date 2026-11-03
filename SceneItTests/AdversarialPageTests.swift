@@ -223,13 +223,26 @@ private func endEvent(_ undo: UndoManager) {
     while undo.groupingLevel > 0 { undo.endUndoGrouping() }
 }
 
-@Suite(.serialized, .timeLimit(.minutes(10)))
-struct AdversarialPageTests {
+/// How much the fuzz runs. The gate runs a little; `PAGE_FUZZ_SEEDS` and `PAGE_FUZZ_STEPS` (through
+/// xcodebuild, `TEST_RUNNER_PAGE_FUZZ_SEEDS` and `TEST_RUNNER_PAGE_FUZZ_STEPS`) run more.
+nonisolated enum PageFuzz {
+    static let seeds: [UInt64] = Array(1...UInt64(setting("PAGE_FUZZ_SEEDS", default: 2)))
+    static let steps = setting("PAGE_FUZZ_STEPS", default: 200)
+    /// Each seed's limit: generous at a tenth of a second a step, and never under two minutes.
+    static let minutes = max(2, steps / 600 + 1)
+
+    private static func setting(_ name: String, default value: Int) -> Int {
+        ProcessInfo.processInfo.environment[name].flatMap(Int.init).map { max(1, $0) } ?? value
+    }
+}
+
+@Suite(.serialized, .timeLimit(.minutes(PageFuzz.minutes)))
+struct PageFuzzTests {
     /// Each step runs from the run loop, as an event's handling does, never inside a Swift task:
     /// an Objective-C exception raised inside a task's job unwinds past the concurrency
     /// runtime's record of the current executor, and the app crashes at the next isolation
     /// check.
-    @Test(arguments: [1, 2, 3, 4, 5, 6, 7, 8] as [UInt64])
+    @Test(arguments: PageFuzz.seeds)
     func randomEditsKeepPageAndModelInStep(seed: UInt64) async throws {
         let one = scene("One", fuzzScene, .withTooEarly)
         var withOther = one
@@ -238,7 +251,7 @@ struct AdversarialPageTests {
             try await PageHarness.withPasteboard { pasteboard in
                 page.focusPage(at: 0)
                 let fuzz = Fuzz(page: page, pasteboard: pasteboard, seed: seed)
-                for _ in 0..<1500 {
+                for _ in 0..<PageFuzz.steps {
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                         RunLoop.main.perform {
                             MainActor.assumeIsolated { fuzz.step() }
@@ -267,6 +280,10 @@ struct AdversarialPageTests {
         }
     }
 
+}
+
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct AdversarialPageTests {
     @Test func manySynchronousKeystrokesThenRender() async throws {
         try await withPage([scene("One", [[Run("Start.")]])]) { page in
             page.focusPage(at: 6)

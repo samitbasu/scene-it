@@ -453,6 +453,11 @@ writer's clipboard untouched. Each test then checks the model, the page (`pageMi
 the storage equals the codec's rendering of the model) and, where it matters, the `book.md`
 autosave wrote.
 
+The page fuzz (`PageFuzzTests`) makes random edits through every one of those paths and checks
+the model after each edit and the page once the turn is over. The commit gate runs a small
+amount of it (2 seeds × 200 steps) so the gate stays fast; set `TEST_RUNNER_PAGE_FUZZ_SEEDS` and
+`TEST_RUNNER_PAGE_FUZZ_STEPS` for a longer run (the README's Scripts section has the command).
+
 **Drive AppKit from the run loop, not from inside a task.** The review's fuzz test first ran
 its 1,500 edits per seed as a loop inside the (main-actor) test task, and the app crashed later
 in a SwiftUI render, inside `swift_task_isCurrentExecutor`, reading a pointer that was 0x1 or

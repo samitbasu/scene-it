@@ -131,6 +131,23 @@ findings (naming, for example) can't be fixed automatically and still need a
 manual edit. **Output:** modified source files only; review them
 with `git diff`.
 
+### A longer run of the page fuzz
+
+Not a script: `SceneItTests/AdversarialPageTests.swift`'s `PageFuzzTests` makes random edits to
+the real page through every path that changes its text, checking the model and the page after
+each. The gate runs 2 seeds × 200 steps. For a longer run, give the seed count and the steps
+per seed:
+
+```sh
+TEST_RUNNER_PAGE_FUZZ_SEEDS=8 TEST_RUNNER_PAGE_FUZZ_STEPS=1500 xcodebuild -project SceneIt.xcodeproj \
+    -scheme SceneIt -destination 'platform=macOS' -derivedDataPath build/DerivedData \
+    test -only-testing:SceneItTests/PageFuzzTests
+```
+
+Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time limit grows with
+the steps (never under two minutes). **Output:** the test results; a failure lists the last
+steps before the page and the model disagreed. **Products:** none beyond the result bundle.
+
 ### Rendering the window for review
 
 Not a script: a hosted test, `SceneItTests/WindowRenders.swift`, that draws the main window
