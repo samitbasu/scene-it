@@ -13,7 +13,7 @@ Breaking change while undeployed; the file stays `format: 2`.
   ø→o), typographic punctuation to ASCII (“ ”→", ‘ ’→', —→--, –→-, …→...), NBSP to a space. Everything else becomes `[?]`.
   The table is the only place these rules live, and it's not a system transform (which could change between macOS versions).
 - **Reading a file:** UTF-8 is decoded and invalid bytes fall back to Windows-1252 as before; then the table applies, plus one
-  notice per kind of change (transliterated or replaced).
+  notice per kind of change (transliterated or replaced); typographic punctuation and NBSP are straightened silently (see "Details settled").
 - **Existing Latin-1 books** (development only) open as repaired, read-only, with the original kept (ADR 0024).
 
 ## Why
