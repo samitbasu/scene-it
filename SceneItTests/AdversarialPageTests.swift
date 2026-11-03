@@ -1,0 +1,597 @@
+import AppKit
+import SceneItCore
+import SwiftUI
+import Testing
+
+@testable import SceneIt
+
+// A random-edit fuzz of the real page through every path that
+// changes its text, and focused cases for the edges it found.
+
+private struct SplitMix: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE5_E9B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+private let otherID = CommentID(rawValue: "01JC4K00000000000000000OTH")
+private let other = Comment(
+    id: otherID, color: .blue, text: "Other",
+    created: Timestamp(Date(timeIntervalSince1970: 1_700_000_100), in: .gmt))
+
+private let fuzzScene: [Paragraph] = [
+    [
+        Run("The "), Run("letter", color: .red, comments: [noted]), Run(" waited "),
+        Run("long", styles: [.italic]),
+    ],
+    [Run("Dawn.", styles: [.bold]), Run(" Then ", highlight: .green), Run("night", comments: [otherID])],
+    [],
+    [Run("Last line here.")],
+]
+
+private let pieces: [String] = [
+    "a", "b", " ", "x y", "\n", "\r\n", "\r", "\u{2028}", "\u{2029}", "\u{0B}", "\u{85}", "\u{201C}q\u{201D}",
+    "\u{2014}", "\u{1F30A}", "\u{00E9}", "e\u{0301}", "\t", "\u{FFFC}", "\u{65E5}\u{672C}", "\u{00FF}",
+    "line1\nline2", "\n\n",
+]
+
+private func lone() -> NSString {
+    var unit: unichar = 0xD800
+    return NSString(characters: &unit, length: 1)
+}
+
+/// What the find bar does for Replace and Replace All: ask, replace in the storage keeping
+/// attributes, then announce.
+private func finderReplace(_ view: NSTextView, _ range: NSRange, _ string: String) {
+    guard view.shouldChangeText(inRanges: [NSValue(range: range)], replacementStrings: [string]) else {
+        return
+    }
+    view.textStorage?.replaceCharacters(in: range, with: string)
+    view.didChangeText()
+}
+
+/// Where `page` and `model` first differ, in UTF-16 code units; `nil` if they don't.
+private func firstDifference(_ page: NSAttributedString, _ model: NSAttributedString) -> String? {
+    // Code units, not `String ==`: that compares canonical equivalence, so `é` and `e` +
+    // U+0301 would compare equal at different lengths.
+    let pageUnits = Array(page.string.utf16)
+    let modelUnits = Array(model.string.utf16)
+    guard pageUnits == modelUnits else {
+        let shared = min(pageUnits.count, modelUnits.count)
+        let index = (0..<shared).first { pageUnits[$0] != modelUnits[$0] } ?? shared
+        func unit(_ units: [UInt16]) -> String {
+            index < units.count ? String(units[index], radix: 16) : "end"
+        }
+        return "the text differs at \(index): page \(unit(pageUnits)) / model \(unit(modelUnits)) in "
+            + "\(page.string.debugDescription) / \(model.string.debugDescription)"
+    }
+    for index in 0..<page.length {
+        let onPage = page.attributes(at: index, effectiveRange: nil)
+        let inModel = model.attributes(at: index, effectiveRange: nil)
+        if !NSDictionary(dictionary: onPage).isEqual(to: inModel) {
+            return "attributes at \(index): page \(onPage) / model \(inModel)"
+        }
+    }
+    return nil
+}
+
+private func randomRange(_ length: Int, _ rng: inout SplitMix) -> NSRange {
+    let a = Int.random(in: 0...length, using: &rng)
+    let b = Int.random(in: 0...length, using: &rng)
+    if Bool.random(using: &rng) { return NSRange(location: a, length: 0) }
+    return NSRange(location: min(a, b), length: abs(a - b))
+}
+
+private func randomText(_ rng: inout SplitMix) -> String {
+    (0..<Int.random(in: 1...3, using: &rng)).map { _ in pieces.randomElement(using: &rng)! }.joined()
+}
+
+private final class Fuzz {
+    let page: PageHarness
+    let pasteboard: NSPasteboard
+    var rng: SplitMix
+    var log: [String] = []
+    /// The first step after which the model wasn't the codec's reading of the page, with the
+    /// steps leading to it.
+    var bodyMismatch: [String]?
+    /// The first step after which the page didn't show exactly what the model holds.
+    var mirrorMismatch: [String]?
+
+    init(page: PageHarness, pasteboard: NSPasteboard, seed: UInt64) {
+        self.page = page
+        self.pasteboard = pasteboard
+        rng = SplitMix(state: seed)
+    }
+
+    func step() {
+        let view = page.page
+        let length = page.storage.length
+        if !view.hasMarkedText() { view.setSelectedRange(randomRange(length, &rng)) }
+        switch Int.random(in: 0..<16, using: &rng) {
+        case 0, 1:
+            let text = randomText(&rng)
+            log.append("insertText(\(text.debugDescription)) at \(view.selectedRange())")
+            view.insertText(text, replacementRange: view.selectedRange())
+        case 2:
+            log.append("deleteBackward at \(view.selectedRange())")
+            view.deleteBackward(nil)
+        case 3:
+            log.append("deleteForward at \(view.selectedRange())")
+            view.deleteForward(nil)
+        case 4:
+            log.append("insertNewline at \(view.selectedRange())")
+            view.insertNewline(nil)
+        case 5:
+            log.append("copy \(view.selectedRange())")
+            pasteboard.clearContents()
+            _ = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
+        case 6:
+            log.append("cut \(view.selectedRange())")
+            pasteboard.clearContents()
+            if view.selectedRange().length > 0 {
+                _ = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
+                view.delete(nil)
+            }
+        case 7:
+            log.append("paste at \(view.selectedRange()) types \(pasteboard.types ?? [])")
+            _ = view.readSelection(from: pasteboard)
+        case 8:
+            let text = randomText(&rng)
+            log.append("paste plain \(text.debugDescription) at \(view.selectedRange())")
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            _ = view.readSelection(from: pasteboard)
+        case 9:
+            view.breakUndoCoalescing()
+            log.append("undo")
+            if view.undoManager?.canUndo == true { view.undoManager?.undo() }
+        case 10:
+            log.append("redo")
+            if view.undoManager?.canRedo == true { view.undoManager?.redo() }
+        case 11:
+            let range = randomRange(length, &rng)
+            let text = randomText(&rng)
+            log.append("find bar replace \(range) with \(text.debugDescription)")
+            finderReplace(view, range, text)
+        case 12:
+            let text = randomText(&rng)
+            let range = view.selectedRange()
+            log.append("autocorrect \(range) -> \(text.debugDescription)")
+            if range.length > 0 {
+                view.handleTextCheckingResults(
+                    [NSTextCheckingResult.replacementCheckingResult(range: range, replacementString: text)],
+                    forRange: range, types: NSTextCheckingAllTypes, options: [:],
+                    orthography: NSOrthography.defaultOrthography(forLanguage: "en"), wordCount: 1)
+            }
+        case 13:
+            let marked = Bool.random(using: &rng) ? "\u{306B}\u{307B}" : "ni"
+            log.append("setMarkedText(\(marked.debugDescription)) at \(view.selectedRange())")
+            view.setMarkedText(
+                marked, selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+        case 14:
+            if view.hasMarkedText() {
+                if Bool.random(using: &rng) {
+                    log.append("commit marked text with insertText")
+                    view.insertText(
+                        "\u{65E5}\u{672C}", replacementRange: NSRange(location: NSNotFound, length: 0))
+                } else {
+                    log.append("unmarkText")
+                    view.unmarkText()
+                }
+            } else {
+                log.append("insert a lone surrogate at \(view.selectedRange())")
+                view.insertText(lone(), replacementRange: view.selectedRange())
+            }
+        default:
+            if view.hasMarkedText() { view.unmarkText() }
+            log.append("uppercaseWord at \(view.selectedRange())")
+            view.uppercaseWord(nil)
+        }
+        checkModel()
+    }
+
+    /// The model is the codec's reading of the page as soon as the edit returns.
+    private func checkModel() {
+        guard !page.page.hasMarkedText() else { return }
+        let model = page.body()
+        if bodyMismatch == nil, RunCodec.body(from: page.storage) != model {
+            bodyMismatch =
+                log.suffix(12) + ["page: \(page.storage.string.debugDescription)", "model: \(model)"]
+        }
+    }
+
+    /// The page shows exactly what the model holds once the turn is over: a page the model
+    /// corrected (text that skipped the character policy) is reloaded in a later main-queue
+    /// block.
+    func checkPage() {
+        guard mirrorMismatch == nil, !page.page.hasMarkedText(),
+            let difference = firstDifference(page.storage, RunCodec.attributedString(forBody: page.body()))
+        else { return }
+        mirrorMismatch = log.suffix(6) + [difference]
+    }
+}
+
+/// What the end of an event does to an undo manager that groups by event. A test has no events,
+/// so without this everything it does lands in one undo group.
+private func endEvent(_ undo: UndoManager) {
+    while undo.groupingLevel > 0 { undo.endUndoGrouping() }
+}
+
+/// How much the fuzz runs. The gate runs a little; `PAGE_FUZZ_SEEDS` and `PAGE_FUZZ_STEPS` (through
+/// xcodebuild, `TEST_RUNNER_PAGE_FUZZ_SEEDS` and `TEST_RUNNER_PAGE_FUZZ_STEPS`) run more.
+nonisolated enum PageFuzz {
+    static let seeds: [UInt64] = Array(1...UInt64(setting("PAGE_FUZZ_SEEDS", default: 2)))
+    static let steps = setting("PAGE_FUZZ_STEPS", default: 200)
+    /// Each seed's limit: generous at a tenth of a second a step, and never under two minutes.
+    static let minutes = max(2, steps / 600 + 1)
+
+    private static func setting(_ name: String, default value: Int) -> Int {
+        ProcessInfo.processInfo.environment[name].flatMap(Int.init).map { max(1, $0) } ?? value
+    }
+}
+
+@Suite(.serialized, .timeLimit(.minutes(PageFuzz.minutes)))
+struct PageFuzzTests {
+    /// Each step runs from the run loop, as an event's handling does, never inside a Swift task:
+    /// an Objective-C exception raised inside a task's job unwinds past the concurrency
+    /// runtime's record of the current executor, and the app crashes at the next isolation
+    /// check.
+    @Test(arguments: PageFuzz.seeds)
+    func randomEditsKeepPageAndModelInStep(seed: UInt64) async throws {
+        let one = scene("One", fuzzScene, .withTooEarly)
+        var withOther = one
+        withOther.comments.append(other)
+        try await withPage([withOther, scene("Two", [[Run("Second.")]])]) { page in
+            try await PageHarness.withPasteboard { pasteboard in
+                page.focusPage(at: 0)
+                let fuzz = Fuzz(page: page, pasteboard: pasteboard, seed: seed)
+                for _ in 0..<PageFuzz.steps {
+                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                        RunLoop.main.perform {
+                            MainActor.assumeIsolated { fuzz.step() }
+                            done.resume()
+                        }
+                    }
+                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                        DispatchQueue.main.async {
+                            fuzz.checkPage()
+                            done.resume()
+                        }
+                    }
+                }
+                if page.page.hasMarkedText() { page.page.unmarkText() }
+                #expect(fuzz.bodyMismatch == nil, "\(fuzz.bodyMismatch?.joined(separator: "\n") ?? "")")
+                #expect(fuzz.mirrorMismatch == nil, "\(fuzz.mirrorMismatch?.joined(separator: "\n") ?? "")")
+                #expect(RunCodec.body(from: page.storage) == page.body())
+                let scene = try #require(page.book.book.scene(withOther.id))
+                #expect(
+                    Paragraph.commentIDs(in: scene.body).isSubset(of: Set(scene.comments.map(\.id))),
+                    "no dangling comment id")
+                _ = try BookFormat.verifiedSerialization(of: page.book.book)
+                await eventually { page.book.status == .saved }
+                #expect(try bookOnDisk(page.url) == page.book.book)
+            }
+        }
+    }
+
+}
+
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct AdversarialPageTests {
+    @Test func manySynchronousKeystrokesThenRender() async throws {
+        try await withPage([scene("One", [[Run("Start.")]])]) { page in
+            page.focusPage(at: 6)
+            for _ in 0..<1500 { page.page.insertText("x", replacementRange: page.page.selectedRange()) }
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(page.body().first?.text.count == 1506)
+        }
+    }
+
+    /// The backstop for a model changed under the page within the turn of a keystroke, which
+    /// SwiftUI's update ordering should make unreachable: the model wins, the page reloads, and
+    /// its undo history, which describes the text that's gone, is cleared.
+    @Test func aModelChangedInTheSameTurnAsAKeystrokeWinsAndClearsThePagesUndo() async throws {
+        try await withPage([scene("One", [[Run("Alpha.")], [Run("Beta.")]])]) { page in
+            page.focusPage(at: 6)
+            page.page.insertText(" More.", replacementRange: page.page.selectedRange())
+            let open = try #require(page.book.openScene)
+            page.book.replaceBody(of: open, with: [[Run("Alpha.")], [Run("Gamma.")]])
+            page.page.insertText("!", replacementRange: page.page.selectedRange())
+            #expect(page.body() == [[Run("Alpha.")], [Run("Gamma.")]], "the model is intact")
+            await eventually { page.pageMirrorsModel }
+            await eventually { page.page.undoManager?.canUndo == false }
+            #expect(page.body() == [[Run("Alpha.")], [Run("Gamma.")]])
+        }
+    }
+
+    /// An input method's composition, interrupted by `leave`, is committed to the scene it was
+    /// typed in and never touches the text that's shown next.
+    private func compose(thenLeaveBy leave: (PageHarness, SceneID) throws -> Void) async throws {
+        let one = scene("One", [[Run("ab")]])
+        let two = scene("Two", [[Run("Second.")]])
+        try await withPage([one, two]) { page in
+            page.focusPage(at: 2)
+            page.page.insertText("x", replacementRange: page.page.selectedRange())
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(page.page.hasMarkedText(), "precondition: a composition is in progress")
+            try leave(page, two.id)
+            await eventually { !page.page.hasMarkedText() && page.pageMirrorsModel }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("abxni")]], "the composition is kept in its own scene")
+            #expect(page.body(two.id) == [[Run("Second.")]], "the other scene is untouched")
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func switchingScenesMidCompositionLeavesTheNewSceneIntact() async throws {
+        try await compose { page, two in
+            page.book.select(two)
+        }
+    }
+
+    @Test func typingAfterAMidCompositionSwitchGoesToTheNewScene() async throws {
+        let one = scene("One", [[Run("ab")]])
+        let two = scene("Two", [[Run("Second.")]])
+        try await withPage([one, two]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            page.book.select(two.id)
+            await eventually { page.storage.string == "Second." }
+            page.page.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+            #expect(page.body(two.id) == [[Run("ZSecond.")]])
+            #expect(page.body(one.id) == [[Run("abni")]])
+        }
+    }
+
+    @Test func addingASceneMidCompositionLeavesTheNewSceneEmpty() async throws {
+        let one = scene("One", [[Run("ab")]])
+        try await withPage([one]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            let added = try #require(page.book.addScene(after: one.id))
+            await eventually { page.storage.length == 0 && !page.page.hasMarkedText() }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("abni")]])
+            #expect(page.body(added) == [])
+        }
+    }
+
+    @Test func aReloadMidCompositionKeepsTheModelsText() async throws {
+        let one = scene("One", [[Run("ab")]])
+        try await withPage([one]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            page.book.replaceBody(of: one.id, with: [[Run("Replaced elsewhere.")]])
+            await eventually { !page.page.hasMarkedText() && page.storage.string == "Replaced elsewhere." }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("Replaced elsewhere.")]])
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func markedTextReachesTheModelOnlyWhenCommittedByInsertText() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            await eventually { page.book.status == .saved }
+            page.focusPage(at: 1)
+            page.page.setMarkedText(
+                "\u{306B}\u{307B}", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(page.body() == [[Run("ab")]], "a composition in progress isn't the writer's text yet")
+            #expect(page.book.status == .saved, "so autosave has nothing to write")
+            page.page.insertText(
+                "\u{65E5}\u{672C}", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(!page.page.hasMarkedText())
+            #expect(page.body() == [[Run("a[?][?]b")]])
+            #expect(page.pageMirrorsModel)
+            page.page.insertText("c", replacementRange: page.page.selectedRange())
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func markedTextReachesTheModelWhenCommittedByUnmarkText() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            page.focusPage(at: 1)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(page.body() == [[Run("ab")]])
+            page.page.unmarkText()
+            #expect(page.body() == [[Run("anib")]])
+            #expect(page.pageMirrorsModel, "after unmarkText the page shows what will be saved")
+        }
+    }
+
+    @Test func aClipWithNothingToPasteFallsBackToThePlainText() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            try await PageHarness.withPasteboard { pasteboard in
+                pasteboard.clearContents()
+                pasteboard.setData(Data([0xFF, 0x00, 0xFE, 0x42]), forType: .pageClip)
+                pasteboard.setString("plain", forType: .string)
+                page.focusPage(at: 1)
+                #expect(page.page.readSelection(from: pasteboard))
+                #expect(page.body() == [[Run("aplainb")]])
+
+                pasteboard.clearContents()
+                pasteboard.setData(Data("# Not a book\n\nrandom ```\n## \n".utf8), forType: .pageClip)
+                pasteboard.setString("two", forType: .string)
+                let clip = try #require(pasteboard.data(forType: .pageClip))
+                #expect(PageClip(data: clip)?.lines == [], "precondition: a scene with nothing in it")
+                page.page.setSelectedRange(NSRange(location: 0, length: 0))
+                #expect(page.page.readSelection(from: pasteboard))
+                #expect(page.body() == [[Run("twoaplainb")]])
+                #expect(page.pageMirrorsModel)
+            }
+        }
+    }
+
+    @Test func aClipFromAnotherBookWithACollidingCommentIdGetsAFreshId() async throws {
+        let destination = scene("One", [[Run("Here "), Run("x", comments: [noted])]], .withTooEarly)
+        try await withPage([destination]) { page in
+            try await PageHarness.withPasteboard { pasteboard in
+                let foreign = BookScene(
+                    id: SceneID(rawValue: "01JC4K000000000000000FOREIGN"),
+                    modified: Timestamp(.now, in: .current),
+                    title: "F", body: [[Run("their", comments: [noted])]],
+                    comments: [Comment(id: noted, color: .green, text: "Theirs", created: tooEarly.created)])
+                let data = try #require(PageClip([[Run("their", comments: [noted])]], from: foreign).data)
+                pasteboard.clearContents()
+                pasteboard.setData(data, forType: .pageClip)
+                page.focusPage(at: 0)
+                #expect(page.page.readSelection(from: pasteboard))
+                let pasted = try #require(page.book.book.scene(destination.id))
+                #expect(pasted.comments.count == 2)
+                #expect(pasted.comments.contains(tooEarly))
+            }
+        }
+    }
+
+    @Test func aClipIsntPastedIntoAReadOnlyBook() async throws {
+        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true) { page in
+            try await PageHarness.withPasteboard { pasteboard in
+                let held = try #require(page.book.book.scene(page.book.openScene))
+                let data = try #require(PageClip([[Run("Kept.")]], from: held).data)
+                pasteboard.clearContents()
+                pasteboard.setData(data, forType: .pageClip)
+                #expect(!page.page.readSelection(from: pasteboard))
+                #expect(page.storage.string == "Kept.")
+            }
+        }
+    }
+
+    @Test func typingThenPastingCommentsUndoesInTwoSteps() async throws {
+        try await withPage([scene("One", letterScene, .withTooEarly), scene("Two", [[Run("Elsewhere.")]])]) {
+            page in
+            try await PageHarness.withPasteboard { pasteboard in
+                page.window.makeFirstResponder(page.page)
+                page.page.setSelectedRange(NSRange(location: 4, length: 6))
+                #expect(page.page.writeSelection(to: pasteboard, types: page.page.writablePasteboardTypes))
+                let two = try #require(page.book.book.scenes.last?.id)
+                page.book.select(two)
+                await eventually { page.storage.string == "Elsewhere." }
+                page.focusPage(at: 10)
+                page.page.insertText(" abc", replacementRange: page.page.selectedRange())
+                let undo = try #require(page.page.undoManager)
+                endEvent(undo)
+                #expect(page.page.readSelection(from: pasteboard))
+                undo.undo()
+                let afterUndo = try #require(page.book.book.scene(two))
+                #expect(
+                    afterUndo.body == [[Run("Elsewhere. abc")]],
+                    "one undo takes the paste away, not the typing")
+                #expect(afterUndo.comments.isEmpty)
+                undo.redo()
+                let afterRedo = try #require(page.book.book.scene(two))
+                #expect(
+                    Paragraph.commentIDs(in: afterRedo.body).isSubset(of: Set(afterRedo.comments.map(\.id))))
+                #expect(afterRedo.comments.count == 1)
+            }
+        }
+    }
+
+    /// A correction replaces a word in place, as the spelling panel's Change does. (Driving
+    /// `handleTextCheckingResults` offscreen applies nothing, so it can't stand in.)
+    @Test func correctingACommentedWordKeepsTheComment() async throws {
+        try await withPage([scene("One", letterScene, .withTooEarly)]) { page in
+            page.focusPage(at: 4)
+            let word = NSRange(location: 4, length: 6)
+            #expect((page.storage.string as NSString).substring(with: word) == "letter", "precondition")
+            page.page.insertText("l\u{2019}tter", replacementRange: word)
+            #expect(
+                page.body().first == [
+                    Run("The "), Run("l'tter", color: .red, comments: [noted]), Run(" waited."),
+                ])
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func findAndReplaceThatThePolicyChangesKeepsFormatAndComments() async throws {
+        let said: [Paragraph] = [[Run("say "), Run("hi", styles: [.italic], comments: [noted]), Run(" now")]]
+        try await withPage([scene("One", said, .withTooEarly)]) { page in
+            await eventually { page.book.status == .saved }
+            page.focusPage(at: 0)
+            let hi = NSRange(location: 4, length: 2)
+            #expect((page.storage.string as NSString).substring(with: hi) == "hi", "precondition")
+            finderReplace(page.page, hi, "\u{201C}hi\u{201D}")
+            #expect(page.book.status == .unsaved)
+            #expect(
+                page.body() == [
+                    [Run("say "), Run("\"hi\"", styles: [.italic], comments: [noted]), Run(" now")]
+                ])
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func aDecomposedAccentIsComposedOnThePageAsInTheModel() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            page.focusPage(at: 1)
+            page.page.insertText("e\u{0301}", replacementRange: page.page.selectedRange())
+            #expect(Array((page.storage.string as NSString as String).utf16) == Array("a\u{00E9}b".utf16))
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func aParagraphBreakTypedInBoldIsPlainOnThePageAsInTheModel() async throws {
+        try await withPage([scene("One", [[Run("Bold", styles: [.bold])]])]) { page in
+            page.focusPage(at: 4)
+            #expect(
+                page.page.typingAttributes[.font] as? NSFont == ParagraphRole.body.font([.bold]),
+                "precondition")
+            page.page.insertNewline(nil)
+            page.page.insertText("more", replacementRange: page.page.selectedRange())
+            #expect(page.body() == [[Run("Bold", styles: [.bold])], [Run("more", styles: [.bold])]])
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func upperCasingYDiaeresisLeavesWhatThePolicyAdmits() async throws {
+        try await withPage([scene("One", [[Run("\u{00FF}es no")]])]) { page in
+            page.focusPage(at: 0)
+            page.page.setSelectedRange(NSRange(location: 0, length: 3))
+            page.page.uppercaseWord(nil)
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func turnedOnSubstitutionsStillGoThroughThePolicy() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            let view = page.page
+            view.isAutomaticQuoteSubstitutionEnabled = true
+            view.isAutomaticDashSubstitutionEnabled = true
+            page.focusPage(at: 2)
+            view.insertText(" \"hi\" -- ok", replacementRange: view.selectedRange())
+            view.checkTextInDocument(nil)
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func undoRedoAndFindAndReplaceMarkTheBookEditedInTheSameTurn() async throws {
+        try await withPage([scene("One", [[Run("one two")]])]) { page in
+            page.focusPage(at: 7)
+            page.page.insertText(" three", replacementRange: page.page.selectedRange())
+            page.page.breakUndoCoalescing()
+            await eventually { page.book.status == .saved }
+            page.page.undoManager?.undo()
+            #expect(page.book.status == .unsaved, "undo")
+            await eventually { page.book.status == .saved }
+            page.page.undoManager?.redo()
+            #expect(page.book.status == .unsaved, "redo")
+            await eventually { page.book.status == .saved }
+            finderReplace(page.page, NSRange(location: 0, length: 3), "ONE")
+            #expect(page.book.status == .unsaved, "find and replace")
+        }
+    }
+}

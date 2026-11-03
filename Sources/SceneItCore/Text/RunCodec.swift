@@ -61,9 +61,15 @@ public enum RunCodec {
     }
 
     private static func paragraphs(from text: NSAttributedString) -> [Paragraph] {
+        let lines = lines(from: text)
+        return lines == [[]] ? [] : lines
+    }
+
+    /// One paragraph per line of `text`, so text with no line breaks is one paragraph.
+    static func lines(from text: NSAttributedString) -> [Paragraph] {
         let string = text.string
         let lines = string.split(omittingEmptySubsequences: false, whereSeparator: \.isLineBreak)
-        let paragraphs = lines.map { line in
+        return lines.map { line in
             var pieces: [(format: RunFormat, text: [String])] = []
             let lineRange = NSRange(line.startIndex..<line.endIndex, in: string)
             text.enumerateAttributes(in: lineRange) { attributes, range, _ in
@@ -82,7 +88,6 @@ public enum RunCodec {
             }
             return Paragraph(pieces.map { $0.format.run($0.text.joined()) })
         }
-        return paragraphs == [[]] ? [] : paragraphs
     }
 }
 

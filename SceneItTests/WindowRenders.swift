@@ -93,6 +93,63 @@ struct WindowRenders {
         }
     }
 
+    /// The page editor (#15): formatted text on the page, a scene longer than a page scrolled to
+    /// its end, and the find bar (Cmd+F) over the desk.
+    @Test func page() async throws {
+        let output = try #require(renderFolder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try await withSampleBook { store, book, preferences in
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences, mode: .constant(.page))
+            let scene = try #require(book.openScene)
+            book.replaceBody(of: scene, with: Self.formattedBody)
+            try Self.write(
+                try await Self.render(window), name: "page-formatted",
+                caption: "The page: Times New Roman 12, double-spaced, 0.5 in first-line indent", to: output)
+            try Self.write(
+                try await Self.render(window) { window in
+                    let page = try #require(Self.page(in: window))
+                    let item = NSMenuItem()
+                    item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                    page.performFindPanelAction(item)
+                },
+                name: "page-find-bar", caption: "Cmd+F: the find bar above the desk", to: output)
+            book.replaceBody(of: scene, with: Array(repeating: Self.formattedBody, count: 4).flatMap(\.self))
+            try Self.write(
+                try await Self.render(window) { window in
+                    let page = try #require(Self.page(in: window))
+                    page.scrollToEndOfDocument(nil)
+                },
+                name: "page-long-scene-end", caption: "A scene longer than a page, scrolled to its end",
+                to: output)
+        }
+    }
+
+    private static func page(in window: NSWindow) -> ManuscriptTextView? {
+        func views(in view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        return window.contentView.flatMap { views(in: $0).compactMap { $0 as? ManuscriptTextView }.first }
+    }
+
+    private static let formattedBody: [Paragraph] = [
+        [
+            Run("The ferry left at dawn, and Mara watched the "),
+            Run("harbor lights", styles: [.italic]),
+            Run(" go out one by one behind her. She had packed in the dark, by feel, the way she used to "),
+            Run("as a girl", styles: [.bold]),
+            Run(" when the house was asleep and leaving still seemed like a game."),
+        ],
+        [
+            Run("Halfway across, the engine coughed and the deckhand swore at it in a language she half "),
+            Run("remembered", color: .purple),
+            Run(". He found the "),
+            Run("letter", highlight: .green),
+            Run(" under the bench an hour later, but by then she was "),
+            Run("already", styles: [.strike]),
+            Run(" ashore."),
+        ],
+        [Run("Nobody met her at the landing, which she had half expected and wholly dreaded.")],
+    ]
+
     // MARK: Sample books
 
     /// Opens `bytes` as a book's `book.md`; the test host's alerts answer Keep Read-Only.
@@ -215,7 +272,10 @@ struct WindowRenders {
     }
 
     /// The whole window, title bar and toolbar included, at 1× and 2×.
-    static func render(_ view: some View) async throws -> Renders {
+    static func render(_ view: some View, preparing prepare: (NSWindow) throws -> Void = { _ in })
+        async throws
+        -> Renders
+    {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
         controller.sceneBridgingOptions = [.toolbars, .title]
@@ -234,6 +294,7 @@ struct WindowRenders {
         }
         try await Task.sleep(for: .milliseconds(800))
         window.makeFirstResponder(nil)
+        try prepare(window)
         try await Task.sleep(for: .milliseconds(200))
         let frameView = try #require(window.contentView?.superview)
         frameView.layoutSubtreeIfNeeded()

@@ -68,31 +68,34 @@ struct SheetFocusTests {
             }
             let editors = editors()
             let title = try #require(editors.compactMap { $0 as? NSTextField }.first)
-            let body = try #require(editors.compactMap { $0 as? NSTextView }.first)
+            let body = try #require(editors.compactMap { $0 as? ManuscriptTextView }.first)
             #expect(editors.count == 2, "precondition: the page's only editors are its title and body")
-            let page = try #require(title.ancestorShared(with: body))
-            #expect(page !== window.contentView, "precondition: the page is narrower than the window")
 
-            #expect(window.makeFirstResponder(title))
-            let editor = try #require(window.firstResponder as? NSText)
-            #expect(editor.delegate === title, "precondition: the title field has the focus")
+            // A sheet takes the focus from either editor, and gives both back when it closes.
+            for focused in [title, body] as [NSView] {
+                #expect(window.makeFirstResponder(focused))
+                #expect(window.firstResponder is NSText, "precondition: an editor has the focus")
 
-            box.mode = .scenes
-            await eventually {
-                !(window.firstResponder is NSText) && !views(in: page).contains(where: takesTyping)
+                box.mode = .scenes
+                await eventually {
+                    !(window.firstResponder is NSText)
+                        && !views(in: window.contentView).contains(where: takesTyping)
+                }
+                #expect(!(window.firstResponder is NSText), "no text in the covered page keeps the focus")
+                #expect(
+                    title.window === window, "precondition: the title field is still there, under the sheet")
+                #expect(body.window === window, "precondition: the page is still there, under the sheet")
+                #expect(!title.isEnabled, "the title field is disabled under the sheet")
+                #expect(!body.isEditable, "the page can't be typed in under the sheet")
+                #expect(
+                    !views(in: window.contentView).contains(where: takesTyping),
+                    "nothing in the window takes typing")
+
+                box.mode = .page
+                await eventually { title.isEnabled && takesTyping(body) }
+                #expect(title.isEnabled, "the title field is usable again once the sheet closes")
+                #expect(takesTyping(body), "the body is usable again once the sheet closes")
             }
-            #expect(!(window.firstResponder is NSText), "no text in the covered page keeps the focus")
-            #expect(title.window === window, "precondition: the title field is still there, under the sheet")
-            #expect(!title.isEnabled, "the title field is disabled under the sheet")
-            #expect(!views(in: page).contains(where: takesTyping), "nothing on the covered page takes typing")
-
-            box.mode = .page
-            @MainActor func bodyTakesTyping() -> Bool {
-                views(in: page).contains { $0 is NSTextView && takesTyping($0) }
-            }
-            await eventually { title.isEnabled && bodyTakesTyping() }
-            #expect(title.isEnabled, "the title field is usable again once the sheet closes")
-            #expect(bodyTakesTyping(), "the body is usable again once the sheet closes")
             #expect(await books.store.closeBook() == .left)
         }
     }
