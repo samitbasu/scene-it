@@ -74,15 +74,22 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     }
 }
 
-/// Times New Roman's four faces at one size.
+/// Times New Roman's four faces at one size. Without Times New Roman, the system font's,
+/// for as long as the process runs.
 ///
-/// `@unchecked` because `NSFont` is immutable and documented as safe to use from any thread,
-/// but isn't marked `Sendable`.
+/// `@unchecked` because `NSFont` isn't marked `Sendable`, but it's immutable and toll-free
+/// bridged to `CTFont`, whose header says all of its functions are thread safe.
 private struct Typeface: @unchecked Sendable {
     private let regular, bold, italic, boldItalic: NSFont
 
     init(size: CGFloat) {
-        let base = NSFont(name: ParagraphRole.fontFamily, size: size) ?? .systemFont(ofSize: size)
+        let base: NSFont
+        if let font = NSFont(name: ParagraphRole.fontFamily, size: size) {
+            base = font
+        } else {
+            Log.editor.error("Times New Roman is missing; using the system font", ["size": .count(Int(size))])
+            base = .systemFont(ofSize: size)
+        }
         func face(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
             NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
         }

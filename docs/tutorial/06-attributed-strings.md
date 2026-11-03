@@ -242,10 +242,15 @@ read it at the same moment wait for the one that's initializing it. That's why t
 faces are looked up there, once, and never again per call. Each lookup is a
 synchronous request to the font server (`fontd`, another process), and that server
 can stall. With eight threads looking fonts up at once, every one of them waited for
-a reply that never came, which hung `swift test` (#14 and #77). Because `NSFont`
-is immutable and safe to share between threads, but isn't marked `Sendable`,
-`Typeface` is declared `@unchecked Sendable`. That's the Swift version of a Rust
-`unsafe impl Sync`: the programmer vouches for something the compiler can't check.
+a reply that never came, which hung `swift test` (#14 and #77). The flip side of
+looking the faces up once: if Times New Roman is missing when they're first needed, the
+system-font fallback is what's kept until the app quits, and the miss is logged once.
+
+`NSFont` isn't marked `Sendable`, but it's immutable and *toll-free bridged* to Core
+Text's `CTFont`: one object, which either API can use. `CTFont.h` says all its functions
+are thread safe. So `Typeface` is declared `@unchecked Sendable`. That's the Swift
+version of a Rust `unsafe impl Sync`: the programmer vouches for something the
+compiler can't check.
 
 Times New Roman has all four faces. The tests check that they really resolve
 (`TimesNewRomanPSMT`, `TimesNewRomanPS-BoldMT`, `TimesNewRomanPS-ItalicMT`,

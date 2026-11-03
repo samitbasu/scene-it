@@ -118,17 +118,20 @@ runs, in order, stopping at the first failure:
 
 Each step has a wall-clock limit: 5 minutes for steps 1–5, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
-end a test that's blocked, so without this a hung test hangs the gate (#77). Before it kills
-the step's process tree, and any process still running something from `.build/` or `build/`,
-check.sh samples each of those processes for 3 seconds into
-`build/check/<step>-hang-<pid>.txt`.
+end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
+check.sh kills two sets of processes: the step's own process tree, and any process that runs
+something from `.build/` or `build/`, started while the step ran, and isn't `Scene It.app`.
+That spares a Debug app or an IDE build that was already running, and an app the step didn't
+start itself. Before it kills them, check.sh samples up to four of them that are test runners
+(`swiftpm-testing-helper`, an `.xctest` bundle or a test host app), all at once, for 3 seconds,
+into `build/check/<step>-hang-<pid>.txt`.
 
 **Output on success:** nothing, exit status 0.
 
 **Output on failure:** exit status 1, and on stderr:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
 `error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match.
-A step that ran out of time adds `error: still running after <n> min, so it was killed: <command>`
+A step that ran out of time adds `error: still running after <n> min (or s), so it was killed: <command>`
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
