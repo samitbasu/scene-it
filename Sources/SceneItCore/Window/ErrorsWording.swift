@@ -92,12 +92,12 @@ public enum ErrorsWording {
     public static let apply = "Apply"
     public static let cancel = "Cancel"
 
-    /// Under a line the writer fixed that still doesn't read (not approved yet).
+    /// Under a line the writer fixed that still doesn't read.
     public static func stillUnreadable(_ reason: ErrorReason) -> String {
         "Still can't read this line: " + self.reason(reason)
     }
 
-    /// When Apply can't act: the book went read-only, or the entry changed (not approved yet).
+    /// When Apply can't act: the book went read-only, or the entry changed.
     public static let cantApply =
         "Scene It can't change this entry now. The book is read-only, or the entry has changed."
 
