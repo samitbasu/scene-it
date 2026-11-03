@@ -62,7 +62,7 @@ struct BookStoreIntegrationTests {
             let book = try #require(store.current)
             let scene = try #require(book.addScene(after: nil))
             await eventually { book.status == .saved }
-            book.replaceBody(of: scene, with: PlainBody.paragraphs("The tide came in.\n\nIt went out."))
+            book.replaceBody(of: scene, with: [[Run("The tide came in.")], [], [Run("It went out.")]])
             #expect(book.status == .unsaved)
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)

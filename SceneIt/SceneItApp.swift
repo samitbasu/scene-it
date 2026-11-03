@@ -13,6 +13,7 @@ struct SceneItApp: App {
         .defaultSize(WindowMetrics.defaultSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
+            TextEditingCommands()
             BookCommands(books: .shared)
             WindowCommands(books: .shared)
             DiagnosticsCommands(diagnostics: .shared)

@@ -12,6 +12,8 @@ enum WindowMetrics {
     static let pageSize = CGSize(width: 612, height: 792)
     static let pageMargin: CGFloat = 72
     static let deskPadding: CGFloat = 28
+    /// The page's shadow on the desk: its opacity, blur radius and downward offset.
+    static let pageShadow = (opacity: 0.12, radius: CGFloat(3), drop: CGFloat(1))
     static let barHeight: CGFloat = 44
     static let statusBarHeight: CGFloat = 26
     static let titleStripPadding: CGFloat = 10

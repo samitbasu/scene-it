@@ -71,9 +71,6 @@ public enum WindowWording {
 
     public static let titleLabel = "Title"
     public static let noSceneOpen = "No scene open"
-    public static let formattedSceneNotEditable =
-        "This scene has formatting or comments, which this temporary editor would lose, so it can't be "
-        + "edited here."
 
     // MARK: Right panel (PLAN §4.4)
 

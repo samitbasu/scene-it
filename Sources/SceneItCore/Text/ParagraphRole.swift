@@ -46,6 +46,18 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         RunFormat().attributes(in: self)
     }
 
+    /// What text typed after text with `attributes` gets: its styles, color and highlight,
+    /// shown in this role, and never its comments, so typing at the edge of a commented span
+    /// doesn't extend the comment (PLAN §8.1).
+    @MainActor
+    public func typingAttributes(continuing attributes: [NSAttributedString.Key: Any])
+        -> [NSAttributedString.Key: Any]
+    {
+        var format = RunFormat(attributes)
+        format.comments = []
+        return format.attributes(in: self)
+    }
+
     private var pointSize: CGFloat {
         switch self {
         case .title: 18

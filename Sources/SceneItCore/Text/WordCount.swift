@@ -78,6 +78,12 @@ public struct SceneWordCounts: Hashable, Sendable {
         countsMade += 1
     }
 
+    /// Updates `scene`'s count after paragraphs counting `removed` were replaced by ones
+    /// counting `added`. Exact, since a paragraph break always separates words.
+    public mutating func adjust(_ scene: SceneID, removing removed: WordCount, adding added: WordCount) {
+        counts[scene] = WordCount(words: self[scene].words - removed.words + added.words)
+    }
+
     public subscript(_ scene: SceneID) -> WordCount {
         counts[scene] ?? .zero
     }

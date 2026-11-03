@@ -42,6 +42,12 @@ public enum CharacterPolicy {
         return admit(String(text.map { $0.isLineBreak ? "\n" : $0 })).text
     }
 
+    /// What an editor keeps of text typed or pasted into it: `admitted`, without the object
+    /// replacement characters attachments sit on (decision 0016).
+    public static func admittedInput(_ text: String) -> String {
+        admitted(text.contains(where: \.isObjectReplacement) ? text.filter { !$0.isObjectReplacement } : text)
+    }
+
     /// `text` admitted as one line: each line break (`Character.isLineBreak`) becomes a
     /// space first. For run text and scene titles.
     public static func admittedLine(_ text: String) -> String {

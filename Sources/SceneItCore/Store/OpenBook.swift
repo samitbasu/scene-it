@@ -18,6 +18,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
     @ObservationIgnored public let structureUndo = UndoManager()
+    @ObservationIgnored private var pageUndoManagers: [SceneID: UndoManager] = [:]
 
     private var access: Access
     @ObservationIgnored private weak var store: BookStore<C>?
@@ -99,8 +100,89 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         edit(scene) { $0.title = title }
     }
 
+    /// Replaces the whole body, as something other than the page's own editing: the page's
+    /// undo history for the scene no longer fits its text, so it's cleared.
     public func replaceBody(of scene: SceneID, with body: [Paragraph]) {
         edit(scene) { $0.body = body }
+        if book.scene(scene)?.body == body { pageUndoManagers[scene]?.removeAllActions() }
+    }
+
+    /// The page's edit to `scene`'s body, adding `comments` to the scene with it (a paste
+    /// that brings comments along, decision 0017). Any comment id the scene then has no
+    /// comment for is dropped from the new paragraphs, so the book always saves. Returns the
+    /// paragraphs the body now holds in place of the replaced lines; `nil`, changing nothing,
+    /// if the book is read-only, there's no such scene or the lines aren't in its body.
+    @discardableResult
+    public func apply(_ change: BodyChange, to scene: SceneID, adding comments: [Comment] = [])
+        -> [Paragraph]?
+    {
+        guard let driver = editingDriver, let place = place(of: scene) else { return nil }
+        var edited = book[keyPath: place.list][place.index]
+        let added = comments.filter { comment in !edited.comments.contains { $0.id == comment.id } }
+        edited.comments += added
+        let known = Set(edited.comments.map(\.id))
+        let accepted = change.mapParagraphs { paragraph in
+            guard Paragraph.commentIDs(in: [paragraph]).isSubset(of: known) else {
+                return Paragraph(
+                    paragraph.runs.map { run in
+                        var run = run
+                        run.comments.formIntersection(known)
+                        return run
+                    }
+                ).withMaximalRuns
+            }
+            return paragraph
+        }
+        guard let replaced = accepted.replaced(in: edited.body), let body = accepted.applied(to: edited.body)
+        else {
+            return nil
+        }
+        guard !added.isEmpty || Array(replaced) != accepted.paragraphs else { return accepted.paragraphs }
+        edited.body = body
+        edited.modified = Timestamp(.now, in: .current)
+        book[keyPath: place.list][place.index] = edited
+        wordCounts.adjust(scene, removing: WordCount(Array(replaced)), adding: WordCount(accepted.paragraphs))
+        driver.send(.edited)
+        return accepted.paragraphs
+    }
+
+    /// Takes back comments a paste added (its undo), unless some text still carries them.
+    /// Registers putting them back on the scene's page undo.
+    public func removeComments(_ ids: Set<CommentID>, from scene: SceneID) {
+        guard editingDriver != nil, let place = place(of: scene) else { return }
+        let current = book[keyPath: place.list][place.index]
+        let removed = current.comments.filter { ids.contains($0.id) && current.isDetached($0.id) }
+        guard !removed.isEmpty else { return }
+        book[keyPath: place.list][place.index].comments.removeAll { removed.contains($0) }
+        pageUndo(for: scene).registerUndo(withTarget: self) { $0.restoreComments(removed, to: scene) }
+        editingDriver?.send(.edited)
+    }
+
+    private func restoreComments(_ comments: [Comment], to scene: SceneID) {
+        guard editingDriver != nil, let place = place(of: scene) else { return }
+        let present = Set(book[keyPath: place.list][place.index].comments.map(\.id))
+        let restored = comments.filter { !present.contains($0.id) }
+        book[keyPath: place.list][place.index].comments += restored
+        pageUndo(for: scene).registerUndo(withTarget: self) {
+            $0.removeComments(Set(restored.map(\.id)), from: scene)
+        }
+        editingDriver?.send(.edited)
+    }
+
+    /// The undo history of `scene`'s page (PLAN §8.6), kept while the book is open.
+    public func pageUndo(for scene: SceneID) -> UndoManager {
+        if let manager = pageUndoManagers[scene] { return manager }
+        let manager = UndoManager()
+        pageUndoManagers[scene] = manager
+        return manager
+    }
+
+    /// `clip` as pasting it into `scene` writes it (decision 0017): its lines, and the comments
+    /// the paste adds to the scene, copied with fresh ids where they must be. Pass both to
+    /// `apply(_:to:adding:)`.
+    public func resolve(_ clip: PageClip, into scene: SceneID) -> (lines: [Paragraph], comments: [Comment])? {
+        guard let destination = book.scene(scene) else { return nil }
+        return clip.resolved(into: destination, ids: &ids)
     }
 
     public func replaceNotes(of scene: SceneID, with notes: [Paragraph]) {
@@ -126,20 +208,24 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         autosave?.send(.sceneSwitched)
     }
 
-    private func edit(_ id: SceneID, _ change: (inout BookScene) -> Void) {
-        guard let driver = editingDriver else { return }
+    /// Where the scene with this id is: in the story or the Boneyard, and at which index.
+    private func place(of id: SceneID) -> (list: WritableKeyPath<Book, [BookScene]>, index: Int)? {
         for list in [\Book.scenes, \Book.boneyard] {
-            guard let index = book[keyPath: list].firstIndex(where: { $0.id == id }) else { continue }
-            var scene = book[keyPath: list][index]
-            change(&scene)
-            guard scene != book[keyPath: list][index] else { return }
-            scene.modified = Timestamp(.now, in: .current)
-            let bodyChanged = scene.body != book[keyPath: list][index].body
-            book[keyPath: list][index] = scene
-            if bodyChanged { wordCounts.recount(scene) }
-            driver.send(.edited)
-            return
+            if let index = book[keyPath: list].firstIndex(where: { $0.id == id }) { return (list, index) }
         }
+        return nil
+    }
+
+    private func edit(_ id: SceneID, _ change: (inout BookScene) -> Void) {
+        guard let driver = editingDriver, let (list, index) = place(of: id) else { return }
+        var scene = book[keyPath: list][index]
+        change(&scene)
+        guard scene != book[keyPath: list][index] else { return }
+        scene.modified = Timestamp(.now, in: .current)
+        let bodyChanged = scene.body != book[keyPath: list][index].body
+        book[keyPath: list][index] = scene
+        if bodyChanged { wordCounts.recount(scene) }
+        driver.send(.edited)
     }
 
     // MARK: Error entries (book format §5.4)
@@ -227,11 +313,15 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo.
     private func commit(_ owner: ErrorOwner, _ part: BookPart, inverse: @escaping (OpenBook) -> Void) {
-        guard let driver = editingDriver, book.part(owner) != part, book.replace(owner, with: part) else {
+        let old = book.part(owner)
+        guard let driver = editingDriver, old != part, book.replace(owner, with: part) else {
             return
         }
         if case .scene(let scene) = part {
             wordCounts.recount(scene)
+            if case .scene(let before) = old, before.body != scene.body {
+                pageUndoManagers[before.id]?.removeAllActions()
+            }
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
         }
         structureUndo.registerUndo(withTarget: self, handler: inverse)

@@ -11,7 +11,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 03 | [Saving safely](03-saving-safely.md): the `.sceneit` package, verify-then-atomic-write, backup rotation, `F_FULLFSYNC`, crash states, the file-system seam, tiered snapshots and the external mirror | written |
 | 03a | [When to save](03a-when-to-save.md): the autosave scheduler as a pure state machine, the `Clock` protocol, task cancellation, `@MainActor`, safe quit | written |
 | 04 | [SwiftUI and Observation](04-swiftui-and-observation.md): `@Observable` and how views track state, `@MainActor` and `@concurrent`, the `BookStore` composing the trust components, `NSApplicationDelegateAdaptor`, `.commands`, `NSAlert` from async code | written |
-| 05 | AppKit interop and TextKit 2: `NSViewRepresentable`, `ManuscriptTextView` | planned, lands with #15 |
+| 05 | [AppKit interop and TextKit 2](05-appkit-interop-textkit2.md): `NSViewRepresentable` and coordinators, TextKit 2 versus 1, the text storage as a mirror of the model, delegate veto points, `typingAttributes`, the pasteboard, undo managers, field editors | written |
 | 06 | [Attributed strings and the `RunCodec`](06-attributed-strings.md): `NovelAttributes`, runs to `NSAttributedString` and back | written |
 | 07 | Undo: `UndoManager`, text undo versus structural undo | planned, lands with #16 |
 | 08 | The search engine: the `SearchIndex` protocol and `KeywordSearch` | planned, lands with #30 |

@@ -8,8 +8,9 @@ It covers `@Observable` (and why it isn't Rust's usual answer to shared mutable 
 `NSApplicationDelegateAdaptor`, `.commands`, and calling AppKit's `NSAlert` from async code.
 
 The window ([`SceneIt/Window/`](../../SceneIt/Window/), #13) has PLAN §4's skeleton: toolbar,
-rail, page, right panel and status bar. Two pieces of it are still **temporary scaffolding**: the
-plain-text body editor on the page (#15 replaces it) and the scene list in the Scenes sheet (#28).
+rail, page, right panel and status bar. One piece of it is still **temporary scaffolding**: the
+scene list in the Scenes sheet (#28). The page itself is an AppKit text view, the subject of
+[chapter 05](05-appkit-interop-textkit2.md).
 
 ## Where the code is
 
@@ -96,30 +97,27 @@ the `Book` directly. The store forbids that: `book` is `public private(set)`, an
 goes through a method that also tells autosave, **in the same main-actor turn**:
 
 ```swift
-        guard let driver = editingDriver else { return }
-        for list in [\Book.scenes, \Book.boneyard] {
-            guard let index = book[keyPath: list].firstIndex(where: { $0.id == id }) else { continue }
-            var scene = book[keyPath: list][index]
-            change(&scene)
-            guard scene != book[keyPath: list][index] else { return }
-            scene.modified = Timestamp(.now, in: .current)
-            book[keyPath: list][index] = scene
-            driver.send(.edited)
-            return
-        }
+        guard let driver = editingDriver, let (list, index) = place(of: id) else { return }
+        var scene = book[keyPath: list][index]
+        change(&scene)
+        guard scene != book[keyPath: list][index] else { return }
+        scene.modified = Timestamp(.now, in: .current)
+        let bodyChanged = scene.body != book[keyPath: list][index].body
+        book[keyPath: list][index] = scene
+        if bodyChanged { wordCounts.recount(scene) }
+        driver.send(.edited)
 ```
 
 An edit that changes nothing is not an edit, so a text field re-setting the same value
 doesn't schedule a save. A read-only book has no driver, so `edit` returns at its first
 line: there's nothing to save it with (ADR 0020, and §4 below).
 
-The scene's title field (ADR 0015) uses a hand-made `Binding` whose setter calls the store,
-which is the pattern #15's editor will follow:
+The scene's title field (ADR 0015) calls the store from its delegate as the writer types, and
+the page does the same through `OpenBook.apply` ([chapter 05](05-appkit-interop-textkit2.md)):
 
 ```swift
-        let text = Binding(
-            get: { book.book.scene(scene)?.title.text ?? "" },
-            set: { book.setTitle(of: scene, to: SceneTitle(pasted: $0)) })
+            let title = SceneTitle(pasted: typed)
+            book.setTitle(of: scene, to: title)
 ```
 
 ## 2. `@MainActor` on a whole object graph, and `@concurrent` off it
