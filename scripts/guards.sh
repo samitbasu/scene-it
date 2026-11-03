@@ -2,6 +2,22 @@
 # scan as arguments, prints `file:line: error: …` for every hit and returns 1 if there is one.
 # Lines that are only a `//` comment are ignored; the patterns match one line at a time.
 
+# Every source guard, as <check.sh step name>:<function>.
+readonly source_guards=(
+    textkit1-guard:forbid_textkit1
+    logging-guard:forbid_unchecked_logging
+    trap-message-guard:forbid_interpolated_traps
+)
+
+# forbid_all <path>…: runs every source guard, reporting all their hits.
+forbid_all() {
+    local entry status=0
+    for entry in "${source_guards[@]}"; do
+        "${entry#*:}" "$@" || status=1
+    done
+    return "$status"
+}
+
 # forbid_pattern <message> <extended regex> [<exempt file>…] -- <path>…
 forbid_pattern() {
     local message=$1 pattern=$2

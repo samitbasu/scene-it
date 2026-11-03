@@ -4,6 +4,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 readonly swift_paths=(Package.swift Sources Tests SceneIt SceneItTests)
 
+lint_swift() {
+    swift format lint --strict --recursive --parallel "${swift_paths[@]}"
+}
+
 strip_ansi() {
     sed -E $'s/\x1b\\[[0-9;]*m//g; s/\x1b\\]8;;[^\x1b]*\x1b\\\\//g'
 }

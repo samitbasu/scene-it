@@ -36,6 +36,7 @@ SceneItTests/              app-hosted tests (run through xcodebuild)
 Config/                    Info.plist and other build configuration
 .swift-format              formatter and lint rules (used by both scripts)
 scripts/                   the scripts below; lib.sh holds shared paths and log helpers, guards.sh the source guards
+Justfile                   optional shortcuts for the scripts (see Scripts)
 docs/                      decisions, workflow, tutorials
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
@@ -47,6 +48,37 @@ All scripts are run from the repository root, use `bash` with `set -euo pipefail
 and exit non-zero on failure. **Status** shows whether a script exists yet. A
 script marked *planned* lands with the issue named, and its section is updated
 from the real behaviour when it merges.
+
+### `Justfile`: optional shortcuts
+
+[`just`](https://github.com/casey/just) runs the recipes in the top-level `Justfile`. Each
+one is a one-line wrapper around a script below or a standard command, so `just` is never
+required: the table gives the plain equivalent of every recipe.
+
+```sh
+cargo install just      # or: brew install just
+just                    # same as just --list: every recipe, with its description
+just test-filter Corpus # extra arguments are passed through where the table shows ARGS
+```
+
+| Recipe | Runs |
+| --- | --- |
+| `just check` | `scripts/check.sh` |
+| `just fmt` | `scripts/format.sh` |
+| `just lint` | the gate's lint step alone: `lint_swift` from `scripts/lib.sh` (`swift format lint --strict` over the Swift paths) |
+| `just guards` | `scripts/test-guards.sh`, then every source guard (`forbid_all` in `scripts/guards.sh`) over the Swift paths |
+| `just test ARGS` | `swift test ARGS` (SceneItCore) |
+| `just test-app ARGS` | `xcodebuild … -derivedDataPath build/DerivedData test ARGS` (the app-hosted tests, as the gate runs them) |
+| `just test-filter PATTERN ARGS` | `swift test --filter PATTERN ARGS` |
+| `just coverage ARGS` | `scripts/coverage.sh ARGS` |
+| `just fuzz-page SEEDS=8 STEPS=1500` | the longer page fuzz (below), e.g. `just fuzz-page 16 3000` |
+| `just corpus-regenerate` | `CORPUS_REGENERATE=1 swift test --filter CorpusConformance` (`Tests/Corpus/README.md`), then a reminder to review the diff |
+| `just build ARGS` | `xcodebuild … -derivedDataPath build/DerivedData build ARGS` (Debug) |
+| `just run` | `just build`, then `open "build/DerivedData/Build/Products/Debug/Scene It.app"`. It uses your own preferences and books, like running from Xcode. |
+| `just open` | `open SceneIt.xcodeproj` |
+| `just release` | `scripts/release.sh` |
+| `just release-unnotarized` | `scripts/release.sh --unnotarized` |
+| `just clean` | deletes `.build/` and everything in `build/` except `build/release/`, which holds the dSYMs of shipped builds |
 
 ### `scripts/check.sh`: the commit gate
 
@@ -73,7 +105,7 @@ runs, in order, stopping at the first failure:
    `fatalError(`, `precondition(`, `preconditionFailure(`, `assert(` or `assertionFailure(`.
    Crash reports, which problem reports include verbatim, quote these messages.
 
-   Steps 2–4 are functions in `scripts/guards.sh`. Each one fails if a path is missing,
+   Steps 2–4 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
    ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
    for each hit.
 5. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
@@ -130,6 +162,57 @@ paths and rules `check.sh` lints against. Some lint
 findings (naming, for example) can't be fixed automatically and still need a
 manual edit. **Output:** modified source files only; review them
 with `git diff`.
+
+### `scripts/coverage.sh`: line coverage
+
+**Status:** available. Not part of the gate.
+
+```sh
+scripts/coverage.sh               # SceneItCore and the app (about 4.5 minutes)
+scripts/coverage.sh --core-only   # SceneItCore only (about 1.5 minutes)
+scripts/coverage.sh --open        # then open the SceneItCore HTML report
+```
+
+1. `swift test --enable-code-coverage`, skipping `ScalingTests` and `PerformanceTests`: they
+   compare timings, which instrumentation distorts. Then `xcrun llvm-cov` over the
+   SceneItCore test binary (found through `swift build --show-bin-path`) and the profile
+   `swift test --show-codecov-path` names, leaving out `Tests/` and `.build/`: a summary and
+   an HTML report.
+2. Unless `--core-only`: `xcodebuild … -enableCodeCoverage YES test` with its own
+   DerivedData (`build/coverage/DerivedData`, so the gate's incremental build is left alone),
+   then `xcrun xccov view --report --json` for the `Scene It.app` target.
+
+**Output:** line coverage per area (each directory under `Sources/SceneItCore/` and
+`SceneIt/`; a row named for the folder itself counts the files directly in it), each module's total, the five least-covered files, the skipped suites and the
+report paths. For example:
+
+```
+Area                                  Covered    Lines   Cover
+SceneIt                                    74      186   39.8%
+…
+Sources/SceneItCore/Autosave              378      384   98.4%
+…
+Sources/SceneItCore/Window                172      241   71.4%
+
+Total SceneIt                            2065     2430   85.0%
+Total Sources/SceneItCore                7033     7456   94.3%
+
+Least covered files:
+  0.0%      0/25     Sources/SceneItCore/Diagnostics/DiagnosticsDirectory.swift
+…
+
+Skipped under coverage (timing-sensitive): ScalingTests PerformanceTests
+Core HTML: /Users/samitbasu/Devel/scene-it/build/coverage/core-html/index.html
+App result bundle: /Users/samitbasu/Devel/scene-it/build/coverage/app.xcresult
+```
+
+**Output on failure:** exit status 1 and `coverage.sh: <step> failed (full log:
+build/coverage/<step>.log)` followed by that log's error lines, as for check.sh. A failing
+test fails the run. Unknown arguments print the usage and exit 2.
+
+**Products:** in `build/coverage/`: `core-html/index.html`, `app.xcresult` (open it in Xcode
+for the app's per-line coverage), `files.tsv` (path, covered lines, executable lines, per
+file), one log per step, and the app build in `DerivedData/`.
 
 ### A longer run of the page fuzz
 

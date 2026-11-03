@@ -38,10 +38,10 @@ run() {
 }
 
 run guard-tests scripts/test-guards.sh
-run textkit1-guard forbid_textkit1 "${swift_paths[@]}"
-run logging-guard forbid_unchecked_logging "${swift_paths[@]}"
-run trap-message-guard forbid_interpolated_traps "${swift_paths[@]}"
-run lint swift format lint --strict --recursive --parallel "${swift_paths[@]}"
+for guard in "${source_guards[@]}"; do
+    run "${guard%%:*}" "${guard#*:}" "${swift_paths[@]}"
+done
+run lint lint_swift
 run swift-test swift test
 run xcodebuild xcodebuild \
     -project SceneIt.xcodeproj \
