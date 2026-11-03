@@ -13,6 +13,8 @@ final class BookController {
     let memory: any BookMemory
     /// The window's layout (ADR 0022).
     let preferences: AppPreferences
+    /// The open book's page, for the Format menu and the control bar.
+    let formatting: PageFormatting
     let mirror: BackupMirror
     let prompts: any StorePrompts
     private let role: ProcessRole
@@ -24,6 +26,7 @@ final class BookController {
         let storage: any PreferenceStorage
         (memory, mirror, standard, storage) = Self.surroundings(for: role)
         preferences = AppPreferences(storage)
+        formatting = PageFormatting(preferences: preferences)
         self.prompts = prompts ?? standard
         store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: self.prompts)
     }

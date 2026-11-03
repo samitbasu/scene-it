@@ -16,6 +16,27 @@ enum WindowMetrics {
     /// The page's shadow on the desk: its opacity, blur radius and downward offset.
     static let pageShadow = (opacity: 0.12, radius: CGFloat(3), drop: CGFloat(1))
     static let barHeight: CGFloat = 44
+
+    /// The formatting bar, as the owner picked it (#18): plain glyph buttons; a filled background
+    /// for state, darker for on and lighter for mixed; the color and highlight buttons each with
+    /// a separate ▾ opening a row of swatches; the "A" over a colored bar and the "A" on a
+    /// colored tile.
+    enum Bar {
+        static let buttonSize = CGSize(width: 26, height: 24)
+        static let arrowWidth: CGFloat = 14
+        static let cornerRadius: CGFloat = 5
+        static let buttonSpacing: CGFloat = 2
+        static let groupSpacing: CGFloat = 8
+        /// The opacities of the primary color behind a button.
+        static let onFill = 0.14
+        static let mixedFill = 0.06
+        static let pressedFill = 0.2
+        /// The whole bar while the page can't be formatted.
+        static let dimmedOpacity = 0.35
+        static let colorBarSize = CGSize(width: 13, height: 3)
+        static let highlightTile: CGFloat = 18
+        static let swatchSize: CGFloat = 18
+    }
     static let statusBarHeight: CGFloat = 26
     static let titleStripPadding: CGFloat = 10
     /// Between the title's label and its field.

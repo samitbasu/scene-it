@@ -92,7 +92,7 @@ public enum RunCodec {
 }
 
 /// Everything about a run except its text: the one mapping between `Run` and attributes.
-struct RunFormat: Hashable {
+struct RunFormat: Hashable, Sendable {
     var styles: Set<TextStyle> = []
     var color: TextColor?
     var highlight: HighlightColor?

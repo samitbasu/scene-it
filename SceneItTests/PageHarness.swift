@@ -26,6 +26,7 @@ struct PageHarness {
     let window: NSWindow
     let page: ManuscriptTextView
     let title: NSTextField
+    let formatting: PageFormatting
 
     var storage: NSTextStorage { page.textStorage! }
 
@@ -78,7 +79,8 @@ func withPage(
         let size = WindowMetrics.defaultSize
         let controller = NSHostingController(
             rootView: BookWindow(
-                book: book, store: store, preferences: books.preferences, mode: .constant(.page)))
+                book: book, store: store, preferences: books.preferences, formatting: books.formatting,
+                mode: .constant(.page)))
         controller.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -97,7 +99,8 @@ func withPage(
                 $0.placeholderString == WindowWording.untitledScene
             })
         let harness = PageHarness(
-            url: url, store: store, book: book, window: window, page: page, title: title)
+            url: url, store: store, book: book, window: window, page: page, title: title,
+            formatting: books.formatting)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
         #expect(await store.closeBook() == .left)
