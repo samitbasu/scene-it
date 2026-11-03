@@ -95,17 +95,29 @@ import Testing
     }
 
     @Test func updatesArriveProgressivelyAndEndComplete() async throws {
-        let units = bodyUnits((0..<5).map { "bear \($0)" })
-        let all = await updates(KeywordSearch(units: units, unitsPerUpdate: 2), SearchQuery("bear"))
+        let units = bodyUnits((0..<4).map { "bear \($0)" })
+        let all = await updates(KeywordSearch(units: units, updateInterval: .zero), SearchQuery("bear"))
         #expect(
             all.map(\.progress) == [
-                .searching(unitsSearched: 2, of: 5), .searching(unitsSearched: 4, of: 5), .complete,
+                .searching(unitsSearched: 1, of: 4), .searching(unitsSearched: 2, of: 4),
+                .searching(unitsSearched: 3, of: 4), .complete,
             ])
-        #expect(all.map(\.hitCount) == [2, 4, 5])
+        #expect(all.map(\.hitCount) == [1, 2, 3, 4])
+    }
+
+    @Test func progressCountsOnlyTheUnitsSearched() async throws {
+        let units = [
+            unit("bear", field: .body(paragraph: 0)), unit("bear", field: .tags), unit("bear", field: .title),
+        ]
+        let all = await updates(KeywordSearch(units: units, updateInterval: .zero), SearchQuery("bear"))
+        #expect(
+            all.map(\.progress) == [
+                .searching(unitsSearched: 1, of: 2), .searching(unitsSearched: 1, of: 2), .complete,
+            ])
     }
 
     @Test func cancellingTheAwaitingTaskEndsTheSearchAtTheNextBatch() async throws {
-        let index = KeywordSearch(units: bodyUnits((0..<100).map { "bear \($0)" }), unitsPerUpdate: 1)
+        let index = KeywordSearch(units: bodyUnits((0..<100).map { "bear \($0)" }), updateInterval: .zero)
         let received = await Task {
             var received: [SearchUpdate] = []
             for await update in index.search(SearchQuery("bear")) {

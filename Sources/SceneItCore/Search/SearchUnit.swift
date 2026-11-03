@@ -31,6 +31,7 @@ public struct SearchUnit: Hashable, Sendable {
     public let sceneTitle: String
     public let placement: ScenePlacement
     public let field: SearchField
+    /// Normalized to NFC, so a decomposed accent reads as the precomposed one.
     public let text: String
 
     public init(
@@ -42,7 +43,7 @@ public struct SearchUnit: Hashable, Sendable {
         self.sceneTitle = sceneTitle
         self.placement = placement
         self.field = field
-        self.text = text
+        self.text = CharacterPolicy.normalized(text)
     }
 
     public static let tagSeparator = ", "

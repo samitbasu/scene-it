@@ -6,10 +6,11 @@ public struct KeywordSearch: SearchIndex {
     let units: [IndexedUnit]
     let forms: [FormKeys]
     let keyIDs: [[UInt16]: Int32]
-    let unitsPerUpdate: Int
+    let updateInterval: Duration
 
-    /// `unitsPerUpdate` units are searched between updates.
-    public init(units: [SearchUnit], unitsPerUpdate: Int = 512) {
+    /// A search reports what it has found once `updateInterval` has passed, then after twice
+    /// as long, and so on, and when it completes. `.zero` reports after every unit.
+    public init(units: [SearchUnit], updateInterval: Duration = .milliseconds(50)) {
         var formIDs: [[UInt16]: Int32] = [:]
         var keyIDs: [[UInt16]: Int32] = [:]
         var forms: [FormKeys] = []
@@ -19,7 +20,15 @@ public struct KeywordSearch: SearchIndex {
             keyIDs[text] = id
             return id
         }
+        struct SceneKey: Hashable {
+            let version: SearchVersion
+            let scene: SceneID
+        }
+        var sceneOrdinals: [SceneKey: Int] = [:]
         self.units = units.map { unit in
+            let sceneKey = SceneKey(version: unit.version, scene: unit.scene)
+            let scene = sceneOrdinals[sceneKey] ?? sceneOrdinals.count
+            sceneOrdinals[sceneKey] = scene
             let text = Array(unit.text.utf16)
             let tokens = SearchText.tokens(text)
             let tokenForms = tokens.map { token in
@@ -30,11 +39,11 @@ public struct KeywordSearch: SearchIndex {
                 forms.append(FormKeys(spelling) { key($0) })
                 return form
             }
-            return IndexedUnit(unit: unit, tokens: tokens, forms: tokenForms)
+            return IndexedUnit(unit: unit, scene: scene, tokens: tokens, forms: tokenForms)
         }
         self.forms = forms
         self.keyIDs = keyIDs
-        self.unitsPerUpdate = max(1, unitsPerUpdate)
+        self.updateInterval = updateInterval
     }
 
     @concurrent public static func indexing(_ units: [SearchUnit]) async -> KeywordSearch {
@@ -59,12 +68,9 @@ public struct KeywordSearchUpdates: AsyncSequence, Sendable {
         var run: SearchRun?
 
         @concurrent public mutating func next() async -> SearchUpdate? {
-            guard var current = run, !Task.isCancelled else {
-                run = nil
-                return nil
-            }
+            guard var current = run else { return nil }
             run = nil
-            let update = current.advance()
+            guard let update = current.advance() else { return nil }
             if update.progress != .complete { run = current }
             return update
         }
@@ -73,6 +79,8 @@ public struct KeywordSearchUpdates: AsyncSequence, Sendable {
 
 struct IndexedUnit: Sendable {
     let unit: SearchUnit
+    /// The same for two units exactly when they have the same version and scene.
+    let scene: Int
     let tokens: [SearchToken]
     /// Each token's index into `KeywordSearch.forms`.
     let forms: [Int32]

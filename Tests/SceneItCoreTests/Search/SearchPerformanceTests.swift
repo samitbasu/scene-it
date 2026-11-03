@@ -55,4 +55,46 @@ import Testing
             full.searching < half.searching * 3 + .milliseconds(50),
             "\(half.searching) for half, \(full.searching) for all")
     }
+
+    /// A paragraph whose only window holding both keywords is the whole of it: `repeats` bears,
+    /// then a claw. A window search that rescans the window as it shrinks is quadratic here.
+    private static func bearsThenAClaw(_ repeats: Int, paragraph: Int = 0) -> SearchUnit {
+        unit(String(repeating: "bear ", count: repeats) + "claw", field: .body(paragraph: paragraph))
+    }
+
+    @Test func aHugeParagraphIsSearchedInLinearTime() async throws {
+        let query = SearchQuery("bear claw")
+        let clock = ContinuousClock()
+        func time(_ repeats: Int) async throws -> Duration {
+            let index = KeywordSearch(units: [Self.bearsThenAClaw(repeats)])
+            let last = try #require(await updates(index, query).last)
+            #expect(hits(last).first?.rank.coverage == 2, "precondition: one window holds both keywords")
+            var best = Duration.seconds(3600)
+            for _ in 0..<3 {
+                best = min(best, await clock.measure { _ = await updates(index, query) })
+            }
+            return best
+        }
+        let half = try await time(50_000)
+        let full = try await time(100_000)
+        print("search, one paragraph of 50,000 and 100,000 words: \(half), \(full)")
+        #expect(full < half * 3 + .milliseconds(50), "\(half) for half, \(full) for all")
+    }
+
+    @Test func cancellingStopsASearchOfHugeParagraphsPromptly() async throws {
+        let units = (0..<40).map { Self.bearsThenAClaw(20_000, paragraph: $0) }
+        let index = KeywordSearch(units: units, updateInterval: .seconds(3600))
+        let query = SearchQuery("bear claw")
+        let clock = ContinuousClock()
+        let whole = await clock.measure { _ = await updates(index, query) }
+        let search = Task { await updates(index, query) }
+        try await Task.sleep(for: whole / 10)
+        search.cancel()
+        let start = clock.now
+        let received = await search.value
+        let stopping = clock.now - start
+        print("search of 40 huge paragraphs: \(whole); stopped \(stopping) after cancelling")
+        #expect(received.isEmpty, "the only update would have been the complete one")
+        #expect(stopping < whole / 2)
+    }
 }

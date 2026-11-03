@@ -23,6 +23,13 @@ import Testing
         #expect(try await foundTexts(units, "cafe\u{301}") == ["The caf\u{E9} opened."])
     }
 
+    @Test func aUnitsDecomposedTextIsNormalized() async throws {
+        let units = bodyUnits(["The cafe\u{301} opened."])
+        #expect(Array(units[0].text.utf16) == Array("The caf\u{E9} opened.".utf16))
+        let hit = try #require(hits(try await finalUpdate(units, "caf\u{E9}", .matchCase)).first)
+        #expect(highlighted(hit) == ["caf\u{E9}"])
+    }
+
     @Test func simpleEnglishEndingsMatch() async throws {
         let units = bodyUnits([
             "one bear", "two bears", "the bear's den", "the Bears' den", "bearing north", "a beard",
@@ -34,12 +41,26 @@ import Testing
         #expect(Set(try await foundTexts(units, "bears")).count == 4, "endings are ignored on both sides")
     }
 
+    @Test func namesEndingInSFindTheirPossessives() async throws {
+        let units = bodyUnits(["James's hat", "Jones's dog", "Charles's car", "Thomas's boat"])
+        for name in ["James", "Jones", "Charles", "Thomas"] {
+            #expect(try await foundTexts(units, name) == units.filter { $0.text.hasPrefix(name) }.map(\.text))
+        }
+    }
+
+    /// Each rule of `SearchText.stem`, and the words it must leave alone.
     @Test(arguments: [
-        ("bear", "bear"), ("bears", "bear"), ("bear's", "bear"), ("it's", "it"), ("James's", "James"),
-        ("ladies", "lady"), ("LADIES", "LADY"), ("ties", "tie"), ("boxes", "box"), ("kisses", "kiss"),
-        ("churches", "church"), ("wishes", "wish"), ("buzzes", "buzz"), ("horses", "horse"), ("axes", "axe"),
-        ("glass", "glass"), ("status", "status"), ("this", "this"), ("gas", "gas"), ("is", "is"),
-        ("1990s", "1990"), ("BEARS", "BEAR"),
+        ("news", "news"), ("News", "News"), ("does", "does"),
+        ("bear's", "bear"), ("it's", "it"), ("James's", "Jame"), ("James", "Jame"), ("Jones's", "Jone"),
+        ("Charles's", "Charle"), ("Thomas's", "Thoma"),
+        ("kisses", "kiss"), ("boxes", "box"), ("buzzes", "buzz"), ("churches", "church"), ("wishes", "wish"),
+        ("heroes", "hero"), ("potatoes", "potato"), ("echoes", "echo"),
+        ("bears", "bear"), ("BEARS", "BEAR"), ("sizes", "size"), ("prizes", "prize"), ("gazes", "gaze"),
+        ("breezes", "breeze"), ("horses", "horse"), ("axes", "axe"), ("menus", "menu"), ("gurus", "guru"),
+        ("taxis", "taxi"), ("skis", "ski"), ("1990s", "1990"),
+        ("glass", "glass"), ("his", "his"), ("bus", "bus"), ("gas", "gas"), ("is", "is"),
+        ("movie", "movy"), ("movies", "movy"), ("cookies", "cooky"), ("zombie", "zomby"), ("lady", "lady"),
+        ("ladies", "lady"), ("LADIES", "LADY"), ("tie", "ty"), ("ties", "ty"),
     ])
     func theStemmingRule(word: String, stem: String) {
         #expect(String(decoding: SearchText.stem(Array(word.utf16)), as: UTF16.self) == stem)

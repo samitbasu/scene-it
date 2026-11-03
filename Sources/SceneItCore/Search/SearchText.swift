@@ -84,48 +84,44 @@ enum SearchText {
         return folded
     }
 
-    /// `word` without one simple English ending, so "bear", "bears", "bear's" and "Bears'"
-    /// share a stem. Suffixes are recognized whatever their case; the first rule that applies
-    /// wins:
-    /// 1. A possessive `'s` is removed ("bear's" → "bear", "it's" → "it").
-    /// 2. Otherwise, only when at least 3 characters remain:
-    ///    - `ies` becomes `y` ("ladies" → "lady"; "ties" has too short a stem, so rule 2c
-    ///      makes it "tie");
-    ///    - `es` is removed after `ss`, `x`, `z`, `ch` or `sh` ("boxes" → "box",
-    ///      "kisses" → "kiss", "churches" → "church");
-    ///    - `s` is removed unless it follows `s`, `u` or `i` ("bears" → "bear",
-    ///      "horses" → "horse"; "glass", "status" and "this" are kept).
+    /// `word` reduced to a stem, so that "bear", "bears", "bear's" and "Bears'" share one.
+    /// Suffixes are recognized whatever their case.
+    /// 1. "news" and "does" are kept whole.
+    /// 2. A possessive `'s` is removed and the rest is stemmed again ("James's" → "James" →
+    ///    "Jame", the stem of "James" too).
+    /// 3. Otherwise, only when at least 3 characters remain, one plural ending is removed:
+    ///    - `es` after `ss`, `x`, `zz`, `ch`, `sh` or `o` ("kisses" → "kiss", "boxes" → "box",
+    ///      "buzzes" → "buzz", "churches" → "church", "heroes" → "hero");
+    ///    - otherwise `s`, unless it follows another `s` ("bears" → "bear", "sizes" → "size",
+    ///      "menus" → "menu"; "glass" is kept, and so are "his" and "bus", too short).
+    /// 4. A final `ie` becomes `y`, so "movie" and "movies" share "movy", and "lady" and "ladies"
+    ///    share "lady".
     static func stem(_ word: [UInt16]) -> [UInt16] {
         func lower(_ unit: UInt16) -> UInt16 {
             (0x41...0x5A).contains(unit) ? unit | 0x20 : unit
         }
-        func endsWith(_ suffix: String) -> Bool {
+        func endsWith(_ word: [UInt16], _ suffix: String) -> Bool {
             let suffix = Array(suffix.utf16)
             return word.count >= suffix.count
                 && zip(word.suffix(suffix.count), suffix).allSatisfy { lower($0) == $1 }
         }
-        func letter(fromEnd offset: Int) -> UInt16? {
-            word.count > offset ? lower(word[word.count - 1 - offset]) : nil
-        }
         let minimumStem = 3
-        if endsWith("'s") { return Array(word.dropLast(2)) }
-        if endsWith("ies"), word.count - 3 + 1 >= minimumStem {
-            let y: UInt16 =
-                word[word.count - 3] == UInt16(ascii: "I") ? UInt16(ascii: "Y") : UInt16(ascii: "y")
-            return Array(word.dropLast(3)) + [y]
-        }
-        if endsWith("es"), word.count - 2 >= minimumStem,
-            endsWith("sses") || endsWith("xes") || endsWith("zes") || endsWith("ches") || endsWith("shes")
+        if word.count == 4, endsWith(word, "news") || endsWith(word, "does") { return word }
+        if endsWith(word, "'s") { return stem(Array(word.dropLast(2))) }
+        var stem = word
+        if stem.count - 2 >= minimumStem,
+            ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { endsWith(stem, $0) })
         {
-            return Array(word.dropLast(2))
+            stem.removeLast(2)
+        } else if stem.count - 1 >= minimumStem, endsWith(stem, "s"), !endsWith(stem, "ss") {
+            stem.removeLast()
         }
-        if endsWith("s"), word.count - 1 >= minimumStem,
-            let before = letter(fromEnd: 1),
-            ![UInt16(ascii: "s"), UInt16(ascii: "u"), UInt16(ascii: "i")].contains(before)
-        {
-            return Array(word.dropLast())
+        if stem.count >= 3, endsWith(stem, "ie") {
+            let i = stem[stem.count - 2]
+            stem.removeLast(2)
+            stem.append(i == UInt16(ascii: "I") ? UInt16(ascii: "Y") : UInt16(ascii: "y"))
         }
-        return word
+        return stem
     }
 
     private static let apostrophe = UInt16(ascii: "'")

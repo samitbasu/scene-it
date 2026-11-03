@@ -3,17 +3,19 @@ import Testing
 
 @testable import SceneItCore
 
-/// Seeded random units and queries, checked against a brute-force reading of the same rules.
+/// Seeded random units and queries, checked against `Oracle`: the documented rules written again
+/// from scratch, simply and slowly, sharing no code with the engine but the query parser.
 @Suite struct SearchPropertyTests {
     private static let pieces = [
         "bear", "Bears", "bear's", "BEAR", "claw", "claws", "caf\u{E9}", "Cafe", "CAF\u{C9}", "don't",
-        "well-known",
-        "ladies", "lady", "box", "boxes", "the", "a", "and", "--", "...", ".", "!\"", ",", "\n", "Mr.",
-        "3.14",
-        "na\u{EF}ve", "naive", "(", ")",
+        "well-known", "ladies", "lady", "box", "boxes", "the", "a", "and", "--", "...", ".", "!\"", ",", "\n",
+        "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "movie", "movies", "heroes",
+        "hero",
+        "news", "sizes", "size", "glass",
     ]
     private static let queryWords = [
         "bear", "Bears", "claw", "cafe", "CAF\u{C9}", "don't", "known", "lady", "box", "the", "naive", "wolf",
+        "James", "movie", "hero", "news", "size", "glass",
     ]
 
     private struct Case {
@@ -44,86 +46,204 @@ import Testing
             query: SearchQuery(text.joined(separator: " "), options: options))
     }
 
-    /// Where each distinct keyword occurs in `text`, read straight from the rules: per keyword, the
-    /// token indices its occurrences start at.
-    private static func occurrences(_ text: String, _ query: SearchQuery) -> [[UInt16]: [Int]] {
-        let utf16 = Array(text.utf16)
-        let tokens = SearchText.tokens(utf16)
-        let sensitivity: SearchText.CaseSensitivity =
-            query.options.contains(.matchCase) ? .sensitive : .insensitive
-        let words = Comparison(
-            sensitivity: sensitivity, endings: query.options.contains(.wholeWord) ? .significant : .ignored)
-        let exact = Comparison(sensitivity: sensitivity, endings: .significant)
-        func key(_ token: Int, _ comparison: Comparison) -> [UInt16] {
-            comparison.key(Array(utf16[tokens[token].range]))
+    /// The rules of `SearchText` and `SearchRun`, as their documentation states them.
+    private struct Oracle {
+        struct Word {
+            let range: Range<Int>
+            let text: String
+            let sentence: Int
         }
-        var found: [[UInt16]: [Int]] = [:]
-        for keyword in query.keywords {
-            let (identity, keys, comparison): ([UInt16], [[UInt16]], Comparison) =
-                switch keyword {
-                case .word(let word):
-                    ([0] + words.key(Array(word.utf16)), [words.key(Array(word.utf16))], words)
-                case .phrase(let phrase):
-                    (
-                        [1] + phrase.flatMap { exact.key(Array($0.utf16)) + [0x20] },
-                        phrase.map { exact.key(Array($0.utf16)) },
-                        exact
-                    )
+
+        struct Reading {
+            /// Per distinct keyword, the character ranges of its occurrences.
+            let occurrences: [[Range<Int>]]
+            let words: [Word]
+
+            var coverage: Int { occurrences.count { !$0.isEmpty } }
+
+            var tier: ProximityTier {
+                let sentenceAt = Dictionary(
+                    uniqueKeysWithValues: words.map { ($0.range.lowerBound, $0.sentence) })
+                let sentences = occurrences.filter { !$0.isEmpty }.map {
+                    Set($0.map { sentenceAt[$0.lowerBound]! })
                 }
-            found[identity] = tokens.indices.filter { first in
-                first + keys.count <= tokens.count
-                    && tokens[first].sentence == tokens[first + keys.count - 1].sentence
-                    && keys.indices.allSatisfy { key(first + $0, comparison) == keys[$0] }
+                let shared = sentences.dropFirst().reduce(sentences.first ?? []) { $0.intersection($1) }
+                return shared.isEmpty ? .paragraph : .sentence
             }
         }
-        return found
+
+        let query: SearchQuery
+
+        static func isWordCharacter(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber
+        }
+
+        static func words(_ text: String) -> [Word] {
+            let characters = Array(text)
+            precondition(characters.count == text.utf16.count, "test text is one UTF-16 unit per character")
+            var words: [Word] = []
+            var sentence = 0
+            var index = 0
+            while index < characters.count {
+                let character = characters[index]
+                if isWordCharacter(character) {
+                    var end = index + 1
+                    while end < characters.count,
+                        isWordCharacter(characters[end])
+                            || (characters[end] == "'" && end + 1 < characters.count
+                                && isWordCharacter(characters[end + 1]))
+                    {
+                        end += 1
+                    }
+                    words.append(
+                        Word(range: index..<end, text: String(characters[index..<end]), sentence: sentence))
+                    index = end
+                } else if character == "\n" {
+                    sentence += 1
+                    index += 1
+                } else if ".!?".contains(character) {
+                    var end = index + 1
+                    while end < characters.count, ".!?\"')]".contains(characters[end]) { end += 1 }
+                    if end == characters.count || characters[end].isWhitespace { sentence += 1 }
+                    index = end
+                } else {
+                    index += 1
+                }
+            }
+            return words
+        }
+
+        static func stem(_ word: String) -> String {
+            let lower = word.lowercased()
+            if lower == "news" || lower == "does" { return word }
+            if lower.hasSuffix("'s") { return stem(String(word.dropLast(2))) }
+            var stem = word
+            if stem.count >= 5,
+                ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { lower.hasSuffix($0) })
+            {
+                stem = String(stem.dropLast(2))
+            } else if stem.count >= 4, lower.hasSuffix("s"), !lower.hasSuffix("ss") {
+                stem = String(stem.dropLast())
+            }
+            if stem.count >= 3, stem.lowercased().hasSuffix("ie") {
+                stem = String(stem.dropLast(2)) + (stem.dropLast().last == "I" ? "Y" : "y")
+            }
+            return stem
+        }
+
+        func folded(_ word: String) -> String {
+            let options: String.CompareOptions =
+                query.options.contains(.matchCase)
+                ? [.diacriticInsensitive] : [.caseInsensitive, .diacriticInsensitive]
+            return word.folding(options: options, locale: nil)
+        }
+
+        func wordKey(_ word: String) -> String {
+            query.options.contains(.wholeWord) ? folded(word) : Self.stem(folded(word))
+        }
+
+        /// Each distinct keyword, as the keys its words must have.
+        var keywords: [[String]] {
+            var seen: [[String]] = []
+            for keyword in query.keywords {
+                let keys: [String] =
+                    switch keyword {
+                    case .word(let word): ["word", wordKey(word)]
+                    case .phrase(let phrase): ["phrase"] + phrase.map(folded)
+                    }
+                if !seen.contains(keys) { seen.append(keys) }
+            }
+            return seen
+        }
+
+        func read(_ text: String) -> Reading {
+            let words = Self.words(text)
+            let occurrences = keywords.map { keys -> [Range<Int>] in
+                if keys[0] == "word" {
+                    return words.filter { wordKey($0.text) == keys[1] }.map(\.range)
+                }
+                let phrase = Array(keys.dropFirst())
+                guard words.count >= phrase.count else { return [] }
+                return (0...(words.count - phrase.count)).compactMap { first in
+                    let run = words[first..<(first + phrase.count)]
+                    guard Set(run.map(\.sentence)).count == 1, run.map({ folded($0.text) }) == phrase else {
+                        return nil
+                    }
+                    return run.first!.range.lowerBound..<run.last!.range.upperBound
+                }
+            }
+            return Reading(occurrences: occurrences, words: words)
+        }
+
+        static func merged(_ ranges: [Range<Int>]) -> [Range<Int>] {
+            var merged: [Range<Int>] = []
+            for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+                if let last = merged.last, range.lowerBound <= last.upperBound {
+                    merged[merged.count - 1] = last.lowerBound..<max(last.upperBound, range.upperBound)
+                } else {
+                    merged.append(range)
+                }
+            }
+            return merged
+        }
     }
 
-    @Test func highlightsCoverKeywordOccurrencesAndTheHitsAreTheRightUnits() async throws {
+    @Test func theOracleReadsTheDocumentedExamples() {
+        #expect(Oracle.words("Stop!\" she said? Yes").map(\.sentence) == [0, 1, 1, 2])
+        #expect(Oracle.words("don't well-known").map(\.text) == ["don't", "well", "known"])
+        #expect(
+            ["James's", "heroes", "movies", "news", "sizes", "glass"].map(Oracle.stem) == [
+                "Jame", "hero", "movy", "news", "size", "glass",
+            ])
+    }
+
+    @Test func theHitsAndTheirHighlightsAreExactlyWhatTheRulesSay() async throws {
         var random = SplitMix64(seed: 30)
         var seen: Set<MatchQuality> = []
         for _ in 0..<300 {
             let testCase = Self.randomCase(&random)
             let query = testCase.query
+            let oracle = Oracle(query: query)
             let result = try #require(await updates(KeywordSearch(units: testCase.units), query).last)
 
             let searched = testCase.units.filter { query.options.contains(.searchTags) || $0.field != .tags }
-            let coverage = Dictionary(
-                searched.map { ($0, Self.occurrences($0.text, query).values.count { !$0.isEmpty }) },
-                uniquingKeysWith: max)
-            let keywordCount = Self.occurrences("", query).count
-            let best = coverage.values.max() ?? 0
+            let readings = Dictionary(
+                searched.map { ($0, oracle.read($0.text)) }, uniquingKeysWith: { first, _ in first })
+            let keywordCount = oracle.keywords.count
+            let best = readings.values.map(\.coverage).max() ?? 0
             let expected = Set(
-                coverage.filter { $0.value > 0 && (best < keywordCount ? true : $0.value == keywordCount) }
-                    .keys)
+                readings.filter {
+                    $0.value.coverage > 0 && (best < keywordCount || $0.value.coverage == keywordCount)
+                }
+                .keys)
             let found = result.scenes.flatMap(\.hits)
             #expect(Set(found.map(\.unit)) == expected, "query \(query)")
             #expect(result.quality == (best > 0 && best < keywordCount ? .near : .exact))
 
             for hit in found {
-                let tokens = SearchText.tokens(Array(hit.unit.text.utf16))
-                let starts = Set(
-                    Self.occurrences(hit.unit.text, query).values.joined().map { Int(tokens[$0].start) })
-                let length = hit.unit.text.utf16.count
+                let reading = try #require(readings[hit.unit])
+                #expect(hit.rank.coverage == reading.coverage, "\(hit.unit.text) for \(query)")
+                #expect(hit.rank.tier == reading.tier, "\(hit.unit.text) for \(query)")
+                let matches = hit.highlights.filter { $0.kind == .match }.map(\.range)
+                #expect(
+                    matches == Oracle.merged(reading.occurrences.flatMap { $0 }),
+                    "every occurrence, and only those")
+                for differing in hit.highlights.filter({ $0.kind == .differs }).map(\.range) {
+                    #expect(result.quality == .near)
+                    #expect(reading.words.contains { $0.range == differing }, "a whole word")
+                    #expect(!matches.contains { $0.overlaps(differing) })
+                }
                 #expect(
                     zip(hit.highlights, hit.highlights.dropFirst()).allSatisfy {
                         $0.range.upperBound <= $1.range.lowerBound
                     })
-                for highlight in hit.highlights {
-                    #expect(highlight.range.lowerBound >= 0 && highlight.range.upperBound <= length)
-                    #expect(
-                        tokens.contains { Int($0.end) == highlight.range.upperBound }, "ends at a word's end")
-                    if highlight.kind == .match {
-                        #expect(starts.contains(highlight.range.lowerBound), "starts a keyword occurrence")
-                    } else {
-                        #expect(result.quality == .near)
-                        #expect(!starts.contains(highlight.range.lowerBound))
-                    }
-                }
             }
             if !found.isEmpty { seen.insert(result.quality) }
+            func coarse(_ hit: SearchHit) -> [Int] { [hit.rank.coverage, hit.rank.tier.rawValue] }
             for scene in result.scenes {
                 #expect(scene.hits.map(\.rank) == scene.hits.map(\.rank).sorted(by: >))
+                let ranks = scene.hits.map(coarse)
+                #expect(zip(ranks, ranks.dropFirst()).allSatisfy { !$0.lexicographicallyPrecedes($1) })
             }
             #expect(result.scenes.map(\.best.rank) == result.scenes.map(\.best.rank).sorted(by: >))
         }
