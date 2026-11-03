@@ -95,7 +95,8 @@ enum SearchText {
     ///    - otherwise `s`, unless it follows another `s` ("bears" → "bear", "sizes" → "size",
     ///      "menus" → "menu"; "glass" is kept, and so are "his" and "bus", too short).
     /// 4. A final `ie` becomes `y`, so "movie" and "movies" share "movy", and "lady" and "ladies"
-    ///    share "lady".
+    ///    share "lady". A final `oe` becomes `o` when at least 3 characters remain, so "shoe" and
+    ///    "shoes" share "sho", as "hero" and "heroes" share "hero"; "toe" and "toes" share "toe".
     static func stem(_ word: [UInt16]) -> [UInt16] {
         func lower(_ unit: UInt16) -> UInt16 {
             (0x41...0x5A).contains(unit) ? unit | 0x20 : unit
@@ -120,6 +121,8 @@ enum SearchText {
             let i = stem[stem.count - 2]
             stem.removeLast(2)
             stem.append(i == UInt16(ascii: "I") ? UInt16(ascii: "Y") : UInt16(ascii: "y"))
+        } else if stem.count - 1 >= minimumStem, endsWith(stem, "oe") {
+            stem.removeLast()
         }
         return stem
     }

@@ -184,8 +184,11 @@ Because the iterator is lazy, that single update is also proof that nothing more
 the work only ever happens inside `next()`. A second test,
 `cancellingStopsASearchOfHugeParagraphsPromptly` in
 [`SearchPerformanceTests.swift`](../../Tests/SceneItCoreTests/Search/SearchPerformanceTests.swift),
-cancels a search of 40 paragraphs of 20,000 words each from outside, while its one long
-`advance()` is running, and checks that it stops in under half the time the whole search takes.
+cancels a search of 40 paragraphs of 20,000 words each from outside, aiming for the middle of its
+one long `advance()`, and checks that it stops in under half the time the whole search takes.
+Timing can't guarantee the cancellation lands mid-search on a loaded machine, so
+`aCancelledSearchReadsNoFurtherUnit` pins the check itself: in a cancelled task, `advance()`
+returns `nil` before reading a unit.
 
 ## 5. Words, sentences and endings
 
@@ -232,11 +235,12 @@ entries.
 | 3a. Only when at least 3 characters remain: `es` is removed after `ss`, `x`, `zz`, `ch`, `sh` or `o` | kisses → kiss, boxes → box, buzzes → buzz, churches → church, heroes → hero, echoes → echo |
 | 3b. Otherwise, with the same minimum, `s` is removed unless it follows another `s` | bears → bear, sizes → size, horses → horse, menus → menu, taxis → taxi, skis → ski; glass, his and bus are kept |
 | 4. A final `ie` becomes `y` | movie, movies → movy; lady, ladies → lady; tie, ties → ty |
+| 4b. Otherwise a final `oe` becomes `o`, when at least 3 characters remain | shoe, shoes → sho; canoe, canoes → cano (so they agree with hero, heroes → hero and potato, potatoes → potato); toe, toes → toe and foe, foes → foe, too short to fold |
 
 A stem doesn't have to be a word ("Jame", "movy"): it only has to be the same for the forms
 that should match. The rule accepts some false positives (Hans, Carlos and Mars lose their `s`,
 so "Han" finds "Hans"; Whole word is the escape hatch) and doesn't know irregular plurals
-(mice, children) or words like "shoes" (stem "sho", while "shoe" stays "shoe").
+(mice, children).
 
 **Whole word** turns the endings off. **Match case** makes case significant (diacritics stay
 ignored). A `"quoted phrase"` always compares words exactly, adjacent and within one sentence.

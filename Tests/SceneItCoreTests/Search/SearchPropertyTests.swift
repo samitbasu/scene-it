@@ -11,11 +11,11 @@ import Testing
         "well-known", "ladies", "lady", "box", "boxes", "the", "a", "and", "--", "...", ".", "!\"", ",", "\n",
         "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "movie", "movies", "heroes",
         "hero",
-        "news", "sizes", "size", "glass",
+        "news", "sizes", "size", "glass", "shoe", "shoes", "toe", "toes", "canoes",
     ]
     private static let queryWords = [
         "bear", "Bears", "claw", "cafe", "CAF\u{C9}", "don't", "known", "lady", "box", "the", "naive", "wolf",
-        "James", "movie", "hero", "news", "size", "glass",
+        "James", "movie", "hero", "news", "size", "glass", "shoes", "canoe", "toe",
     ]
 
     private struct Case {
@@ -127,6 +127,8 @@ import Testing
             }
             if stem.count >= 3, stem.lowercased().hasSuffix("ie") {
                 stem = String(stem.dropLast(2)) + (stem.dropLast().last == "I" ? "Y" : "y")
+            } else if stem.count >= 4, stem.lowercased().hasSuffix("oe") {
+                stem = String(stem.dropLast())
             }
             return stem
         }

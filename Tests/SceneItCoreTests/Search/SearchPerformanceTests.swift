@@ -81,6 +81,9 @@ import Testing
         #expect(full < half * 3 + .milliseconds(50), "\(half) for half, \(full) for all")
     }
 
+    /// Timing alone can't place the cancellation mid-search on a loaded machine, so this test
+    /// asserts only that stopping is prompt; `aCancelledSearchReadsNoFurtherUnit` pins where
+    /// cancellation is checked.
     @Test func cancellingStopsASearchOfHugeParagraphsPromptly() async throws {
         let units = (0..<40).map { Self.bearsThenAClaw(20_000, paragraph: $0) }
         let index = KeywordSearch(units: units, updateInterval: .seconds(3600))
@@ -93,8 +96,9 @@ import Testing
         let start = clock.now
         let received = await search.value
         let stopping = clock.now - start
-        print("search of 40 huge paragraphs: \(whole); stopped \(stopping) after cancelling")
-        #expect(received.isEmpty, "the only update would have been the complete one")
+        print(
+            "search of 40 huge paragraphs: \(whole); stopped \(stopping) after cancelling,"
+                + (received.isEmpty ? " mid-search" : " after it had finished"))
         #expect(stopping < whole / 2)
     }
 }

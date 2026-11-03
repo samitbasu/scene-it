@@ -129,6 +129,18 @@ import Testing
         #expect(received.map(\.progress) == [.searching(unitsSearched: 1, of: 100)])
     }
 
+    /// The iterator checks nothing itself, so this shows the check sits in the loop over units,
+    /// inside a single long step.
+    @Test func aCancelledSearchReadsNoFurtherUnit() async {
+        let index = KeywordSearch(units: bodyUnits(["bear", "bear"]), updateInterval: .seconds(3600))
+        let update = await Task {
+            var run = SearchRun(index: index, query: SearchQuery("bear"))
+            withUnsafeCurrentTask { $0?.cancel() }
+            return run.advance()
+        }.value
+        #expect(update == nil)
+    }
+
     @Test func aSearchIndexIsUsableAsAnExistential() async throws {
         let index: any SearchIndex = KeywordSearch(units: bodyUnits(["a bear"]))
         var last: SearchUpdate?
