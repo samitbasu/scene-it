@@ -221,6 +221,28 @@ struct EntryRepairTests {
 
     // MARK: Grouping
 
+    @Test func anEntryKeepsItsIdentityWhileItsNeighboursChange() throws {
+        var book = parse(try SpecExampleTests.damagedBytes()).book
+        let refs = book.errorGroups.flatMap(\.refs)
+        let last = try #require(refs.last)
+        let identity = book.identity(of: last)
+        let first = try #require(book.errorGroups.first { $0.owner == last.owner }?.refs.first)
+        try #require(first != last, "precondition: a neighbour in the same scene")
+        var errors = try #require(book.errors(of: first.owner))
+        errors.remove(at: first.index)
+        let part = try #require(book.part(first.owner)).with(errors: errors)
+        book.replace(first.owner, with: part)
+        let moved = try #require(book.errorRef(last.owner, at: last.index - 1))
+        #expect(moved.entry == last.entry)
+        #expect(book.identity(of: moved) == identity)
+
+        var twins = Book(title: "T", errors: [ErrorEntry(.line, "x"), ErrorEntry(.line, "x")])
+        let ids = twins.errorGroups[0].refs.map(twins.identity)
+        #expect(Set(ids).count == 2, "equal entries are told apart")
+        twins.errors.remove(at: 0)
+        #expect(twins.identity(of: twins.errorGroups[0].refs[0]) == ids[0])
+    }
+
     @Test func theDamagedExamplesRowsAndReasons() throws {
         let book = parse(try SpecExampleTests.damagedBytes()).book
         let groups = book.errorGroups

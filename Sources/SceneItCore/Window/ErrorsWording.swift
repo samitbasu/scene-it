@@ -1,7 +1,7 @@
 /// Every string the Errors tab and the read-only banner show (book format §5.4, ADR 0024), in
 /// one place so the owner can review the wording as a whole. The owner approved all of it on
 /// 2026-11-02 (#63, #67), with the notices' own text, `RepairNotice.payload` (book format §5.3).
-/// Make Editable… confirms with `ReadOnlyWording.alert(for:)`, the approved open-time alert.
+/// Make Editable… confirms with `ReadOnlyWording.confirmMakeEditable(_:)`.
 public enum ErrorsWording {
     // MARK: The tab
 
@@ -91,6 +91,15 @@ public enum ErrorsWording {
     public static let fix = "Fix"
     public static let apply = "Apply"
     public static let cancel = "Cancel"
+
+    /// Under a line the writer fixed that still doesn't read (not approved yet).
+    public static func stillUnreadable(_ reason: ErrorReason) -> String {
+        "Still can't read this line: " + self.reason(reason)
+    }
+
+    /// When Apply can't act: the book went read-only, or the entry changed (not approved yet).
+    public static let cantApply =
+        "Scene It can't change this entry now. The book is read-only, or the entry has changed."
 
     // MARK: The read-only banner (#67)
 

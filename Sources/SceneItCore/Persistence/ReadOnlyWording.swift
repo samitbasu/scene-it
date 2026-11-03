@@ -2,7 +2,8 @@ import Foundation
 
 /// Every string a writer sees about a book opening read-only (ADR 0020, 0024 and book format
 /// §10 Q7), in one place so the owner can review the wording as a whole. The owner approved
-/// the repaired-book, newer-format and Make Editable wording on 2026-11-02.
+/// the repaired-book, newer-format and Make Editable wording on 2026-11-02, and the title of
+/// Make Editable…'s confirmation the same day.
 public enum ReadOnlyWording {
     public static let readOnlyTitle = "Opened Read-Only"
 
@@ -77,6 +78,15 @@ public enum ReadOnlyWording {
         case .openElsewhere, .lockUnavailable, .newerFormat:
             return WriterAlert(title: readOnlyTitle, message: readOnlyMessage(reason), buttons: [keep])
         }
+    }
+
+    public static let makeEditableTitle = "Make This Book Editable?"
+
+    /// Make Editable… from the banner or the File menu: the open-time alert's message and
+    /// buttons, under a title that asks rather than reports.
+    public static func confirmMakeEditable(_ repair: Repair) -> WriterAlert<ReadOnlyChoice> {
+        let opened = alert(for: .repairedOnOpen(repair))
+        return WriterAlert(title: makeEditableTitle, message: opened.message, buttons: opened.buttons)
     }
 
     /// When Make Editable couldn't keep the original, so the book stayed read-only.

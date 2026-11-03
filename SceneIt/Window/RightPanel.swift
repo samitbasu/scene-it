@@ -12,6 +12,18 @@ struct RightPanel: View {
         let errorCount = book.book.errorCount
         let tabs = RightPanelTab.shown(errorCount: errorCount)
         let selected = RightPanelTab.selected(preferences.rightPanelTab, among: tabs)
+        Group {
+            panel(tabs: tabs, selected: selected, errorCount: errorCount)
+        }
+        // When the last entry goes, the Errors tab with it, the panel goes back to Comments.
+        .onChange(of: tabs, initial: true) {
+            if !tabs.contains(preferences.rightPanelTab) { preferences.showRightPanelTab(.comments) }
+        }
+    }
+
+    @ViewBuilder private func panel(tabs: [RightPanelTab], selected: RightPanelTab, errorCount: Int)
+        -> some View
+    {
         switch preferences.rightPanel {
         case .open:
             VStack(spacing: 0) {

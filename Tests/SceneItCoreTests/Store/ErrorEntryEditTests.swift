@@ -137,6 +137,89 @@ struct ErrorEntryEditTests {
         }
     }
 
+    /// The book in its file, read back, which must be the book itself.
+    private func expectRoundTrip(_ book: Book, sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(throws: Never.self, sourceLocation: sourceLocation) {
+            _ = try BookFormat.verifiedSerialization(of: book)
+        }
+    }
+
+    @Test(arguments: [ErrorTag.comments, .marks])
+    func undoingARepairKeepsWhatWasTypedSince(tag: ErrorTag) async throws {
+        try await withTemporaryFolder { folder in
+            let text = Self.text.replacingOccurrences(
+                of: "- [comments] \(Self.broken)",
+                with: tag == .comments
+                    ? "- [comments] \(Self.broken)" : "- [marks] - color red | c12-19 | \"letter\"")
+            let payload = tag == .comments ? Self.fixed : "- color red | c12-18 | \"letter\""
+            let (store, book, _) = try await openBook(text, in: folder)
+            let entry = try ref(tag, in: book)
+            let scene = try #require(book.book.scenes.first?.id)
+            let before = try #require(book.book.scenes.first)
+            #expect(book.repairError(entry, as: payload) == .repaired)
+            let repaired = try #require(book.book.scenes.first)
+            #expect(
+                repaired.body != before.body || repaired.comments != before.comments,
+                "precondition: it took effect")
+
+            book.replaceNotes(of: scene, with: [[Run("Typed after the repair.")]])
+            book.setTitle(of: scene, to: "Retitled")
+            book.structureUndo.undo()
+            let undone = try #require(book.book.scenes.first)
+            #expect(undone.notes == [[Run("Typed after the repair.")]], "later notes kept")
+            #expect(undone.title == "Retitled", "later title kept")
+            #expect(undone.body == before.body && undone.comments == before.comments, "the repair is gone")
+            #expect(undone.errors == before.errors, "the entry is back where it was")
+            expectRoundTrip(book.book)
+
+            book.structureUndo.redo()
+            let redone = try #require(book.book.scenes.first)
+            #expect(redone.body == repaired.body && redone.comments == repaired.comments)
+            #expect(redone.errors == repaired.errors)
+            #expect(redone.notes == [[Run("Typed after the repair.")]] && redone.title == "Retitled")
+            expectRoundTrip(book.book)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    @Test func undoingADeleteKeepsWhatWasTypedSince() async throws {
+        try await withTemporaryFolder { folder in
+            let (store, book, _) = try await openBook(in: folder)
+            let entry = try ref(.metadata, in: book)
+            let scene = try #require(book.book.scenes.first?.id)
+            let errors = try #require(book.book.scenes.first?.errors)
+            #expect(book.deleteError(entry))
+            book.replaceNotes(of: scene, with: [[Run("Typed after.")]])
+            book.setTitle(of: scene, to: "Retitled")
+            book.structureUndo.undo()
+            #expect(book.book.scenes[0].errors == errors)
+            #expect(
+                book.book.scenes[0].notes == [[Run("Typed after.")]]
+                    && book.book.scenes[0].title == "Retitled")
+            expectRoundTrip(book.book)
+            book.structureUndo.redo()
+            #expect(book.book.scenes[0].errors == errors.filter { $0 != entry.entry })
+            #expect(book.book.scenes[0].title == "Retitled")
+            expectRoundTrip(book.book)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    @Test func undoingAMetadataRepairPutsTheOldValueBack() async throws {
+        try await withTemporaryFolder { folder in
+            let (store, book, _) = try await openBook(in: folder)
+            let mood = try ref(.metadata, in: book)
+            #expect(book.repairError(mood, as: "tags: grim") == .repaired)
+            #expect(book.book.scenes[0].tags == ["grim"])
+            book.setTitle(of: book.book.scenes[0].id, to: "Retitled")
+            book.structureUndo.undo()
+            #expect(book.book.scenes[0].tags.isEmpty)
+            #expect(book.book.scenes[0].title == "Retitled")
+            #expect(book.book.scenes[0].errors.contains(ErrorEntry(.metadata, "mood: grim")))
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test func aReadOnlyBooksEntriesCantBeChangedUntilItsMadeEditable() async throws {
         try await withTemporaryFolder { folder in
             let (store, book, url) = try await openBook(Self.text + "\nNot an entry\n", in: folder)

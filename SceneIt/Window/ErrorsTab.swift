@@ -7,6 +7,9 @@ import SwiftUI
 /// read-only book the entries can only be read and copied.
 struct ErrorsTab: View {
     let book: AppOpenBook
+    /// Kept here, by each entry's identity, so a row being fixed stays open while the rows
+    /// around it change, and a fix that still doesn't read stays open on the edited line.
+    @State private var fixes: [ErrorRef.Identity: Fix] = [:]
 
     var body: some View {
         let groups = book.book.errorGroups
@@ -25,14 +28,49 @@ struct ErrorsTab: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .padding(.top, 8)
-                        ForEach(group.refs, id: \.self) { ref in
-                            ErrorRow(book: book, ref: ref)
+                        ForEach(
+                            group.refs.map { Row(ref: $0, identity: book.book.identity(of: $0)) },
+                            id: \.identity
+                        ) {
+                            row in
+                            ErrorRow(book: book, ref: row.ref, fix: $fixes[row.identity]) {
+                                apply($0, to: row.ref)
+                            }
                         }
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
             }
+        }
+    }
+}
+
+extension ErrorsTab {
+    private struct Row {
+        let ref: ErrorRef
+        let identity: ErrorRef.Identity
+    }
+
+    struct Fix: Hashable {
+        var draft: String
+        /// Why the last Apply didn't take effect.
+        var note: String?
+    }
+
+    private func apply(_ payload: String, to ref: ErrorRef) {
+        let identity = book.book.identity(of: ref)
+        switch book.repairError(ref, as: payload) {
+        case .repaired:
+            fixes[identity] = nil
+        case .kept(let reason):
+            fixes[identity] = nil
+            if let edited = book.book.errorRef(ref.owner, at: ref.index) {
+                fixes[book.book.identity(of: edited)] = Fix(
+                    draft: edited.entry.payload, note: ErrorsWording.stillUnreadable(reason))
+            }
+        case .refused:
+            fixes[identity]?.note = ErrorsWording.cantApply
         }
     }
 }
@@ -49,7 +87,8 @@ private struct ErrorRow: View {
     let book: AppOpenBook
     let ref: ErrorRef
     /// The payload being fixed, while it is.
-    @State private var draft: String?
+    @Binding var fix: ErrorsTab.Fix?
+    let apply: (String) -> Void
 
     var body: some View {
         let reason = ErrorsWording.reason(BookFormat.reason(for: ref, in: book.book))
@@ -57,11 +96,11 @@ private struct ErrorRow: View {
             TagLabel(tag: ref.entry.tag)
             headline(reason)
             detail(reason)
-            if draft == nil {
+            if fix == nil {
                 HStack(spacing: 14) {
                     Button(ErrorsWording.copy) { EntryClipboard.copy(ref.entry) }
                     if ref.entry.tag.isRepairable {
-                        Button(ErrorsWording.fix) { draft = ref.entry.payload }
+                        Button(ErrorsWording.fix) { fix = ErrorsTab.Fix(draft: ref.entry.payload) }
                             .disabled(!book.isEditable)
                     }
                     Spacer()
@@ -106,18 +145,25 @@ private struct ErrorRow: View {
     }
 
     @ViewBuilder private var payloadOrEditor: some View {
-        if let draft {
+        if let fix {
             VStack(alignment: .trailing, spacing: 6) {
                 TextField(
                     ErrorsWording.fix,
-                    text: Binding(get: { draft }, set: { self.draft = $0 }), axis: .vertical
+                    text: Binding(get: { fix.draft }, set: { self.fix?.draft = $0 }), axis: .vertical
                 )
                 .font(.system(size: 11, design: .monospaced))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
+                if let note = fix.note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack {
-                    Button(ErrorsWording.cancel) { self.draft = nil }
-                    Button(ErrorsWording.apply) { apply(draft) }
+                    Button(ErrorsWording.cancel) { self.fix = nil }
+                    Button(ErrorsWording.apply) { apply(fix.draft) }
                         .buttonStyle(.borderedProminent)
                 }
                 .controlSize(.small)
@@ -131,13 +177,6 @@ private struct ErrorRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .textBackgroundColor)))
-        }
-    }
-
-    private func apply(_ payload: String) {
-        switch book.repairError(ref, as: payload) {
-        case .repaired, .kept: draft = nil
-        case .refused: break
         }
     }
 }

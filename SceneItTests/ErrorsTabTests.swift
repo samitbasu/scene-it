@@ -122,6 +122,30 @@ struct ErrorsTabTests {
         }
     }
 
+    @Test func thePanelGoesBackToCommentsWhenTheLastEntryIsDeleted() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            _ = await store.open(try package(damaged, in: folder))
+            let book = try #require(store.current)
+            #expect(await store.makeEditable() == .editable)
+            books.preferences.showRightPanelTab(.errors)
+            let window = try await host(
+                BookWindow(book: book, store: store, preferences: books.preferences, mode: .constant(.page)))
+            defer { window.close() }
+            try #require(
+                selectableTexts(in: window).contains(strayLine), "precondition: the Errors tab shows")
+            while let ref = book.book.errorGroups.first?.refs.first {
+                #expect(book.deleteError(ref))
+                try await Task.sleep(for: .milliseconds(100))
+                if book.book.errorCount > 0 { #expect(books.preferences.rightPanelTab == .errors) }
+            }
+            await eventually { books.preferences.rightPanelTab == .comments }
+            #expect(!selectableTexts(in: window).contains(strayLine))
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test func deleteActsOnTheBookOnlyOnceItsEditable() async throws {
         try await withTemporaryFolder { folder in
             let url = try package(damaged, in: folder)
@@ -244,10 +268,10 @@ extension BookStoreIntegrationTests {
             let headless = try #require(books.prompts as? HeadlessPrompts)
             #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle, ReadOnlyWording.readOnlyTitle])
             try perform(try #require(makeEditableItem))
-            await eventually { headless.titles == [ReadOnlyWording.readOnlyTitle] }
+            await eventually { headless.titles == [ReadOnlyWording.makeEditableTitle] }
             let book = try #require(store.current)
             #expect(!book.isEditable, "it asks first, and the test host answers Keep Read-Only")
-            #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle])
+            #expect(headless.takeTitles() == [ReadOnlyWording.makeEditableTitle])
 
             #expect(await store.makeEditable() == .editable)
             await eventually { makeEditableItem?.isEnabled == false }

@@ -135,10 +135,10 @@ private enum EntryRepairTrial {
             }
             blocks[0] = ([header[0]] + fields).joined(separator: "\n")
         case .comments:
-            guard Lexical.isEntryStart(bytes(line)) else { return .failure(.comment(.strayLine)) }
+            guard Lexical.isEntryStart(Latin1.bytes(line)) else { return .failure(.comment(.strayLine)) }
             blocks.append("### Comments\n" + line)
         case .marks:
-            guard Lexical.isEntryStart(bytes(line)) else { return .failure(.mark(.strayLine)) }
+            guard Lexical.isEntryStart(Latin1.bytes(line)) else { return .failure(.mark(.strayLine)) }
             blocks.append("### Marks\n" + line)
         case .frontMatter, .line, .notice:
             return .failure(.line)
@@ -160,19 +160,14 @@ private enum EntryRepairTrial {
     /// `fields` with the one whose key `line` has replaced by `line`, or `line` added after
     /// them; `nil` if `line` isn't a `key: value` line.
     private static func replacingField(_ fields: [String], with line: String) -> [String]? {
-        guard let key = Lexical.keyValue(bytes(line))?.key else { return nil }
+        guard let key = Lexical.keyValue(Latin1.bytes(line))?.key else { return nil }
         var fields = fields
-        if let index = fields.firstIndex(where: { Lexical.keyValue(bytes($0))?.key == key }) {
+        if let index = fields.firstIndex(where: { Lexical.keyValue(Latin1.bytes($0))?.key == key }) {
             fields[index] = line
         } else {
             fields.append(line)
         }
         return fields
-    }
-
-    /// An admitted line's Latin-1 code units.
-    private static func bytes(_ line: String) -> [UInt8] {
-        line.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }
     }
 
     private static func parse(_ text: String) -> ParsedBook {

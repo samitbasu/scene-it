@@ -176,15 +176,15 @@ public final class BookStore<C: Clock<Duration>> {
         await exclusively { await makeEditableExclusively() }
     }
 
-    /// Make Editable… from the banner or the File menu: asks first, with the alert the book
-    /// opened with (Keep Read-Only is the default), then makes it editable if the writer chooses.
+    /// Make Editable… from the banner or the File menu: asks first, with the open-time alert's
+    /// message (Keep Read-Only is the default), then makes it editable if the writer chooses.
     @discardableResult
     public func confirmMakeEditable() async -> MakeEditableOutcome {
         await exclusively {
-            guard let book = current, case .readOnly(let reason) = book.status, book.canBeMadeEditable else {
+            guard let book = current, case .readOnly(.repairedOnOpen(let repair)) = book.status else {
                 return .notRepaired
             }
-            switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
+            switch await prompts.ask(ReadOnlyWording.confirmMakeEditable(repair)) {
             case .makeEditable: return await makeEditableExclusively()
             case .keepReadOnly, .openAnyway: return .keptReadOnly
             }

@@ -17,6 +17,15 @@ public struct ErrorRef: Hashable, Sendable {
         self.index = index
         self.entry = entry
     }
+
+    /// Names the entry independently of its position, so a row keeps its identity while the
+    /// entries around it are deleted or repaired. Equal entries of one owner are told apart
+    /// by how many come before.
+    public struct Identity: Hashable, Sendable {
+        let owner: ErrorOwner
+        let entry: ErrorEntry
+        let occurrence: Int
+    }
 }
 
 /// One owner's entries, in model order.
@@ -25,8 +34,7 @@ public struct ErrorGroup: Hashable, Sendable {
     public let refs: [ErrorRef]
 }
 
-/// The state of one owner of error entries, which an operation on an entry replaces as a
-/// whole, so undoing it restores exactly what was there.
+/// The state of one owner of error entries, which an operation on an entry replaces as a whole.
 public enum BookPart: Hashable, Sendable {
     /// What the book holds outside its scenes.
     case header(title: String, errors: [ErrorEntry])
@@ -47,6 +55,18 @@ extension Book {
                 refs: entries.enumerated().map { ErrorRef(owner: owner, index: $0.offset, entry: $0.element) }
             )
         }
+    }
+
+    /// The identity of `ref`'s entry in this book.
+    public func identity(of ref: ErrorRef) -> ErrorRef.Identity {
+        let before = errors(of: ref.owner)?.prefix(ref.index).filter { $0 == ref.entry }.count ?? 0
+        return ErrorRef.Identity(owner: ref.owner, entry: ref.entry, occurrence: before)
+    }
+
+    /// The row for `owner`'s entry at `index`, if it has one.
+    public func errorRef(_ owner: ErrorOwner, at index: Int) -> ErrorRef? {
+        guard let entries = errors(of: owner), entries.indices.contains(index) else { return nil }
+        return ErrorRef(owner: owner, index: index, entry: entries[index])
     }
 
     public var errorCount: Int {
