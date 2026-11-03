@@ -5,7 +5,7 @@ import Testing
 
 /// Every case of `Tests/Corpus`, as its README says to run it. `CORPUS_REGENERATE=1 swift
 /// test --filter CorpusConformance` rewrites each case's results from this implementation
-/// instead; review the diff before committing it.
+/// instead, and fails so that a regenerating run is never green; review the diff and rerun.
 @Suite struct CorpusConformanceTests {
     private static let regenerating = ProcessInfo.processInfo.environment["CORPUS_REGENERATE"] == "1"
 
@@ -22,6 +22,19 @@ import Testing
                 }
             }
         }
+    }
+
+    /// A case's `properties.txt` names exactly the byte properties its `input.md` has, so an
+    /// editor or a checkout that "cleans" the file fails here rather than testing something else.
+    @Test(
+        arguments: Corpus.Group.allCases.flatMap { group in
+            Corpus.names(group).map { "\(group.rawValue)/\($0)" }
+        })
+    func inputsHaveTheBytePropertiesTheyDeclare(_ path: String) throws {
+        let parts = path.split(separator: "/", maxSplits: 1).map(String.init)
+        let group = try #require(Corpus.Group(rawValue: parts[0]))
+        let input = try Corpus.data(group, parts[1], .input)
+        #expect(InputProperty.of(input) == (try Corpus.declaredProperties(group, parts[1])))
     }
 
     @Test(arguments: Corpus.names(.book))
@@ -51,6 +64,7 @@ import Testing
             let directory = Corpus.sourceRoot.appending(path: group.rawValue).appending(path: name)
             try result.serialized.write(to: directory.appending(path: Corpus.File.expected.rawValue))
             try entries.write(to: directory.appending(path: Corpus.File.entries.rawValue))
+            Issue.record("corpus regenerated (\(group.rawValue)/\(name)); review the diff and rerun")
             return
         }
         let expected = try Corpus.data(group, name, .expected)

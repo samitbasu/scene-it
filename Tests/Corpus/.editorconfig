@@ -1,0 +1,6 @@
+# Every file here is compared byte for byte: an editor must save exactly what's there.
+[*]
+trim_trailing_whitespace = false
+insert_final_newline = false
+end_of_line = unset
+charset = unset

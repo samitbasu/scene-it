@@ -21,7 +21,13 @@ is §4.8, rule E9). It holds:
 | `input.md` | The file's raw bytes, exactly as they'd be on disk: any encoding damage, `\r\n` endings, byte-order mark or missing final newline is the point of the case. Can be empty. |
 | `expected.md` | What serializing the parse of `input.md` must give, byte for byte: the canonical form (§7.1). |
 | `entries.txt` | The parse's error entries, one per line, in the Errors tab's order (§5.4): the book's own, then each story scene's, then each Boneyard scene's, each in model order (§5.2). Empty if there are none. |
+| `properties.txt` | The byte properties of `input.md` that are the point of the case, one per line: `has-bom`, `has-crlf`, `invalid-utf8`, `no-final-newline`, `trailing-space` (a line ending in a space or tab). It lists exactly the ones `input.md` has, and is left out when there are none. |
 | `notes.md` | Optional: anything about the case worth saying that the files don't. |
+
+An editor or a checkout that "cleans" a file (trims trailing spaces, adds a final newline, converts line endings or
+the encoding) would leave a case that still passes but no longer tests what it says. `.gitattributes` and
+`.editorconfig` here tell git and editors to keep the bytes, and Scene It's tests check every `input.md` against its
+`properties.txt`, so a cleaned file fails.
 
 Because the canonical form is lossless (§7.2: a parse result always reads back as itself), `expected.md` pins down the
 whole parse: every title, paragraph, style, comment, mark and entry. `entries.txt` adds what isn't in the file: which
@@ -56,6 +62,7 @@ payload). The two words before it:
 
 For every case, with the parse defaults below:
 
+0. Check that `input.md` has exactly the byte properties `properties.txt` lists (none, if there's no such file).
 1. Parse `input.md`; serialize the result. It must equal `expected.md` byte for byte.
 2. List the parse's entries as above. The text must equal `entries.txt` byte for byte (each line ends in `\n`).
 3. Parse `expected.md`. Serializing it must give `expected.md` again, and its entries must be `entries.txt` with every
@@ -85,11 +92,13 @@ to start from:
 
 ## Adding or changing a case
 
-Write `input.md` (and `notes.md` if it helps), then let Scene It write the results:
+Write `input.md` (and `properties.txt` and `notes.md` where they apply), then let Scene It write the results:
 
 ```
 CORPUS_REGENERATE=1 swift test --filter CorpusConformance
 ```
 
-That rewrites every case's `expected.md` and `entries.txt` from the Swift implementation. **Review the diff** before
-committing it: a changed result is a change to the format's behaviour, and needs the spec to agree.
+That rewrites every case's `expected.md` and `entries.txt` from the Swift implementation, and the run **fails** on
+purpose, one issue per case, so a regenerating run can never pass for a real one. **Review the diff**, then rerun
+without the variable: a changed result is a change to the format's behaviour, and needs the spec to agree.
+`scripts/check.sh` unsets `CORPUS_REGENERATE`, so the commit gate only ever checks the corpus.

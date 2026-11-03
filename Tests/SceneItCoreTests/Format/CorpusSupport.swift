@@ -15,6 +15,19 @@ enum Corpus {
         case input = "input.md"
         case expected = "expected.md"
         case entries = "entries.txt"
+        case properties = "properties.txt"
+    }
+
+    /// What a case's `properties.txt` says about its `input.md`: none, if it has no such file.
+    static func declaredProperties(_ group: Group, _ name: String) throws -> Set<InputProperty> {
+        let url = try url(group, name, .properties)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let words = String(decoding: try Data(contentsOf: url), as: UTF8.self).split(
+            whereSeparator: \.isNewline)
+        return Set(
+            try words.map { word in
+                try #require(InputProperty(rawValue: String(word)), "unknown property \(word)")
+            })
     }
 
     static let root = Bundle.module.url(forResource: "Corpus", withExtension: nil)
@@ -56,6 +69,40 @@ enum Corpus {
     /// tell which copy's default it is.
     static func filedDay(_ number: FiledCopyNumber) -> CalendarDay {
         CalendarDay(year: 2026, month: 3, day: 1 + number.value % 28)!
+    }
+}
+
+/// A byte-level property of an `input.md` that an editor or git could silently remove, so a
+/// case declares the ones that are its point.
+enum InputProperty: String, CaseIterable {
+    case hasBOM = "has-bom"
+    case hasCRLF = "has-crlf"
+    case invalidUTF8 = "invalid-utf8"
+    case noFinalNewline = "no-final-newline"
+    case trailingSpace = "trailing-space"
+
+    static func of(_ bytes: Data) -> Set<InputProperty> {
+        Set(allCases.filter { $0.holds(for: Array(bytes)) })
+    }
+
+    private func holds(for bytes: [UInt8]) -> Bool {
+        let (cr, lf) = (UInt8(ascii: "\r"), UInt8(ascii: "\n"))
+        switch self {
+        case .hasBOM:
+            return bytes.starts(with: [0xEF, 0xBB, 0xBF])
+        case .hasCRLF:
+            return zip(bytes, bytes.dropFirst()).contains { $0 == (cr, lf) }
+        case .invalidUTF8:
+            return String(validating: bytes, as: UTF8.self) == nil
+        case .noFinalNewline:
+            return bytes.last.map { $0 != lf } ?? false
+        case .trailingSpace:
+            let lines = bytes.split(separator: lf, omittingEmptySubsequences: false)
+            return lines.contains { line in
+                let content = line.last == cr ? line.dropLast() : line[...]
+                return content.last == UInt8(ascii: " ") || content.last == UInt8(ascii: "\t")
+            }
+        }
     }
 }
 
@@ -169,15 +216,33 @@ struct CorpusEntry: Equatable, CustomStringConvertible {
     }
 
     /// Which of `entries` are among `new`, which lists them in the same order.
+    ///
+    /// The parser reports the new entries only as a list, so this finds where that list sits
+    /// in `entries`. Every placement lies between the earliest and the latest one, so when
+    /// those agree the placement is the only one, and so the parser's. When they don't (equal
+    /// entries, some new and some preserved), it's recorded as an issue rather than guessed.
     static func origins(of entries: [ErrorEntry], new: [ErrorEntry]) -> [Origin] {
-        var remaining = new[...]
-        let origins = entries.map { entry in
-            guard remaining.first == entry else { return Origin.preserved }
-            remaining.removeFirst()
-            return .new
+        let earliest = placement(of: new, in: entries)
+        let latest = placement(of: new.reversed(), in: entries.reversed()).reversed().map {
+            entries.count - 1 - $0
         }
-        #expect(remaining.isEmpty, "new entries out of order: \(remaining)")
-        return origins
+        #expect(earliest.count == new.count, "the new entries aren't among the entries in order: \(new)")
+        #expect(earliest == latest, "which equal entries are new is ambiguous: \(new)")
+        let positions = Set(earliest)
+        return entries.indices.map { positions.contains($0) ? .new : .preserved }
+    }
+
+    /// The indices of `entries` that `sought` matches, taking each at the first chance.
+    private static func placement(
+        of sought: some Sequence<ErrorEntry>, in entries: some Sequence<ErrorEntry>
+    ) -> [Int] {
+        var remaining = Array(sought)[...]
+        var indices: [Int] = []
+        for (index, entry) in entries.enumerated() where remaining.first == entry {
+            indices.append(index)
+            remaining.removeFirst()
+        }
+        return indices
     }
 }
 

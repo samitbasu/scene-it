@@ -4,6 +4,9 @@
 set -euo pipefail
 
 source "$(dirname "$0")/lib.sh"
+
+# The gate checks the corpus; it never rewrites it (Tests/Corpus/README.md).
+unset CORPUS_REGENERATE
 source scripts/guards.sh
 
 readonly log_dir=build/check
