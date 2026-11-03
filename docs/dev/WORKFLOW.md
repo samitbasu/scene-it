@@ -54,3 +54,4 @@ gh pr list                                                    # all open PRs
 - Never touch the owner's real data: `~/Library/Application Support/Scene It`, `UserDefaults` for `com.samitbasu.SceneIt`,
   real books, the keychain, certificates, or Xcode accounts. Use temporary directories and the test-host isolation.
 - If a manual run of the app leaves state behind (a session marker, recents, a lock file), clean up exactly what you created, and report it.
+- Agents share one scratchpad folder. Name temporary files uniquely (include the issue number, e.g. `pr-body-71.md`), never generic names like `pr.md`, because concurrent agents overwrite each other's files.
