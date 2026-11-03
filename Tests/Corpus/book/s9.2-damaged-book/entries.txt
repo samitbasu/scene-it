@@ -1,0 +1,12 @@
+new unknown-key - [front matter] colour: blue
+new line - [line] Remember to back this up!
+new notice - [notice] Some of this file wasn't valid UTF-8: 2 byte(s) were read as Windows-1252 characters.
+new E4 - [comments] - c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | "harbor lights" | Too pretty?
+new E9 - [comments] - c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | "ferry left" | Wrong range.
+new notice - [notice] Characters Scene It can't store were replaced with [?]: U+1F30A.
+new notice - [notice] This scene had no id, so it was given id-A0.
+new line - [line] ### Note
+new notice - [notice] This scene had no id, so it was given id-B0.
+new notice - [notice] This scene had no modified date, so it was set to 2026-11-02T08:00:00-08:00.
+new E8 - [comments] - c1 | purple | 2026-11-01T15:30:00-08:00 | c3-7 | "read
+new notice - [notice] This scene's id 01JCM9S346Q3D25VT4F5V37E3S was already used by an earlier scene, so it was given id-C0.

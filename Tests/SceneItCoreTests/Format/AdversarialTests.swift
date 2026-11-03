@@ -11,22 +11,10 @@ import Testing
 
     // MARK: Text conservation
 
-    static let noise: [String] = [
-        "## ", "##", "# ", "# Boneyard", "### Notes", "### Comments", "### Marks", "### Unparsed", "### Note",
-        "#### ", "- ", "-", "---", "id: ", "id: dup", "modified: ", "modified: 2026-01-01T00:00:00Z",
-        "tags: ",
-        "title: ", "format: ", "format: 2", "Mood: ", "<br>", "<BR />", "- [line] ", "- [comments] ",
-        "- [notice]", "- [foo] ",
-        "- c1 | red | 2026-01-01T00:00:00Z | c0-4 | \"", "\" | ", " | ", "- color red | c0-3 | \"",
-        "- c2 | blue | 2026-01-01T00:00:00Z | detached | ", "detached", "\\", "\\\\", "*", "**", "***", "~~",
-        "~",
-        "_", "#", "\"", ",", "|", " ", "\t", "\u{201C}", "\u{2014}", "\u{1F30A}", "e\u{0301}", "\r", "\\n",
-        "\u{2028}", "  ", "\u{FEFF}", "\u{0}", "\u{85}", "`", "[", "]", ":", "c0-1", "notes c0-1",
-    ]
-
     /// Every word typed anywhere in a file, among any amount of structure and damage,
     /// survives parse → serialize: the parser drops nothing it can't place.
-    @Test func everyWordSurvivesParseAndSerialize() {
+    @Test func everyWordSurvivesParseAndSerialize() throws {
+        let noise = try FuzzDictionary.strings("book-noise")
         var random = SplitMix64(seed: fuzzSalt ^ 0xC0_5E4E)
         var markers = 0
         for round in 0..<Self.rounds {
@@ -41,7 +29,7 @@ import Testing
                         expected.append(word)
                         line += " " + word + " "
                     } else {
-                        line += Self.noise.randomElement(using: &random)!
+                        line += noise.randomElement(using: &random)!
                     }
                 }
                 lines.append(line)
@@ -154,20 +142,17 @@ import Testing
 /// Hand-editing gotchas (book format §3.7): what a writer typing in another editor gets.
 @Suite struct HandEditingGotchaTests {
     @Test func aBackslashAtTheEndOfALineIsASpace() throws {
-        let scene = try onlyScene(file(scene: "The file is at C:\\\n\nOr at C:\\\\"))
+        let scene = try onlyScene(case: "s3.7-gotcha-backslash-at-line-end")
         #expect(scene.body.map(\.text) == ["The file is at C: ", "Or at C:\\"])
     }
 
     @Test func backslashNInCommentTextIsALineBreak() throws {
-        let scene = try onlyScene(
-            file(
-                scene: "abc\n\n### Comments\n- c1 | red | 2026-01-01T00:00:00Z | c0-3 | \"abc\" | see C:\\new"
-            ))
+        let scene = try onlyScene(case: "s3.7-gotcha-backslash-n-in-comment-text")
         #expect(scene.comments.map(\.text) == ["see C:\new"])
     }
 
     @Test func asterisksInATitleAreFormattingAndAreDropped() throws {
-        let scene = try onlyScene("## Chapter 2*3*4 and a_b ~~x~~\nid: s1\nmodified: 2026-01-01T00:00:00Z\n")
+        let scene = try onlyScene(case: "s3.7-gotcha-asterisks-in-title")
         #expect(scene.title == "Chapter 234 and a_b x")
     }
 }

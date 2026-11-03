@@ -20,7 +20,9 @@ let package = Package(
         .testTarget(
             name: "SceneItCoreTests",
             dependencies: ["SceneItCore"],
-            resources: [.copy("Format/Fixtures")],
+            path: "Tests",
+            sources: ["SceneItCoreTests"],
+            resources: [.copy("Corpus")],
             swiftSettings: strictSettings
         ),
     ],

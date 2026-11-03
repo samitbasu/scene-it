@@ -1,0 +1,2 @@
+book/s9.1-complete-book
+book/demo-book

@@ -3,7 +3,8 @@ import Testing
 
 @testable import SceneItCore
 
-/// Book format §1.2, and `CharacterPolicy.admit` as the editor will use it.
+/// Book format §1.2, and `CharacterPolicy.admit` as the editor will use it. Whole files are
+/// corpus cases (Tests/Corpus/book/s1.2-*).
 @Suite struct CharacterPolicyTests {
     // MARK: Step 1, decoding
 
@@ -131,41 +132,5 @@ import Testing
         let once = CharacterPolicy.admit(messy).text
         #expect(CharacterPolicy.admit(once).text == once)
         #expect(once.unicodeScalars.allSatisfy { $0 == "\n" || CharacterPolicy.isAllowed($0) })
-    }
-
-    // MARK: In a book
-
-    @Test func offsetsCountCharactersNotBytes() throws {
-        let scene = try onlyScene(
-            file(
-                scene:
-                    "é letter\n\n### Comments\n- c1 | red | 2026-01-01T00:00:00+00:00 | c2-8 | \"letter\" |"))
-        #expect(scene.errors.isEmpty)
-        #expect(scene.comments.count == 1)
-    }
-
-    @Test func replacedCharactersAreNoticedByTheSceneOrBookTheyWereIn() throws {
-        let text =
-            "---\ntitle: T α\nformat: 2\n---\n\n## One 🌊\nid: a\nmodified: 2026-01-01T00:00:00Z\n\nβ\n\n"
-            + "# Boneyard\n\nγ stray\n\n## Two\nid: b\nmodified: 2026-01-01T00:00:00Z\n\nplain\n"
-        let book = parse(text).book
-        #expect(book.title == "T [?]")
-        #expect(
-            book.errors == [
-                ErrorEntry(.line, "[?] stray"), RepairNotice.replacedCharacters(["α", "γ"]).entry,
-            ])
-        #expect(book.scenes[0].title == "One [?]")
-        #expect(book.scenes[0].errors == [RepairNotice.replacedCharacters(["🌊", "β"]).entry])
-        #expect(book.boneyard.count == 1 && book.boneyard[0].errors.isEmpty)
-    }
-
-    @Test func invalidUTF8GetsOneNoticeHoweverManyBytes() {
-        let bytes = BookFormat.serialize(Book(title: "caf\u{E9}")).map { $0 == 0xC3 ? 0xE9 : $0 }
-        let book = parse(Data(bytes.filter { $0 != 0xA9 })).book
-        #expect(book.title == "café")
-        #expect(book.errors == [RepairNotice.invalidUTF8(byteCount: 1).entry])
-        #expect(
-            book.errors[0].payload
-                == "Some of this file wasn't valid UTF-8: 1 byte(s) were read as Windows-1252 characters.")
     }
 }

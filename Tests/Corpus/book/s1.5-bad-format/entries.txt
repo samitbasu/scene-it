@@ -1,0 +1,2 @@
+new bad-format - [front matter] format: two
+new notice - [notice] The file had no format line; it was read as format 2.
