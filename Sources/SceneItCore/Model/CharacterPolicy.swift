@@ -61,10 +61,15 @@ public enum CharacterPolicy {
         return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
     }
 
+    /// `text` in NFC. Text whose UTF-8 has no byte from 0xCC up holds no combining mark
+    /// (U+0300 onwards) and is returned as it is, without the cost of normalizing.
+    public static func normalized(_ text: String) -> String {
+        text.utf8.allSatisfy { $0 < 0xCC } ? text : text.precomposedStringWithCanonicalMapping
+    }
+
     /// `admit`, as Latin-1 bytes, recording the line each replaced character was on.
     static func admitLatin1(_ text: String) -> Latin1Text {
-        let normalized =
-            text.utf8.allSatisfy { $0 < 0xCC } ? text : text.precomposedStringWithCanonicalMapping
+        let normalized = normalized(text)
         var bytes: [UInt8] = []
         bytes.reserveCapacity(normalized.utf8.count)
         var replacements: [Replacement] = []
