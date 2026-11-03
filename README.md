@@ -114,6 +114,8 @@ files, comments, interpolation outside traps. It also checks that a missing path
 with status 2. **Output:** nothing on success. On failure, one `✘` line per case that went
 the wrong way, and exit status 1. **Products:** none; the fixtures are deleted on exit.
 
+The gate never rewrites the format test corpus: `check.sh` unsets `CORPUS_REGENERATE` (see `Tests/Corpus/README.md` for regenerating cases on purpose).
+
 ### `scripts/format.sh`: apply formatting
 
 **Status:** available.
