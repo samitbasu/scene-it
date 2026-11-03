@@ -1,0 +1,6 @@
+new n/a - [line] stray before
+preserved n/a - [line] kept
+new n/a - [line] - [foo] wrapped
+new n/a - [line] not a key
+new n/a - [line] #### Heading
+preserved n/a - [metadata] colour: red loose

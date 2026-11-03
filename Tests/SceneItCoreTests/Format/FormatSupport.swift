@@ -3,7 +3,8 @@ import Testing
 
 @testable import SceneItCore
 
-/// Fresh scene ids `id-A`, `id-B`, …, so tests can name the ids the parser hands out.
+/// Fresh scene ids `id-A0`, `id-B0`, …, so tests can name the ids the parser hands out. The
+/// corpus's parse defaults (Tests/Corpus/README.md) are these and `openedAt`.
 struct LetteredIDs: SceneIDSource {
     private var next = 0
 

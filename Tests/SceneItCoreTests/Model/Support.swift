@@ -20,26 +20,6 @@ struct SplitMix64: RandomNumberGenerator {
     }
 }
 
-enum Fixture {
-    static func data(_ name: String) throws -> Data {
-        let url = try #require(
-            Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Fixtures"))
-        return try Data(contentsOf: url)
-    }
-
-    static func text(_ name: String) throws -> String {
-        String(decoding: try data(name), as: UTF8.self)
-    }
-}
-
-extension String {
-    /// Replaces the first occurrence of `target`, which must exist.
-    func replacingFirst(_ target: String, with replacement: String) throws -> String {
-        let range = try #require(range(of: target), "\"\(target)\" not found")
-        return replacingCharacters(in: range, with: replacement)
-    }
-}
-
 func timestamp(_ text: String) throws -> Timestamp {
     try #require(Timestamp(text))
 }

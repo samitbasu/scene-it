@@ -1,0 +1,3 @@
+new notice - [notice] The book had no title, so it was called "Untitled".
+new notice - [notice] The file had no format line; it was read as format 2.
+new notice - [notice] This scene's id x was already used by an earlier scene, so it was given id-A0.

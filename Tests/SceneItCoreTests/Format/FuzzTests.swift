@@ -6,17 +6,14 @@ import Testing
 /// Book format §6: every byte sequence parses, the parse can always be saved, and damage
 /// stays local. Seeded, so a failure reproduces.
 @Suite struct FuzzTests {
-    /// Bytes that build structure, so random files reach more than the preamble.
-    private static let structural = Array(
-        "##  -|\"\\*~_:c0123456789[]\n\n\r\t---Boneyard Notes Comments Marks Unparsed".utf8)
-
     @Test func randomBytesAlwaysParseToASaveableBook() throws {
+        let structural = Array(try FuzzDictionary.tokens("book-bytes").joined())
         var random = SplitMix64(seed: fuzzSalt ^ 0xB0_0C)
         for round in 0..<3000 {
             let length = Int.random(in: 0...300, using: &random)
             let bytes = (0..<length).map { _ in
                 Bool.random(using: &random)
-                    ? Self.structural.randomElement(using: &random)!
+                    ? structural.randomElement(using: &random)!
                     : UInt8.random(in: .min ... .max, using: &random)
             }
             let book = parse(Data(bytes)).book
@@ -25,16 +22,7 @@ import Testing
     }
 
     @Test func randomLinesOfStructureAlwaysParseToASaveableBook() throws {
-        let pieces = [
-            "## A", "##", "# Boneyard", "### Notes", "### Comments", "### Marks", "### Unparsed", "id: x",
-            "id: y",
-            "modified: 2026-01-01T00:00:00Z", "tags: a, b", "---", "title: T", "format: 2", "", "text **b *i",
-            "- c1 | red | 2026-01-01T00:00:00Z | c0-4 | \"text\" | hi",
-            "- c1 | red | 2026-01-01T00:00:00Z | detached |",
-            "- color red | c0-4 | \"text\"", "- highlight blue | notes c0-1 | \"t\"", "- [line] x",
-            "- [foo] y", "<br>",
-            "continued", "\\", "- ", "-", "*", "~~", "\u{1F30A}",
-        ]
+        let pieces = try FuzzDictionary.strings("book-lines")
         var random = SplitMix64(seed: fuzzSalt ^ 0x11_E5)
         for round in 0..<3000 {
             let text = (0..<Int.random(in: 0...30, using: &random)).map { _ in
@@ -49,12 +37,13 @@ import Testing
     // MARK: Mutations of valid files
 
     @Test func severalMutationsAlwaysParseToASaveableBook() throws {
+        let mutator = try Mutator()
         var random = SplitMix64(seed: fuzzSalt ^ 0x5E_7E4A1)
         for base in try Self.bases() {
             for _ in 0..<250 {
                 var bytes = [UInt8](base)
                 for _ in 0..<Int.random(in: 2...6, using: &random) {
-                    _ = Self.mutate(&bytes, Mutation.allCases.randomElement(using: &random)!, &random)
+                    _ = mutator.mutate(&bytes, Mutation.allCases.randomElement(using: &random)!, &random)
                 }
                 let book = parse(Data(bytes)).book
                 #expect(throws: Never.self) { try BookFormat.verifiedSerialization(of: book) }
@@ -66,51 +55,52 @@ import Testing
         case insert, delete, flip, truncate, duplicateLine, insertStructure
     }
 
-    private static let structureLines = [
-        "## Interlude\n", "### Notes\n", "### Comments\n", "### Note\n", "# Boneyard\n", "- \n", "\n",
-        "---\n",
-        "id: 01JCM9S346Q3D25VT4F5V37E3S\n",
-    ]
+    private struct Mutator {
+        /// The lines `insertStructure` inserts.
+        let structureLines: [[UInt8]]
 
-    /// Mutates `bytes`, returning the half-open byte range of the original that the
-    /// mutation touched.
-    private static func mutate(_ bytes: inout [UInt8], _ mutation: Mutation, _ random: inout SplitMix64)
-        -> Range<Int>
-    {
-        let index = Int.random(in: 0..<max(1, bytes.count), using: &random)
-        switch mutation {
-        case .insert:
-            bytes.insert(UInt8.random(in: .min ... .max, using: &random), at: index)
-            return index..<index
-        case .delete:
-            guard !bytes.isEmpty else { return 0..<0 }
-            bytes.remove(at: index)
-            return index..<index + 1
-        case .flip:
-            guard !bytes.isEmpty else { return 0..<0 }
-            bytes[index] = UInt8.random(in: .min ... .max, using: &random)
-            return index..<index + 1
-        case .truncate:
-            let count = bytes.count
-            bytes.removeLast(count - index)
-            return index..<Int.max
-        case .duplicateLine, .insertStructure:
-            let starts =
-                [0]
-                + bytes.indices.filter { bytes[$0] == Latin1.newline }.map { $0 + 1 }.filter {
-                    $0 < bytes.count
+        init() throws {
+            structureLines = try FuzzDictionary.tokens("book-insertions")
+        }
+
+        /// Mutates `bytes`, returning the half-open byte range of the original that the
+        /// mutation touched.
+        func mutate(_ bytes: inout [UInt8], _ mutation: Mutation, _ random: inout SplitMix64) -> Range<Int> {
+            let index = Int.random(in: 0..<max(1, bytes.count), using: &random)
+            switch mutation {
+            case .insert:
+                bytes.insert(UInt8.random(in: .min ... .max, using: &random), at: index)
+                return index..<index
+            case .delete:
+                guard !bytes.isEmpty else { return 0..<0 }
+                bytes.remove(at: index)
+                return index..<index + 1
+            case .flip:
+                guard !bytes.isEmpty else { return 0..<0 }
+                bytes[index] = UInt8.random(in: .min ... .max, using: &random)
+                return index..<index + 1
+            case .truncate:
+                let count = bytes.count
+                bytes.removeLast(count - index)
+                return index..<Int.max
+            case .duplicateLine, .insertStructure:
+                let starts =
+                    [0]
+                    + bytes.indices.filter { bytes[$0] == Latin1.newline }.map { $0 + 1 }.filter {
+                        $0 < bytes.count
+                    }
+                let at = starts.randomElement(using: &random) ?? 0
+                let line: [UInt8]
+                if mutation == .duplicateLine {
+                    let from = starts.randomElement(using: &random) ?? 0
+                    let end = bytes[from...].firstIndex(of: Latin1.newline).map { $0 + 1 } ?? bytes.count
+                    line = Array(bytes[from..<end])
+                } else {
+                    line = structureLines.randomElement(using: &random)!
                 }
-            let at = starts.randomElement(using: &random) ?? 0
-            let line: [UInt8]
-            if mutation == .duplicateLine {
-                let from = starts.randomElement(using: &random) ?? 0
-                let end = bytes[from...].firstIndex(of: Latin1.newline).map { $0 + 1 } ?? bytes.count
-                line = Array(bytes[from..<end])
-            } else {
-                line = Array(structureLines.randomElement(using: &random)!.utf8)
+                bytes.insert(contentsOf: line, at: at)
+                return at..<at
             }
-            bytes.insert(contentsOf: line, at: at)
-            return at..<at
         }
     }
 
@@ -129,8 +119,15 @@ import Testing
         return starts.indices.map { starts[$0]..<(($0 + 1 < starts.count) ? starts[$0 + 1] : bytes.count) }
     }
 
+    /// The corpus's mutation bases, then generated books.
     private static func bases() throws -> [Data] {
-        var bases = [try Fixture.data("complete-example"), try Fixture.data("demo-book")]
+        let url = try #require(Corpus.root).appending(path: "fuzz-seeds/mutation-bases.txt")
+        let paths = String(decoding: try Data(contentsOf: url), as: UTF8.self).split(separator: "\n")
+        var bases = try paths.map { path in
+            try Data(
+                contentsOf: try #require(Corpus.root).appending(path: String(path)).appending(
+                    path: "input.md"))
+        }
         for seed in UInt64(1000)..<1006 {
             var generator = BookGenerator(seed: seed ^ fuzzSalt)
             bases.append(BookFormat.serialize(generator.book()))
@@ -183,6 +180,7 @@ import Testing
     /// scene's heading can merge the scene into the one before, so that one counts as
     /// touched too; so does a scene whose first or last byte is next to the damage.
     @Test func damageStaysLocal() throws {
+        let mutator = try Mutator()
         var random = SplitMix64(seed: fuzzSalt ^ 0xDA_4A6E)
         var checked = 0
         var mutatedFiles = 0
@@ -194,7 +192,7 @@ import Testing
             for _ in 0..<500 {
                 var bytes = original
                 let mutation = Mutation.allCases.randomElement(using: &random)!
-                let touched = Self.mutate(&bytes, mutation, &random)
+                let touched = mutator.mutate(&bytes, mutation, &random)
                 mutatedFiles += 1
                 let after = parse(Data(bytes)).book
                 #expect(throws: Never.self) { try BookFormat.verifiedSerialization(of: after) }

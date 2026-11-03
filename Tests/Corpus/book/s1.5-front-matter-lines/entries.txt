@@ -1,0 +1,4 @@
+new reads-now - [front matter] title: second
+new unknown-key - [front matter] author: me
+new not-a-field - [front matter] not a key
+new not-a-field - [front matter] format x: 1

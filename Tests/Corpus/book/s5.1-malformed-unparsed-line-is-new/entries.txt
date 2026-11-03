@@ -1,0 +1,2 @@
+preserved line - [line] kept
+new line - [line] - [foo] x stray

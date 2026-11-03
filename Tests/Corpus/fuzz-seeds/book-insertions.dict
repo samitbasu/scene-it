@@ -1,0 +1,10 @@
+# Lines a mutator inserts into a valid book.md (each ends in \n).
+"## Interlude\x0A"
+"### Notes\x0A"
+"### Comments\x0A"
+"### Note\x0A"
+"# Boneyard\x0A"
+"- \x0A"
+"\x0A"
+"---\x0A"
+"id: 01JCM9S346Q3D25VT4F5V37E3S\x0A"
