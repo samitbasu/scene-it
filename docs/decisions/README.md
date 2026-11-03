@@ -32,3 +32,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0023](0023-word-count-like-word.md) | Word counts match Microsoft Word (whitespace-delimited, body only) | Accepted |
 | [0024](0024-damaged-books-open-read-only.md) | A book repaired on open is read-only until the writer chooses Make Editable; the original is kept permanently | Accepted |
 | [0025](0025-core-stays-swift.md) | Core stays in Swift; language-neutral test corpus; revisit after M2 | Accepted |
+| [0026](0026-crash-on-exceptions.md) | Crash cleanly on uncaught ObjC exceptions (NSApplicationCrashOnExceptions) | Accepted |
