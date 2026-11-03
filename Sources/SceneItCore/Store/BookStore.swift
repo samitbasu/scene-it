@@ -99,10 +99,10 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {
         await exclusively {
-            let switched = await switchBooks(to: url) { () async -> Result<OpenedBook, CreateError> in
+            let switched = await switchBooks(to: url) { () async -> Result<LoadedBook, CreateError> in
                 do throws(CreateError) {
                     let title = url.deletingPathExtension().lastPathComponent
-                    return .success(.editing(try await Self.create(url, title: title, fileSystem)))
+                    return .success(try await Self.create(url, title: title, fileSystem))
                 } catch {
                     return .failure(error)
                 }
@@ -123,7 +123,7 @@ public final class BookStore<C: Clock<Duration>> {
         if let current, current.isEditable, current.layout.root.canonicalPath == url.canonicalPath {
             return .alreadyOpen
         }
-        let switched = await switchBooks(to: url) { () async -> Result<OpenedBook, LoadError> in
+        let switched = await switchBooks(to: url) { () async -> Result<LoadedBook, LoadError> in
             do throws(LoadError) {
                 return .success(try await Self.load(url, policy, parseDefaults, fileSystem))
             } catch {
@@ -217,6 +217,7 @@ public final class BookStore<C: Clock<Duration>> {
                 return .notRepaired
             }
             book.becomeEditable(writer, clock: clock)
+            if let reconciled = await writer.reconcileArchive(.writable) { book.show(reconciled) }
             return .editable
         case .readOnly(let kept, let reason):
             switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
@@ -238,16 +239,17 @@ public final class BookStore<C: Clock<Duration>> {
     /// main-actor turn as the last check that the current book's edits are all on disk. A next
     /// book that can't be had, or the writer choosing to stay, leaves the current one open.
     private func switchBooks<Failure>(
-        to url: URL, obtaining next: () async -> Result<OpenedBook, Failure>
+        to url: URL, obtaining next: () async -> Result<LoadedBook, Failure>
     ) async -> Switch<Failure> {
         var settled = await settleCurrent(before: .closeBook)
         guard settled != .stay else { return .stayed }
-        let opened: OpenedBook
+        let loaded: LoadedBook
         switch await next() {
-        case .success(let success): opened = success
+        case .success(let success): loaded = success
         case .failure(let error): return .failed(error)
         }
-        let book = OpenBook(opened, clock: clock, mirror: mirror, store: self)
+        let opened = loaded.opened
+        let book = OpenBook(opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
         if settled == .saved { settled = await settleCurrent(before: .closeBook) }
         guard settled != .stay else {
             await book.detach()?.release()
@@ -256,6 +258,21 @@ public final class BookStore<C: Clock<Duration>> {
         await replaceCurrent(with: book, after: settled)
         remember(url)
         return .switched(opened)
+    }
+
+    // MARK: Filing a copy (PLAN §7.1)
+
+    /// The dialog's File copy: saves the book, files a copy with `record`, and tells the writer
+    /// about anything that went wrong. A copy that was filed but couldn't be locked or indexed
+    /// is still `.filed`.
+    @discardableResult
+    public func fileACopy(as record: FilingRecord) async -> FilingResult {
+        await exclusively {
+            guard let book = current else { return .unavailable }
+            let result = await book.fileCopy(as: record)
+            if let notice = ArchiveWording.notice(for: result) { await prompts.tell(notice) }
+            return result
+        }
     }
 
     // MARK: Saving
@@ -453,11 +470,29 @@ public final class BookStore<C: Clock<Duration>> {
         return await body()
     }
 
+    /// A book as it opened, and its archive reconciled (PLAN §5.5): saved if the book is
+    /// editable, only read if not.
+    private struct LoadedBook: Sendable {
+        let opened: OpenedBook
+        let archive: ReconciledArchive
+
+        init(_ opened: OpenedBook, _ fileSystem: any FileSystem) {
+            self.opened = opened
+            archive =
+                switch opened {
+                case .editing(let editable): editable.package.reconcileArchive()
+                case .readOnly(let readOnly, _): readOnly.reconcileArchive(fileSystem: fileSystem)
+                }
+        }
+    }
+
     @concurrent
     private nonisolated static func load(
         _ url: URL, _ policy: LockRecordPolicy, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
-    ) async throws(LoadError) -> OpenedBook {
-        try BookPackage.open(at: url, onLockRecord: policy, defaults: defaults, fileSystem: fileSystem)
+    ) async throws(LoadError) -> LoadedBook {
+        LoadedBook(
+            try BookPackage.open(at: url, onLockRecord: policy, defaults: defaults, fileSystem: fileSystem),
+            fileSystem)
     }
 
     @concurrent
@@ -477,7 +512,8 @@ public final class BookStore<C: Clock<Duration>> {
     @concurrent
     private nonisolated static func create(
         _ url: URL, title: String, _ fileSystem: any FileSystem
-    ) async throws(CreateError) -> EditableBook {
-        try BookPackage.create(at: url, title: title, fileSystem: fileSystem)
+    ) async throws(CreateError) -> LoadedBook {
+        LoadedBook(
+            .editing(try BookPackage.create(at: url, title: title, fileSystem: fileSystem)), fileSystem)
     }
 }

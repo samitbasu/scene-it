@@ -4,13 +4,26 @@ import SwiftUI
 typealias AppOpenBook = OpenBook<ContinuousClock>
 
 /// The window over an open book (PLAN §4): toolbar, rail, page, right panel and status bar,
-/// with the rail's sheets over the page and the panel.
+/// with the rail's sheets over the page and the panel, and File a Copy's dialog and toast.
 struct BookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
     let formatting: PageFormatting
     @Binding var mode: WindowMode
+    let filing: FilingFlow
+
+    init(
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: PageFormatting,
+        mode: Binding<WindowMode>, filing: FilingFlow = FilingFlow()
+    ) {
+        self.book = book
+        self.store = store
+        self.preferences = preferences
+        self.formatting = formatting
+        _mode = mode
+        self.filing = filing
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,9 +49,26 @@ struct BookWindow: View {
             StatusBar(book: book)
         }
         .background(.background)
-        .toolbar { WindowToolbar(book: book) }
+        .modifier(FilingToastOverlay(flow: filing))
+        .toolbar { WindowToolbar(book: book, filing: filing) }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
+        .focusedSceneValue(\.filingFlow, book.isEditable ? filing : nil)
+        .sheet(isPresented: isFiling) {
+            FileACopyDialog(
+                draft: draft, cancel: { filing.cancel() },
+                confirm: { Task { await filing.confirm(in: store) } })
+        }
+    }
+
+    private var isFiling: Binding<Bool> {
+        Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
+    }
+
+    private var draft: Binding<FilingDraft> {
+        Binding(
+            get: { filing.draft ?? FilingDraft(today: CalendarDay(.now, in: .current)) },
+            set: { filing.draft = $0 })
     }
 }
 

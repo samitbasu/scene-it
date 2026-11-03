@@ -2,10 +2,11 @@ import SceneItCore
 import SwiftUI
 
 /// The window toolbar (PLAN §4.1). Undo and Redo act on the focused text (`UndoRoute`); their
-/// graying out and zoom arrive with #16, Print with #35, Export to Word with #37 and File a
-/// copy with #32; until then those are present and disabled.
+/// graying out and zoom arrive with #16, Print with #35 and Export to Word with #37; until then
+/// those are present and disabled. File a copy… is only for a book open for editing.
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
+    let filing: FilingFlow
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -44,10 +45,10 @@ struct WindowToolbar: ToolbarContent {
         }
         ToolbarSpacer(.fixed)
         ToolbarItem {
-            Button(WindowWording.fileACopy, systemImage: "archivebox") {}
+            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(.borderedProminent)
-                .disabled(true)
+                .disabled(!book.isEditable || filing.draft != nil)
         }
     }
 }

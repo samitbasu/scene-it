@@ -26,13 +26,13 @@ final class FaultInjectingFileSystem: FileSystem {
         case identify(String)
         /// Creates the lock file if it's missing.
         case lock(String)
+        case makeImmutable(String)
 
         var isMutation: Bool {
             switch self {
             case .inspect, .read, .open, .list, .identify: false
             case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove,
-                .removeDirectory,
-                .lock:
+                .removeDirectory, .lock, .makeImmutable:
                 true
             }
         }
@@ -53,6 +53,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .removeDirectory(let name): "remove directory \(name)"
             case .identify(let name): "identify \(name)"
             case .lock(let name): "lock \(name)"
+            case .makeImmutable(let name): "make \(name) immutable"
             }
         }
     }
@@ -64,6 +65,9 @@ final class FaultInjectingFileSystem: FileSystem {
         /// The process dies when it reaches this call: it and every later call do nothing and
         /// fail. A temporary file being written is left half-written.
         case crash(Call)
+        /// Every call equal to this one succeeds without doing anything, as a volume that
+        /// accepts a flag it doesn't keep.
+        case noEffect(Call)
     }
 
     private struct State {
@@ -174,6 +178,16 @@ final class FaultInjectingFileSystem: FileSystem {
         }
     }
 
+    func makeImmutable(_ file: URL) throws(FileSystemError) {
+        let call = Call.makeImmutable(name(file))
+        let noEffect = state.withLock { state in
+            if case .noEffect(call) = state.fault { true } else { false }
+        }
+        try perform(call, .makeImmutable, file) { () throws(FileSystemError) in
+            if !noEffect { try base.makeImmutable(file) }
+        }
+    }
+
     func removeDirectory(_ directory: URL) throws(FileSystemError) {
         try perform(.removeDirectory(name(directory)), .remove, directory) { () throws(FileSystemError) in
             try base.removeDirectory(directory)
@@ -278,8 +292,27 @@ func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
     let url = FileManager.default.temporaryDirectory
         .appending(path: "SceneItTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-    defer { try? FileManager.default.removeItem(at: url) }
+    defer { removeUnlocking(url) }
     return try body(url)
+}
+
+/// Removes `directory`, first clearing the immutable flag that filing sets on a filed copy
+/// (as `chflags -R nouchg` does), which would otherwise stop the removal.
+func removeUnlocking(_ directory: URL) {
+    let manager = FileManager.default
+    if let paths = manager.enumerator(atPath: directory.path(percentEncoded: false)) {
+        for case let path as String in paths {
+            let file = directory.appending(path: path).path(percentEncoded: false)
+            try? manager.setAttributes([.immutable: false], ofItemAtPath: file)
+        }
+    }
+    try? manager.removeItem(at: directory)
+}
+
+/// Whether the file at `url` has the immutable flag (`UF_IMMUTABLE`).
+func isImmutable(_ url: URL) throws -> Bool {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
+    return attributes[.immutable] as? Bool == true
 }
 
 /// Every item under a directory: its relative path, contents and modification time.

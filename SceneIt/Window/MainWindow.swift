@@ -30,9 +30,12 @@ private struct OpenBookWindow: View {
     let preferences: AppPreferences
     let formatting: PageFormatting
     @State private var mode = WindowMode.page
+    @State private var filing = FilingFlow()
 
     var body: some View {
-        BookWindow(book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode)
+        BookWindow(
+            book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
+            filing: filing)
     }
 }
 

@@ -17,6 +17,10 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public private(set) var openScene: SceneID?
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
+    /// What the File Cabinet lists: `Archive/index.md` reconciled with the filed copies.
+    public private(set) var archive: ArchiveIndex
+    /// What the last reconciliation noticed.
+    public private(set) var archiveNotices: [ArchiveNotice]
     @ObservationIgnored public let structureUndo = UndoManager()
     @ObservationIgnored private var pageUndoManagers: [SceneID: UndoManager] = [:]
 
@@ -36,9 +40,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         case refused
     }
 
-    init(_ opened: OpenedBook, clock: C, mirror: BackupMirror, store: BookStore<C>) {
+    init(
+        _ opened: OpenedBook, archive: ReconciledArchive, clock: C, mirror: BackupMirror, store: BookStore<C>
+    ) {
         self.store = store
         book = opened.book
+        self.archive = archive.index
+        archiveNotices = archive.notices
         wordCounts = SceneWordCounts(opened.book)
         access = .closed
         switch opened {
@@ -88,6 +96,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let driver = AutosaveDriver(clock: clock, saver: self)
         access = .writable(driver, writer, .accepted)
         driver.send(.edited)
+    }
+
+    func show(_ reconciled: ReconciledArchive) {
+        archive = reconciled.index
+        archiveNotices = reconciled.notices
     }
 
     func setEdits(_ edits: Edits) {
@@ -226,6 +239,36 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         book[keyPath: list][index] = scene
         if bodyChanged { wordCounts.recount(scene) }
         driver.send(.edited)
+    }
+
+    // MARK: Filing a copy (PLAN §7.1)
+
+    /// Saves every edit so far, then files a copy of the book. Only while it's editable.
+    func fileCopy(as record: FilingRecord) async -> FilingResult {
+        guard let driver = editingDriver, case .writable(_, let writer, _) = access else {
+            return .unavailable
+        }
+        let verdict: QuitVerdict
+        do {
+            verdict = try await driver.saveAndWait()
+        } catch {
+            return .failed(.stillSaving)
+        }
+        switch verdict {
+        case .terminate: break
+        case .askWriter(.saveFailed(let error)), .askWriter(.changedOnDisk(let error)):
+            return .failed(.save(error))
+        case .askWriter(.stillSaving): return .failed(.stillSaving)
+        }
+        guard editingDriver != nil else { return .unavailable }
+        let result: FilingResult
+        do throws(FilingFailure) {
+            result = .filed(try await writer.fileCopy(of: book, as: record))
+        } catch {
+            result = .failed(error)
+        }
+        if let reconciled = await writer.reconcileArchive(.readOnly) { show(reconciled) }
+        return result
     }
 
     // MARK: Error entries (book format §5.4)

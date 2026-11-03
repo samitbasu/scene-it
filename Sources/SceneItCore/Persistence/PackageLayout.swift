@@ -20,7 +20,7 @@ public struct PackageLayout: Hashable, Sendable {
 
     public var book: URL { file(Self.bookFileName, in: root) }
     public var legacyBook: URL { file(Self.legacyBookFileName, in: root) }
-    public var archive: URL { root.appending(path: "Archive", directoryHint: .isDirectory) }
+    public var archive: URL { root.appending(path: Self.archiveFolderName, directoryHint: .isDirectory) }
     public var archiveIndex: URL { file("index.md", in: archive) }
     /// Tiered snapshots (ADR 0005), distinct from the rotated `book.md.bak1…3`.
     public var snapshots: URL { root.appending(path: "Backups", directoryHint: .isDirectory) }
@@ -37,6 +37,16 @@ public struct PackageLayout: Hashable, Sendable {
 
     public func filedCopy(_ number: FiledCopyNumber) -> URL {
         file(number.fileName, in: archive)
+    }
+
+    static let archiveFolderName = "Archive"
+
+    /// Whether `url` names a filed copy: a `saveNNNN.md` in a folder named `Archive`, in any
+    /// package. Nothing may change or remove one (`FileSystem`).
+    static func isFiledCopy(_ url: URL) -> Bool {
+        let folder = url.deletingLastPathComponent().lastPathComponent
+        return folder.utf8.elementsEqual(archiveFolderName.utf8)
+            && FiledCopyNumber(fileName: url.lastPathComponent) != nil
     }
 
     /// Where a version of `book.md` that another program wrote during a save is kept:
@@ -131,4 +141,12 @@ public struct FiledCopyNumber: Hashable, Comparable, Sendable, CustomStringConve
     }
 
     public var description: String { fileName }
+
+    public static let first = FiledCopyNumber(1)!
+
+    /// The number after this one; `nil` past the largest.
+    public var next: FiledCopyNumber? {
+        let (sum, overflow) = value.addingReportingOverflow(1)
+        return overflow ? nil : FiledCopyNumber(sum)
+    }
 }

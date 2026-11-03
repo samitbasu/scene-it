@@ -26,6 +26,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | [`SnapshotSchedule.swift`](../../Sources/SceneItCore/Persistence/SnapshotSchedule.swift) | the pure snapshot cadence and retention tiers; `SnapshotName` |
 | [`BackupKeeper.swift`](../../Sources/SceneItCore/Persistence/BackupKeeper.swift) | tiered snapshots in the package and the external mirror; `BackupMirror`, `SnapshotReport` |
 | [`StrayTemporaryFiles.swift`](../../Sources/SceneItCore/Persistence/StrayTemporaryFiles.swift) | clearing away the temporary files a crashed save or snapshot leaves |
+| [`Archive.swift`](../../Sources/SceneItCore/Persistence/Archive.swift), [`ArchiveReconciliation.swift`](../../Sources/SceneItCore/Persistence/ArchiveReconciliation.swift) | File a Copy and launch reconciliation (section 14) |
 | [`UTCStamp.swift`](../../Sources/SceneItCore/Persistence/UTCStamp.swift) | the `20261101T143005Z` stamp in snapshot and conflict file names |
 | [`ExclusiveFileLock.swift`](../../Sources/SceneItCore/Persistence/ExclusiveFileLock.swift) | the `flock` wrapper, `LockAttempt` |
 | [`LockRecord.swift`](../../Sources/SceneItCore/Persistence/LockRecord.swift) | the advisory record, `LockRecordPolicy`, `ThisMac` |
@@ -1258,3 +1259,73 @@ persistent banner and File → Make Editable… (#67) will call the same operati
 | `KeptOriginal: ~Copyable` with a `fileprivate init` | `pub struct KeptOriginal { _private: () }` (no `Clone`), returned only by `keep_original` |
 | `edit(_ kept: consuming KeptOriginal) -> MadeEditable` | `fn edit(kept: KeptOriginal) -> Result<EditableBook, (KeptOriginal, Reason)>` |
 | `ParseDefaults` holding `@Sendable` closures | a `Send + Sync` struct of `Arc<dyn Fn() -> … + Send + Sync>` |
+
+## 14. The archive: filed copies that never change
+
+File a Copy (PLAN §5.5, §7.1) keeps a version of the whole book forever: `Archive/saveNNNN.md`, an
+exact copy of `book.md`, plus `Archive/index.md`, which holds everything editable about each copy
+(tags, the date the writer gave, a note, and cached counts). The code is
+[`Archive.swift`](../../Sources/SceneItCore/Persistence/Archive.swift) (the file operations) and
+[`ArchiveReconciliation.swift`](../../Sources/SceneItCore/Persistence/ArchiveReconciliation.swift) (the
+pure part).
+
+### Filing, step by step
+
+`BookPackage.fileCopy(of:as:)` does it all under the package's mutex, so no save can slip in between:
+
+1. **Save first.** The book is serialized and verified, then saved exactly as autosave would (refusing
+   another program's version). The store has already asked autosave to save and waited
+   (`AutosaveDriver.saveAndWait`, the same wait as quitting), so this save is usually `.unchanged`.
+2. **Read `book.md` back** and require it to hold exactly the verified bytes. Those bytes are what's filed.
+3. **Write the copy** with `writeTemporary` (a hidden file, flushed with `F_FULLFSYNC`), **read the
+   temporary file back** and compare, then `publish` it as `saveNNNN.md`. `publish` is
+   `renamex_np(RENAME_EXCL)`: it fails rather than replace anything, so if another filing took the number
+   meanwhile, the next number is tried. A copy that doesn't read back correctly never gets a name.
+4. **Lock it**: `lchflags(UF_IMMUTABLE)` (Finder's "Locked", `chflags uchg`), then `lstat` to check that
+   the flag is really there. FAT and exFAT refuse the call; some volumes accept it and keep nothing. Either
+   way the filing still counts (the copy exists), but the outcome says `.notLocked`, and the writer is told.
+5. **Update the index**: read and parse it, reconcile it with the folder (below), give the new copy its
+   section, verify the serialization (as for `book.md`), and replace `index.md` atomically. If that fails,
+   the copy is still there, and the next reconciliation lists it (without the tags and note, which are
+   reported as lost).
+
+Only steps 1–3 can fail the filing; each failure leaves no new file in `Archive/`. The outcome is a value
+with a field per later step (`FilingOutcome.lock`, `.index`), so a half-success can't be mistaken for a
+full one.
+
+### Reconciliation is a pure function
+
+`ArchiveReconciliation.reconcile(listing:index:modified:counts:)` takes the directory listing and the parsed
+index and returns what the File Cabinet lists, plus notices:
+
+- a `saveNNNN.md` with no section is listed with no tags, its counts computed by parsing the copy read-only;
+- a section whose file is gone is dropped;
+- the next number is one more than the highest file, whatever the gaps;
+- anything that isn't a regular file named exactly `saveNNNN.md` is ignored;
+- an index whose `format:` is newer than this version is never rewritten (`.refused(newerFormat:)`), as
+  ADR 0024 does for books.
+
+The function never touches the disk: the modification day and counts come in as closures, so the tests feed
+it dictionaries. The impure wrapper, `Archive.reconcile`, runs it when a book opens; it saves the index only
+when the book is editable (its lock is held) and something changed, and never when `index.md` couldn't be
+read: an index Scene It can't read may hold tags it would otherwise overwrite.
+
+### Three layers keep a filed copy unchanged
+
+1. **Nothing writes there.** Rotation, snapshots, pruning and the stray-temporary-file sweeps only list the
+   package root and `Backups/`; the tests plant decoys in `Archive/` (snapshot names, temporary-file names,
+   `book.md.bak1`) and run all of them for real. An unfinished "my edits" copy that holds a filed copy isn't
+   removed.
+2. **The seam refuses.** `LocalFileSystem.remove`, `move` and `exchange` throw `.filedCopy` for any
+   `Archive/saveNNNN.md` (`PackageLayout.isFiledCopy`), even on a volume that can't lock it.
+3. **The kernel refuses.** With `UF_IMMUTABLE` set, `unlink`, `rename` over it and opening it for writing
+   all fail with `EPERM`, whoever asks, the owner included, until the flag is cleared
+   (`chflags nouchg save0001.md`). Tests clear it the same way before deleting their temporary folders.
+
+### Rust comparison
+
+| Swift | Rust |
+| --- | --- |
+| `lchflags(path, flags \| UF_IMMUTABLE)` | `nix::sys::stat` has no `chflags`; call `libc::lchflags` |
+| `FilingOutcome { lock: CopyLock, index: IndexUpdate }` | a struct of two enums rather than `Result<_, _>`: the copy already exists |
+| `ArchiveReconciliation.reconcile(…, counts: (FiledCopyNumber) -> FiledCopyCounts?)` | `fn reconcile(…, counts: impl Fn(FiledCopyNumber) -> Option<Counts>)` |
