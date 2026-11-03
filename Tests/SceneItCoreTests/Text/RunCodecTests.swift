@@ -7,7 +7,6 @@ import Testing
 enum Editor: CaseIterable, Sendable {
     case body, notes
 
-    @MainActor
     func load(_ paragraphs: [Paragraph]) -> NSAttributedString {
         switch self {
         case .body: RunCodec.attributedString(forBody: paragraphs)
@@ -15,7 +14,6 @@ enum Editor: CaseIterable, Sendable {
         }
     }
 
-    @MainActor
     func save(_ text: NSAttributedString) -> [Paragraph] {
         switch self {
         case .body: RunCodec.body(from: text)
@@ -23,13 +21,14 @@ enum Editor: CaseIterable, Sendable {
         }
     }
 
-    @MainActor
     func roundTrip(_ paragraphs: [Paragraph]) -> [Paragraph] {
         save(load(paragraphs))
     }
 }
 
-@MainActor @Suite struct RunCodecTests {
+/// Serialized because its pasted fonts are looked up on the font server, and several lookups at
+/// once can wait for its replies forever (#77).
+@Suite(.serialized) struct RunCodecTests {
     @Test(arguments: Editor.allCases)
     func everyColorHighlightAndStyleCombinationRoundTrips(editor: Editor) {
         let styleSets = TextStyle.allCases.reduce(into: [Set<TextStyle>()]) { sets, style in

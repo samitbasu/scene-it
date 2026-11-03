@@ -4,7 +4,7 @@ import Testing
 @testable import SceneItCore
 
 /// From the adversarial review of #72: batched edits and lone surrogates.
-@MainActor @Suite(.timeLimit(.minutes(2))) struct ReviewBodyChangeTests {
+@Suite(.timeLimit(.minutes(2))) struct ReviewBodyChangeTests {
     private static let pieces = [
         "a", "word ", "é", "\n", "\r\n", "\r", "\u{2028}", "\u{2029}", "\u{85}", "\u{0B}", "\u{0C}",
         "\u{FFFC}", "\u{1F30A}", "", "\n\n", "x\ny",

@@ -254,7 +254,6 @@ import Testing
 
     /// Merging many neighbouring pieces of the same format admits the text once, not once
     /// per piece.
-    @MainActor
     @Test func manyPiecesOfOneFormat() {
         expectLinear("RunCodec.body(from:)", sizes: (5000, 10_000)) { count in
             let text = NSMutableAttributedString(string: String(repeating: "word ", count: count))

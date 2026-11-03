@@ -3,9 +3,17 @@ import Testing
 @testable import SceneItCore
 
 extension AutosaveDriver {
-    func wait(until condition: (AutosaveScheduler<C.Instant>.State) -> Bool) async {
+    func wait(
+        until condition: (AutosaveScheduler<C.Instant>.State) -> Bool,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async {
         while !condition(state) {
-            try? await nextEvent(orUntil: nil)
+            do {
+                try await nextEvent(orUntil: nil)
+            } catch {
+                Issue.record("cancelled before the condition held", sourceLocation: sourceLocation)
+                return
+            }
         }
     }
 
@@ -30,7 +38,6 @@ private final class ScriptedSaver: AutosaveSaver {
     private(set) var times: [ManualClock.Instant] = []
     private(set) var requests: [SaveRequest] = []
     private var held: CheckedContinuation<Void, Never>?
-    private var holdWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(clock: ManualClock, _ steps: [Step] = []) {
         self.clock = clock
@@ -47,16 +54,12 @@ private final class ScriptedSaver: AutosaveSaver {
         case .fail(let error):
             throw error
         case .hold:
-            await withCheckedContinuation { continuation in
-                held = continuation
-                for waiter in holdWaiters { waiter.resume() }
-                holdWaiters = []
-            }
+            await withCheckedContinuation { held = $0 }
         }
     }
 
-    func untilHeld() async {
-        if held == nil { await withCheckedContinuation { holdWaiters.append($0) } }
+    func untilHeld(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await eventually({ held != nil }, sourceLocation: sourceLocation)
     }
 
     func release() {

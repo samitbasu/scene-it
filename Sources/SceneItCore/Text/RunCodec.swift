@@ -25,9 +25,6 @@ import AppKit
 /// so save verification refuses a book with an id missing from it. Whoever accepts the
 /// edit must remap or strip unknown ids (decision 0017);
 /// `Paragraph.commentIDs(in:)` lists the ids to check.
-///
-/// Main-actor isolated, because the `NSTextStorage` it reads and fills is.
-@MainActor
 public enum RunCodec {
     public static func attributedString(forBody body: [Paragraph]) -> NSAttributedString {
         attributedString(body, role: .body)
@@ -123,7 +120,6 @@ struct RunFormat: Hashable, Sendable {
         Run(text, styles: styles, color: color, highlight: highlight, comments: comments)
     }
 
-    @MainActor
     func attributes(in role: ParagraphRole) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: role.font(styles),

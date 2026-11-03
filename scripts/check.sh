@@ -30,20 +30,22 @@ fail() {
     exit 1
 }
 
+# run <step> <minutes> <command>...: a step that takes longer than <minutes> fails.
 run() {
-    local step=$1
-    shift
+    local step=$1 minutes=$2
+    shift 2
     local log="$log_dir/$step.log"
-    "$@" >"$log" 2>&1 || fail "$step" "$log"
+    rm -f "$log_dir/$step"-hang-*.txt
+    with_time_limit $((minutes * 60)) "$log_dir/$step-hang" "$@" >"$log" 2>&1 || fail "$step" "$log"
 }
 
-run guard-tests scripts/test-guards.sh
+run guard-tests 5 scripts/test-guards.sh
 for guard in "${source_guards[@]}"; do
-    run "${guard%%:*}" "${guard#*:}" "${swift_paths[@]}"
+    run "${guard%%:*}" 5 "${guard#*:}" "${swift_paths[@]}"
 done
-run lint lint_swift
-run swift-test swift test
-run xcodebuild xcodebuild \
+run lint 5 lint_swift
+run swift-test 15 swift test
+run xcodebuild 45 xcodebuild \
     -project SceneIt.xcodeproj \
     -scheme SceneIt \
     -destination 'platform=macOS' \
