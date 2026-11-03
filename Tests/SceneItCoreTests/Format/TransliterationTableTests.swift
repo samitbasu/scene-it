@@ -21,18 +21,24 @@ import Testing
         return Array(lines[(start + 1)..<end])
     }
 
-    /// `| U+00E9 | é | `e` |` rows: the code point and what it becomes.
-    private static func specTable() throws -> [Unicode.Scalar: String] {
-        var table: [Unicode.Scalar: String] = [:]
+    /// `| U+00E9 | é | `e` | noticed |` rows: the code point, what it becomes, and whether
+    /// a file holding it gets a notice.
+    private static func specTable() throws -> [Unicode.Scalar: Transliteration.Spelling] {
+        var table: [Unicode.Scalar: Transliteration.Spelling] = [:]
         for line in try section() where line.hasPrefix("| U+") {
             let cells = line.replacing("\\|", with: "\u{0}").split(separator: "|").map {
                 $0.trimmingCharacters(in: .whitespaces).replacing("\u{0}", with: "|")
             }
-            try #require(cells.count == 3, "a row has three cells: \(line)")
+            try #require(cells.count == 4, "a row has four cells: \(line)")
             let value = try #require(UInt32(cells[0].dropFirst(2), radix: 16), "\(line)")
             let scalar = try #require(Unicode.Scalar(value))
             #expect(table[scalar] == nil, "U+\(cells[0]) is listed once")
-            table[scalar] = try becomes(cells[2])
+            let ascii = try becomes(cells[2])
+            switch cells[3] {
+            case "silent": table[scalar] = .silent(ascii)
+            case "noticed": table[scalar] = .noticed(ascii)
+            default: Issue.record("a notice cell is silent or noticed: \(line)")
+            }
         }
         return table
     }

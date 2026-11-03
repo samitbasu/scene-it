@@ -22,12 +22,12 @@ public enum CharacterPolicy {
         scalar == "\n" || isAllowed(scalar)
     }
 
-    /// `text` with §1.2's steps 3–5 applied: `\r\n` and `\r` become `\n`, a tab becomes a
+    /// `text` with §1.2's steps 3, 4 and 7 applied: `\r\n` and `\r` become `\n`, a tab becomes a
     /// space, a character in the transliteration table becomes its ASCII, and every other
     /// disallowed character becomes `[?]`.
     public static func admit(_ text: String) -> AdmittedText {
-        let admitted = admitASCII(text)
-        return AdmittedText(text: ASCII.string(admitted.bytes[...]), changes: admitted.changes)
+        let scanned = scan(text, .inPlace)
+        return AdmittedText(text: ASCII.string(scanned.bytes[...]), changes: scanned.changes)
     }
 
     /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
@@ -51,10 +51,29 @@ public enum CharacterPolicy {
         return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
     }
 
-    /// `admit`, as ASCII bytes, recording each character it changed and the line it was on.
-    /// It reads scalar by scalar, so a decomposed `é` is an `e` and a combining accent, and
-    /// the table removes the accent.
-    static func admitASCII(_ text: String) -> ASCIIText {
+    /// A whole file with §1.2's steps 3–5 applied, as UTF-8: the change step 7 will
+    /// make to each other disallowed character is recorded with its line. Step 7 itself waits
+    /// for `transliterated`, token by token once the lines are read, so what the table writes
+    /// is always literal text and never markup.
+    static func fileText(_ text: String) -> ScannedText {
+        scan(text, .perToken)
+    }
+
+    /// §1.2 step 7 on one token of a file (`fileText`), whose `\n`s are kept.
+    static func transliterated(_ bytes: some Collection<UInt8>) -> [UInt8] {
+        if bytes.allSatisfy({ $0 == ASCII.newline || (0x20...0x7E).contains($0) }) { return Array(bytes) }
+        return ASCII.bytes(admit(String(decoding: bytes, as: UTF8.self)).text)
+    }
+
+    private enum Transliterating {
+        case inPlace
+        /// Each character the table changes is left as its UTF-8.
+        case perToken
+    }
+
+    /// Reads scalar by scalar, so a decomposed `é` is an `e` and a combining accent, and the
+    /// table removes the accent.
+    private static func scan(_ text: String, _ transliterating: Transliterating) -> ScannedText {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(text.utf8.count)
         var changes: [CharacterChange] = []
@@ -75,16 +94,23 @@ public enum CharacterPolicy {
             case _ where isAllowed(scalar):
                 bytes.append(UInt8(scalar.value))
             default:
-                if let spelling = Transliteration.table[scalar] {
-                    bytes += spelling.utf8
-                    changes.append(CharacterChange(line: line, scalar: scalar, kind: .transliterated))
-                } else {
-                    bytes += placeholder.utf8
-                    changes.append(CharacterChange(line: line, scalar: scalar, kind: .replaced))
+                let (spelling, kind) = change(of: scalar)
+                switch transliterating {
+                case .inPlace: bytes += spelling.utf8
+                case .perToken: bytes += scalar.utf8
                 }
+                changes.append(CharacterChange(line: line, scalar: scalar, kind: kind))
             }
         }
-        return ASCIIText(bytes: bytes, changes: changes)
+        return ScannedText(bytes: bytes, changes: changes)
+    }
+
+    private static func change(of scalar: Unicode.Scalar) -> (String, CharacterChange.Kind) {
+        switch Transliteration.table[scalar] {
+        case .silent(let ascii): (ascii, .straightened)
+        case .noticed(let ascii): (ascii, .transliterated)
+        case nil: (placeholder, .replaced)
+        }
     }
 
     /// `scalars` without repeats, in order of first appearance.
@@ -97,26 +123,30 @@ public enum CharacterPolicy {
 /// Text as `CharacterPolicy.admit` leaves it.
 public struct AdmittedText: Hashable, Sendable {
     public let text: String
-    /// The characters the transliteration table spelled in ASCII, each once, in order of
-    /// first appearance.
+    /// The characters the transliteration table spelled in ASCII silently (typographic
+    /// punctuation), each once, in order of first appearance.
+    public let straightened: [Unicode.Scalar]
+    /// The characters the table spelled in ASCII with a notice, likewise.
     public let transliterated: [Unicode.Scalar]
-    /// The characters that became `[?]`, each once, in order of first appearance.
+    /// The characters that became `[?]`, likewise.
     public let replaced: [Unicode.Scalar]
 
     init(text: String, changes: [CharacterChange]) {
         self.text = text
+        straightened = CharacterChange.distinct(changes, .straightened)
         transliterated = CharacterChange.distinct(changes, .transliterated)
         replaced = CharacterChange.distinct(changes, .replaced)
     }
 
-    /// The notices the parser records for these changes: one per kind of change.
+    /// The notices the parser records for these changes: one per noticed kind.
     public var notices: [RepairNotice] {
         RepairNotice.characters(transliterated: transliterated, replaced: replaced)
     }
 }
 
-/// Admitted text as ASCII bytes, which is how the parser reads it.
-struct ASCIIText {
+/// A file's text as `CharacterPolicy.fileText` leaves it, as UTF-8, which is how the parser
+/// reads it.
+struct ScannedText {
     var bytes: [UInt8]
     /// In text order.
     var changes: [CharacterChange]
@@ -125,7 +155,9 @@ struct ASCIIText {
 /// A character `CharacterPolicy` changed, how, and the line (counted from 0) it was on.
 struct CharacterChange: Hashable {
     enum Kind: Hashable {
-        /// Spelled in ASCII by the transliteration table.
+        /// Spelled in ASCII by the transliteration table, silently.
+        case straightened
+        /// Spelled in ASCII by the table, with a notice.
         case transliterated
         /// Replaced with `[?]`.
         case replaced

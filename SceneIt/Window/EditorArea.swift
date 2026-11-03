@@ -201,9 +201,18 @@ private struct TitleTextField: NSViewRepresentable {
             let title = SceneTitle(pasted: typed)
             book.setTitle(of: scene, to: title)
             guard !title.text.utf16.elementsEqual(typed.utf16) else { return }
+            // A backstop: the editor's veto keeps out what the title can't hold, so only an edit
+            // that skipped it gets here. Mid-undo the text is between two steps of a change that
+            // ends admitted, so it's left alone.
+            if let history = editor.undoManager, history.isUndoing || history.isRedoing { return }
             let caret = min(editor.selectedRange().location, (typed as NSString).length)
             let before = (typed as NSString).substring(to: caret)
-            editor.string = title.text
+            let all = NSRange(location: 0, length: (typed as NSString).length)
+            guard let storage = editor.textStorage,
+                editor.shouldChangeText(in: all, replacementString: title.text)
+            else { return }
+            storage.replaceCharacters(in: all, with: title.text)
+            editor.didChangeText()
             editor.setSelectedRange(NSRange(location: SceneTitle(pasted: before).text.utf16.count, length: 0))
         }
 
@@ -254,6 +263,33 @@ private final class TitleField: NSTextField {
 
     final class Editor: KeyboardTextView {
         var history: UndoManager?
+
+        /// The character policy's veto, as the page has it: a change the title can't hold is
+        /// refused and its admitted reading made instead, as one undoable change.
+        override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)
+            -> Bool
+        {
+            guard let strings = replacementStrings,
+                let admitted = Self.corrected(strings, by: { SceneTitle(pasted: $0).text })
+            else {
+                return super.shouldChangeText(
+                    inRanges: affectedRanges, replacementStrings: replacementStrings)
+            }
+            let ranges = affectedRanges.map(\.rangeValue)
+            guard let storage = textStorage,
+                super.shouldChangeText(inRanges: affectedRanges, replacementStrings: admitted)
+            else { return false }
+            let selection = selectedRanges.map(\.rangeValue)
+            storage.beginEditing()
+            for (range, string) in zip(ranges, admitted).reversed() {
+                storage.replaceCharacters(in: range, with: string)
+            }
+            storage.endEditing()
+            didChangeText()
+            let edits = zip(ranges, admitted).map { Edit(range: $0, length: $1.utf16.count) }
+            selectedRanges = Self.selection(selection, after: edits).map(NSValue.init(range:))
+            return false
+        }
 
         override var undoManager: UndoManager? {
             history ?? super.undoManager

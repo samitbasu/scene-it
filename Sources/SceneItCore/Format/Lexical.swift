@@ -218,8 +218,9 @@ enum Lexical {
             }
     }
 
+    /// A token's text, with book format §1.2 step 7 applied: from here on it's ASCII.
     static func string(_ bytes: some Collection<UInt8>) -> String {
-        ASCII.string(ArraySlice(bytes))
+        ASCII.string(CharacterPolicy.transliterated(bytes)[...])
     }
 }
 

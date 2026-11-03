@@ -117,20 +117,30 @@ which is short enough to write out:
 The common case never gets here: `String(validating: bytes, as: UTF8.self)` succeeds for a
 valid file, and only an invalid one takes the byte-by-byte path.
 
-**Admit.** Then `CharacterPolicy.admitASCII` normalizes line endings, turns tabs into spaces,
-and looks every character outside printable ASCII up in the transliteration table (ADR 0028):
-`é` becomes `e`, `“` becomes `"`, `—` becomes `--`, a no-break space becomes a space, and a
-character the table doesn't have becomes `[?]`. It remembers which line each change was on and
-which kind it was, so each scene gets one notice for what was transliterated and one for what
-was replaced. The editors call the public `CharacterPolicy.admit` (through `admitted`,
-`admittedLine` and `admittedInput`) on typing and pasting, which is the same code, so the two
-can't disagree.
+**Admit, in two stages.** Then `CharacterPolicy.fileText` normalizes line endings, turns tabs
+into spaces, and looks every other character outside printable ASCII up in the transliteration
+table (ADR 0028), recording what will happen to it and which line it's on, but **leaving it in
+place**. The parser reads the lines' structure first, and only then does each piece of text a
+line yields (a paragraph's characters in their styles, a title, a tag, a comment's text and
+quote) go through `CharacterPolicy.transliterated`: `é` becomes `e`, `“` becomes `"`, `—`
+becomes `--`, a no-break space becomes a space, and a character the table doesn't have becomes
+`[?]`. The order matters. Transliterating the whole file first, as the first version of this
+code did, let the table's output become markup: a pasted bullet `•` became `*` and then an
+italic delimiter, and a no-break space became a space that trimming then ate, shifting every
+comment offset after it. Transliterated characters must always be literal text, so the
+serializer escapes them like any other `*`.
+
+The recorded changes become notices, one per kind per scene, except that typographic
+punctuation and the no-break space (the table's `silent` entries, which TextEdit and Word
+write freely) are straightened without one. The editors call the public
+`CharacterPolicy.admit` (through `admitted`, `admittedLine` and `admittedInput`) on typing and
+pasting, which is the same table, so the two can't disagree.
 
 The table is data, not code paths:
 
 ```swift
-    public static let table: [Unicode.Scalar: String] = [
-        "\u{00A0}": " ", "\u{00A1}": "", "\u{00A6}": "|", "\u{00A9}": "(c)", "\u{00AA}": "a",
+    public static let table: [Unicode.Scalar: Spelling] = [
+        "\u{00A0}": .silent(" "), "\u{00A1}": .noticed(""), "\u{00A6}": .noticed("|"),
         // … 108 entries in all
     ]
 ```
@@ -142,8 +152,8 @@ in a document, and make a test the bridge.
 
 The cost is real, and the owner accepted it: a book can't hold an accented name. `Renée`
 is stored as `Renee`, silently when it's pasted, and Greek or Japanese text becomes `[?]`. A
-file that holds such characters (one written by an earlier, Latin-1 build of Scene It, say)
-gets a notice for each kind of change, so it opens read-only as repaired, and its original is
+file that holds accented letters (one written by an earlier, Latin-1 build of Scene It, say)
+gets a notice for them, so it opens read-only as repaired, and its original is
 kept when the writer makes it editable (ADR 0024).
 
 There's deliberately no Unicode normalization. A decomposed `e` + U+0301 is two scalars, an

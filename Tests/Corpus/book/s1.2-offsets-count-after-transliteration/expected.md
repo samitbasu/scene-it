@@ -14,4 +14,4 @@ ae... letter -- end
 
 ### Unparsed
 - [comments] - c2 | blue | 2026-01-01T00:00:00Z | c2-8 | "letter" |
-- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+00E6, U+2026, U+2014.
+- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+00E6.

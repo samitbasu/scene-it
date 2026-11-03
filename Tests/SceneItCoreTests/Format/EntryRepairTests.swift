@@ -249,15 +249,15 @@ struct EntryRepairTests {
         let scenesWithEntries = (book.scenes + book.boneyard).filter { !$0.errors.isEmpty }
         #expect(groups.map(\.owner) == [.book] + scenesWithEntries.map { .scene($0.id) })
         #expect(groups.flatMap(\.refs).map(\.entry) == Array(book.errorEntries.joined()))
-        #expect(book.errorCount == 14, "book format §9.2's fourteen rows")
+        #expect(book.errorCount == 12, "book format §9.2's twelve rows")
         let reasons = groups.flatMap(\.refs).map { BookFormat.reason(for: $0, in: book) }
         #expect(
             reasons == [
                 .frontMatter(.unknownKey), .line, .notice,
-                .comment(.paletteName), .comment(.quoteMismatch), .notice, .notice,
+                .comment(.paletteName), .comment(.quoteMismatch), .notice,
                 .notice,
                 .line, .notice, .notice,
-                .comment(.quoteSyntax), .notice, .notice,
+                .comment(.quoteSyntax), .notice,
             ])
     }
 }

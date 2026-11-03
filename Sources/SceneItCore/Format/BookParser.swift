@@ -6,13 +6,13 @@ import Foundation
 enum BookParser {
     static func parse(_ bytes: Data, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
         let decoded = BookTextDecoder.decode(bytes)
-        let admitted = CharacterPolicy.admitASCII(decoded.text)
+        let admitted = CharacterPolicy.fileText(decoded.text)
         let reader = Reader(lines: lines(admitted.bytes), changes: admitted.changes)
         reader.read()
         return reader.finish(windows1252ByteCount: decoded.windows1252ByteCount, opened: opened, ids: &ids)
     }
 
-    /// §1.2 step 8 and §1.3: the text's physical lines, trimmed. A final `\n` ends the last
+    /// §1.2 step 6 and §1.3: the text's physical lines, trimmed. A final `\n` ends the last
     /// line rather than starting another.
     static func lines(_ text: [UInt8]) -> [[UInt8]] {
         var lines = text.split(separator: Lexical.newline, omittingEmptySubsequences: false)
@@ -260,8 +260,11 @@ private final class Reader {
         }
         switch key {
         case "id":
-            guard Lexical.isValidID(value) else { return record(.metadata, line, number, .metadata(.badID)) }
-            scene.id = SceneID(rawValue: Lexical.string(value))
+            let id = Lexical.string(value)
+            guard Lexical.isValidID(id.utf8) else {
+                return record(.metadata, line, number, .metadata(.badID))
+            }
+            scene.id = SceneID(rawValue: id)
         case "modified":
             guard let timestamp = Timestamp(Lexical.string(value)) else {
                 return record(.metadata, line, number, .metadata(.badDate))

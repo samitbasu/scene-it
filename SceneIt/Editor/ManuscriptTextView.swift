@@ -148,6 +148,7 @@ final class ManuscriptTextView: KeyboardTextView {
                     normalizing: storage.attributes(at: range.location, effectiveRange: nil))
                 : typingAttributes
         }
+        let selection = selectedRanges.map(\.rangeValue)
         storage.beginEditing()
         for ((range, string), attributes) in zip(zip(ranges, strings), formats).reversed() {
             storage.replaceCharacters(
@@ -155,9 +156,7 @@ final class ManuscriptTextView: KeyboardTextView {
         }
         storage.endEditing()
         didChangeText()
-        let shift = zip(ranges, strings).dropLast().reduce(0) { $0 + $1.1.utf16.count - $1.0.length }
-        if let last = ranges.last, let string = strings.last {
-            setSelectedRange(NSRange(location: last.location + shift + string.utf16.count, length: 0))
-        }
+        let edits = zip(ranges, strings).map { Edit(range: $0, length: $1.utf16.count) }
+        selectedRanges = Self.selection(selection, after: edits).map(NSValue.init(range:))
     }
 }

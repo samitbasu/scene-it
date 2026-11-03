@@ -112,8 +112,26 @@ import Testing
     func theTableSpellsCharactersInASCII(typed: String, stored: String) {
         let admitted = CharacterPolicy.admit("a\(typed)b")
         #expect(admitted.text == "a\(stored)b")
-        #expect(admitted.transliterated == Array(typed.unicodeScalars))
+        #expect(admitted.straightened + admitted.transliterated == Array(typed.unicodeScalars))
         #expect(admitted.replaced.isEmpty)
+    }
+
+    /// The owner's call: typographic punctuation and the no-break space, which other editors
+    /// write freely, are straightened silently; everything else the table spells is noticed.
+    @Test func onlyTypographicPunctuationAndTheNoBreakSpaceAreSilent() {
+        let silent: Set<Unicode.Scalar> = [
+            "\u{201C}", "\u{201D}", "\u{201E}", "\u{2018}", "\u{2019}", "\u{201A}", "\u{2039}", "\u{203A}",
+            "\u{2013}", "\u{2014}", "\u{2026}", "\u{A0}",
+        ]
+        for (scalar, spelling) in Transliteration.table {
+            switch spelling {
+            case .silent: #expect(silent.contains(scalar), "U+\(String(scalar.value, radix: 16))")
+            case .noticed: #expect(!silent.contains(scalar), "U+\(String(scalar.value, radix: 16))")
+            }
+        }
+        let admitted = CharacterPolicy.admit("\u{201C}Hi\u{201D}\u{A0}\u{2014}")
+        #expect(admitted.text == "\"Hi\" --")
+        #expect(admitted.notices.isEmpty)
     }
 
     /// Every scalar of the Basic Multilingual Plane, and samples beyond it: each comes out as
@@ -136,13 +154,19 @@ import Testing
                 isRight = admitted.text == String(scalar) && admitted.notices.isEmpty
             } else if let spelling = Transliteration.table[scalar] {
                 reached.insert(scalar)
+                let kind: [Unicode.Scalar] =
+                    switch spelling {
+                    case .silent: admitted.straightened
+                    case .noticed: admitted.transliterated
+                    }
                 isRight =
-                    admitted.text == spelling && admitted.transliterated == [scalar]
+                    admitted.text == spelling.ascii && kind == [scalar]
+                    && admitted.straightened.count + admitted.transliterated.count == 1
                     && admitted.replaced.isEmpty
             } else {
                 isRight =
                     admitted.text == CharacterPolicy.placeholder && admitted.replaced == [scalar]
-                    && admitted.transliterated.isEmpty
+                    && admitted.transliterated.isEmpty && admitted.straightened.isEmpty
             }
             if !(isPrintableASCII && isRight) {
                 wrong.append("U+\(String(value, radix: 16, uppercase: true))")
@@ -157,8 +181,8 @@ import Testing
     @Test func noTableEntryIsAllowedOrSpelledOutsidePrintableASCII() {
         for (scalar, spelling) in Transliteration.table {
             #expect(!CharacterPolicy.isAdmitted(scalar))
-            #expect(spelling.utf8.allSatisfy { (0x20...0x7E).contains($0) })
-            #expect(spelling.count <= 4)
+            #expect(spelling.ascii.utf8.allSatisfy { (0x20...0x7E).contains($0) })
+            #expect(spelling.ascii.count <= 4)
         }
     }
 
@@ -166,22 +190,26 @@ import Testing
         let admitted = CharacterPolicy.admit("🌊 α é 🌊 \u{0} “ \u{2028} é")
         #expect(admitted.text == "[?] [?] e [?] [?] \" [?] e")
         #expect(admitted.replaced == ["🌊", "α", "\u{0}", "\u{2028}"])
-        #expect(admitted.transliterated == ["é", "“"])
+        #expect(admitted.transliterated == ["é"])
+        #expect(admitted.straightened == ["“"])
         #expect(
             admitted.notices.map(\.payload) == [
-                "Characters outside plain ASCII were changed to their nearest ASCII: U+00E9, U+201C.",
+                "Characters outside plain ASCII were changed to their nearest ASCII: U+00E9.",
                 "Characters with no ASCII form were replaced with [?]: U+1F30A, U+03B1, U+0000, U+2028.",
             ])
         #expect(CharacterPolicy.admit("plain").notices.isEmpty)
     }
 
     @Test func changesRecordTheirLineAndKind() {
-        let admitted = CharacterPolicy.admitASCII("a\r\nb🌊\rc\né")
+        let file = CharacterPolicy.fileText("a\r\nb🌊\rc\né\t“")
         #expect(
-            admitted.changes == [
+            file.changes == [
                 CharacterChange(line: 1, scalar: "🌊", kind: .replaced),
                 CharacterChange(line: 3, scalar: "é", kind: .transliterated),
+                CharacterChange(line: 3, scalar: "“", kind: .straightened),
             ])
+        #expect(file.bytes == Array("a\nb🌊\nc\né “".utf8), "the characters are left for each token")
+        #expect(CharacterPolicy.transliterated(Array("é \u{2022}\n".utf8)) == Array("e *\n".utf8))
     }
 
     @Test func surrogatesFromAppKitAreReplaced() {

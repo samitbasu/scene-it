@@ -86,14 +86,19 @@ The reader turns bytes into text in this exact order. Every step is total: none 
 
 | Step | Rule |
 | --- | --- |
-| 1. Decode | Decode as UTF-8. A *well-formed* sequence is one allowed by the Unicode Standard's Table 3-7 (no overlong forms, no surrogates, nothing above U+10FFFF). Every byte that isn't part of a well-formed sequence is decoded on its own as its **Windows-1252** character †, and the book gets **one** encoding notice (§5.3), however many bytes there were. Windows-1252 equals Latin-1 for bytes 0xA0–0xFF. Bytes 0x80–0x9F give 1252's typographic characters (0x93 → “), which step 5 then spells in ASCII. The five bytes 1252 leaves undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D) decode as the C1 control of the same value, which step 5 replaces. See §10 Q2. |
+| 1. Decode | Decode as UTF-8. A *well-formed* sequence is one allowed by the Unicode Standard's Table 3-7 (no overlong forms, no surrogates, nothing above U+10FFFF). Every byte that isn't part of a well-formed sequence is decoded on its own as its **Windows-1252** character †, and the book gets **one** encoding notice (§5.3), however many bytes there were. Windows-1252 equals Latin-1 for bytes 0xA0–0xFF. Bytes 0x80–0x9F give 1252's typographic characters (0x93 → “), which step 7 then spells in ASCII. The five bytes 1252 leaves undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D) decode as the C1 control of the same value, which step 7 replaces. See §10 Q2. |
 | 2. Byte-order mark | A U+FEFF at the very start is removed silently †. Anywhere else it's an ordinary disallowed character. |
 | 3. Line endings | `\r\n` and lone `\r` become `\n`. |
 | 4. Tab | U+0009 becomes a space † (§10 Q3). |
-| 5. Filter | Allowed characters are **printable ASCII**, U+0020–U+007E, plus `\n` (ADR 0028). Every other character is looked up in the transliteration table below: if it's there, it becomes the table's ASCII (possibly nothing); if not, it becomes the three characters `[?]`. Either way its code point is recorded, with which of the two happened, against the physical line it was on (for the notices in §5.3). Characters are taken one scalar at a time, with no normalization: a decomposed `e` + U+0301 is an `e` and a combining accent, which the table removes, so it reads as `e` just as a precomposed `é` (U+00E9) does. |
+| 5. Record | Allowed characters are **printable ASCII**, U+0020–U+007E, plus `\n` (ADR 0028). Every other character is looked up in the transliteration table below, and its code point is recorded, with what will happen to it (silently spelled in ASCII, spelled with a notice, or replaced), against the physical line it was on (for the notices in §5.3). The character itself stays as it is for now. |
 | 6. Split | Split on `\n` into physical lines. If the text ends with `\n`, the empty string after it isn't a line. |
+| 7. Transliterate † | Once a line's structure has been read (§1.3 trimming, §1.4 headings, §3's escapes and style delimiters, §4's fields), each piece of **text** it yields (a paragraph's characters in their styles, a title, a tag, a metadata or front matter value, a comment's text and quotes, an entry's payload) has each disallowed character replaced by the table's ASCII (possibly nothing) or, if it isn't in the table, by the three characters `[?]`. Characters are taken one scalar at a time, with no normalization: a decomposed `e` + U+0301 is an `e` and a combining accent, which the table removes, so it reads as `e` just as a precomposed `é` (U+00E9) does. |
 
-After this pipeline every character is one ASCII byte, so offsets (§3.6) count bytes and characters alike.
+Step 7 comes after the structure is read so that what the table writes is always literal text: a bullet `•`
+becomes a literal `*`, never an italic delimiter, `˜˜` never strikes through, `\•` is a backslash and a `*`, and a
+no-break space is never trimmed, never makes a line blank and never counts as the space after a heading's `#`s.
+After it, every character of the book is one ASCII byte, so offsets (§3.6) count bytes and characters alike, and a
+comment's quote is compared with the text after both are transliterated.
 
 #### The transliteration table (version 1)
 
@@ -102,138 +107,141 @@ to typing and pasting; implement it once, as data, and use it in both places. It
 (Unicode normalization, `ICU` transliteration), whose results can change between operating system versions. It
 covers Latin-1 (U+00A0–U+00FF), the characters Windows-1252 adds (its bytes 0x80–0x9F), and the combining
 accents those letters decompose into. Its version is raised with every change, since the same file can read
-differently under two versions. `␠` is a space; *(removed)* means the character becomes nothing. Scene It's
-`Transliteration.table` holds the same entries; a test reads this section and compares the two.
+differently under two versions. `␠` is a space; *(removed)* means the character becomes nothing; *Notice* is
+`silent` or `noticed` (below). Scene It's `Transliteration.table` holds the same entries; a test reads this
+section and compares the two.
 
 **Latin-1**
 
-| Code point | Character | Becomes |
-| --- | --- | --- |
-| U+00A0 | *no-break space* | ␠ |
-| U+00A1 | ¡ | *(removed)* |
-| U+00A6 | ¦ | `\|` |
-| U+00A9 | © | `(c)` |
-| U+00AA | ª | `a` |
-| U+00AB | « | `"` |
-| U+00AD | *soft hyphen* | *(removed)* |
-| U+00AE | ® | `(R)` |
-| U+00B1 | ± | `+/-` |
-| U+00B4 | ´ | `'` |
-| U+00BA | º | `o` |
-| U+00BB | » | `"` |
-| U+00BF | ¿ | *(removed)* |
-| U+00C0 | À | `A` |
-| U+00C1 | Á | `A` |
-| U+00C2 | Â | `A` |
-| U+00C3 | Ã | `A` |
-| U+00C4 | Ä | `A` |
-| U+00C5 | Å | `A` |
-| U+00C6 | Æ | `AE` |
-| U+00C7 | Ç | `C` |
-| U+00C8 | È | `E` |
-| U+00C9 | É | `E` |
-| U+00CA | Ê | `E` |
-| U+00CB | Ë | `E` |
-| U+00CC | Ì | `I` |
-| U+00CD | Í | `I` |
-| U+00CE | Î | `I` |
-| U+00CF | Ï | `I` |
-| U+00D0 | Ð | `D` |
-| U+00D1 | Ñ | `N` |
-| U+00D2 | Ò | `O` |
-| U+00D3 | Ó | `O` |
-| U+00D4 | Ô | `O` |
-| U+00D5 | Õ | `O` |
-| U+00D6 | Ö | `O` |
-| U+00D7 | × | `x` |
-| U+00D8 | Ø | `O` |
-| U+00D9 | Ù | `U` |
-| U+00DA | Ú | `U` |
-| U+00DB | Û | `U` |
-| U+00DC | Ü | `U` |
-| U+00DD | Ý | `Y` |
-| U+00DE | Þ | `TH` |
-| U+00DF | ß | `ss` |
-| U+00E0 | à | `a` |
-| U+00E1 | á | `a` |
-| U+00E2 | â | `a` |
-| U+00E3 | ã | `a` |
-| U+00E4 | ä | `a` |
-| U+00E5 | å | `a` |
-| U+00E6 | æ | `ae` |
-| U+00E7 | ç | `c` |
-| U+00E8 | è | `e` |
-| U+00E9 | é | `e` |
-| U+00EA | ê | `e` |
-| U+00EB | ë | `e` |
-| U+00EC | ì | `i` |
-| U+00ED | í | `i` |
-| U+00EE | î | `i` |
-| U+00EF | ï | `i` |
-| U+00F0 | ð | `d` |
-| U+00F1 | ñ | `n` |
-| U+00F2 | ò | `o` |
-| U+00F3 | ó | `o` |
-| U+00F4 | ô | `o` |
-| U+00F5 | õ | `o` |
-| U+00F6 | ö | `o` |
-| U+00F7 | ÷ | `/` |
-| U+00F8 | ø | `o` |
-| U+00F9 | ù | `u` |
-| U+00FA | ú | `u` |
-| U+00FB | û | `u` |
-| U+00FC | ü | `u` |
-| U+00FD | ý | `y` |
-| U+00FE | þ | `th` |
-| U+00FF | ÿ | `y` |
+| Code point | Character | Becomes | Notice |
+| --- | --- | --- | --- |
+| U+00A0 | *no-break space* | ␠ | silent |
+| U+00A1 | ¡ | *(removed)* | noticed |
+| U+00A6 | ¦ | `\|` | noticed |
+| U+00A9 | © | `(c)` | noticed |
+| U+00AA | ª | `a` | noticed |
+| U+00AB | « | `"` | noticed |
+| U+00AD | *soft hyphen* | *(removed)* | noticed |
+| U+00AE | ® | `(R)` | noticed |
+| U+00B1 | ± | `+/-` | noticed |
+| U+00B4 | ´ | `'` | noticed |
+| U+00BA | º | `o` | noticed |
+| U+00BB | » | `"` | noticed |
+| U+00BF | ¿ | *(removed)* | noticed |
+| U+00C0 | À | `A` | noticed |
+| U+00C1 | Á | `A` | noticed |
+| U+00C2 | Â | `A` | noticed |
+| U+00C3 | Ã | `A` | noticed |
+| U+00C4 | Ä | `A` | noticed |
+| U+00C5 | Å | `A` | noticed |
+| U+00C6 | Æ | `AE` | noticed |
+| U+00C7 | Ç | `C` | noticed |
+| U+00C8 | È | `E` | noticed |
+| U+00C9 | É | `E` | noticed |
+| U+00CA | Ê | `E` | noticed |
+| U+00CB | Ë | `E` | noticed |
+| U+00CC | Ì | `I` | noticed |
+| U+00CD | Í | `I` | noticed |
+| U+00CE | Î | `I` | noticed |
+| U+00CF | Ï | `I` | noticed |
+| U+00D0 | Ð | `D` | noticed |
+| U+00D1 | Ñ | `N` | noticed |
+| U+00D2 | Ò | `O` | noticed |
+| U+00D3 | Ó | `O` | noticed |
+| U+00D4 | Ô | `O` | noticed |
+| U+00D5 | Õ | `O` | noticed |
+| U+00D6 | Ö | `O` | noticed |
+| U+00D7 | × | `x` | noticed |
+| U+00D8 | Ø | `O` | noticed |
+| U+00D9 | Ù | `U` | noticed |
+| U+00DA | Ú | `U` | noticed |
+| U+00DB | Û | `U` | noticed |
+| U+00DC | Ü | `U` | noticed |
+| U+00DD | Ý | `Y` | noticed |
+| U+00DE | Þ | `TH` | noticed |
+| U+00DF | ß | `ss` | noticed |
+| U+00E0 | à | `a` | noticed |
+| U+00E1 | á | `a` | noticed |
+| U+00E2 | â | `a` | noticed |
+| U+00E3 | ã | `a` | noticed |
+| U+00E4 | ä | `a` | noticed |
+| U+00E5 | å | `a` | noticed |
+| U+00E6 | æ | `ae` | noticed |
+| U+00E7 | ç | `c` | noticed |
+| U+00E8 | è | `e` | noticed |
+| U+00E9 | é | `e` | noticed |
+| U+00EA | ê | `e` | noticed |
+| U+00EB | ë | `e` | noticed |
+| U+00EC | ì | `i` | noticed |
+| U+00ED | í | `i` | noticed |
+| U+00EE | î | `i` | noticed |
+| U+00EF | ï | `i` | noticed |
+| U+00F0 | ð | `d` | noticed |
+| U+00F1 | ñ | `n` | noticed |
+| U+00F2 | ò | `o` | noticed |
+| U+00F3 | ó | `o` | noticed |
+| U+00F4 | ô | `o` | noticed |
+| U+00F5 | õ | `o` | noticed |
+| U+00F6 | ö | `o` | noticed |
+| U+00F7 | ÷ | `/` | noticed |
+| U+00F8 | ø | `o` | noticed |
+| U+00F9 | ù | `u` | noticed |
+| U+00FA | ú | `u` | noticed |
+| U+00FB | û | `u` | noticed |
+| U+00FC | ü | `u` | noticed |
+| U+00FD | ý | `y` | noticed |
+| U+00FE | þ | `th` | noticed |
+| U+00FF | ÿ | `y` | noticed |
 
 **Windows-1252**
 
-| Code point | Character | Becomes |
-| --- | --- | --- |
-| U+0152 | Œ | `OE` |
-| U+0153 | œ | `oe` |
-| U+0160 | Š | `S` |
-| U+0161 | š | `s` |
-| U+0178 | Ÿ | `Y` |
-| U+017D | Ž | `Z` |
-| U+017E | ž | `z` |
-| U+0192 | ƒ | `f` |
-| U+02C6 | ˆ | `^` |
-| U+02DC | ˜ | `~` |
-| U+2013 | – | `-` |
-| U+2014 | — | `--` |
-| U+2018 | ‘ | `'` |
-| U+2019 | ’ | `'` |
-| U+201A | ‚ | `'` |
-| U+201C | “ | `"` |
-| U+201D | ” | `"` |
-| U+201E | „ | `"` |
-| U+2022 | • | `*` |
-| U+2026 | … | `...` |
-| U+2039 | ‹ | `'` |
-| U+203A | › | `'` |
-| U+2122 | ™ | `(TM)` |
+| Code point | Character | Becomes | Notice |
+| --- | --- | --- | --- |
+| U+0152 | Œ | `OE` | noticed |
+| U+0153 | œ | `oe` | noticed |
+| U+0160 | Š | `S` | noticed |
+| U+0161 | š | `s` | noticed |
+| U+0178 | Ÿ | `Y` | noticed |
+| U+017D | Ž | `Z` | noticed |
+| U+017E | ž | `z` | noticed |
+| U+0192 | ƒ | `f` | noticed |
+| U+02C6 | ˆ | `^` | noticed |
+| U+02DC | ˜ | `~` | noticed |
+| U+2013 | – | `-` | silent |
+| U+2014 | — | `--` | silent |
+| U+2018 | ‘ | `'` | silent |
+| U+2019 | ’ | `'` | silent |
+| U+201A | ‚ | `'` | silent |
+| U+201C | “ | `"` | silent |
+| U+201D | ” | `"` | silent |
+| U+201E | „ | `"` | silent |
+| U+2022 | • | `*` | noticed |
+| U+2026 | … | `...` | silent |
+| U+2039 | ‹ | `'` | silent |
+| U+203A | › | `'` | silent |
+| U+2122 | ™ | `(TM)` | noticed |
 
 **Combining marks**
 
-| Code point | Character | Becomes |
-| --- | --- | --- |
-| U+0300 | ◌̀ *combining grave accent* | *(removed)* |
-| U+0301 | ◌́ *combining acute accent* | *(removed)* |
-| U+0302 | ◌̂ *combining circumflex accent* | *(removed)* |
-| U+0303 | ◌̃ *combining tilde* | *(removed)* |
-| U+0308 | ◌̈ *combining diaeresis* | *(removed)* |
-| U+030A | ◌̊ *combining ring above* | *(removed)* |
-| U+030C | ◌̌ *combining caron* | *(removed)* |
-| U+0327 | ◌̧ *combining cedilla* | *(removed)* |
+| Code point | Character | Becomes | Notice |
+| --- | --- | --- | --- |
+| U+0300 | ◌̀ *combining grave accent* | *(removed)* | noticed |
+| U+0301 | ◌́ *combining acute accent* | *(removed)* | noticed |
+| U+0302 | ◌̂ *combining circumflex accent* | *(removed)* | noticed |
+| U+0303 | ◌̃ *combining tilde* | *(removed)* | noticed |
+| U+0308 | ◌̈ *combining diaeresis* | *(removed)* | noticed |
+| U+030A | ◌̊ *combining ring above* | *(removed)* | noticed |
+| U+030C | ◌̌ *combining caron* | *(removed)* | noticed |
+| U+0327 | ◌̧ *combining cedilla* | *(removed)* | noticed |
 
 These Latin-1 and Windows-1252 characters are deliberately not in the table, so each becomes `[?]`, as does every character not listed at all: ¢ (U+00A2), £ (U+00A3), ¤ (U+00A4), ¥ (U+00A5), § (U+00A7), ¨ (U+00A8), ¬ (U+00AC), ¯ (U+00AF), ° (U+00B0), ² (U+00B2), ³ (U+00B3), µ (U+00B5), ¶ (U+00B6), · (U+00B7), ¸ (U+00B8), ¹ (U+00B9), ¼ (U+00BC), ½ (U+00BD), ¾ (U+00BE), † (U+2020), ‡ (U+2021), ‰ (U+2030), € (U+20AC).
 
-Neither kind of change is silent in a file: each part of the file gets one notice for the characters it had
-transliterated and one for those it had replaced (§5.3). So a book holding accents or typographic punctuation, which
-Scene It never writes, opens as repaired: read-only, with its original kept when the writer makes it editable
-(ADR 0024).
+The table's last column says whether reading the character in a file is a repair the writer is told of. Typographic
+punctuation and the no-break space, which other editors write freely, are spelled in ASCII **silently**, as before
+ADR 0028, so a book edited in TextEdit opens normally. For every other entry, each part of the file gets one notice
+listing the characters it had transliterated, and one for those it had replaced with `[?]` (§5.3). So a book holding
+accented letters or symbols, which Scene It never writes, opens as repaired: read-only, with its original kept when
+the writer makes it editable (ADR 0024).
 
 The serializer writes UTF-8 with no byte-order mark, `\n` line endings, and **exactly one** `\n` at the end of the
 file. Since it never writes a character outside the allowed set (the model mustn't contain one, §7.5), the file it
@@ -691,7 +699,7 @@ stays in the file until the writer deletes it. The texts are proposals †; word
 | Situation | Where | Payload |
 | --- | --- | --- |
 | Bytes weren't valid UTF-8 | Book | `Some of this file wasn't valid UTF-8: <n> byte(s) were read as Windows-1252 characters.` |
-| Characters the transliteration table spelled in ASCII (§1.2) | The scene (or book) whose lines held them | `Characters outside plain ASCII were changed to their nearest ASCII: U+00E9, U+201C.` (distinct code points, in order of first appearance, uppercase hex, at least 4 digits) |
+| Characters the transliteration table spelled in ASCII with a notice (§1.2; not typographic punctuation or the no-break space) | The scene (or book) whose lines held them | `Characters outside plain ASCII were changed to their nearest ASCII: U+00E9, U+201C.` (distinct code points, in order of first appearance, uppercase hex, at least 4 digits) |
 | Characters with no entry in the table | The scene (or book) whose lines held them | `Characters with no ASCII form were replaced with [?]: U+1F30A, U+03B1.` (as above). It follows the transliteration notice when a part has both. |
 | No `title` | Book | `The book had no title, so it was called "Untitled".` |
 | No `format` | Book | `The file had no format line; it was read as format 2.` |
@@ -755,7 +763,8 @@ In every case the scenes' text, notes, comments and marks are read exactly as be
 | **A known `###` heading inside the body** (`### Notes`) | It really is a subsection: the text after it becomes notes. |
 | **Invalid UTF-8 byte** | Decoded as Windows-1252 (§1.2); one book-level notice. |
 | **A disallowed character** (emoji, Greek, a control character, U+2028) | `[?]` in its place; one notice per scene listing the code points. |
-| **Typographic punctuation, accented letters, a no-break space** (“ — é ñ …) | Spelled in ASCII by the transliteration table (§1.2); one notice per scene listing the code points, so the book opens read-only (ADR 0024). It changes lengths (— becomes `--`, a combining accent becomes nothing), so comments and marks after it in that scene may then fail E9. |
+| **Typographic punctuation, a no-break space** (“ ” ‘ ’ — – …) | Spelled in ASCII silently (§1.2). It changes lengths (— becomes `--`), so comments and marks after it in that scene may then fail E9. |
+| **Accented letters and other symbols in the table** (é ñ © •) | Spelled in ASCII by the transliteration table (§1.2); one notice per scene listing the code points, so the book opens read-only (ADR 0024). A combining accent becomes nothing, which changes lengths as above. |
 | **A wrong range, or a quote that no longer matches** | E7/E9 → `[comments]`/`[marks]` entry; the text loses only that comment's underline or that color. |
 | **An unknown palette name** | E4 → entry. |
 | **A duplicate comment id in a scene** | The later entry is E3. |
@@ -810,7 +819,7 @@ the model is admitted ASCII (§1.2), where canonically equivalent text is identi
 | Input | Canonical |
 | --- | --- |
 | `\r\n`, `\r`; a byte-order mark; no or several final newlines; extra blank lines; indentation; trailing spaces | `\n`; none; one; one; none; none |
-| Tabs | Spaces |
+| Typographic punctuation, no-break spaces, tabs | `"` `'` `--` `-` `...`, spaces, spaces |
 | Wrapped paragraphs and entries | One line each |
 | Unescaped literal `_`, lone `~`, free-standing `*`, unbalanced delimiters, `\` before a letter | Escaped |
 | A paragraph line starting with unescaped `- `, `---` | Escaped |
@@ -1089,13 +1098,13 @@ The parse (with `<id A>`, `<id B>`, `<id C>` from the id generator and `<now>` t
 | Scene | Title, id, modified | Text | Comments | Error entries |
 | --- | --- | --- | --- | --- |
 | *(book)* | `My Novel` | — | — | `[front matter] colour: blue` · `[line] Remember to back this up!` · `[notice] Some of this file wasn't valid UTF-8: 2 byte(s) were read as Windows-1252 characters.` |
-| 1 | *The ferry*, `01JCM9S346Q3D25VT4F5V37E3S`, as written | ¶1 `The ferry left at dawn, and Mara watched the harbor lights go out one by one behind her.` (wrapped lines joined) · ¶2 `"Wait," she said. [?]` (curly quotes spelled in ASCII) | `c2` | `[comments] - c1 | mauve | …` (E4) · `[comments] - c3 | blue | … | c4-9 | "ferry left" | Wrong range.` (E9: `c4-9` is `ferry`) · `[notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D.` · `[notice] Characters with no ASCII form were replaced with [?]: U+1F30A.` |
+| 1 | *The ferry*, `01JCM9S346Q3D25VT4F5V37E3S`, as written | ¶1 `The ferry left at dawn, and Mara watched the harbor lights go out one by one behind her.` (wrapped lines joined) · ¶2 `"Wait," she said. [?]` (curly quotes spelled in ASCII) | `c2` | `[comments] - c1 | mauve | …` (E4) · `[comments] - c3 | blue | … | c4-9 | "ferry left" | Wrong range.` (E9: `c4-9` is `ferry`) · `[notice] Characters with no ASCII form were replaced with [?]: U+1F30A.` |
 | 2 | *Arrival*, `<id A>`, as written | `Nobody met her at the landing.` | — | `[notice] This scene had no id, so it was given <id A>.` |
 | 3 | *Interlude*, `<id B>`, `<now>` | ¶1 `The gulls were louder than she remembered.` · ¶2 `Gulls: check species.` (still body: the unknown heading didn't change the section) | — | `[line] ### Note` · `[notice] This scene had no id, so it was given <id B>.` · `[notice] This scene had no modified date, so it was set to <now>.` |
-| 4 | *The letter*, `<id C>`, as written | `He read it twice before he understood "mother"` (bytes 0x93/0x94 → “ ” → `"`) | — | `[comments] - c1 | purple | 2026-11-01T15:30:00-08:00 | c3-7 | "read` (E8, unterminated) · `[notice] This scene's id 01JCM9S346Q3D25VT4F5V37E3S was already used by an earlier scene, so it was given <id C>.` · `[notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D.` |
+| 4 | *The letter*, `<id C>`, as written | `He read it twice before he understood "mother"` (bytes 0x93/0x94 → “ ” → `"`) | — | `[comments] - c1 | purple | 2026-11-01T15:30:00-08:00 | c3-7 | "read` (E8, unterminated) · `[notice] This scene's id 01JCM9S346Q3D25VT4F5V37E3S was already used by an earlier scene, so it was given <id C>.` |
 
-The writer sees fourteen rows in the Errors tab. The page shows every word they wrote. The next save writes clean UTF-8
-with `\n` endings, the joined paragraph, `"` for the curly quotes, `[?]` for the emoji, and the fourteen entries in
+The writer sees twelve rows in the Errors tab. The page shows every word they wrote. The next save writes clean UTF-8
+with `\n` endings, the joined paragraph, `"` for the curly quotes, `[?]` for the emoji, and the twelve entries in
 `### Unparsed` sections: the book's after the front matter, the others at the end of their scenes.
 
 ---

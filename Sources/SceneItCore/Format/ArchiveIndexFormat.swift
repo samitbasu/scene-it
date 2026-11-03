@@ -11,7 +11,7 @@ public enum ArchiveIndexFormat {
     /// line, or a bad one: the archive gives the filed copy's modification day.
     public static func parse(_ bytes: Data, filed: (FiledCopyNumber) -> CalendarDay) -> ParsedArchiveIndex {
         let decoded = BookTextDecoder.decode(bytes)
-        let admitted = CharacterPolicy.admitASCII(decoded.text)
+        let admitted = CharacterPolicy.fileText(decoded.text)
         let reader = IndexReader(lines: BookParser.lines(admitted.bytes), changes: admitted.changes)
         reader.read()
         return reader.finish(windows1252ByteCount: decoded.windows1252ByteCount, filed: filed)

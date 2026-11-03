@@ -283,8 +283,7 @@ character policy, so the page never holds a character the model can't:
 
 ```swift
         guard let strings = replacementStrings, let view = textView as? ManuscriptTextView else { return true }
-        let admitted = strings.map(CharacterPolicy.admittedInput)
-        guard zip(admitted, strings).contains(where: { !$0.utf16.elementsEqual($1.utf16) }) else {
+        guard let admitted = KeyboardTextView.corrected(strings, by: CharacterPolicy.admittedInput) else {
             return true
         }
         view.replace(affectedRanges.map(\.rangeValue), with: admitted)
@@ -298,8 +297,18 @@ anything, down to a lone surrogate), in the format of the text it replaces (so F
 of an italic, commented `hi` with `“hi”` keeps both), or in the typing attributes when it's
 inserted at the caret. `replace` goes through the same front door:
 `shouldChangeText(inRanges:replacementStrings:)` (which calls this delegate again, now with
-nothing to change, and registers the undo), the storage edit, then `didChangeText()`. The caret
-goes after the admitted text, which can be longer or shorter than what was typed.
+nothing to change, and registers the undo), the storage edit, then `didChangeText()`. The
+selection is then carried through the edit: a caret where the writer typed goes after the
+admitted text, which can be longer or shorter than what was typed, and a caret elsewhere (a
+spelling correction replaces a word behind it) stays with the text around it
+(`KeyboardTextView.selection(_:after:)`).
+
+Should anything ever change the storage without asking (no known path does), the page's
+storage delegate notices a character the policy doesn't admit in the edited range: the model
+has already taken the admitted reading, and the page reloads from it once the edit is over. That
+backstop is a scan of the edited range only, so it costs nothing per keystroke. Writing Tools is
+off on every `KeyboardTextView` for the same reason: it rewrites text in ways the veto can't be
+shown to see.
 
 Two subtleties:
 
@@ -317,7 +326,8 @@ Two subtleties:
       }
 
       override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-          insertText(string, replacementRange: replacementRange)
+          let plain = (string as? NSAttributedString)?.string ?? string
+          insertText(plain, replacementRange: replacementRange)
       }
   }
   ```
@@ -448,9 +458,13 @@ supplies a field editor of its own, a `KeyboardTextView`:
         }
 ```
 
-The title has no veto: the field's delegate admits what the field editor holds after every
-change (`SceneTitle(pasted:)`) and writes the admitted text back, keeping the caret where it
-was in the admitted reading.
+The title has the same veto, in its field editor's `shouldChangeText(inRanges:replacementStrings:)`
+override (the field's delegate isn't asked about changes): a change the title can't hold is
+refused and its admitted reading made instead. An earlier version let the change happen and then
+assigned the admitted text to `editor.string` from the field's delegate. That isn't an undoable
+change, so the typing's undo step, recorded against the old text, was replayed over the corrected
+one: type `©` after `One`, get `One(c)`, press Cmd+Z, get `Onec)`. Every correction has to be an
+edit the undo manager has seen.
 
 Return and Tab arrive at the field's delegate as *commands*
 (`control(_:textView:doCommandBy:)`), not as characters; the title turns both into "move to the

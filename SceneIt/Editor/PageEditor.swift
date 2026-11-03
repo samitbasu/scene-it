@@ -115,6 +115,22 @@ final class PageEditor: NSObject {
             RunCodec.bodyChange(edited: range, in: storage, linesBefore: BodyChange.lineCount(of: shown))
             ?? RunCodec.bodyChange(replacingAll: BodyChange.lineCount(of: model), with: storage)
         push(change, to: scene)
+        if Self.holdsUnadmittedText(storage, in: range) {
+            // A backstop: only an edit that skipped the veto puts such a character on the page.
+            // The model took the admitted reading; the page shows it once the edit is over.
+            Log.editor.error(
+                "an edit bypassed the character policy; reloading the page from the model",
+                ["characters": .count(range.length)])
+            DispatchQueue.main.async { [weak self] in self?.reload(scene, clearingUndo: .yes) }
+        }
+    }
+
+    /// Whether `range` holds a character the policy doesn't admit.
+    private static func holdsUnadmittedText(_ storage: NSTextStorage, in range: NSRange) -> Bool {
+        let string = storage.string as NSString
+        return (range.location..<range.upperBound).contains { index in
+            !(Unicode.Scalar(string.character(at: index)).map(CharacterPolicy.isAdmitted) ?? false)
+        }
     }
 
     /// Hands `change` to the model, with the comments a paste brings.
@@ -304,9 +320,7 @@ extension PageEditor: NSTextViewDelegate {
         guard let strings = replacementStrings, let view = textView as? ManuscriptTextView else {
             return true
         }
-        let admitted = strings.map(CharacterPolicy.admittedInput)
-        // Code units, not `String ==`, which calls canonically equivalent strings equal.
-        guard zip(admitted, strings).contains(where: { !$0.utf16.elementsEqual($1.utf16) }) else {
+        guard let admitted = KeyboardTextView.corrected(strings, by: CharacterPolicy.admittedInput) else {
             return true
         }
         view.replace(affectedRanges.map(\.rangeValue), with: admitted)

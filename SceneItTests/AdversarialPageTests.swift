@@ -305,6 +305,78 @@ struct AdversarialPageTests {
             let editor = try #require(page.title.currentEditor() as? NSTextView)
             #expect(editor is KeyboardTextView, "the title's own field editor, not the window's")
             #expect(editor.inputContext == nil)
+            #expect(page.page.writingToolsBehavior == .none && editor.writingToolsBehavior == .none)
+            page.page.writingToolsBehavior = .complete
+            #expect(page.page.writingToolsBehavior == .none, "Writing Tools can't be turned back on")
+        }
+    }
+
+    /// Review S2: the title's correction is one undoable change, so undoing a length-changing
+    /// transliteration gives back the title as it was, never the typing's offsets replayed over
+    /// the corrected text.
+    @Test func undoingATransliteratedTitleGivesBackTheTitle() async throws {
+        let one = scene("One", [[Run("First.")]])
+        try await withPage([one]) { page in
+            #expect(page.window.makeFirstResponder(page.title))
+            let editor = try #require(page.title.currentEditor() as? NSTextView)
+            editor.setSelectedRange(NSRange(location: 3, length: 0))
+            editor.insertText("\u{A9}", replacementRange: editor.selectedRange())
+            #expect(editor.string == "One(c)")
+            #expect(page.book.book.scene(one.id)?.title.text == "One(c)")
+            #expect(editor.selectedRange() == NSRange(location: 6, length: 0))
+            let undo = try #require(editor.undoManager)
+            undo.undo()
+            #expect(editor.string == "One")
+            #expect(page.book.book.scene(one.id)?.title.text == "One")
+            undo.redo()
+            #expect(editor.string == "One(c)")
+            #expect(page.book.book.scene(one.id)?.title.text == "One(c)")
+        }
+    }
+
+    /// Review S3: text the policy changes, replacing a range away from the caret (a spelling
+    /// correction, say), leaves the caret where it was in the text around it.
+    @Test func aCorrectionAwayFromTheCaretLeavesTheCaretInPlace() async throws {
+        try await withPage([scene("One", [[Run("cafe ole")]])]) { page in
+            page.focusPage(at: 5)
+            page.page.insertText("caf\u{E9}", replacementRange: NSRange(location: 0, length: 4))
+            #expect(page.storage.string == "cafe ole")
+            #expect(page.page.selectedRange() == NSRange(location: 5, length: 0))
+            page.page.insertText("\u{2014}", replacementRange: NSRange(location: 4, length: 1))
+            #expect(page.storage.string == "cafe--ole")
+            #expect(
+                page.page.selectedRange() == NSRange(location: 6, length: 0), "after the dash it replaced")
+        }
+    }
+
+    @Test func theSelectionFollowsTheTextAroundAnEdit() {
+        let edits = [
+            KeyboardTextView.Edit(range: NSRange(location: 2, length: 2), length: 5),
+            KeyboardTextView.Edit(range: NSRange(location: 8, length: 0), length: 1),
+        ]
+        let moved = KeyboardTextView.selection(
+            [
+                NSRange(location: 0, length: 1), NSRange(location: 2, length: 2),
+                NSRange(location: 3, length: 3),
+                NSRange(location: 8, length: 0), NSRange(location: 9, length: 1),
+            ], after: edits)
+        #expect(
+            moved == [
+                NSRange(location: 0, length: 1), NSRange(location: 7, length: 0),
+                NSRange(location: 7, length: 2),
+                NSRange(location: 12, length: 0), NSRange(location: 13, length: 1),
+            ])
+    }
+
+    /// Review S4: should any edit skip the veto, the model takes the admitted reading at once
+    /// and the page reloads from it.
+    @Test func anEditThatSkipsTheVetoIsCorrectedFromTheModel() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            page.focusPage(at: 1)
+            page.storage.replaceCharacters(in: NSRange(location: 1, length: 0), with: "\u{E9}\u{2022}")
+            #expect(page.body() == [[Run("ae*b")]], "the model never holds what the page skipped")
+            await eventually { page.storage.string == "ae*b" }
+            #expect(page.pageMirrorsModel)
         }
     }
 

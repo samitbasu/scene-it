@@ -23,7 +23,6 @@ The ferry left at dawn, and Mara watched the harbor lights go out one by one beh
 ### Unparsed
 - [comments] - c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | "harbor lights" | Too pretty?
 - [comments] - c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | "ferry left" | Wrong range.
-- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D.
 - [notice] Characters with no ASCII form were replaced with [?]: U+1F30A.
 
 ## Arrival
@@ -57,4 +56,3 @@ He read it twice before he understood "mother"
 ### Unparsed
 - [comments] - c1 | purple | 2026-11-01T15:30:00-08:00 | c3-7 | "read
 - [notice] This scene's id 01JCM9S346Q3D25VT4F5V37E3S was already used by an earlier scene, so it was given id-C0.
-- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D.

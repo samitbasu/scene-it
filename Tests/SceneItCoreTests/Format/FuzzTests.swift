@@ -146,7 +146,7 @@ import Testing
 
     /// How many lines are a `# Boneyard` heading, as §1.8 recognizes one.
     private static func boneyardHeadings(_ bytes: [UInt8]) -> Int {
-        BookParser.lines(CharacterPolicy.admitASCII(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
+        BookParser.lines(CharacterPolicy.fileText(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
             line in
             if case .heading(1, let name) = Lexical.kind(of: line) {
                 return Lexical.equalsIgnoringCase(name, "boneyard")

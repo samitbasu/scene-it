@@ -6,25 +6,56 @@ public enum Transliteration {
     /// versions.
     public static let version = 1
 
-    public static let table: [Unicode.Scalar: String] = [
-        "\u{00A0}": " ", "\u{00A1}": "", "\u{00A6}": "|", "\u{00A9}": "(c)", "\u{00AA}": "a",
-        "\u{00AB}": "\"", "\u{00AD}": "", "\u{00AE}": "(R)", "\u{00B1}": "+/-", "\u{00B4}": "'",
-        "\u{00BA}": "o", "\u{00BB}": "\"", "\u{00BF}": "", "\u{00C0}": "A", "\u{00C1}": "A", "\u{00C2}": "A",
-        "\u{00C3}": "A", "\u{00C4}": "A", "\u{00C5}": "A", "\u{00C6}": "AE", "\u{00C7}": "C", "\u{00C8}": "E",
-        "\u{00C9}": "E", "\u{00CA}": "E", "\u{00CB}": "E", "\u{00CC}": "I", "\u{00CD}": "I", "\u{00CE}": "I",
-        "\u{00CF}": "I", "\u{00D0}": "D", "\u{00D1}": "N", "\u{00D2}": "O", "\u{00D3}": "O", "\u{00D4}": "O",
-        "\u{00D5}": "O", "\u{00D6}": "O", "\u{00D7}": "x", "\u{00D8}": "O", "\u{00D9}": "U", "\u{00DA}": "U",
-        "\u{00DB}": "U", "\u{00DC}": "U", "\u{00DD}": "Y", "\u{00DE}": "TH", "\u{00DF}": "ss",
-        "\u{00E0}": "a", "\u{00E1}": "a", "\u{00E2}": "a", "\u{00E3}": "a", "\u{00E4}": "a", "\u{00E5}": "a",
-        "\u{00E6}": "ae", "\u{00E7}": "c", "\u{00E8}": "e", "\u{00E9}": "e", "\u{00EA}": "e", "\u{00EB}": "e",
-        "\u{00EC}": "i", "\u{00ED}": "i", "\u{00EE}": "i", "\u{00EF}": "i", "\u{00F0}": "d", "\u{00F1}": "n",
-        "\u{00F2}": "o", "\u{00F3}": "o", "\u{00F4}": "o", "\u{00F5}": "o", "\u{00F6}": "o", "\u{00F7}": "/",
-        "\u{00F8}": "o", "\u{00F9}": "u", "\u{00FA}": "u", "\u{00FB}": "u", "\u{00FC}": "u", "\u{00FD}": "y",
-        "\u{00FE}": "th", "\u{00FF}": "y", "\u{0152}": "OE", "\u{0153}": "oe", "\u{0160}": "S",
-        "\u{0161}": "s", "\u{0178}": "Y", "\u{017D}": "Z", "\u{017E}": "z", "\u{0192}": "f", "\u{02C6}": "^",
-        "\u{02DC}": "~", "\u{0300}": "", "\u{0301}": "", "\u{0302}": "", "\u{0303}": "", "\u{0308}": "",
-        "\u{030A}": "", "\u{030C}": "", "\u{0327}": "", "\u{2013}": "-", "\u{2014}": "--", "\u{2018}": "'",
-        "\u{2019}": "'", "\u{201A}": "'", "\u{201C}": "\"", "\u{201D}": "\"", "\u{201E}": "\"",
-        "\u{2022}": "*", "\u{2026}": "...", "\u{2039}": "'", "\u{203A}": "'", "\u{2122}": "(TM)",
+    /// A character's ASCII spelling, and whether reading it in a file is a repair the writer
+    /// is told of (book format §5.3). Typing and pasting are never noticed.
+    public enum Spelling: Hashable, Sendable {
+        /// Typographic punctuation and the no-break space, which other editors write freely.
+        case silent(String)
+        case noticed(String)
+
+        public var ascii: String {
+            switch self {
+            case .silent(let ascii), .noticed(let ascii): ascii
+            }
+        }
+    }
+
+    public static let table: [Unicode.Scalar: Spelling] = [
+        "\u{00A0}": .silent(" "), "\u{00A1}": .noticed(""), "\u{00A6}": .noticed("|"),
+        "\u{00A9}": .noticed("(c)"), "\u{00AA}": .noticed("a"), "\u{00AB}": .noticed("\""),
+        "\u{00AD}": .noticed(""), "\u{00AE}": .noticed("(R)"), "\u{00B1}": .noticed("+/-"),
+        "\u{00B4}": .noticed("'"), "\u{00BA}": .noticed("o"), "\u{00BB}": .noticed("\""),
+        "\u{00BF}": .noticed(""), "\u{00C0}": .noticed("A"), "\u{00C1}": .noticed("A"),
+        "\u{00C2}": .noticed("A"), "\u{00C3}": .noticed("A"), "\u{00C4}": .noticed("A"),
+        "\u{00C5}": .noticed("A"), "\u{00C6}": .noticed("AE"), "\u{00C7}": .noticed("C"),
+        "\u{00C8}": .noticed("E"), "\u{00C9}": .noticed("E"), "\u{00CA}": .noticed("E"),
+        "\u{00CB}": .noticed("E"), "\u{00CC}": .noticed("I"), "\u{00CD}": .noticed("I"),
+        "\u{00CE}": .noticed("I"), "\u{00CF}": .noticed("I"), "\u{00D0}": .noticed("D"),
+        "\u{00D1}": .noticed("N"), "\u{00D2}": .noticed("O"), "\u{00D3}": .noticed("O"),
+        "\u{00D4}": .noticed("O"), "\u{00D5}": .noticed("O"), "\u{00D6}": .noticed("O"),
+        "\u{00D7}": .noticed("x"), "\u{00D8}": .noticed("O"), "\u{00D9}": .noticed("U"),
+        "\u{00DA}": .noticed("U"), "\u{00DB}": .noticed("U"), "\u{00DC}": .noticed("U"),
+        "\u{00DD}": .noticed("Y"), "\u{00DE}": .noticed("TH"), "\u{00DF}": .noticed("ss"),
+        "\u{00E0}": .noticed("a"), "\u{00E1}": .noticed("a"), "\u{00E2}": .noticed("a"),
+        "\u{00E3}": .noticed("a"), "\u{00E4}": .noticed("a"), "\u{00E5}": .noticed("a"),
+        "\u{00E6}": .noticed("ae"), "\u{00E7}": .noticed("c"), "\u{00E8}": .noticed("e"),
+        "\u{00E9}": .noticed("e"), "\u{00EA}": .noticed("e"), "\u{00EB}": .noticed("e"),
+        "\u{00EC}": .noticed("i"), "\u{00ED}": .noticed("i"), "\u{00EE}": .noticed("i"),
+        "\u{00EF}": .noticed("i"), "\u{00F0}": .noticed("d"), "\u{00F1}": .noticed("n"),
+        "\u{00F2}": .noticed("o"), "\u{00F3}": .noticed("o"), "\u{00F4}": .noticed("o"),
+        "\u{00F5}": .noticed("o"), "\u{00F6}": .noticed("o"), "\u{00F7}": .noticed("/"),
+        "\u{00F8}": .noticed("o"), "\u{00F9}": .noticed("u"), "\u{00FA}": .noticed("u"),
+        "\u{00FB}": .noticed("u"), "\u{00FC}": .noticed("u"), "\u{00FD}": .noticed("y"),
+        "\u{00FE}": .noticed("th"), "\u{00FF}": .noticed("y"), "\u{0152}": .noticed("OE"),
+        "\u{0153}": .noticed("oe"), "\u{0160}": .noticed("S"), "\u{0161}": .noticed("s"),
+        "\u{0178}": .noticed("Y"), "\u{017D}": .noticed("Z"), "\u{017E}": .noticed("z"),
+        "\u{0192}": .noticed("f"), "\u{02C6}": .noticed("^"), "\u{02DC}": .noticed("~"),
+        "\u{0300}": .noticed(""), "\u{0301}": .noticed(""), "\u{0302}": .noticed(""),
+        "\u{0303}": .noticed(""), "\u{0308}": .noticed(""), "\u{030A}": .noticed(""),
+        "\u{030C}": .noticed(""), "\u{0327}": .noticed(""), "\u{2013}": .silent("-"),
+        "\u{2014}": .silent("--"), "\u{2018}": .silent("'"), "\u{2019}": .silent("'"),
+        "\u{201A}": .silent("'"), "\u{201C}": .silent("\""), "\u{201D}": .silent("\""),
+        "\u{201E}": .silent("\""), "\u{2022}": .noticed("*"), "\u{2026}": .silent("..."),
+        "\u{2039}": .silent("'"), "\u{203A}": .silent("'"), "\u{2122}": .noticed("(TM)"),
     ]
 }
