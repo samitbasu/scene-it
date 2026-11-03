@@ -33,3 +33,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0024](0024-damaged-books-open-read-only.md) | A book repaired on open is read-only until the writer chooses Make Editable; the original is kept permanently | Accepted |
 | [0025](0025-core-stays-swift.md) | Core stays in Swift; language-neutral test corpus; revisit after M2 | Accepted |
 | [0026](0026-crash-on-exceptions.md) | Crash cleanly on uncaught ObjC exceptions (NSApplicationCrashOnExceptions) | Accepted |
+| [0027](0027-color-shortcuts.md) | Text color shortcuts are Ctrl+Cmd+1…7; Cmd+1 stays Scenes | Accepted — resolves PLAN Q4 |
