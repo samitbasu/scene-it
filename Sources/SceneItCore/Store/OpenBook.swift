@@ -17,8 +17,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public private(set) var openScene: SceneID?
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
+    /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
+    /// The Errors tab's Delete and Fix (book format §5.4).
+    @ObservationIgnored public let errorsUndo = UndoManager()
     @ObservationIgnored private var pageUndoManagers: [SceneID: UndoManager] = [:]
+    @ObservationIgnored private var titleUndoManagers: [SceneID: UndoManager] = [:]
 
     private var access: Access
     @ObservationIgnored private weak var store: BookStore<C>?
@@ -171,9 +175,19 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// The undo history of `scene`'s page (PLAN §8.6), kept while the book is open.
     public func pageUndo(for scene: SceneID) -> UndoManager {
-        if let manager = pageUndoManagers[scene] { return manager }
+        Self.manager(for: scene, in: &pageUndoManagers)
+    }
+
+    /// The undo history of `scene`'s title field, kept while the book is open.
+    public func titleUndo(for scene: SceneID) -> UndoManager {
+        Self.manager(for: scene, in: &titleUndoManagers)
+    }
+
+    private static func manager(for scene: SceneID, in managers: inout [SceneID: UndoManager]) -> UndoManager
+    {
+        if let manager = managers[scene] { return manager }
         let manager = UndoManager()
-        pageUndoManagers[scene] = manager
+        managers[scene] = manager
         return manager
     }
 
@@ -202,8 +216,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return new.id
     }
 
+    /// Opens `scene`. Every way of opening another scene comes here; it first posts
+    /// `openBookWillSwitchScene`, so the window can finish what's being typed into the scene
+    /// it's leaving while that scene is still the open one. (An Errors-tab fix that changes
+    /// the open scene's id keeps that scene open, so it doesn't come here.)
     public func select(_ scene: SceneID?) {
         guard scene != openScene else { return }
+        NotificationCenter.default.post(name: .openBookWillSwitchScene, object: self)
         openScene = scene
         autosave?.send(.sceneSwitched)
     }
@@ -241,7 +260,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     // Entry operations act on the book's text through the file format, not as typing, so they
-    // leave every scene's `modified` as it is. Each registers, on `structureUndo`, only the
+    // leave every scene's `modified` as it is. Each registers, on `errorsUndo`, only the
     // inverse of its own change, so undoing it keeps whatever was typed in that scene since.
 
     @discardableResult
@@ -249,7 +268,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard editingDriver != nil, book.holds(ref), let part = book.part(ref.owner) else { return false }
         var errors = part.errors
         errors.remove(at: ref.index)
-        commit(ref.owner, part.with(errors: errors)) { $0.reinsert(ref.entry, at: ref.index, in: ref.owner) }
+        commit(ref.owner, part.with(errors: errors), named: ErrorsWording.deleteUndoName) {
+            $0.reinsert(ref.entry, at: ref.index, in: ref.owner)
+        }
         return true
     }
 
@@ -263,13 +284,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         switch repair {
         case .repaired(let part):
             let effect = RepairEffect(from: old, to: part)
-            commit(ref.owner, part) {
+            commit(ref.owner, part, named: ErrorsWording.fixUndoName) {
                 $0.unrepair(effect, restoring: ref.entry, at: ref.index, in: part.owner, payload: payload)
             }
             return .repaired
         case .kept(let part, let reason):
             let edited = part.errors[ref.index]
-            commit(ref.owner, part) {
+            commit(ref.owner, part, named: ErrorsWording.fixUndoName) {
                 $0.unedit(ErrorRef(owner: ref.owner, index: ref.index, entry: edited), back: ref.entry)
             }
             return .kept(reason)
@@ -311,8 +332,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
-    /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo.
-    private func commit(_ owner: ErrorOwner, _ part: BookPart, inverse: @escaping (OpenBook) -> Void) {
+    /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo, named `name`
+    /// when given. A part that changes nothing registers nothing, and names nothing, so it
+    /// can't rename the operation before it.
+    private func commit(
+        _ owner: ErrorOwner, _ part: BookPart, named name: String? = nil,
+        inverse: @escaping (OpenBook) -> Void
+    ) {
         let old = book.part(owner)
         guard let driver = editingDriver, old != part, book.replace(owner, with: part) else {
             return
@@ -324,7 +350,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             }
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
         }
-        structureUndo.registerUndo(withTarget: self, handler: inverse)
+        errorsUndo.registerUndo(withTarget: self, handler: inverse)
+        if let name { errorsUndo.setActionName(name) }
         driver.send(.edited)
     }
 
@@ -417,4 +444,10 @@ extension OpenBook {
     public var manuscriptWordCount: WordCount {
         wordCounts.manuscript(of: book)
     }
+}
+
+extension Notification.Name {
+    /// Posted by `OpenBook.select(_:)` just before another scene opens, with the book as its
+    /// object.
+    public static let openBookWillSwitchScene = Notification.Name("OpenBookWillSwitchScene")
 }

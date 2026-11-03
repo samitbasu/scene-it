@@ -16,6 +16,26 @@ let tooEarly = Comment(
     id: noted, color: .purple, text: "Too early?",
     created: Timestamp(Date(timeIntervalSince1970: 1_700_000_000), in: .gmt))
 
+@Observable
+final class ModeBox {
+    var mode = WindowMode.page
+}
+
+/// `BookWindow` with its mode in `box`, so a test can open a sheet as the rail would.
+struct BookWindowWithMode: View {
+    let book: AppOpenBook
+    let store: AppBookStore
+    let preferences: AppPreferences
+    var formatting: PageFormatting?
+    @Bindable var box: ModeBox
+
+    var body: some View {
+        BookWindow(
+            book: book, store: store, preferences: preferences,
+            formatting: formatting ?? PageFormatting(preferences: preferences), mode: $box.mode)
+    }
+}
+
 /// A book on disk, opened through a test-host controller and shown in an offscreen window of
 /// our own, with its page and title field found.
 @MainActor
@@ -27,6 +47,22 @@ struct PageHarness {
     let page: ManuscriptTextView
     let title: NSTextField
     let formatting: PageFormatting
+    let preferences: AppPreferences
+    let modes: ModeBox
+
+    /// The window's undo router, as the toolbar uses it.
+    var undo: UndoRouter {
+        get throws {
+            let routers = subviewTree(of: window.contentView).compactMap {
+                ($0 as? UndoRouterWindow.WindowView)?.router
+            }
+            return try #require(routers.first)
+        }
+    }
+
+    var desk: DeskView {
+        get throws { try #require(page.enclosingScrollView as? DeskView) }
+    }
 
     var storage: NSTextStorage { page.textStorage! }
 
@@ -55,11 +91,12 @@ struct PageHarness {
 /// `scenes` in a book written to a temporary folder, then opened and shown.
 @MainActor
 func withPage(
-    _ scenes: [BookScene], holdingTheLock: Bool = false, _ body: (PageHarness) async throws -> Void
+    _ scenes: [BookScene], holdingTheLock: Bool = false,
+    books: BookController = BookController(role: .testHost),
+    _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
         let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
-        let books = BookController(role: .testHost)
         let store = books.store
         let holder: EditableBook?
         if holdingTheLock {
@@ -77,10 +114,11 @@ func withPage(
         let book = try #require(store.current)
 
         let size = WindowMetrics.defaultSize
+        let modes = ModeBox()
         let controller = NSHostingController(
-            rootView: BookWindow(
+            rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
-                mode: .constant(.page)))
+                box: modes))
         controller.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -100,7 +138,7 @@ func withPage(
             })
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
-            formatting: books.formatting)
+            formatting: books.formatting, preferences: books.preferences, modes: modes)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
         #expect(await store.closeBook() == .left)

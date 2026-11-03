@@ -11,6 +11,20 @@ struct BookWindow: View {
     let preferences: AppPreferences
     let formatting: PageFormatting
     @Binding var mode: WindowMode
+    @State private var undo: UndoRouter
+    @State private var pageFocus = PageFocus()
+
+    init(
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: PageFormatting,
+        mode: Binding<WindowMode>
+    ) {
+        self.book = book
+        self.store = store
+        self.preferences = preferences
+        self.formatting = formatting
+        _mode = mode
+        _undo = State(initialValue: UndoRouter(book: book))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +35,8 @@ struct BookWindow: View {
                 ZStack {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
-                        EditorArea(book: book, formatting: formatting)
+                        EditorArea(
+                            book: book, preferences: preferences, formatting: formatting, focus: pageFocus)
                         Divider()
                         RightPanel(book: book, preferences: preferences)
                     }
@@ -36,7 +51,12 @@ struct BookWindow: View {
             StatusBar(book: book)
         }
         .background(.background)
-        .toolbar { WindowToolbar(book: book) }
+        .background(UndoRouterWindow(router: undo))
+        .environment(undo)
+        .environment(\.pageFocus, pageFocus)
+        .focusedSceneValue(\.undoRouter, undo)
+        .onChange(of: mode, initial: true) { undo.mode = mode }
+        .toolbar { WindowToolbar(book: book, preferences: preferences, undo: undo) }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
     }

@@ -100,6 +100,36 @@ private func sampleBook() throws -> Book {
         #expect(CurrentSceneMark(.boneyard(book.boneyard[0])) == .badge("B"))
         #expect(CurrentSceneMark(.noScene) == .unavailable)
     }
+
+    @Test func previousAndNextWalkTheStoryOnly() throws {
+        let book = try sampleBook()
+        let (s1, s2, b1) = (SceneID(rawValue: "s1"), SceneID(rawValue: "s2"), SceneID(rawValue: "b1"))
+        #expect(book.scene(.next, from: s1) == s2)
+        #expect(book.scene(.previous, from: s2) == s1)
+        #expect(book.scene(.previous, from: s1) == nil, "the story's first scene")
+        #expect(book.scene(.next, from: s2) == nil, "the story's last scene, with the Boneyard after it")
+        for step in SceneStep.allCases {
+            #expect(book.scene(step, from: b1) == nil, "a Boneyard scene")
+            #expect(book.scene(step, from: nil) == nil, "no scene open")
+            #expect(book.scene(step, from: SceneID(rawValue: "deleted")) == nil)
+        }
+    }
+}
+
+@Suite struct UndoRoutingTests {
+    @Test func whileTheScenesSheetIsOpenUndoActsOnTheStructure() {
+        for focus in [UndoFocus.text, .errorsTab, .elsewhere] {
+            #expect(UndoStack(mode: .scenes, focus: focus) == .structure, "\(focus)")
+        }
+    }
+
+    @Test func otherwiseTheFocusDecides() {
+        for mode in WindowMode.allCases where mode != .scenes {
+            #expect(UndoStack(mode: mode, focus: .text) == .focusedText, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .errorsTab) == .errors, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .elsewhere) == UndoStack.none, "\(mode)")
+        }
+    }
 }
 
 @Suite struct WindowModeTests {

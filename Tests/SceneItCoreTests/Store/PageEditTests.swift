@@ -160,4 +160,39 @@ struct PageEditTests {
             #expect(!undo.canUndo)
         }
     }
+
+    @Test func eachScenesTitleHasItsOwnUndoApartFromItsPage() async throws {
+        try await withCommentedScene { book, scene in
+            let other = try #require(book.addScene(after: scene))
+            #expect(book.titleUndo(for: scene) === book.titleUndo(for: scene))
+            #expect(book.titleUndo(for: scene) !== book.titleUndo(for: other))
+            #expect(book.titleUndo(for: scene) !== book.pageUndo(for: scene))
+        }
+    }
+
+    /// The window finishes typing in the scene it's leaving on this notification, so it must
+    /// come while that scene is still the open one, and only when the scene changes.
+    @Test func selectingAnotherSceneAnnouncesItWhileTheOldOneIsStillOpen() async throws {
+        try await withCommentedScene { book, scene in
+            let other = try #require(book.addScene(after: scene))
+            let announced = Announcements()
+            let observer = NotificationCenter.default.addObserver(
+                forName: .openBookWillSwitchScene, object: book, queue: nil
+            ) { _ in
+                MainActor.assumeIsolated { announced.openScenes.append(book.openScene) }
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            book.select(scene)
+            book.select(scene)
+            book.select(other)
+            #expect(
+                announced.openScenes == [other, scene], "each switch, announced from the scene it leaves")
+            #expect(book.openScene == other)
+        }
+    }
+}
+
+@MainActor
+private final class Announcements {
+    var openScenes: [SceneID?] = []
 }

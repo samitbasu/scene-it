@@ -244,7 +244,7 @@ extension FormattingBarTests {
             let box = ModeBox()
             let size = WindowMetrics.defaultSize
             let controller = NSHostingController(
-                rootView: SheetHarness(
+                rootView: BookWindowWithMode(
                     book: book, store: books.store, preferences: books.preferences,
                     formatting: books.formatting, box: box))
             controller.sizingOptions = []
@@ -272,24 +272,6 @@ extension FormattingBarTests {
             await eventually { view.isEditable }
             #expect(await books.store.closeBook() == .left)
         }
-    }
-}
-
-@Observable
-private final class ModeBox {
-    var mode = WindowMode.page
-}
-
-private struct SheetHarness: View {
-    let book: AppOpenBook
-    let store: AppBookStore
-    let preferences: AppPreferences
-    let formatting: PageFormatting
-    @Bindable var box: ModeBox
-
-    var body: some View {
-        BookWindow(
-            book: book, store: store, preferences: preferences, formatting: formatting, mode: $box.mode)
     }
 }
 

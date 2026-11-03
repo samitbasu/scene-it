@@ -5,25 +5,6 @@ import Testing
 
 @testable import SceneIt
 
-@Observable
-private final class ModeBox {
-    var mode = WindowMode.page
-}
-
-/// `BookWindow` with its mode in `box`, so the test can open a sheet as the rail would.
-private struct Harness: View {
-    let book: AppOpenBook
-    let store: AppBookStore
-    let preferences: AppPreferences
-    @Bindable var box: ModeBox
-
-    var body: some View {
-        BookWindow(
-            book: book, store: store, preferences: preferences,
-            formatting: PageFormatting(preferences: preferences), mode: $box.mode)
-    }
-}
-
 private func views(in view: NSView?) -> [NSView] {
     guard let view else { return [] }
     return [view] + view.subviews.flatMap(views)
@@ -53,7 +34,8 @@ struct SheetFocusTests {
             let box = ModeBox()
             let size = WindowMetrics.defaultSize
             let controller = NSHostingController(
-                rootView: Harness(book: book, store: books.store, preferences: books.preferences, box: box))
+                rootView: BookWindowWithMode(
+                    book: book, store: books.store, preferences: books.preferences, box: box))
             controller.sizingOptions = []
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,

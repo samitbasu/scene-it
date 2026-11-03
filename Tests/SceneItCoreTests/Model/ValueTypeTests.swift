@@ -146,3 +146,57 @@ import Testing
         #expect(Set(made).count == made.count)
     }
 }
+
+@Suite struct ZoomStepTests {
+    private func percents(_ zooms: [Zoom]) -> [Int] {
+        zooms.map { Int((Double($0) * 100).rounded()) }
+    }
+
+    @Test func theStepsCoverTheRangeInOrder() {
+        #expect(percents(Zoom.steps) == [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300])
+        #expect(Zoom.steps.first == Zoom(clamping: ZoomBounds.range.lowerBound))
+        #expect(Zoom.steps.last == Zoom(clamping: ZoomBounds.range.upperBound))
+        #expect(Zoom.steps.contains(.standard))
+        #expect(Zoom.steps == Zoom.steps.sorted())
+    }
+
+    @Test func zoomingInAndOutWalksEveryStep() {
+        var zoom = Zoom(clamping: 0.5)
+        var walked = [zoom]
+        while zoom.canZoomIn {
+            zoom = zoom.zoomedIn
+            walked.append(zoom)
+        }
+        #expect(walked == Zoom.steps)
+        while zoom.canZoomOut {
+            zoom = zoom.zoomedOut
+            walked.append(zoom)
+        }
+        #expect(Array(walked.reversed().prefix(Zoom.steps.count)) == Zoom.steps)
+    }
+
+    @Test func theEndsSaturate() {
+        let most = Zoom(clamping: 3)
+        let least = Zoom(clamping: 0.5)
+        #expect(most.zoomedIn == most)
+        #expect(!most.canZoomIn)
+        #expect(least.zoomedOut == least)
+        #expect(!least.canZoomOut)
+    }
+
+    @Test func aZoomBetweenStepsGoesToTheNeighbouringSteps() {
+        let pinched = Zoom(clamping: 1.37)
+        #expect(pinched.zoomedIn == Zoom(clamping: 1.5))
+        #expect(pinched.zoomedOut == Zoom(clamping: 1.25))
+        let nearlyOneTen = Zoom(clamping: 1.102)
+        #expect(nearlyOneTen.zoomedIn == Zoom(clamping: 1.25), "within the tolerance of 110% counts as 110%")
+        #expect(nearlyOneTen.zoomedOut == Zoom(clamping: 1))
+        #expect(Zoom(clamping: 2.999).zoomedIn == Zoom(clamping: 3))
+    }
+
+    @Test func nanAndInfinityZoomFromTheirClampedValues() {
+        #expect(Zoom(clamping: .nan).zoomedIn == Zoom(clamping: 1.1))
+        #expect(Zoom(clamping: .infinity).zoomedOut == Zoom(clamping: 2.5))
+        #expect(Zoom(clamping: -.infinity).zoomedIn == Zoom(clamping: 0.67))
+    }
+}

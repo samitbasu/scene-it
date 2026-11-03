@@ -15,12 +15,31 @@ public enum WindowWording {
     public static let redo = "Redo"
     public static let zoomOut = "Zoom Out"
     public static let zoomIn = "Zoom In"
+
+    public static func zoomStep(_ step: ZoomStep) -> String {
+        switch step {
+        case .zoomIn: zoomIn
+        case .zoomOut: zoomOut
+        }
+    }
     public static let print = "Print"
     public static let exportToWord = "Export to Word"
     public static let fileACopy = "File a copy…"
 
     public static func zoom(_ zoom: Zoom) -> String {
         (Double(zoom)).formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    // MARK: View menu (PLAN §11)
+
+    public static let actualSize = "Actual Size"
+    public static let fitWidth = "Fit Width"
+
+    public static func sceneStep(_ step: SceneStep) -> String {
+        switch step {
+        case .previous: "Previous Scene"
+        case .next: "Next Scene"
+        }
     }
 
     public static let boneyard = "Boneyard"
