@@ -231,6 +231,23 @@ Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time lim
 the steps (never under two minutes). **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
 
+### A longer run of the formatting fuzz
+
+Not a script: `SceneItTests/FormattingFuzzTests.swift` applies random formatting commands to
+random selections of the real page, each as its own event. After each command it checks the
+controls' states against an oracle, checks that the text and comments are untouched and that
+the page and model agree, and checks the caret's typing format and undo/redo. The gate runs
+2 seeds × 40 steps. For a longer run:
+
+```sh
+TEST_RUNNER_FORMAT_FUZZ_SEEDS=8 TEST_RUNNER_FORMAT_FUZZ_STEPS=300 xcodebuild -project SceneIt.xcodeproj \
+    -scheme SceneIt -destination 'platform=macOS' -derivedDataPath build/DerivedData \
+    test -only-testing:SceneItTests/FormattingFuzzTests
+```
+
+Seeds run 1 to N. **Output:** the test results, each failure naming its step. **Products:** none
+beyond the result bundle.
+
 ### Rendering the window for review
 
 Not a script: a hosted test, `SceneItTests/WindowRenders.swift`, that draws the main window

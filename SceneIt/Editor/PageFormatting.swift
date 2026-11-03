@@ -31,15 +31,6 @@ final class PageFormatting {
     func show(_ selection: SelectionFormatting?) {
         if self.selection != selection { self.selection = selection }
     }
-
-    /// The command the bar's color button applies: the last color chosen from its palette.
-    var lastTextColor: FormattingCommand {
-        .textColor(PaletteColor(preferences.lastTextColor))
-    }
-
-    var lastHighlight: FormattingCommand {
-        .highlight(preferences.lastHighlight)
-    }
 }
 
 extension FormattingCommand {

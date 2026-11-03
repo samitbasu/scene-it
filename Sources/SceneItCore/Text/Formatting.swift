@@ -25,8 +25,7 @@ public enum FormattingCommand: Hashable, Sendable {
 
     /// The palettes in PLAN §6.2's order, as the Format menu and the bar's palettes list them.
     public static let textColors: [FormattingCommand] = PaletteColor.allCases.map(Self.textColor)
-    public static let highlights: [FormattingCommand] =
-        [.highlight(nil)] + HighlightColor.allCases.map(Self.highlight)
+    public static let highlights: [FormattingCommand] = HighlightColor.choices.map(Self.highlight)
 }
 
 /// How a formatting control shows the selection.

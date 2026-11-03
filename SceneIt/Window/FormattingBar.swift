@@ -73,23 +73,66 @@ private struct BarButton<Label: View>: View {
     }
 }
 
+/// The bar's two color controls, and their palettes.
+enum PaletteKind {
+    case textColor, highlight
+
+    var name: String {
+        switch self {
+        case .textColor: WindowWording.textColor
+        case .highlight: WindowWording.highlight
+        }
+    }
+
+    var inks: [Ink] {
+        switch self {
+        case .textColor: PaletteColor.allCases.map(Ink.text)
+        case .highlight: HighlightColor.choices.map(Ink.highlight)
+        }
+    }
+
+    /// What the control's button applies: the last color chosen from its palette.
+    func lastUsed(_ preferences: AppPreferences) -> Ink {
+        switch self {
+        case .textColor: .text(PaletteColor(preferences.lastTextColor))
+        case .highlight: .highlight(preferences.lastHighlight)
+        }
+    }
+}
+
+/// A color the bar shows and applies: a text color, or a highlight (`nil` for None).
+enum Ink: Hashable {
+    case text(PaletteColor)
+    case highlight(HighlightColor?)
+
+    var command: FormattingCommand {
+        switch self {
+        case .text(let color): .textColor(color)
+        case .highlight(let highlight): .highlight(highlight)
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .text(let color): Color(nsColor: color.nsColor)
+        case .highlight(let highlight?): Color(nsColor: highlight.nsColor)
+        case .highlight(nil): .white
+        }
+    }
+}
+
 /// The text color or highlight: a button applying the last color chosen, and a separate ▾ for
 /// the palette.
 private struct ColorControl: View {
     let formatting: PageFormatting
-    let kind: Kind
+    let kind: PaletteKind
     @State private var showsPalette = false
 
-    enum Kind {
-        case textColor, highlight
-    }
-
     var body: some View {
-        let command = kind == .textColor ? formatting.lastTextColor : formatting.lastHighlight
-        let name = kind == .textColor ? WindowWording.textColor : WindowWording.highlight
+        let ink = kind.lastUsed(formatting.preferences)
         HStack(spacing: 0) {
-            BarButton(formatting: formatting, command: command, help: name) {
-                ColorGlyph(command: command)
+            BarButton(formatting: formatting, command: ink.command, help: kind.name) {
+                ColorGlyph(ink: ink)
             }
             Button {
                 showsPalette = true
@@ -101,42 +144,36 @@ private struct ColorControl: View {
             .help(
                 formatting.selection == nil ? WindowWording.clickInThePageToFormat : WindowWording.showPalette
             )
-            .accessibilityLabel("\(name): \(WindowWording.showPalette)")
+            .accessibilityLabel("\(kind.name): \(WindowWording.showPalette)")
             .popover(isPresented: $showsPalette, arrowEdge: .bottom) {
-                PaletteView(formatting: formatting, commands: palette) {
+                PaletteView(formatting: formatting, kind: kind) {
                     showsPalette = false
                 }
             }
         }
     }
-
-    private var palette: [FormattingCommand] {
-        kind == .textColor ? FormattingCommand.textColors : FormattingCommand.highlights
-    }
 }
 
-/// What a color button shows: an "A" over a bar of the last text color, or on a tile of the last
+/// What a color button shows: an "A" over a bar of the text color, or on a tile of the
 /// highlight.
 private struct ColorGlyph: View {
-    let command: FormattingCommand
+    let ink: Ink
 
     var body: some View {
         let letter = Text(verbatim: "A").font(.system(size: 13, weight: .semibold))
-        switch command {
-        case .textColor(let color):
+        switch ink {
+        case .text:
             VStack(spacing: 1) {
                 letter
-                Rectangle().fill(Color(nsColor: color.nsColor))
+                Rectangle().fill(ink.color)
                     .frame(
                         width: WindowMetrics.Bar.colorBarSize.width,
                         height: WindowMetrics.Bar.colorBarSize.height)
             }
-        case .highlight(let highlight):
+        case .highlight:
             letter
                 .frame(width: WindowMetrics.Bar.highlightTile, height: WindowMetrics.Bar.highlightTile)
-                .background(RoundedRectangle(cornerRadius: 3).fill(Swatch.color(highlight)))
-        case .toggle:
-            EmptyView()
+                .background(RoundedRectangle(cornerRadius: 3).fill(ink.color))
         }
     }
 }
@@ -144,18 +181,18 @@ private struct ColorGlyph: View {
 /// A palette: a row of swatches, named in their tooltips, the selection's own ringed.
 struct PaletteView: View {
     let formatting: PageFormatting
-    let commands: [FormattingCommand]
+    let kind: PaletteKind
     let chosen: () -> Void
 
     var body: some View {
         HStack(spacing: WindowMetrics.Bar.buttonSpacing) {
-            ForEach(commands, id: \.self) { command in
-                let name = WindowWording.menuItem(command)
+            ForEach(kind.inks, id: \.self) { ink in
+                let name = WindowWording.menuItem(ink.command)
                 Button {
-                    formatting.perform(command)
+                    formatting.perform(ink.command)
                     chosen()
                 } label: {
-                    Swatch(command: command, ringed: formatting.state(of: command) == .on)
+                    Swatch(ink: ink, ringed: formatting.state(of: ink.command) == .on)
                         .frame(minWidth: WindowMetrics.Bar.buttonSize.width)
                         .contentShape(Rectangle())
                 }
@@ -170,15 +207,15 @@ struct PaletteView: View {
 
 /// One palette color; "None" is a white circle with a red slash.
 private struct Swatch: View {
-    let command: FormattingCommand
+    let ink: Ink
     let ringed: Bool
 
     var body: some View {
         let size = WindowMetrics.Bar.swatchSize
         ZStack {
-            Circle().fill(fill)
+            Circle().fill(ink.color)
             Circle().strokeBorder(.black.opacity(0.15))
-            if case .highlight(nil) = command {
+            if ink == .highlight(nil) {
                 Rectangle().fill(.red).frame(width: 1.5, height: size).rotationEffect(.degrees(45))
             }
         }
@@ -186,18 +223,6 @@ private struct Swatch: View {
         .clipShape(Circle())
         .padding(3)
         .overlay(Circle().strokeBorder(ringed ? Color.accentColor : .clear, lineWidth: 2))
-    }
-
-    private var fill: Color {
-        switch command {
-        case .textColor(let color): Color(nsColor: color.nsColor)
-        case .highlight(let highlight): Self.color(highlight)
-        case .toggle: .clear
-        }
-    }
-
-    static func color(_ highlight: HighlightColor?) -> Color {
-        highlight.map { Color(nsColor: $0.nsColor) } ?? .white
     }
 }
 

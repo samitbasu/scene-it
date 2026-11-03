@@ -128,13 +128,16 @@ struct FormattingBarTests {
         try await withPage([scene("One", [[Run("Words.")]])]) { page in
             page.focusPage(at: 0)
             page.page.selectAll(nil)
-            #expect(page.formatting.lastTextColor == .textColor(.purple))
+            #expect(
+                PaletteKind.textColor.lastUsed(page.formatting.preferences).command == .textColor(.purple))
             page.formatting.perform(.textColor(.red))
-            #expect(page.formatting.lastTextColor == .textColor(.red))
+            #expect(PaletteKind.textColor.lastUsed(page.formatting.preferences).command == .textColor(.red))
             page.formatting.perform(.textColor(.black))
-            #expect(page.formatting.lastTextColor == .textColor(.red), "black removes; it isn't remembered")
+            #expect(
+                PaletteKind.textColor.lastUsed(page.formatting.preferences).command == .textColor(.red),
+                "black removes; it isn't remembered")
             page.formatting.perform(.highlight(.pink))
-            #expect(page.formatting.lastHighlight == .highlight(.pink))
+            #expect(PaletteKind.highlight.lastUsed(page.formatting.preferences).command == .highlight(.pink))
             #expect(page.book.book.scenes.first?.body == [[Run("Words.", highlight: .pink)]])
         }
     }
@@ -149,7 +152,8 @@ struct FormattingBarTests {
             #expect(page.formatting.selection == nil)
             page.formatting.perform(.toggle(.bold))
             #expect(page.book.book.scenes.first?.body == [[Run("Words.")]], "nothing formatted")
-            #expect(page.formatting.lastTextColor == .textColor(.purple))
+            #expect(
+                PaletteKind.textColor.lastUsed(page.formatting.preferences).command == .textColor(.purple))
 
             page.focusPage(at: 0)
             #expect(page.formatting.selection != nil)
@@ -205,6 +209,87 @@ extension FormattingBarTests {
             undo.undo()
             #expect(page.body() == [[Run("Words.")]])
         }
+    }
+}
+
+extension FormattingBarTests {
+    /// An undo or redo of formatting leaves the selection where it was; the bar follows anyway.
+    @Test func theBarFollowsUndoAndRedo() async throws {
+        try await withPage([scene("One", [[Run("Words here.")]])]) { page in
+            page.focusPage(at: 0)
+            let undo = try #require(page.page.undoManager)
+            await eventually { undo.groupingLevel == 0 }
+            let selection = NSRange(location: 0, length: 5)
+            await inAnEvent(undo) { page.page.setSelectedRange(selection) }
+            await inAnEvent(undo) { page.formatting.perform(.toggle(.bold)) }
+            #expect(page.formatting.state(of: .toggle(.bold)) == .on)
+            await undoInAnEvent(undo)
+            #expect(page.body() == [[Run("Words here.")]])
+            #expect(page.page.selectedRange() == selection, "precondition: the selection didn't move")
+            #expect(page.formatting.state(of: .toggle(.bold)) == .off, "after undo")
+            await undoInAnEvent(undo, .redo)
+            #expect(page.page.selectedRange() == selection, "precondition: the selection didn't move")
+            #expect(page.formatting.state(of: .toggle(.bold)) == .on, "after redo")
+        }
+    }
+
+    @Test func theBarIsInactiveUnderASheet() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let scene = try #require(book.addScene(after: nil))
+            book.replaceBody(of: scene, with: [[Run("Words.")]])
+            let box = ModeBox()
+            let size = WindowMetrics.defaultSize
+            let controller = NSHostingController(
+                rootView: SheetHarness(
+                    book: book, store: books.store, preferences: books.preferences,
+                    formatting: books.formatting, box: box))
+            controller.sizingOptions = []
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
+                defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = controller
+            window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
+            window.orderFront(nil)
+            defer { window.close() }
+            await eventually { subviewTree(of: window.contentView).contains { $0 is ManuscriptTextView } }
+            let view = try #require(
+                subviewTree(of: window.contentView).compactMap { $0 as? ManuscriptTextView }.first)
+            await eventually { view.string == "Words." && view.isEditable }
+            #expect(window.makeFirstResponder(view))
+            view.selectAll(nil)
+            #expect(books.formatting.selection != nil, "precondition: the page can be formatted")
+            box.mode = .scenes
+            await eventually { !view.isEditable }
+            #expect(books.formatting.selection == nil, "inactive under a sheet")
+            books.formatting.perform(.toggle(.bold))
+            #expect(book.book.scene(scene)?.body == [[Run("Words.")]])
+            box.mode = .page
+            await eventually { view.isEditable }
+            #expect(await books.store.closeBook() == .left)
+        }
+    }
+}
+
+@Observable
+private final class ModeBox {
+    var mode = WindowMode.page
+}
+
+private struct SheetHarness: View {
+    let book: AppOpenBook
+    let store: AppBookStore
+    let preferences: AppPreferences
+    let formatting: PageFormatting
+    @Bindable var box: ModeBox
+
+    var body: some View {
+        BookWindow(
+            book: book, store: store, preferences: preferences, formatting: formatting, mode: $box.mode)
     }
 }
 
@@ -318,6 +403,54 @@ extension BookStoreIntegrationTests {
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
             #expect(await store.closeBook() == .left)
             expectNoQuestions()
+        }
+    }
+}
+
+extension BookStoreIntegrationTests {
+    /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent.
+    @Test func noTwoMenuItemsShareAKeyEquivalent() {
+        @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {
+            (menu?.items ?? []).flatMap { item -> [NSMenuItem] in
+                if let submenu = item.submenu {
+                    submenu.delegate?.menuNeedsUpdate?(submenu)
+                    submenu.update()
+                }
+                return [item] + items(item.submenu)
+            }
+        }
+        let withKeys = items(NSApp.mainMenu).filter { !$0.keyEquivalent.isEmpty }
+        #expect(withKeys.count > 20, "precondition: the whole menu bar was read")
+        let byKey = Dictionary(grouping: withKeys) {
+            "\($0.keyEquivalent) \($0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue)"
+        }
+        let shared = byKey.filter { $0.value.count > 1 }.mapValues { $0.map(\.title) }
+        #expect(shared.isEmpty, "\(shared)")
+    }
+
+    @Test func closingTheBookWithThePageFocusedDisablesTheMenu() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            let store = books.store
+            try #require(store.current == nil)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+            book.replaceBody(of: scene, with: [[Run("Close me.")]])
+            @MainActor func page() -> ManuscriptTextView? {
+                NSApp.windows.lazy.flatMap { subviewTree(of: $0.contentView) }
+                    .compactMap { $0 as? ManuscriptTextView }.first { $0.string == "Close me." }
+            }
+            await eventually { page() != nil }
+            let view = try #require(page())
+            #expect(view.window?.makeFirstResponder(view) == true)
+            view.selectAll(nil)
+            await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == true }
+            #expect(await store.closeBook() == .left)
+            await eventually { page() == nil }
+            #expect(books.formatting.selection == nil, "nothing to format once the book is closed")
+            await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
         }
     }
 }

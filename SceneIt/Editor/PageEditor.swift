@@ -402,6 +402,10 @@ extension PageEditor: @MainActor NSTextStorageDelegate {
     ) {
         guard !isLoading else { return }
         edited(editedRange, in: textStorage)
+        // An undo or redo of formatting changes the selection's format without moving it, and
+        // without `textDidChange`. (After a change of characters the selection still has its
+        // old ranges here, and moves later, which shows the formatting then.)
+        if !editedMask.contains(.editedCharacters) { showFormatting() }
     }
 
     /// A UTF-16 unit that is a line break by the codec's rule; a surrogate never is.

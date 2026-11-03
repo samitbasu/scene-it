@@ -29,6 +29,9 @@ public enum TextColor: String, CaseIterable, Hashable, Sendable {
 
 public enum HighlightColor: String, CaseIterable, Hashable, Sendable {
     case purple, red, blue, green, gray, pink
+
+    /// A highlight palette's choices: `nil` ("None") first, then the colors.
+    public static let choices: [HighlightColor?] = [nil] + allCases
 }
 
 extension PaletteColor {

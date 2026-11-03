@@ -75,16 +75,14 @@ extension WindowRenders {
     private static func writePalettes(_ preferences: AppPreferences, to output: URL) throws {
         let formatting = PageFormatting(preferences: preferences)
         formatting.show(SelectionFormatting([Run("x", color: .purple, highlight: .green)]))
-        for (kind, commands) in [
-            ("text", FormattingCommand.textColors), ("highlight", FormattingCommand.highlights),
-        ] {
+        for (name, kind) in [("text", PaletteKind.textColor), ("highlight", .highlight)] {
             let view = NSHostingView(
-                rootView: PaletteView(formatting: formatting, commands: commands) {}
+                rootView: PaletteView(formatting: formatting, kind: kind) {}
                     .background(Color(nsColor: .windowBackgroundColor)))
             view.frame = NSRect(origin: .zero, size: view.fittingSize)
             view.layoutSubtreeIfNeeded()
             try png(bitmap(of: view, scale: 3)).write(
-                to: output.appending(path: "final-palette-\(kind)@3x.png"))
+                to: output.appending(path: "final-palette-\(name)@3x.png"))
         }
     }
 }
