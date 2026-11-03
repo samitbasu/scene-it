@@ -437,7 +437,7 @@ See `10-search-whole-book.png` and `11-search-file-cabinet-range.png`.
 - **Filed copies:** the first time a File Cabinet search runs, a background task decodes each `saveNNNN.json` and keeps only its search units in memory (about 1.2 MB of text per copy; 50 copies ≈ 60 MB). File a copy adds the new copy's units immediately.
 - **Copy-level tag units** come straight from `index.json`, so tag search over the cabinet is instant even before the copies have loaded. Editing tags updates them immediately.
 - **Matching:**
-  - case- and diacritic-insensitive (`.caseInsensitive`, `.diacriticInsensitive`), on whole words;
+  - case-insensitive, on whole words (ASCII lowercasing: since ADR 0028 the book holds only ASCII, and a query is admitted as the text is, so an accent typed in a query finds the plain letter);
   - simple word endings, so `bear` matches `bears` and `bear's`;
   - `"quotes"` for an exact phrase;
   - Match case and Whole word override the defaults.

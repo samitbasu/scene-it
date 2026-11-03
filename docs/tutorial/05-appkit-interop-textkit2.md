@@ -259,11 +259,13 @@ describe text that's gone, and replaying them would delete the wrong characters)
 is logged, so it never happens silently. An earlier version tried to merge the two changes; it
 was effectively unreachable, and its undo steps had stale offsets.
 
-**Leaving a scene mid-composition.** If the writer is composing with an input method when the
-page's text is replaced (a scene switch, a new scene, a reload), the marked range would outlive
-the text it belonged to and later replace characters of the next scene. So every load first
-ends the composition: it's committed to the scene it was typed in, or dropped if the model
-changed under the page, before the storage changes.
+**Leaving a scene mid-edit.** Every keystroke reaches the model in its own turn, so when the
+writer opens another scene there's nothing pending on the page to lose: the page only breaks its
+undo coalescing, so the next scene's first keystroke starts a fresh undo step. (Before ADR 0028
+there was: an input method's half-composed word lived only on the page, and a scene switch
+could carry it into the next scene. Removing input methods removed that whole class of bug; see
+section 5.) The title field is different, because its field editor keeps the text until the
+editing ends, so a scene switch ends the title's editing first, in the scene it was typed in.
 
 **Paragraph breaks have no format.** A break typed after bold text would carry bold attributes
 in the storage, which the model can't hold. The storage delegate's
@@ -276,44 +278,70 @@ stays an exact mirror.
 `NSTextView` asks its delegate before every change to the text:
 `textView(_:shouldChangeTextInRanges:replacementStrings:)`. Returning `false` cancels the
 change. It's called for typing, autocorrection, text replacement, Find and Replace, dictation:
-everything that changes characters through the view. The page uses it to apply ADR 0022's
+everything that changes characters through the view. The page uses it to apply ADR 0028's
 character policy, so the page never holds a character the model can't:
 
 ```swift
-        guard let strings = replacementStrings, let view = textView as? ManuscriptTextView, !view.isComposing
-        else { return true }
-        let admitted = strings.map(CharacterPolicy.admittedInput)
-        guard admitted != strings else { return true }
+        guard let strings = replacementStrings, let view = textView as? ManuscriptTextView else { return true }
+        guard let admitted = KeyboardTextView.corrected(strings, by: CharacterPolicy.admittedInput) else {
+            return true
+        }
         view.replace(affectedRanges.map(\.rangeValue), with: admitted)
         return false
 ```
 
-When the policy changes the text (a typed `—` becomes `--`), the change is refused and the
-admitted text is put in its place (compared as UTF-16 code units: Swift's `String ==` is
-canonical equivalence, so it calls a typed `e` + U+0301 equal to its admitted `é` and the veto
-would let the decomposed form through), in the format of the text it replaces (so Find and Replace
+When the policy changes the text (a pasted `—` becomes `--`, `é` becomes `e`), the change is
+refused and the admitted text is put in its place (compared as UTF-16 code units, since Swift's
+`String ==` is canonical equivalence and what arrives here hasn't been admitted yet: it can hold
+anything, down to a lone surrogate), in the format of the text it replaces (so Find and Replace
 of an italic, commented `hi` with `“hi”` keeps both), or in the typing attributes when it's
 inserted at the caret. `replace` goes through the same front door:
 `shouldChangeText(inRanges:replacementStrings:)` (which calls this delegate again, now with
-nothing to change, and registers the undo), the storage edit, then `didChangeText()`. The caret
-goes after the admitted text, which can be longer or shorter than what was typed.
+nothing to change, and registers the undo), the storage edit, then `didChangeText()`. The
+selection is then carried through the edit: a caret where the writer typed goes after the
+admitted text, which can be longer or shorter than what was typed, and a caret elsewhere (a
+spelling correction replaces a word behind it) stays with the text around it
+(`KeyboardTextView.selection(_:after:)`).
+
+Should anything ever change the storage without asking (no known path does), the page's
+storage delegate notices a character the policy doesn't admit in the edited range: the model
+has already taken the admitted reading, and the page reloads from it once the edit is over. That
+backstop is a scan of the edited range only, so it costs nothing per keystroke. Writing Tools is
+off on every `KeyboardTextView` for the same reason: it rewrites text in ways the veto can't be
+shown to see.
 
 Two subtleties:
 
-- **Input methods.** Typing Japanese or Chinese builds up *marked text*, uncommitted and
-  underlined, that the input method keeps replacing. Turning each update into `[?]` would make
-  those languages untypable even to the point of committing them. `ManuscriptTextView` sets
-  `isComposing` while `setMarkedText` runs, the veto leaves marked text alone, and the policy
-  applies when the input method commits. The model doesn't see a composition at all: while
-  the page has marked text the sync stands aside, so autosave can never write a half-composed
-  word, and when the composition ends (`insertText`, `unmarkText`, or any later change) the
-  page is converted whole once. Some paths still put composed text on the page without the
-  veto seeing it (undoing and redoing a composition does); the model always gets the codec's
-  admitted reading at once, and the page reloads from the model in the same or the next turn,
-  clearing the undo history that described the old text.
+- **No input methods (ADR 0028).** An input method (Japanese or Chinese, but also the Option
+  dead keys and press-and-hold accents) builds up *marked text*: uncommitted, underlined, and
+  replaced as the writer goes on typing. Marked text is text on the page the model hasn't
+  agreed to, and it caused a real data-loss bug (#72: a scene switch mid-composition deleted
+  text). Since the book can only hold ASCII anyway, every editor of manuscript text is a
+  `KeyboardTextView`, whose `inputContext` is `nil`:
+
+  ```swift
+  class KeyboardTextView: NSTextView {
+      override var inputContext: NSTextInputContext? {
+          nil
+      }
+
+      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+          let plain = (string as? NSAttributedString)?.string ?? string
+          insertText(plain, replacementRange: replacementRange)
+      }
+  }
+  ```
+
+  With no input context, `interpretKeyEvents` hands keys straight to the key bindings, which
+  type them with `insertText`, so there's never any marked text, and the `setMarkedText`
+  override makes sure of it should anything call that directly. The page, the title field's
+  own field editor and (when it lands) the notes editor all inherit it. What the writer loses:
+  **accents can't be typed at all.** Option-E then E, press-and-hold on `e`, and every IME are
+  gone on the page and in the title. Accented text pasted in arrives as its plain letters
+  (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
 - **Smart quotes are off.** `isAutomaticQuoteSubstitutionEnabled = false` and the dash
-  equivalent: the policy would straighten them straight back. Print and Word export smarten
-  quotes on the way out (ADR 0022).
+  equivalent: the policy would spell them in ASCII straight back. Print and Word export
+  smarten quotes on the way out (ADR 0022).
 
 ## 6. `typingAttributes`
 
@@ -325,7 +353,7 @@ attributes through the codec's format:
 
 ```swift
     func textViewDidChangeSelection(_ notification: Notification) {
-        guard let view = textView, !view.hasMarkedText() else { return }
+        guard let view = textView else { return }
         view.typingAttributes = ParagraphRole.body.typingAttributes(continuing: view.typingAttributes)
     }
 ```
@@ -421,13 +449,22 @@ The title (decision 0015) is an `NSTextField`. Text fields don't edit their own 
 window lends the focused field a shared `NSTextView`, the **field editor**, while it has the
 focus. That's why a title test finds an `NSTextView` behind the field, and why settings on the
 field editor would leak to every other field in the window. The title needs continuous
-spellchecking that other fields shouldn't get, so its cell supplies a field editor of its own:
+spellchecking that other fields shouldn't get, and no input method (section 5), so its cell
+supplies a field editor of its own, a `KeyboardTextView`:
 
 ```swift
         override func fieldEditor(for controlView: NSView) -> NSTextView? {
             editor
         }
 ```
+
+The title has the same veto, in its field editor's `shouldChangeText(inRanges:replacementStrings:)`
+override (the field's delegate isn't asked about changes): a change the title can't hold is
+refused and its admitted reading made instead. An earlier version let the change happen and then
+assigned the admitted text to `editor.string` from the field's delegate. That isn't an undoable
+change, so the typing's undo step, recorded against the old text, was replayed over the corrected
+one: type `©` after `One`, get `One(c)`, press Cmd+Z, get `Onec)`. Every correction has to be an
+edit the undo manager has seen.
 
 Return and Tab arrive at the field's delegate as *commands*
 (`control(_:textView:doCommandBy:)`), not as characters; the title turns both into "move to the

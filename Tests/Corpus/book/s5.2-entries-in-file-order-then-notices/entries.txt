@@ -6,4 +6,4 @@ preserved line - [line] kept
 new E4 - [marks] - color x | c0-1 | "a"
 new notice - [notice] This scene had no id, so it was given id-A0.
 new notice - [notice] This scene had no modified date, so it was set to 2026-11-02T08:00:00-08:00.
-new notice - [notice] Characters Scene It can't store were replaced with [?]: U+03B1.
+new notice - [notice] Characters with no ASCII form were replaced with [?]: U+03B1.

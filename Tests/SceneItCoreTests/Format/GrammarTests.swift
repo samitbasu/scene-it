@@ -140,7 +140,7 @@ import Testing
             "s3.3-escapes-every-punctuation-character",
             #"! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~"#
         ),
-        ("s3.3-backslash-before-other-characters", #"C:\logs \é \1"#),
+        ("s3.3-backslash-before-other-characters", #"C:\logs \e \1"#),
         ("s3.3-escaped-spaces", "a  b"),
     ])
     func escapes(name: String, text: String) throws {

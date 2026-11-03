@@ -6,13 +6,13 @@ import Foundation
 enum BookParser {
     static func parse(_ bytes: Data, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
         let decoded = BookTextDecoder.decode(bytes)
-        let admitted = CharacterPolicy.admitLatin1(decoded.text)
-        let reader = Reader(lines: lines(admitted.bytes), replacements: admitted.replacements)
+        let admitted = CharacterPolicy.fileText(decoded.text)
+        let reader = Reader(lines: lines(admitted.bytes), changes: admitted.changes)
         reader.read()
         return reader.finish(windows1252ByteCount: decoded.windows1252ByteCount, opened: opened, ids: &ids)
     }
 
-    /// §1.2 step 8 and §1.3: the text's physical lines, trimmed. A final `\n` ends the last
+    /// §1.2 step 6 and §1.3: the text's physical lines, trimmed. A final `\n` ends the last
     /// line rather than starting another.
     static func lines(_ text: [UInt8]) -> [[UInt8]] {
         var lines = text.split(separator: Lexical.newline, omittingEmptySubsequences: false)
@@ -45,7 +45,7 @@ private final class SceneDraft {
     var commentLines: [LogicalLine] = []
     var markLines: [LogicalLine] = []
     var entries: [Positioned] = []
-    var replaced: [Unicode.Scalar] = []
+    var changed: [CharacterChange] = []
     let list: SceneList
     var paragraphs: (body: [Paragraph], notes: [Paragraph]) = ([], [])
     var comments: [Comment] = []
@@ -58,10 +58,10 @@ private final class SceneDraft {
 
 private final class Reader {
     private let lines: [[UInt8]]
-    private var replacements: ReplacementCursor
+    private var changes: ChangeCursor
 
     private var bookEntries: [Positioned] = []
-    private var bookReplaced: [Unicode.Scalar] = []
+    private var bookChanged: [CharacterChange] = []
     private var frontMatterKeys: Set<String> = []
     private var title: String?
     private var format: Int?
@@ -73,9 +73,9 @@ private final class Reader {
     private var paragraph: [[UInt8]] = []
     private var entry: LogicalLine?
 
-    init(lines: [[UInt8]], replacements: [Replacement]) {
+    init(lines: [[UInt8]], changes: [CharacterChange]) {
         self.lines = lines
-        self.replacements = ReplacementCursor(replacements)
+        self.changes = ChangeCursor(changes)
     }
 
     func read() {
@@ -84,7 +84,7 @@ private final class Reader {
             self.frontMatter(lines[number], number)
         }
         for number in 0..<frontMatter.end {
-            bookReplaced += replacements.through(line: number)
+            bookChanged += changes.through(line: number)
         }
         for number in frontMatter.end..<lines.count {
             process(number)
@@ -134,9 +134,9 @@ private final class Reader {
             startsAPart = false
         }
         if let current {
-            current.replaced += replacements.through(line: number)
+            current.changed += changes.through(line: number)
         } else {
-            bookReplaced += replacements.through(line: number)
+            bookChanged += changes.through(line: number)
         }
         guard !startsAPart else { return }
         switch kind {
@@ -260,8 +260,11 @@ private final class Reader {
         }
         switch key {
         case "id":
-            guard Lexical.isValidID(value) else { return record(.metadata, line, number, .metadata(.badID)) }
-            scene.id = SceneID(rawValue: Lexical.string(value))
+            let id = Lexical.string(value)
+            guard Lexical.isValidID(id.utf8) else {
+                return record(.metadata, line, number, .metadata(.badID))
+            }
+            scene.id = SceneID(rawValue: id)
         case "modified":
             guard let timestamp = Timestamp(Lexical.string(value)) else {
                 return record(.metadata, line, number, .metadata(.badDate))
@@ -366,7 +369,7 @@ private final class Reader {
             if draft.modified == nil {
                 notices.append(.missingModified(setTo: opened))
             }
-            notices += RepairNotice.replaced(draft.replaced)
+            notices += RepairNotice.characters(draft.changed)
             let entries = Positioned.inFileOrder(draft.entries)
             newInScenes += Positioned.new(entries) + notices.map(\.entry)
             firstReasonInScenes =
@@ -383,7 +386,7 @@ private final class Reader {
         var notices: [RepairNotice] = []
         if windows1252ByteCount > 0 { notices.append(.invalidUTF8(byteCount: windows1252ByteCount)) }
         if title == nil { notices.append(.missingTitle) }
-        notices += RepairNotice.format(format) + RepairNotice.replaced(bookReplaced)
+        notices += RepairNotice.format(format) + RepairNotice.characters(bookChanged)
         let entries = Positioned.inFileOrder(bookEntries)
         let book = Book(
             title: title ?? BookFormat.untitled, scenes: story, boneyard: boneyard,

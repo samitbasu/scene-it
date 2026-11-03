@@ -53,11 +53,11 @@ struct PageTests {
         try await withPage([scene("One", [[Run("ab")]])]) { page in
             page.focusPage(at: 1)
             page.page.insertText(
-                "\u{201C}\u{2014}\u{1F30A}\u{201D}", replacementRange: page.page.selectedRange())
-            #expect(page.body() == [[Run("a\"--[?]\"b")]])
-            #expect(page.storage.string == "a\"--[?]\"b")
+                "\u{201C}\u{2014}\u{1F30A}\u{E6}\u{201D}", replacementRange: page.page.selectedRange())
+            #expect(page.body() == [[Run("a\"--[?]ae\"b")]])
+            #expect(page.storage.string == "a\"--[?]ae\"b")
             #expect(
-                page.page.selectedRange() == NSRange(location: 8, length: 0),
+                page.page.selectedRange() == NSRange(location: 10, length: 0),
                 "the caret follows the admitted text")
             #expect(page.pageMirrorsModel)
         }
@@ -67,12 +67,13 @@ struct PageTests {
         try await withPage([scene("One")]) { page in
             try await PageHarness.withPasteboard { pasteboard in
                 let pasted =
-                    "\u{201C}It\u{2019}s\u{201D} \u{2014} \u{1F30A} \u{03A9}\u{03BC}\u{03AD}\u{03B3}\u{03B1}"
+                    "\u{201C}It\u{2019}s\u{201D} \u{2014} \u{1F30A} \u{03A9}\u{03BC}\u{03AD}\u{03B3}\u{03B1} "
+                    + "Ren\u{E9}e Zoe\u{308}\u{A0}\u{BD}"
                 pasteboard.clearContents()
                 pasteboard.setString(pasted, forType: .string)
                 page.focusPage(at: 0)
                 #expect(page.page.readSelection(from: pasteboard))
-                #expect(page.body() == [[Run("\"It's\" -- [?] [?][?][?][?][?]")]])
+                #expect(page.body() == [[Run("\"It's\" -- [?] [?][?][?][?][?] Renee Zoe [?]")]])
                 #expect(page.pageMirrorsModel)
             }
         }

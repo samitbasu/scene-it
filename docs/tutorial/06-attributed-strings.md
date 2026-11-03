@@ -376,8 +376,16 @@ this down.
 
 Neither the emoji nor the U+FFFD survives into the model, though. `Run` applies the
 character policy to its text (chapter 02 §6), so both are saved as `[?]`, the placeholder
-for anything `book.md` can't store. The surrogate handling still matters: it decides that
-the emoji is *one* character, and so one `[?]`, not two.
+for anything `book.md` can't store, and an accented letter is saved as its plain letter
+(`é` as `e`, ADR 0028). The surrogate handling still matters: it decides that the emoji is
+*one* character, and so one `[?]`, not two.
+
+This is where the three counts meet again. Model text is printable ASCII, so once it's
+admitted, `count`, `utf16.count` and the UTF-8 length are the same number, and an `NSRange`
+into the page is a character offset into the model. The gotcha lives only at the boundary:
+text arriving from a paste, a drop or a hand-edited file hasn't been admitted yet, and can
+hold emoji, decomposed accents and lone surrogates. So the codec still converts ranges with
+`Range(_:in:)` and never assumes one unit is one character until the policy has run.
 
 ## 7. How the tests prove it
 

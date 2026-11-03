@@ -92,8 +92,8 @@ Before any line is read, the bytes go through §1.2 of the spec. Every step is t
 **Decode.** UTF-8, but a byte that isn't part of a well-formed sequence decodes on its own
 as its Windows-1252 character, and the book gets one notice. Rust's
 `String::from_utf8_lossy` would turn each bad sequence into U+FFFD, losing the original.
-Here a Windows-1252 `“` (byte 0x93) becomes `“`, which the next step straightens to `"`, so
-a file saved by an old Windows editor loses nothing. "Well-formed" is Unicode's Table 3-7,
+Here a Windows-1252 `“` (byte 0x93) becomes `“`, which the next step spells as `"`, so
+a file saved by an old Windows editor keeps every character it can. "Well-formed" is Unicode's Table 3-7,
 which is short enough to write out:
 
 ```swift
@@ -117,27 +117,60 @@ which is short enough to write out:
 The common case never gets here: `String(validating: bytes, as: UTF8.self)` succeeds for a
 valid file, and only an invalid one takes the byte-by-byte path.
 
-**Admit.** Then `CharacterPolicy.admitLatin1` normalizes line endings, applies NFC, straightens
-typographic punctuation, turns tabs into spaces, and replaces every character outside
-printable Latin-1 with `[?]`, remembering which line each replacement was on (for the
-notice of the scene it was in). The editor will call the public `CharacterPolicy.admit` on
-typing and pasting, which is the same code, so the two can't disagree.
+**Admit, in two stages.** Then `CharacterPolicy.fileText` normalizes line endings, turns tabs
+into spaces, and looks every other character outside printable ASCII up in the transliteration
+table (ADR 0028), recording what will happen to it and which line it's on, but **leaving it in
+place**. The parser reads the lines' structure first, and only then does each piece of text a
+line yields (a paragraph's characters in their styles, a title, a tag, a comment's text and
+quote) go through `CharacterPolicy.transliterated`: `é` becomes `e`, `“` becomes `"`, `—`
+becomes `--`, a no-break space becomes a space, and a character the table doesn't have becomes
+`[?]`. The order matters. Transliterating the whole file first, as the first version of this
+code did, let the table's output become markup: a pasted bullet `•` became `*` and then an
+italic delimiter, and a no-break space became a space that trimming then ate, shifting every
+comment offset after it. Transliterated characters must always be literal text, so the
+serializer escapes them like any other `*`.
+
+The recorded changes become notices, one per kind per scene, except that typographic
+punctuation and the no-break space (the table's `silent` entries, which TextEdit and Word
+write freely) are straightened without one. The editors call the public
+`CharacterPolicy.admit` (through `admitted`, `admittedLine` and `admittedInput`) on typing and
+pasting, which is the same table, so the two can't disagree.
+
+The table is data, not code paths:
+
+```swift
+    public static let table: [Unicode.Scalar: Spelling] = [
+        "\u{00A0}": .silent(" "), "\u{00A1}": .noticed(""), "\u{00A6}": .noticed("|"),
+        // … 108 entries in all
+    ]
+```
+
+and the spec's copy of it (§1.2) is the source of truth: `TransliterationTableTests` reads the
+Markdown table out of `book-format.md` and fails if the two differ by one entry. That's a
+pattern worth stealing for any rule a non-programmer must be able to review: keep it as a table
+in a document, and make a test the bridge.
+
+The cost is real, and the owner accepted it: a book can't hold an accented name. `Renée`
+is stored as `Renee`, silently when it's pasted, and Greek or Japanese text becomes `[?]`. A
+file that holds accented letters (one written by an earlier, Latin-1 build of Scene It, say)
+gets a notice for them, so it opens read-only as repaired, and its original is
+kept when the writer makes it editable (ADR 0024).
+
+There's deliberately no Unicode normalization. A decomposed `e` + U+0301 is two scalars, an
+`e` and a combining accent, and the table simply removes the accent, so it reads as `e`, just
+like a precomposed `é`. A system transform such as Foundation's
+`precomposedStringWithCanonicalMapping` or ICU's `Latin-ASCII` transliterator would do the job
+in one call, but its tables move with the operating system, and a book must read the same on
+every Mac.
 
 The output is `[UInt8]`, one byte per character. That's a deliberate choice of
 representation. Swift's `String` is a sequence of grapheme clusters, and its `==` compares
 *canonical equivalence*, so `"é"` (one scalar) equals `"e\u{301}"` (two). That's right for
 UI text and wrong for a file format, where offsets must count something exact. After
-admission every character is one Latin-1 code point, so a byte array gives us what Rust's
-`&[u8]` gives you: offsets are indices, slicing is O(1), and equality is bytewise. The
-model's `String`s are built only at the end, from Latin-1 bytes.
-
-NFC has a fast path worth knowing about. Composition needs a combining mark, and every
-combining mark is at U+0300 or above, whose UTF-8 lead byte is 0xCC or more. So:
-
-```swift
-        let normalized =
-            text.utf8.allSatisfy { $0 < 0xCC } ? text : text.precomposedStringWithCanonicalMapping
-```
+admission every character is one ASCII byte, so a byte array gives us what Rust's `&[u8]`
+gives you: offsets are indices, slicing is O(1), and equality is bytewise. The model's
+`String`s are built only at the end, from those bytes, and since they're ASCII a character is
+also one UTF-16 unit, which is what AppKit's `NSRange` counts.
 
 ## 3. The state machine
 
@@ -312,7 +345,7 @@ the re-read book with the original (after merging neighbouring runs, which is th
 change the format makes on purpose) catches that whole class: whatever the file can't
 hold shows up as a refused save, never as a silently different book. Comparing `Book`s is
 safe here, despite `String ==`'s canonical equivalence (§2), because every string in the
-model is admitted Latin-1, where equivalent means identical.
+model is admitted ASCII, where equivalent means identical.
 
 ### Making bad text unrepresentable
 
@@ -330,9 +363,9 @@ assignment:
 This is Rust's private field plus a smart constructor, with one Swift twist: a `didSet` that
 assigns to its own property doesn't trigger itself again, so the property stays a plain
 `var` at every call site (`run.text += "…"` still works) while no path can store text that
-`book.md` can't hold. An emoji becomes `[?]`, `—` becomes `--`, and in one-line fields a
-line break becomes a space, which is what the parser would make of them on the next load
-anyway. An error entry's payload is normalized the same way, to a line as §1.3's trimming
+`book.md` can't hold. An emoji becomes `[?]`, `é` becomes `e`, `—` becomes `--`, and in
+one-line fields a line break becomes a space, which is what the parser would make of them on
+the next load anyway. An error entry's payload is normalized the same way, to a line as §1.3's trimming
 leaves it. `Paragraph` drops empty runs the same way, so a stray empty run left behind by an
 edit can't make a save fail: it had nothing to write.
 
@@ -352,7 +385,7 @@ observer makes the invalid state just as unreachable.
 byte for byte with no error entries. The spec's complete example (§9.1) must be its own
 canonical form, and each row of its "parsed as" table is asserted. The damaged example
 (§9.2) is rebuilt as bytes, with `\r\n` endings, the two Windows-1252 bytes and the cut-off
-last line, and must produce exactly its twelve entries. Every table row in the spec with an
+last line, and must produce exactly its fourteen entries. Every table row in the spec with an
 input and a result is a parameterized test.
 
 **Round trip, as a property.** `BookGenerator` makes random books from a seed, using the
@@ -383,8 +416,9 @@ The suites:
 - **conservation**: unique words scattered through files full of structure and damage must
   all survive parse → serialize: the parser may put a word in an error entry, but never
   drops one;
-- **books built through the API**: random books over the whole of Latin-1 and every token
-  that looks like structure must read back as themselves and pass verification.
+- **books built through the API**: random books over printable ASCII, every character the
+  transliteration table spells, and every token that looks like structure must read back as
+  themselves and pass verification.
 
 **Performance.** A 120,000-word novel (about 700 KB) parses in about 0.37 s and serializes
 in about 0.09 s in a debug build, and in about 30 ms each in a release build. The test

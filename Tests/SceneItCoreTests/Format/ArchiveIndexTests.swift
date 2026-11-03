@@ -165,8 +165,8 @@ private func day(_ text: String) throws -> CalendarDay {
             var generator = BookGenerator(seed: seed ^ fuzzSalt ^ 0xA5)
             let original = Array(
                 Array(ArchiveIndexFormat.serialize(generator.index())).split(
-                    separator: Latin1.newline, omittingEmptySubsequences: false))
-            let before = parseIndex(Data(Array(original.joined(separator: [Latin1.newline]))))
+                    separator: ASCII.newline, omittingEmptySubsequences: false))
+            let before = parseIndex(Data(Array(original.joined(separator: [ASCII.newline]))))
             try #require(before.newEntries.isEmpty, "precondition: a canonical index")
             for _ in 0..<100 {
                 var lines = original
@@ -185,7 +185,7 @@ private func day(_ text: String) throws -> CalendarDay {
                     lines = Array(lines.prefix(at))
                     touched = at...original.count
                 }
-                let after = parseIndex(Data(Array(lines.joined(separator: [Latin1.newline])))).index
+                let after = parseIndex(Data(Array(lines.joined(separator: [ASCII.newline])))).index
                 #expect(throws: Never.self) { try ArchiveIndexFormat.verifiedSerialization(of: after) }
                 for copy in before.index.copies {
                     let heading = Array("## \(copy.number.fileName)".utf8)

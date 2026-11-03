@@ -135,10 +135,10 @@ private enum EntryRepairTrial {
             }
             blocks[0] = ([header[0]] + fields).joined(separator: "\n")
         case .comments:
-            guard Lexical.isEntryStart(Latin1.bytes(line)) else { return .failure(.comment(.strayLine)) }
+            guard Lexical.isEntryStart(ASCII.bytes(line)) else { return .failure(.comment(.strayLine)) }
             blocks.append("### Comments\n" + line)
         case .marks:
-            guard Lexical.isEntryStart(Latin1.bytes(line)) else { return .failure(.mark(.strayLine)) }
+            guard Lexical.isEntryStart(ASCII.bytes(line)) else { return .failure(.mark(.strayLine)) }
             blocks.append("### Marks\n" + line)
         case .frontMatter, .line, .notice:
             return .failure(.line)
@@ -160,9 +160,9 @@ private enum EntryRepairTrial {
     /// `fields` with the one whose key `line` has replaced by `line`, or `line` added after
     /// them; `nil` if `line` isn't a `key: value` line.
     private static func replacingField(_ fields: [String], with line: String) -> [String]? {
-        guard let key = Lexical.keyValue(Latin1.bytes(line))?.key else { return nil }
+        guard let key = Lexical.keyValue(ASCII.bytes(line))?.key else { return nil }
         var fields = fields
-        if let index = fields.firstIndex(where: { Lexical.keyValue(Latin1.bytes($0))?.key == key }) {
+        if let index = fields.firstIndex(where: { Lexical.keyValue(ASCII.bytes($0))?.key == key }) {
             fields[index] = line
         } else {
             fields.append(line)

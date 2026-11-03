@@ -1,5 +1,5 @@
 /// The line-level vocabulary of book format §1.3, §1.4 and §4.1, over admitted text (one
-/// Latin-1 byte per character).
+/// byte per character).
 enum Lexical {
     static let hash = UInt8(ascii: "#")
     static let dash = UInt8(ascii: "-")
@@ -11,9 +11,9 @@ enum Lexical {
     static let quote = UInt8(ascii: "\"")
     static let openBracket = UInt8(ascii: "[")
     static let closeBracket = UInt8(ascii: "]")
-    static let space = Latin1.space
-    static let backslash = Latin1.backslash
-    static let newline = Latin1.newline
+    static let space = ASCII.space
+    static let backslash = ASCII.backslash
+    static let newline = ASCII.newline
 
     /// §1.3: leading spaces and unescaped trailing spaces removed, and a trailing escape
     /// whose space an editor stripped given back its space.
@@ -218,8 +218,9 @@ enum Lexical {
             }
     }
 
+    /// A token's text, with book format §1.2 step 7 applied: from here on it's ASCII.
     static func string(_ bytes: some Collection<UInt8>) -> String {
-        Latin1.string(ArraySlice(bytes))
+        ASCII.string(CharacterPolicy.transliterated(bytes)[...])
     }
 }
 

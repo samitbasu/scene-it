@@ -31,24 +31,23 @@ struct Positioned {
     }
 }
 
-/// The characters `CharacterPolicy` replaced with `[?]`, handed out as a parse reaches the
-/// lines they were on, so each part of the file gets a notice for its own (§5.3).
-struct ReplacementCursor {
-    private let replacements: [Replacement]
+/// The characters `CharacterPolicy` changed, handed out as a parse reaches the lines they
+/// were on, so each part of the file gets notices for its own (§5.3).
+struct ChangeCursor {
+    private let changes: [CharacterChange]
     private var next = 0
 
-    init(_ replacements: [Replacement]) {
-        self.replacements = replacements
+    init(_ changes: [CharacterChange]) {
+        self.changes = changes
     }
 
     /// Those on lines up to `line` not handed out yet.
-    mutating func through(line: Int) -> [Unicode.Scalar] {
-        var found: [Unicode.Scalar] = []
-        while next < replacements.count, replacements[next].line <= line {
-            found.append(replacements[next].scalar)
+    mutating func through(line: Int) -> [CharacterChange] {
+        let start = next
+        while next < changes.count, changes[next].line <= line {
             next += 1
         }
-        return found
+        return Array(changes[start..<next])
     }
 }
 
@@ -60,11 +59,6 @@ struct LogicalLine {
 }
 
 extension RepairNotice {
-    /// The notice for the characters one part of the file had replaced, if any.
-    static func replaced(_ scalars: [Unicode.Scalar]) -> [RepairNotice] {
-        scalars.isEmpty ? [] : [.replacedCharacters(CharacterPolicy.distinct(scalars))]
-    }
-
     /// The notice for the front matter's `format` (§1.5), if it isn't the current one.
     static func format(_ declared: Int?) -> [RepairNotice] {
         guard let declared else { return [.missingFormat] }
