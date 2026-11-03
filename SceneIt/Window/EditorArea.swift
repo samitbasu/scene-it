@@ -223,8 +223,9 @@ private struct TitleTextField: NSViewRepresentable {
     }
 }
 
-/// A text field with a field editor of its own, which checks spelling as the writer types. (The
-/// window's shared field editor serves every other field, which shouldn't.)
+/// A text field with a field editor of its own, which checks spelling as the writer types and has
+/// no input method (ADR 0028). (The window's shared field editor serves every other field, which
+/// shouldn't.)
 private final class TitleField: NSTextField {
     override class var cellClass: AnyClass? {
         get { Cell.self }
@@ -251,7 +252,7 @@ private final class TitleField: NSTextField {
         }
     }
 
-    final class Editor: NSTextView {
+    final class Editor: KeyboardTextView {
         var history: UndoManager?
 
         override var undoManager: UndoManager? {

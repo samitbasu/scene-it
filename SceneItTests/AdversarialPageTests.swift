@@ -111,7 +111,7 @@ private final class Fuzz {
     func step() {
         let view = page.page
         let length = page.storage.length
-        if !view.hasMarkedText() { view.setSelectedRange(randomRange(length, &rng)) }
+        view.setSelectedRange(randomRange(length, &rng))
         switch Int.random(in: 0..<16, using: &rng) {
         case 0, 1:
             let text = randomText(&rng)
@@ -175,21 +175,9 @@ private final class Fuzz {
                 marked, selectedRange: NSRange(location: 2, length: 0),
                 replacementRange: NSRange(location: NSNotFound, length: 0))
         case 14:
-            if view.hasMarkedText() {
-                if Bool.random(using: &rng) {
-                    log.append("commit marked text with insertText")
-                    view.insertText(
-                        "\u{65E5}\u{672C}", replacementRange: NSRange(location: NSNotFound, length: 0))
-                } else {
-                    log.append("unmarkText")
-                    view.unmarkText()
-                }
-            } else {
-                log.append("insert a lone surrogate at \(view.selectedRange())")
-                view.insertText(lone(), replacementRange: view.selectedRange())
-            }
+            log.append("insert a lone surrogate at \(view.selectedRange())")
+            view.insertText(lone(), replacementRange: view.selectedRange())
         default:
-            if view.hasMarkedText() { view.unmarkText() }
             log.append("uppercaseWord at \(view.selectedRange())")
             view.uppercaseWord(nil)
         }
@@ -198,7 +186,6 @@ private final class Fuzz {
 
     /// The model is the codec's reading of the page as soon as the edit returns.
     private func checkModel() {
-        guard !page.page.hasMarkedText() else { return }
         let model = page.body()
         if bodyMismatch == nil, RunCodec.body(from: page.storage) != model {
             bodyMismatch =
@@ -206,11 +193,9 @@ private final class Fuzz {
         }
     }
 
-    /// The page shows exactly what the model holds once the turn is over: a page the model
-    /// corrected (text that skipped the character policy) is reloaded in a later main-queue
-    /// block.
+    /// The page shows exactly what the model holds once the turn is over.
     func checkPage() {
-        guard mirrorMismatch == nil, !page.page.hasMarkedText(),
+        guard mirrorMismatch == nil,
             let difference = firstDifference(page.storage, RunCodec.attributedString(forBody: page.body()))
         else { return }
         mirrorMismatch = log.suffix(6) + [difference]
@@ -265,7 +250,6 @@ struct PageFuzzTests {
                         }
                     }
                 }
-                if page.page.hasMarkedText() { page.page.unmarkText() }
                 #expect(fuzz.bodyMismatch == nil, "\(fuzz.bodyMismatch?.joined(separator: "\n") ?? "")")
                 #expect(fuzz.mirrorMismatch == nil, "\(fuzz.mirrorMismatch?.joined(separator: "\n") ?? "")")
                 #expect(RunCodec.body(from: page.storage) == page.body())
@@ -310,9 +294,44 @@ struct AdversarialPageTests {
         }
     }
 
-    /// An input method's composition, interrupted by `leave`, is committed to the scene it was
-    /// typed in and never touches the text that's shown next.
-    private func compose(thenLeaveBy leave: (PageHarness, SceneID) throws -> Void) async throws {
+    /// ADR 0028: no input method can reach the page or the title, so neither ever holds marked
+    /// text.
+    @Test func thePageAndTheTitleHaveNoInputContext() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            page.focusPage(at: 1)
+            #expect(page.window.firstResponder === page.page, "precondition: the page has the keyboard")
+            #expect(page.page.inputContext == nil)
+            #expect(page.window.makeFirstResponder(page.title))
+            let editor = try #require(page.title.currentEditor() as? NSTextView)
+            #expect(editor is KeyboardTextView, "the title's own field editor, not the window's")
+            #expect(editor.inputContext == nil)
+        }
+    }
+
+    /// Should anything call `setMarkedText` anyway, its text is typed, through the policy, and
+    /// reaches the model at once: there is no composition to wait for.
+    @Test func markedTextIsTypedInstead() async throws {
+        try await withPage([scene("One", [[Run("ab")]])]) { page in
+            await eventually { page.book.status == .saved }
+            page.focusPage(at: 1)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(!page.page.hasMarkedText())
+            #expect(page.body() == [[Run("anib")]])
+            #expect(page.book.status == .unsaved, "autosave heard of it in the same turn")
+            page.page.setMarkedText(
+                "\u{306B}\u{307B}", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: page.page.selectedRange())
+            #expect(!page.page.hasMarkedText())
+            #expect(page.body() == [[Run("ani[?][?]b")]])
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    /// The B1 case (#72) with nothing composing: what was just typed stays in its scene, and the
+    /// next scene's text is untouched.
+    @Test func typingThenSwitchingScenesKeepsEachScenesText() async throws {
         let one = scene("One", [[Run("ab")]])
         let two = scene("Two", [[Run("Second.")]])
         try await withPage([one, two]) { page in
@@ -321,97 +340,12 @@ struct AdversarialPageTests {
             page.page.setMarkedText(
                 "ni", selectedRange: NSRange(location: 2, length: 0),
                 replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(page.page.hasMarkedText(), "precondition: a composition is in progress")
-            try leave(page, two.id)
-            await eventually { !page.page.hasMarkedText() && page.pageMirrorsModel }
-            try await Task.sleep(for: .milliseconds(100))
-            #expect(page.body(one.id) == [[Run("abxni")]], "the composition is kept in its own scene")
-            #expect(page.body(two.id) == [[Run("Second.")]], "the other scene is untouched")
-            #expect(page.pageMirrorsModel)
-        }
-    }
-
-    @Test func switchingScenesMidCompositionLeavesTheNewSceneIntact() async throws {
-        try await compose { page, two in
-            page.book.select(two)
-        }
-    }
-
-    @Test func typingAfterAMidCompositionSwitchGoesToTheNewScene() async throws {
-        let one = scene("One", [[Run("ab")]])
-        let two = scene("Two", [[Run("Second.")]])
-        try await withPage([one, two]) { page in
-            page.focusPage(at: 2)
-            page.page.setMarkedText(
-                "ni", selectedRange: NSRange(location: 2, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0))
             page.book.select(two.id)
             await eventually { page.storage.string == "Second." }
             page.page.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+            #expect(page.body(one.id) == [[Run("abxni")]])
             #expect(page.body(two.id) == [[Run("ZSecond.")]])
-            #expect(page.body(one.id) == [[Run("abni")]])
-        }
-    }
-
-    @Test func addingASceneMidCompositionLeavesTheNewSceneEmpty() async throws {
-        let one = scene("One", [[Run("ab")]])
-        try await withPage([one]) { page in
-            page.focusPage(at: 2)
-            page.page.setMarkedText(
-                "ni", selectedRange: NSRange(location: 2, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0))
-            let added = try #require(page.book.addScene(after: one.id))
-            await eventually { page.storage.length == 0 && !page.page.hasMarkedText() }
-            try await Task.sleep(for: .milliseconds(100))
-            #expect(page.body(one.id) == [[Run("abni")]])
-            #expect(page.body(added) == [])
-        }
-    }
-
-    @Test func aReloadMidCompositionKeepsTheModelsText() async throws {
-        let one = scene("One", [[Run("ab")]])
-        try await withPage([one]) { page in
-            page.focusPage(at: 2)
-            page.page.setMarkedText(
-                "ni", selectedRange: NSRange(location: 2, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0))
-            page.book.replaceBody(of: one.id, with: [[Run("Replaced elsewhere.")]])
-            await eventually { !page.page.hasMarkedText() && page.storage.string == "Replaced elsewhere." }
-            try await Task.sleep(for: .milliseconds(100))
-            #expect(page.body(one.id) == [[Run("Replaced elsewhere.")]])
             #expect(page.pageMirrorsModel)
-        }
-    }
-
-    @Test func markedTextReachesTheModelOnlyWhenCommittedByInsertText() async throws {
-        try await withPage([scene("One", [[Run("ab")]])]) { page in
-            await eventually { page.book.status == .saved }
-            page.focusPage(at: 1)
-            page.page.setMarkedText(
-                "\u{306B}\u{307B}", selectedRange: NSRange(location: 2, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(page.body() == [[Run("ab")]], "a composition in progress isn't the writer's text yet")
-            #expect(page.book.status == .saved, "so autosave has nothing to write")
-            page.page.insertText(
-                "\u{65E5}\u{672C}", replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(!page.page.hasMarkedText())
-            #expect(page.body() == [[Run("a[?][?]b")]])
-            #expect(page.pageMirrorsModel)
-            page.page.insertText("c", replacementRange: page.page.selectedRange())
-            #expect(page.pageMirrorsModel)
-        }
-    }
-
-    @Test func markedTextReachesTheModelWhenCommittedByUnmarkText() async throws {
-        try await withPage([scene("One", [[Run("ab")]])]) { page in
-            page.focusPage(at: 1)
-            page.page.setMarkedText(
-                "ni", selectedRange: NSRange(location: 2, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0))
-            #expect(page.body() == [[Run("ab")]])
-            page.page.unmarkText()
-            #expect(page.body() == [[Run("anib")]])
-            #expect(page.pageMirrorsModel, "after unmarkText the page shows what will be saved")
         }
     }
 
@@ -535,12 +469,14 @@ struct AdversarialPageTests {
         }
     }
 
-    @Test func aDecomposedAccentIsComposedOnThePageAsInTheModel() async throws {
+    @Test(arguments: ["e\u{0301}", "\u{00E9}"])
+    func anAccentedLetterIsThePlainLetterOnThePageAsInTheModel(typed: String) async throws {
         try await withPage([scene("One", [[Run("ab")]])]) { page in
             page.focusPage(at: 1)
-            page.page.insertText("e\u{0301}", replacementRange: page.page.selectedRange())
-            #expect(Array((page.storage.string as NSString as String).utf16) == Array("a\u{00E9}b".utf16))
-            #expect(page.pageMirrorsModel)
+            page.page.insertText(typed, replacementRange: page.page.selectedRange())
+            #expect(Array(page.storage.string.utf16) == Array("aeb".utf16))
+            #expect(page.body() == [[Run("aeb")]])
+            #expect(page.page.selectedRange() == NSRange(location: 2, length: 0))
         }
     }
 
@@ -553,15 +489,6 @@ struct AdversarialPageTests {
             page.page.insertNewline(nil)
             page.page.insertText("more", replacementRange: page.page.selectedRange())
             #expect(page.body() == [[Run("Bold", styles: [.bold])], [Run("more", styles: [.bold])]])
-            #expect(page.pageMirrorsModel)
-        }
-    }
-
-    @Test func upperCasingYDiaeresisLeavesWhatThePolicyAdmits() async throws {
-        try await withPage([scene("One", [[Run("\u{00FF}es no")]])]) { page in
-            page.focusPage(at: 0)
-            page.page.setSelectedRange(NSRange(location: 0, length: 3))
-            page.page.uppercaseWord(nil)
             #expect(page.pageMirrorsModel)
         }
     }

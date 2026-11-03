@@ -7,4 +7,7 @@ format: 2
 id: s1
 modified: 2026-01-01T00:00:00+00:00
 
-café
+cafe
+
+### Unparsed
+- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+0301.

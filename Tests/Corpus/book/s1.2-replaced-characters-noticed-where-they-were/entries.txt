@@ -1,3 +1,3 @@
 new line - [line] [?] stray
-new notice - [notice] Characters Scene It can't store were replaced with [?]: U+03B1, U+03B3.
-new notice - [notice] Characters Scene It can't store were replaced with [?]: U+1F30A, U+03B2.
+new notice - [notice] Characters with no ASCII form were replaced with [?]: U+03B1, U+03B3.
+new notice - [notice] Characters with no ASCII form were replaced with [?]: U+1F30A, U+03B2.

@@ -23,3 +23,16 @@ a family of edge cases. ASCII removes that class entirely, and makes every offse
 ## Cost (accepted)
 Accented names can't be written: pasted accents are converted to plain letters (names are altered silently). Typing accents via
 Option-key dead keys or press-and-hold doesn't work. Non-Latin text becomes `[?]`.
+
+## Details settled in the implementation (#74)
+- **The table is version 1**, lives in book format §1.2 as the source of truth, and `Transliteration.table` must equal it
+  (`TransliterationTableTests` reads the spec). Every Latin-1 and Windows-1252 character beyond ASCII is either in it or
+  listed there as deliberately left out (currency signs, superscripts, fractions, °, §, ¶, †, ‰…), which become `[?]`.
+- **Decomposed input needs no normalization:** the table removes the eight combining accents that Latin-1 and
+  Windows-1252 letters decompose into, so `e` + U+0301 reads as `e`, exactly as `é` does.
+- **Every transliteration in a file is noticed**, typographic punctuation included (before, straightening was silent).
+  So a file with curly quotes from another editor opens read-only as repaired, like one with accents. Tabs and line
+  endings stay silent. Typing and pasting are never noticed.
+- **Input methods:** every manuscript editor is a `KeyboardTextView` (`inputContext` is `nil`; `setMarkedText` types its
+  text instead), so marked text can't arise. The Errors tab's fix field (a SwiftUI `TextField`) keeps its input method:
+  what it holds is admitted when the fix is applied.

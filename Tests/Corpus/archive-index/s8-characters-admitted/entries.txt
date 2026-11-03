@@ -1,1 +1,2 @@
-new n/a - [notice] Characters Scene It can't store were replaced with [?]: U+1F30A.
+new n/a - [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D.
+new n/a - [notice] Characters with no ASCII form were replaced with [?]: U+1F30A.

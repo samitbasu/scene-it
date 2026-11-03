@@ -1,0 +1,22 @@
+---
+title: Decomposed
+format: 2
+---
+
+## Composed
+id: composed
+modified: 2026-01-01T00:00:00+00:00
+
+A A A A A A C E E E E I I I I N O O O O O U U U U Y a a a a a a c e e e e i i i i n o o o o o u u u u y y S s Y Z z
+
+### Unparsed
+- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+00C0, U+00C1, U+00C2, U+00C3, U+00C4, U+00C5, U+00C7, U+00C8, U+00C9, U+00CA, U+00CB, U+00CC, U+00CD, U+00CE, U+00CF, U+00D1, U+00D2, U+00D3, U+00D4, U+00D5, U+00D6, U+00D9, U+00DA, U+00DB, U+00DC, U+00DD, U+00E0, U+00E1, U+00E2, U+00E3, U+00E4, U+00E5, U+00E7, U+00E8, U+00E9, U+00EA, U+00EB, U+00EC, U+00ED, U+00EE, U+00EF, U+00F1, U+00F2, U+00F3, U+00F4, U+00F5, U+00F6, U+00F9, U+00FA, U+00FB, U+00FC, U+00FD, U+00FF, U+0160, U+0161, U+0178, U+017D, U+017E.
+
+## Decomposed
+id: decomposed
+modified: 2026-01-01T00:00:00+00:00
+
+A A A A A A C E E E E I I I I N O O O O O U U U U Y a a a a a a c e e e e i i i i n o o o o o u u u u y y S s Y Z z
+
+### Unparsed
+- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+0300, U+0301, U+0302, U+0303, U+0308, U+030A, U+0327, U+030C.

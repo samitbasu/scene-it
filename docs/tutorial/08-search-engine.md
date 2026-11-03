@@ -15,7 +15,7 @@ Everything lives in [`Sources/SceneItCore/Search/`](../../Sources/SceneItCore/Se
 | [`SearchIndex.swift`](../../Sources/SceneItCore/Search/SearchIndex.swift) | the protocol the Search sheet talks to |
 | [`SearchUnit.swift`](../../Sources/SceneItCore/Search/SearchUnit.swift) | the units of text that are searched, and how a `Book` becomes them |
 | [`SearchQuery.swift`](../../Sources/SceneItCore/Search/SearchQuery.swift) | the options and the parsed query: words and `"quoted phrases"` |
-| [`SearchText.swift`](../../Sources/SceneItCore/Search/SearchText.swift) | words, sentences, case and diacritic folding, and the endings rule |
+| [`SearchText.swift`](../../Sources/SceneItCore/Search/SearchText.swift) | words, sentences, case folding, and the endings rule |
 | [`KeywordSearch.swift`](../../Sources/SceneItCore/Search/KeywordSearch.swift) | the index, and its `AsyncSequence` of updates |
 | [`SearchRun.swift`](../../Sources/SceneItCore/Search/SearchRun.swift) | one search in progress: matching, ranking and near matches |
 | [`SearchResults.swift`](../../Sources/SceneItCore/Search/SearchResults.swift) | what a search reports: ranks, hits, highlights, updates |
@@ -204,25 +204,22 @@ followed, once any closing `"`, `'`, `)` and `]` are skipped, by whitespace or t
 text. That is all: "Mr. Smith" is two sentences (an accepted imprecision), while "e.g" and
 "3.14" end none. `SearchText.tokens` tags each word with its sentence as it goes.
 
-**Folding.** Matching ignores case and diacritics. Rather than hand-write which Latin-1 letter
-folds to what, `SearchText` asks Foundation once per character and keeps the answers in a table:
+**Folding.** Matching ignores case. Model text is printable ASCII
+([ADR 0028](../decisions/0028-strict-ascii-no-input-methods.md)), so there are no diacritics left
+to fold, and case folding is ASCII lowercasing, one unit for one unit:
 
 ```swift
-private static func table(_ options: String.CompareOptions) -> [[UInt16]] {
-    (0..<0x100).map { value in
-        Array(
-            String(Character(Unicode.Scalar(UInt8(value)))).folding(options: options, locale: nil)
-                .utf16)
+    static func folded(_ word: some Collection<UInt16>, _ sensitivity: CaseSensitivity) -> [UInt16] {
+        sensitivity == .insensitive ? word.map(lower) : Array(word)
     }
-}
 ```
 
-A table entry can be longer than one character (`ß` folds to `ss`), which is why folding builds a
-key for each word rather than rewriting the text in place, and why highlight ranges always point
-into the original text. When strict ASCII lands
-([ADR 0028](../decisions/0028-strict-ascii-no-input-methods.md), #74), there are no diacritics
-left to fold, case folding is ASCII lowercasing, and the table could shrink to 128 one-character
-entries.
+An earlier version, over Latin-1, asked Foundation for a 256-entry folding table, some of whose
+entries were longer than one character (`ß` folded to `ss`). Folding still builds a key for
+each word rather than rewriting the text in place, so highlight ranges always point into the
+original text. Accents are still "ignored" in the sense a writer cares about: the query is
+admitted exactly as the book's text was, so `café` typed or pasted into the Search field is
+searched as `cafe`, and finds it.
 
 **Endings.** By default a query word matches any word with the same *stem*, so "bear" matches
 "bears", "bear's" and "Bears'". The rule is deliberately small, documented on
@@ -242,8 +239,9 @@ that should match. The rule accepts some false positives (Hans, Carlos and Mars 
 so "Han" finds "Hans"; Whole word is the escape hatch) and doesn't know irregular plurals
 (mice, children).
 
-**Whole word** turns the endings off. **Match case** makes case significant (diacritics stay
-ignored). A `"quoted phrase"` always compares words exactly, adjacent and within one sentence.
+**Whole word** turns the endings off. **Match case** makes case significant (an accent in the
+query is still read as its plain letter). A `"quoted phrase"` always compares words exactly,
+adjacent and within one sentence.
 
 ### Interning: comparing integers
 
@@ -326,7 +324,7 @@ prints" highlights "bear" and marks "paw".
 
 `Highlight.range` counts UTF-16 code units into `SearchUnit.text`, because that is what AppKit's
 `NSRange` counts, so the Search sheet can hand a range straight to the editor once it has added
-the paragraph's offset within the scene. Model text is Latin-1 (and soon ASCII), so these are
+the paragraph's offset within the scene. Model text is ASCII, so these are
 also character offsets. The seeded property test in
 [`SearchPropertyTests.swift`](../../Tests/SceneItCoreTests/Search/SearchPropertyTests.swift)
 compares the engine, over 300 random books and queries, with an *oracle*: the documented rules

@@ -9,11 +9,8 @@ extension NSPasteboard.PasteboardType {
 /// The page (PLAN §4.3, §6): a TextKit 2 text view that draws itself as a white US Letter page
 /// with 1 in margins on the gray desk, and grows downward as the scene does. It holds the
 /// scene's body only (decision 0015); `PageEditor` keeps it in step with the model.
-final class ManuscriptTextView: NSTextView {
+final class ManuscriptTextView: KeyboardTextView {
     weak var editor: PageEditor?
-    /// While the input method updates its marked (uncommitted) text, which the character
-    /// policy leaves alone until it's committed.
-    private(set) var isComposing = false
 
     static func page() -> ManuscriptTextView {
         let view = ManuscriptTextView(usingTextLayoutManager: true)
@@ -24,7 +21,7 @@ final class ManuscriptTextView: NSTextView {
         view.usesFindBar = true
         view.isIncrementalSearchingEnabled = true
         view.isContinuousSpellCheckingEnabled = true
-        // `CharacterPolicy` would only straighten them again.
+        // `CharacterPolicy` would only spell them in ASCII again.
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.isAutomaticLinkDetectionEnabled = false
@@ -112,25 +109,6 @@ final class ManuscriptTextView: NSTextView {
         } else {
             super.insertBacktab(sender)
         }
-    }
-
-    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        do {
-            isComposing = true
-            defer { isComposing = false }
-            super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
-        }
-        editor?.compositionMayHaveEnded()
-    }
-
-    override func unmarkText() {
-        super.unmarkText()
-        editor?.compositionMayHaveEnded()
-    }
-
-    override func insertText(_ string: Any, replacementRange: NSRange) {
-        super.insertText(string, replacementRange: replacementRange)
-        editor?.compositionMayHaveEnded()
     }
 
     // MARK: The pasteboard (decision 0017)

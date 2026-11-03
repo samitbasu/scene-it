@@ -121,7 +121,7 @@ import Testing
         book.scenes[1].errors = [ErrorEntry(.line, "  C:\\  "), ErrorEntry(.notice, "x\ny")]
         #expect(book.title == "Wave--\nnew")
         #expect(book.scenes[1].title == "one two three [?]")
-        #expect(book.scenes[1].body[0].runs[0].text == "wave [?] line \"q\"...é")
+        #expect(book.scenes[1].body[0].runs[0].text == "wave [?] line \"q\"...e")
         #expect(book.scenes[1].tags == ["[?]", "a\nb", "c\nd\ne"])
         #expect(book.scenes[0].comments[0].text == "one\ntwo\nthree\nfour")
         #expect(book.scenes[1].errors.map(\.payload) == ["C:\\ ", "x y"])

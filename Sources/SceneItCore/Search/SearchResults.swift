@@ -9,7 +9,7 @@ public struct Highlight: Hashable, Sendable {
     }
 
     /// UTF-16 offsets into `SearchUnit.text`, so `NSRange(range)` addresses the same characters
-    /// in AppKit. Since model text is Latin-1 (and soon ASCII), these are also character offsets.
+    /// in AppKit. Since model text is ASCII, these are also character offsets.
     public let range: Range<Int>
     public let kind: Kind
 }

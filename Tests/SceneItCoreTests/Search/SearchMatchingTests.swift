@@ -3,31 +3,27 @@ import Testing
 
 @testable import SceneItCore
 
-/// PLAN M5 (a): case, diacritics, word endings, quotes, and the options that override them.
+/// PLAN M5 (a): case, accents, word endings, quotes, and the options that override them.
 @Suite struct SearchMatchingTests {
     @Test func caseIsIgnoredByDefault() async throws {
         let units = bodyUnits(["A bear.", "A BEAR.", "A Bear.", "A boar."])
         #expect(Set(try await foundTexts(units, "bEaR")) == ["A bear.", "A BEAR.", "A Bear."])
     }
 
-    @Test func diacriticsAreIgnoredBothWays() async throws {
-        let units = bodyUnits(["The caf\u{E9} opened.", "The cafe closed.", "The CAF\u{C9} burned."])
-        #expect(try await foundTexts(units, "cafe").count == 3)
-        #expect(try await foundTexts(units, "Caf\u{E9}").count == 3)
-        #expect(
-            try await foundTexts(units, "cafe", .matchCase).count == 2, "Match case keeps diacritics ignored")
+    /// Model text is ASCII (decision 0028), and a query is admitted as the text was, so an accent
+    /// typed or pasted into the query finds the plain letter.
+    @Test func anAccentedQueryFindsThePlainLetters() async throws {
+        let units = bodyUnits(["The cafe opened.", "The CAFE burned."])
+        #expect(try await foundTexts(units, "Caf\u{E9}").count == 2)
+        #expect(try await foundTexts(units, "cafe\u{301}").count == 2, "decomposed, too")
+        #expect(try await foundTexts(units, "caf\u{E9}", .matchCase) == ["The cafe opened."])
     }
 
-    @Test func aDecomposedQueryIsNormalizedLikeTheText() async throws {
-        let units = bodyUnits(["The caf\u{E9} opened."])
-        #expect(try await foundTexts(units, "cafe\u{301}") == ["The caf\u{E9} opened."])
-    }
-
-    @Test func aUnitsDecomposedTextIsNormalized() async throws {
-        let units = bodyUnits(["The cafe\u{301} opened."])
-        #expect(Array(units[0].text.utf16) == Array("The caf\u{E9} opened.".utf16))
-        let hit = try #require(hits(try await finalUpdate(units, "caf\u{E9}", .matchCase)).first)
-        #expect(highlighted(hit) == ["caf\u{E9}"])
+    @Test func aUnitsTextIsAdmitted() async throws {
+        let units = bodyUnits(["The cafe\u{301} opened.", "The caf\u{E9} closed."])
+        #expect(units.map(\.text) == ["The cafe opened.", "The cafe closed."])
+        let found = try #require(hits(try await finalUpdate(units, "cafe", .matchCase)).first)
+        #expect(highlighted(found) == ["cafe"])
     }
 
     @Test func simpleEnglishEndingsMatch() async throws {

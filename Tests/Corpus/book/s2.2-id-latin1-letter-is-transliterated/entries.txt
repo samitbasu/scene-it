@@ -1,4 +1,3 @@
 new notice - [notice] The book had no title, so it was called "Untitled".
 new notice - [notice] The file had no format line; it was read as format 2.
-new bad-id - [metadata] id: café
-new notice - [notice] This scene had no id, so it was given id-A0.
+new notice - [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+00E9.

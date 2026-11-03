@@ -86,14 +86,14 @@ import Testing
             case .duplicateLine, .insertStructure:
                 let starts =
                     [0]
-                    + bytes.indices.filter { bytes[$0] == Latin1.newline }.map { $0 + 1 }.filter {
+                    + bytes.indices.filter { bytes[$0] == ASCII.newline }.map { $0 + 1 }.filter {
                         $0 < bytes.count
                     }
                 let at = starts.randomElement(using: &random) ?? 0
                 let line: [UInt8]
                 if mutation == .duplicateLine {
                     let from = starts.randomElement(using: &random) ?? 0
-                    let end = bytes[from...].firstIndex(of: Latin1.newline).map { $0 + 1 } ?? bytes.count
+                    let end = bytes[from...].firstIndex(of: ASCII.newline).map { $0 + 1 } ?? bytes.count
                     line = Array(bytes[from..<end])
                 } else {
                     line = structureLines.randomElement(using: &random)!
@@ -109,7 +109,7 @@ import Testing
     private static func sceneSpans(_ bytes: [UInt8]) -> [Range<Int>] {
         var starts: [Int] = []
         var lineStart = 0
-        for index in 0...bytes.count where index == bytes.count || bytes[index] == Latin1.newline {
+        for index in 0...bytes.count where index == bytes.count || bytes[index] == ASCII.newline {
             let line = bytes[lineStart..<index]
             if line.starts(with: Array("## ".utf8)) || line.elementsEqual(Array("##".utf8)) {
                 starts.append(lineStart)
@@ -146,7 +146,7 @@ import Testing
 
     /// How many lines are a `# Boneyard` heading, as §1.8 recognizes one.
     private static func boneyardHeadings(_ bytes: [UInt8]) -> Int {
-        BookParser.lines(CharacterPolicy.admitLatin1(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
+        BookParser.lines(CharacterPolicy.admitASCII(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
             line in
             if case .heading(1, let name) = Lexical.kind(of: line) {
                 return Lexical.equalsIgnoringCase(name, "boneyard")

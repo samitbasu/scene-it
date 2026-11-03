@@ -8,3 +8,6 @@ id: s1
 modified: 2026-01-01T00:00:00+00:00
 
 "Curly" 'q' dash--en-dots...
+
+### Unparsed
+- [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+201C, U+201D, U+2018, U+2019, U+2014, U+2013, U+2026.
