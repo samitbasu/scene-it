@@ -34,25 +34,8 @@ struct SheetPlaceholder: View {
             }
         }
         .background(.background)
-        .background(SheetFocus())
-    }
-}
-
-/// Takes the keyboard focus when a sheet opens, so the page or panel it covers no longer has it.
-private struct SheetFocus: NSViewRepresentable {
-    func makeNSView(context: Context) -> FocusView {
-        FocusView()
-    }
-
-    func updateNSView(_ view: FocusView, context: Context) {}
-
-    final class FocusView: NSView {
-        override var acceptsFirstResponder: Bool { true }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            window?.makeFirstResponder(self)
-        }
+        // Takes the keyboard focus, so the page or panel the sheet covers no longer has it.
+        .background(UndoFocusHolder(focus: .elsewhere, takesFocusWhenShown: true))
     }
 }
 

@@ -39,6 +39,14 @@ final class PageEditor: NSObject {
         view.textStorage?.delegate = self
         focus.body = view
         formatting.editor = self
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(sceneWillSwitch), name: .openBookWillSwitchScene, object: book)
+    }
+
+    /// Before another scene opens: what's being typed stays in this one.
+    @objc private func sceneWillSwitch(_ notification: Notification) {
+        commitComposition()
+        textView?.breakUndoCoalescing()
     }
 
     /// Shows `scene` as the model now has it; editable only when `editability` says so.

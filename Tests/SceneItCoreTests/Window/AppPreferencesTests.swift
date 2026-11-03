@@ -33,6 +33,23 @@ struct AppPreferencesTests {
         #expect(preferences.rightPanelTab == .comments)
     }
 
+    @Test func zoomIsKeptForTheNextLaunchAndStartsAt100Percent() {
+        let storage = TransientPreferenceStorage()
+        let preferences = AppPreferences(storage)
+        #expect(preferences.zoom == .standard)
+        preferences.setZoom(Zoom(clamping: 1.25))
+        #expect(storage.values == ["zoom": "1.25"])
+        #expect(AppPreferences(storage).zoom == Zoom(clamping: 1.25))
+    }
+
+    @Test func aStoredZoomOutsideTheRangeOrUnreadableIs100Percent() {
+        for stored in ["9", "0.1", "nan", "-0.5", "large", ""] {
+            #expect(
+                AppPreferences(TransientPreferenceStorage(["zoom": stored])).zoom == .standard, "\(stored)")
+        }
+        #expect(AppPreferences(TransientPreferenceStorage(["zoom": "3"])).zoom == Zoom(clamping: 3))
+    }
+
     @Test func revealOpensThePanelOnTheTab() {
         let preferences = AppPreferences(TransientPreferenceStorage())
         preferences.setRightPanel(.closed)

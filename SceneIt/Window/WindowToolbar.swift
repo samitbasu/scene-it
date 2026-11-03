@@ -1,11 +1,12 @@
 import SceneItCore
 import SwiftUI
 
-/// The window toolbar (PLAN §4.1). Undo and Redo act on the focused text (`UndoRoute`); their
-/// graying out and zoom arrive with #16, Print with #35, Export to Word with #37 and File a
-/// copy with #32; until then those are present and disabled.
+/// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Print arrives with
+/// #35, Export to Word with #37 and File a copy with #32, and until then those are disabled.
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
+    let preferences: AppPreferences
+    let undo: UndoRouter
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -15,20 +16,30 @@ struct WindowToolbar: ToolbarContent {
         .sharedBackgroundVisibility(.hidden)
         ToolbarItem {
             ControlGroup {
-                Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { UndoRoute.undo.send() }
-                Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { UndoRoute.redo.send() }
+                Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
+                    .help(undo.state.undo ?? WindowWording.undo)
+                    .disabled(undo.state.undo == nil)
+                Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
+                    .help(undo.state.redo ?? WindowWording.redo)
+                    .disabled(undo.state.redo == nil)
             }
             .disabled(!book.isEditable)
         }
         ToolbarItem {
             ControlGroup {
-                Button(WindowWording.zoomOut, systemImage: "minus") {}
-                    .disabled(true)
-                Text(WindowWording.zoom(.standard))
+                Button(WindowWording.zoomOut, systemImage: "minus") {
+                    preferences.setZoom(preferences.zoom.zoomedOut)
+                }
+                .help(WindowWording.zoomOut)
+                .disabled(!preferences.zoom.canZoomOut)
+                Text(WindowWording.zoom(preferences.zoom))
                     .monospacedDigit()
                     .frame(minWidth: 44)
-                Button(WindowWording.zoomIn, systemImage: "plus") {}
-                    .disabled(true)
+                Button(WindowWording.zoomIn, systemImage: "plus") {
+                    preferences.setZoom(preferences.zoom.zoomedIn)
+                }
+                .help(WindowWording.zoomIn)
+                .disabled(!preferences.zoom.canZoomIn)
             }
         }
         ToolbarSpacer(.fixed)
@@ -68,24 +79,6 @@ private struct Breadcrumb: View {
                     .foregroundStyle(index == 0 ? .primary : .secondary)
                     .lineLimit(1)
             }
-        }
-    }
-}
-
-/// Where the toolbar's Undo and Redo go: the same action Cmd+Z sends, to the focused view, so a
-/// text view acts on its own undo manager (the page's comes from `OpenBook.pageUndo(for:)`).
-/// #16 routes them to `OpenBook.structureUndo` while the Scenes sheet is open (PLAN §8.6).
-enum UndoRoute {
-    case undo, redo
-
-    func send() {
-        NSApp.sendAction(selector, to: nil, from: nil)
-    }
-
-    var selector: Selector {
-        switch self {
-        case .undo: Selector(("undo:"))
-        case .redo: Selector(("redo:"))
         }
     }
 }

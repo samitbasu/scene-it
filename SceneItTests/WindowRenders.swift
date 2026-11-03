@@ -86,6 +86,13 @@ struct WindowRenders {
             try Self.write(
                 try await Self.render(window), name: "final-errors-tab",
                 caption: "The Errors tab once the book is editable", to: output)
+            try Self.write(
+                try await Self.render(window) { window in
+                    let tabs = subviewTree(of: window.contentView).compactMap { $0 as? UndoFocusView }
+                    try #require(tabs.first { $0.focus == .errorsTab }).takeFocus()
+                },
+                name: "final-errors-focus", caption: "The Errors tab with the focus, after a Delete or Fix",
+                to: output)
             preferences.showRightPanelTab(.comments)
         }
         let newer = String(decoding: BookFormat.serialize(Self.sampleBook()), as: UTF8.self)

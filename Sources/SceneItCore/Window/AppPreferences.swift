@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The window's layout and the formatting bar's last-used colors, which are the app's, not the
+/// The window's layout, the page's zoom and the formatting bar's last-used colors, which are the app's, not the
 /// book's (ADR 0022): they're kept between launches, and changing them never edits the open
 /// book.
 @MainActor
@@ -13,6 +13,8 @@ public final class AppPreferences {
     public private(set) var lastTextColor: TextColor
     /// What the bar's highlight button applies. Never None.
     public private(set) var lastHighlight: HighlightColor
+    /// The page's magnification, the same for every book (ADR 0022).
+    public private(set) var zoom: Zoom
     @ObservationIgnored public let storage: any PreferenceStorage
 
     /// A value missing from `storage`, or one this version doesn't know, is the default.
@@ -26,6 +28,7 @@ public final class AppPreferences {
             storage.string(forKey: Key.lastTextColor).flatMap(TextColor.init(rawValue:)) ?? .purple
         lastHighlight =
             storage.string(forKey: Key.lastHighlight).flatMap(HighlightColor.init(rawValue:)) ?? .green
+        zoom = storage.string(forKey: Key.zoom).flatMap(Double.init).flatMap(Zoom.init(exactly:)) ?? .standard
     }
 
     /// Keeps the color or highlight `command` applies as the last used, unless it removes one.
@@ -63,11 +66,18 @@ public final class AppPreferences {
         showRightPanelTab(tab)
     }
 
+    public func setZoom(_ zoom: Zoom) {
+        guard zoom != self.zoom else { return }
+        self.zoom = zoom
+        storage.set(String(zoom.value), forKey: Key.zoom)
+    }
+
     enum Key {
         static let rightPanelOpen = "rightPanelOpen"
         static let rightPanelTab = "rightPanelTab"
         static let lastTextColor = "lastTextColor"
         static let lastHighlight = "lastHighlight"
+        static let zoom = "zoom"
     }
 }
 

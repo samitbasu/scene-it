@@ -234,10 +234,12 @@ struct PageTests {
                 undo === page.book.pageUndo(for: try #require(page.book.openScene)), "the scene's own manager"
             )
             #expect(undo.canUndo)
-            #expect(page.page.tryToPerform(UndoRoute.undo.selector, with: nil), "the toolbar's route")
+            let router = try page.undo
+            #expect(router.manager === undo, "the toolbar's route")
+            router.undo()
             #expect(page.body() == [[Run("Start.")]])
             #expect(page.book.status == .unsaved)
-            #expect(page.page.tryToPerform(UndoRoute.redo.selector, with: nil))
+            router.redo()
             #expect(page.body() == [[Run("Start. More.")]])
         }
     }

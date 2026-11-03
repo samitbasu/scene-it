@@ -23,6 +23,18 @@ public enum WindowWording {
         (Double(zoom)).formatted(.percent.precision(.fractionLength(0)))
     }
 
+    // MARK: View menu (PLAN §11)
+
+    public static let actualSize = "Actual Size"
+    public static let fitWidth = "Fit Width"
+
+    public static func sceneStep(_ step: SceneStep) -> String {
+        switch step {
+        case .previous: "Previous Scene"
+        case .next: "Next Scene"
+        }
+    }
+
     public static let boneyard = "Boneyard"
     public static let untitledScene = "Untitled scene"
 

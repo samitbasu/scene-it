@@ -39,3 +39,22 @@ public enum CurrentSceneMark: Hashable, Sendable {
         }
     }
 }
+
+/// View → Previous Scene and Next Scene.
+public enum SceneStep: Hashable, Sendable, CaseIterable {
+    case previous, next
+}
+
+extension Book {
+    /// The scene before or after `scene` in story order. Only the story is walked: from a
+    /// Boneyard scene, or past either end, there's no step.
+    public func scene(_ step: SceneStep, from scene: SceneID?) -> SceneID? {
+        guard let index = scenes.firstIndex(where: { $0.id == scene }) else { return nil }
+        let target =
+            switch step {
+            case .previous: index - 1
+            case .next: index + 1
+            }
+        return scenes.indices.contains(target) ? scenes[target].id : nil
+    }
+}

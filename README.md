@@ -278,7 +278,7 @@ preferences are throwaway (a temporary folder, a test-host `BookController`). To
 candidates for a future look change, render each candidate the same way with a different name.
 
 It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
-`final-errors-tab`) and a book saved by a newer version (`final-banner-newer`), the same way.
+`final-errors-tab`, and `final-errors-focus`, the tab with the keyboard focus) and a book saved by a newer version (`final-banner-newer`), the same way.
 
 ### `scripts/release.sh`: build a distributable app
 

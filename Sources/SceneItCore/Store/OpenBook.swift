@@ -17,8 +17,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public private(set) var openScene: SceneID?
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
+    /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
+    /// The Errors tab's Delete and Fix (book format §5.4).
+    @ObservationIgnored public let errorsUndo = UndoManager()
     @ObservationIgnored private var pageUndoManagers: [SceneID: UndoManager] = [:]
+    @ObservationIgnored private var titleUndoManagers: [SceneID: UndoManager] = [:]
 
     private var access: Access
     @ObservationIgnored private weak var store: BookStore<C>?
@@ -171,9 +175,19 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// The undo history of `scene`'s page (PLAN §8.6), kept while the book is open.
     public func pageUndo(for scene: SceneID) -> UndoManager {
-        if let manager = pageUndoManagers[scene] { return manager }
+        Self.manager(for: scene, in: &pageUndoManagers)
+    }
+
+    /// The undo history of `scene`'s title field, kept while the book is open.
+    public func titleUndo(for scene: SceneID) -> UndoManager {
+        Self.manager(for: scene, in: &titleUndoManagers)
+    }
+
+    private static func manager(for scene: SceneID, in managers: inout [SceneID: UndoManager]) -> UndoManager
+    {
+        if let manager = managers[scene] { return manager }
         let manager = UndoManager()
-        pageUndoManagers[scene] = manager
+        managers[scene] = manager
         return manager
     }
 
@@ -202,8 +216,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return new.id
     }
 
+    /// Opens `scene`. Every way of opening a scene comes here; it first posts
+    /// `openBookWillSwitchScene`, so the window can finish what's being typed into the scene
+    /// it's leaving while that scene is still the open one.
     public func select(_ scene: SceneID?) {
         guard scene != openScene else { return }
+        NotificationCenter.default.post(name: .openBookWillSwitchScene, object: self)
         openScene = scene
         autosave?.send(.sceneSwitched)
     }
@@ -241,7 +259,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     // Entry operations act on the book's text through the file format, not as typing, so they
-    // leave every scene's `modified` as it is. Each registers, on `structureUndo`, only the
+    // leave every scene's `modified` as it is. Each registers, on `errorsUndo`, only the
     // inverse of its own change, so undoing it keeps whatever was typed in that scene since.
 
     @discardableResult
@@ -250,6 +268,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         var errors = part.errors
         errors.remove(at: ref.index)
         commit(ref.owner, part.with(errors: errors)) { $0.reinsert(ref.entry, at: ref.index, in: ref.owner) }
+        errorsUndo.setActionName(ErrorsWording.deleteUndoName)
         return true
     }
 
@@ -260,6 +279,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         else {
             return .refused
         }
+        defer { errorsUndo.setActionName(ErrorsWording.fixUndoName) }
         switch repair {
         case .repaired(let part):
             let effect = RepairEffect(from: old, to: part)
@@ -324,7 +344,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             }
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
         }
-        structureUndo.registerUndo(withTarget: self, handler: inverse)
+        errorsUndo.registerUndo(withTarget: self, handler: inverse)
         driver.send(.edited)
     }
 
@@ -417,4 +437,10 @@ extension OpenBook {
     public var manuscriptWordCount: WordCount {
         wordCounts.manuscript(of: book)
     }
+}
+
+extension Notification.Name {
+    /// Posted by `OpenBook.select(_:)` just before another scene opens, with the book as its
+    /// object.
+    public static let openBookWillSwitchScene = Notification.Name("OpenBookWillSwitchScene")
 }

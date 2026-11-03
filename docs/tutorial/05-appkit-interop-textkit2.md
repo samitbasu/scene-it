@@ -412,8 +412,8 @@ order of registration, so the comment removal is registered *first*, to run *las
 
 **Routing.** Cmd+Z sends the `undo:` action down the responder chain, and the window asks the
 first responder for its undo manager, so the focused text view's own manager answers. The
-toolbar's Undo and Redo send the same action (`UndoRoute`). #16 extends that route to
-`OpenBook.structureUndo` while the Scenes sheet is open.
+toolbar's Undo and Redo, and the rule that sends them to `OpenBook.structureUndo` while the
+Scenes sheet is open, are [chapter 07](07-undo.md)'s subject.
 
 ## 9. The title field and its own field editor
 

@@ -36,10 +36,13 @@ final class ManuscriptTextView: NSTextView {
         view.backgroundColor = NSColor(WindowMetrics.deskColor)
         view.insertionPointColor = .black
         view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = true
+        // The text column is always 6.5 in, however wide the view, so zoom and the window's
+        // width never change a line break.
+        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.size = NSSize(
+            width: WindowMetrics.textColumnWidth, height: .greatestFiniteMagnitude)
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]
         view.minSize = NSSize(width: 0, height: WindowMetrics.pageSize.height + 2 * WindowMetrics.deskPadding)
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         view.typingAttributes = ParagraphRole.body.typingAttributes
