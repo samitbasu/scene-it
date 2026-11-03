@@ -113,7 +113,9 @@ struct ErrorsTabTests {
             #expect(await store.makeEditable() == .editable)
             books.preferences.showRightPanelTab(.errors)
             let window = try await host(
-                BookWindow(book: book, store: store, preferences: books.preferences, mode: .constant(.page)))
+                BookWindow(
+                    book: book, store: store, preferences: books.preferences, formatting: books.formatting,
+                    mode: .constant(.page)))
             defer { window.close() }
             let shown = selectableTexts(in: window)
             #expect(shown.contains(brokenComment), "\(shown)")
@@ -131,7 +133,9 @@ struct ErrorsTabTests {
             #expect(await store.makeEditable() == .editable)
             books.preferences.showRightPanelTab(.errors)
             let window = try await host(
-                BookWindow(book: book, store: store, preferences: books.preferences, mode: .constant(.page)))
+                BookWindow(
+                    book: book, store: store, preferences: books.preferences, formatting: books.formatting,
+                    mode: .constant(.page)))
             defer { window.close() }
             try #require(
                 selectableTexts(in: window).contains(strayLine), "precondition: the Errors tab shows")

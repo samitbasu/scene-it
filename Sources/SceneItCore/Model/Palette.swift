@@ -30,3 +30,9 @@ public enum TextColor: String, CaseIterable, Hashable, Sendable {
 public enum HighlightColor: String, CaseIterable, Hashable, Sendable {
     case purple, red, blue, green, gray, pink
 }
+
+extension PaletteColor {
+    public init(_ highlight: HighlightColor) {
+        self.init(TextColor(rawValue: highlight.rawValue))
+    }
+}

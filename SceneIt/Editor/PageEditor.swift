@@ -12,6 +12,7 @@ import SceneItCore
 final class PageEditor: NSObject {
     let book: AppOpenBook
     let focus: PageFocus
+    let formatting: PageFormatting
     private(set) weak var textView: ManuscriptTextView?
     private(set) var scene: SceneID?
     /// The body the storage holds, as the model had it after the last edit or load.
@@ -20,13 +21,15 @@ final class PageEditor: NSObject {
     private var sync = Sync.inStep
     /// Comments a paste is adding, handed to the model with the text that carries them.
     private var pastedComments: [Comment] = []
+    private var keyboardFocus = KeyboardFocus.elsewhere
 
     /// Our own type first; then rich text, so pasted bold and italic survive; then plain.
     static let readableTypes: [NSPasteboard.PasteboardType] = [.pageClip, .rtf, .rtfd, .html, .string]
 
-    init(book: AppOpenBook, focus: PageFocus) {
+    init(book: AppOpenBook, focus: PageFocus, formatting: PageFormatting) {
         self.book = book
         self.focus = focus
+        self.formatting = formatting
     }
 
     func attach(_ view: ManuscriptTextView) {
@@ -35,6 +38,7 @@ final class PageEditor: NSObject {
         view.delegate = self
         view.textStorage?.delegate = self
         focus.body = view
+        formatting.editor = self
     }
 
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
@@ -52,11 +56,16 @@ final class PageEditor: NSObject {
             if !editable { commitComposition() }
             view.isEditable = editable
             if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+            showFormatting()
         }
     }
 
     enum Editability {
         case editable, readOnly
+    }
+
+    enum KeyboardFocus {
+        case page, elsewhere
     }
 
     /// How the page stands with the model.
@@ -85,6 +94,7 @@ final class PageEditor: NSObject {
         shown = body
         view.setSelectedRange(NSRange(location: min(caret, storage.length), length: 0))
         view.typingAttributes = ParagraphRole.body.typingAttributes
+        showFormatting()
     }
 
     /// Ends an input method's composition before anything replaces the page's text: a marked
@@ -184,6 +194,59 @@ final class PageEditor: NSObject {
             let undo = book.pageUndo(for: scene)
             DispatchQueue.main.async { undo.removeAllActions() }
         }
+    }
+
+    // MARK: Formatting (PLAN §6.2)
+
+    func keyboardFocusChanged(_ focus: KeyboardFocus) {
+        keyboardFocus = focus
+        showFormatting()
+    }
+
+    /// Applies `command` to the selection as one undoable change, through the text view so the
+    /// model hears of it as of any edit; with nothing selected, to what the writer types next.
+    /// Returns whether it applied.
+    func format(_ command: FormattingCommand) -> Bool {
+        guard let view = textView, let storage = view.textStorage, let selection = formattingSelection
+        else { return false }
+        let edit = command.edit(for: selection)
+        let ranges = view.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
+        if ranges.isEmpty {
+            view.typingAttributes = ParagraphRole.body.typingAttributes(
+                continuing: edit.applied(to: view.typingAttributes, in: .body))
+            showFormatting()
+            return true
+        }
+        view.breakUndoCoalescing()
+        guard view.shouldChangeText(inRanges: ranges.map(NSValue.init(range:)), replacementStrings: nil)
+        else { return false }
+        var runs: [(NSRange, [NSAttributedString.Key: Any])] = []
+        for range in ranges {
+            storage.enumerateAttributes(in: range) { attributes, run, _ in
+                runs.append((run, edit.applied(to: attributes, in: .body)))
+            }
+        }
+        storage.beginEditing()
+        for (range, attributes) in runs { storage.setAttributes(attributes, range: range) }
+        storage.endEditing()
+        view.didChangeText()
+        view.undoManager?.setActionName(WindowWording.undoName(command))
+        showFormatting()
+        return true
+    }
+
+    /// The selection's formats, while the page can be formatted.
+    private var formattingSelection: SelectionFormatting? {
+        guard let view = textView, let storage = view.textStorage, keyboardFocus == .page, view.isEditable
+        else { return nil }
+        let ranges = view.selectedRanges.map(\.rangeValue)
+        return ranges.contains(where: { $0.length > 0 })
+            ? SelectionFormatting(selecting: ranges, in: storage)
+            : SelectionFormatting(typing: view.typingAttributes)
+    }
+
+    private func showFormatting() {
+        formatting.show(formattingSelection)
     }
 
     // MARK: Pasteboard (decision 0017)
@@ -308,6 +371,7 @@ extension PageEditor: NSTextViewDelegate {
         compositionMayHaveEnded()
         guard let view = textView, !view.hasMarkedText() else { return }
         view.typingAttributes = ParagraphRole.body.typingAttributes(continuing: view.typingAttributes)
+        showFormatting()
     }
 }
 

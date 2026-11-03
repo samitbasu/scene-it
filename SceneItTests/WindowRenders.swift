@@ -22,9 +22,11 @@ struct WindowRenders {
 
     static let windowSize = CGSize(width: 1440, height: 900)
 
-    static var mockup: URL {
+    static let mainWindowMockup = "01-main-window.png"
+
+    static func mockup(_ name: String) -> URL {
         URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "novel-app-build-bundle/mockups/screenshots/01-main-window.png")
+            .appending(path: "novel-app-build-bundle/mockups/screenshots/\(name)")
     }
 
     /// The window as it ships, in each of its states.
@@ -33,7 +35,9 @@ struct WindowRenders {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withSampleBook { store, book, preferences in
             let window = { (mode: WindowMode) in
-                BookWindow(book: book, store: store, preferences: preferences, mode: .constant(mode))
+                BookWindow(
+                    book: book, store: store, preferences: preferences,
+                    formatting: PageFormatting(preferences: preferences), mode: .constant(mode))
             }
             try Self.write(
                 try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",
@@ -69,7 +73,8 @@ struct WindowRenders {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withBook(Self.damagedSample()) { store, book, preferences in
             let window = BookWindow(
-                book: book, store: store, preferences: preferences, mode: .constant(.page))
+                book: book, store: store, preferences: preferences,
+                formatting: PageFormatting(preferences: preferences), mode: .constant(.page))
             try Self.write(
                 try await Self.render(window), name: "final-banner-repaired",
                 caption: "Repaired while opening: read-only, with the banner", to: output)
@@ -88,7 +93,9 @@ struct WindowRenders {
         try await withBook(Data(newer.utf8)) { store, book, preferences in
             try Self.write(
                 try await Self.render(
-                    BookWindow(book: book, store: store, preferences: preferences, mode: .constant(.page))),
+                    BookWindow(
+                        book: book, store: store, preferences: preferences,
+                        formatting: PageFormatting(preferences: preferences), mode: .constant(.page))),
                 name: "final-banner-newer", caption: "Saved by a newer Scene It: read-only", to: output)
         }
     }
@@ -100,7 +107,8 @@ struct WindowRenders {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withSampleBook { store, book, preferences in
             let window = BookWindow(
-                book: book, store: store, preferences: preferences, mode: .constant(.page))
+                book: book, store: store, preferences: preferences,
+                formatting: PageFormatting(preferences: preferences), mode: .constant(.page))
             let scene = try #require(book.openScene)
             book.replaceBody(of: scene, with: Self.formattedBody)
             try Self.write(
@@ -125,12 +133,12 @@ struct WindowRenders {
         }
     }
 
-    private static func page(in window: NSWindow) -> ManuscriptTextView? {
+    static func page(in window: NSWindow) -> ManuscriptTextView? {
         func views(in view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
         return window.contentView.flatMap { views(in: $0).compactMap { $0 as? ManuscriptTextView }.first }
     }
 
-    private static let formattedBody: [Paragraph] = [
+    static let formattedBody: [Paragraph] = [
         [
             Run("The ferry left at dawn, and Mara watched the "),
             Run("harbor lights", styles: [.italic]),
@@ -269,6 +277,7 @@ struct WindowRenders {
     struct Renders {
         let single: NSBitmapImageRep
         let double: NSBitmapImageRep
+        let triple: NSBitmapImageRep
     }
 
     /// The whole window, title bar and toolbar included, at 1× and 2×.
@@ -299,7 +308,9 @@ struct WindowRenders {
         let frameView = try #require(window.contentView?.superview)
         frameView.layoutSubtreeIfNeeded()
         frameView.displayIfNeeded()
-        return Renders(single: bitmap(of: frameView, scale: 1), double: bitmap(of: frameView, scale: 2))
+        return Renders(
+            single: bitmap(of: frameView, scale: 1), double: bitmap(of: frameView, scale: 2),
+            triple: bitmap(of: frameView, scale: 3))
     }
 
     static func bitmap(of view: NSView, scale: Int) -> NSBitmapImageRep {
@@ -319,11 +330,14 @@ struct WindowRenders {
 
     // MARK: Output
 
-    static func write(_ renders: Renders, name: String, caption: String, to folder: URL) throws {
+    static func write(
+        _ renders: Renders, name: String, caption: String, to folder: URL,
+        beside screenshot: String = mainWindowMockup
+    ) throws {
         try png(renders.single).write(to: folder.appending(path: "\(name)@1x.png"))
         try png(renders.double).write(to: folder.appending(path: "\(name)@2x.png"))
-        let mockup = try #require(NSImage(contentsOf: mockup))
-        try png(try composite(renders.single, caption: caption, beside: mockup, "Mockup: 01-main-window.png"))
+        let mockup = try #require(NSImage(contentsOf: mockup(screenshot)))
+        try png(try composite(renders.single, caption: caption, beside: mockup, "Mockup: \(screenshot)"))
             .write(to: folder.appending(path: "\(name)-vs-mockup.png"))
     }
 

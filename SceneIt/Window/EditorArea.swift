@@ -6,13 +6,14 @@ import SwiftUI
 /// field, and the page on its gray desk.
 struct EditorArea: View {
     let book: AppOpenBook
+    let formatting: PageFormatting
     @State private var focus = PageFocus()
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                FormattingBarStandIn()
+                FormattingBar(formatting: formatting)
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -24,7 +25,8 @@ struct EditorArea: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, WindowMetrics.titleStripPadding)
                 Divider()
-                PageView(book: book, scene: scene.id, paragraphs: scene.body, focus: focus)
+                PageView(
+                    book: book, scene: scene.id, paragraphs: scene.body, focus: focus, formatting: formatting)
             } else {
                 ScrollView(.vertical) {
                     Page {
@@ -173,24 +175,5 @@ private final class TitleField: NSTextField {
         override func fieldEditor(for controlView: NSView) -> NSTextView? {
             editor
         }
-    }
-}
-
-/// Holds the formatting control bar's place until #18 builds it. Disabled; nothing here
-/// formats anything.
-private struct FormattingBarStandIn: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "bold")
-            Image(systemName: "italic")
-            Image(systemName: "strikethrough")
-            Divider().frame(height: 18)
-            Image(systemName: "character")
-            Image(systemName: "highlighter")
-            Divider().frame(height: 18)
-            Image(systemName: "play.fill")
-        }
-        .foregroundStyle(.tertiary)
-        .accessibilityHidden(true)
     }
 }

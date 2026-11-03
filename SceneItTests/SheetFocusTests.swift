@@ -18,7 +18,9 @@ private struct Harness: View {
     @Bindable var box: ModeBox
 
     var body: some View {
-        BookWindow(book: book, store: store, preferences: preferences, mode: $box.mode)
+        BookWindow(
+            book: book, store: store, preferences: preferences,
+            formatting: PageFormatting(preferences: preferences), mode: $box.mode)
     }
 }
 

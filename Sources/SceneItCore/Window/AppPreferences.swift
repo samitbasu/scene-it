@@ -1,13 +1,18 @@
 import Foundation
 import Observation
 
-/// The window's layout, which is the app's, not the book's (ADR 0022): it's kept between
-/// launches, and changing it never edits the open book.
+/// The window's layout and the formatting bar's last-used colors, which are the app's, not the
+/// book's (ADR 0022): they're kept between launches, and changing them never edits the open
+/// book.
 @MainActor
 @Observable
 public final class AppPreferences {
     public private(set) var rightPanel: PanelVisibility
     public private(set) var rightPanelTab: RightPanelTab
+    /// What the bar's color button applies (PLAN §6.2). Never black, which removes a color.
+    public private(set) var lastTextColor: TextColor
+    /// What the bar's highlight button applies. Never None.
+    public private(set) var lastHighlight: HighlightColor
     @ObservationIgnored public let storage: any PreferenceStorage
 
     /// A value missing from `storage`, or one this version doesn't know, is the default.
@@ -17,6 +22,25 @@ public final class AppPreferences {
             storage.string(forKey: Key.rightPanelOpen).flatMap(PanelVisibility.init(stored:)) ?? .open
         rightPanelTab =
             storage.string(forKey: Key.rightPanelTab).flatMap(RightPanelTab.init(rawValue:)) ?? .comments
+        lastTextColor =
+            storage.string(forKey: Key.lastTextColor).flatMap(TextColor.init(rawValue:)) ?? .purple
+        lastHighlight =
+            storage.string(forKey: Key.lastHighlight).flatMap(HighlightColor.init(rawValue:)) ?? .green
+    }
+
+    /// Keeps the color or highlight `command` applies as the last used, unless it removes one.
+    public func remember(_ command: FormattingCommand) {
+        switch command {
+        case .textColor(let color):
+            guard let color = TextColor(color) else { return }
+            lastTextColor = color
+            storage.set(color.rawValue, forKey: Key.lastTextColor)
+        case .highlight(let highlight?):
+            lastHighlight = highlight
+            storage.set(highlight.rawValue, forKey: Key.lastHighlight)
+        case .highlight(nil), .toggle:
+            break
+        }
     }
 
     public func setRightPanel(_ visibility: PanelVisibility) {
@@ -42,6 +66,8 @@ public final class AppPreferences {
     enum Key {
         static let rightPanelOpen = "rightPanelOpen"
         static let rightPanelTab = "rightPanelTab"
+        static let lastTextColor = "lastTextColor"
+        static let lastHighlight = "lastHighlight"
     }
 }
 

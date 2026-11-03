@@ -11,9 +11,10 @@ struct PageView: NSViewRepresentable {
     /// the page whenever the body changes.
     let paragraphs: [Paragraph]
     let focus: PageFocus
+    let formatting: PageFormatting
 
     func makeCoordinator() -> PageEditor {
-        PageEditor(book: book, focus: focus)
+        PageEditor(book: book, focus: focus, formatting: formatting)
     }
 
     func makeNSView(context: Context) -> NSScrollView {

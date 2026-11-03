@@ -81,6 +81,20 @@ final class ManuscriptTextView: NSTextView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
+    // MARK: Focus
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { editor?.keyboardFocusChanged(.page) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { editor?.keyboardFocusChanged(.elsewhere) }
+        return resigned
+    }
+
     // MARK: Keys
 
     /// PLAN §8.4: Tab moves the focus on rather than typing a tab, which the body can't hold.

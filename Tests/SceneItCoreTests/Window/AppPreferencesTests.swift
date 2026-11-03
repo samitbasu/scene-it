@@ -49,3 +49,35 @@ struct AppPreferencesTests {
         #expect(RightPanelTab.selected(.tags, among: hidden) == .tags)
     }
 }
+
+@Suite @MainActor
+struct LastUsedColorTests {
+    @Test func theBarStartsOnPurpleAndGreen() {
+        let preferences = AppPreferences(TransientPreferenceStorage())
+        #expect(preferences.lastTextColor == .purple)
+        #expect(preferences.lastHighlight == .green)
+    }
+
+    @Test func aChosenColorIsRememberedButBlackAndNoneAreNot() {
+        let storage = TransientPreferenceStorage()
+        let preferences = AppPreferences(storage)
+        preferences.remember(.textColor(.red))
+        preferences.remember(.highlight(.blue))
+        preferences.remember(.textColor(.black))
+        preferences.remember(.highlight(nil))
+        preferences.remember(.toggle(.bold))
+        #expect(preferences.lastTextColor == .red)
+        #expect(preferences.lastHighlight == .blue)
+        #expect(storage.values == ["lastTextColor": "red", "lastHighlight": "blue"])
+        let next = AppPreferences(storage)
+        #expect(next.lastTextColor == .red)
+        #expect(next.lastHighlight == .blue)
+    }
+
+    @Test func unknownStoredColorsAreTheDefaults() {
+        let preferences = AppPreferences(
+            TransientPreferenceStorage(["lastTextColor": "black", "lastHighlight": "mauve"]))
+        #expect(preferences.lastTextColor == .purple)
+        #expect(preferences.lastHighlight == .green)
+    }
+}

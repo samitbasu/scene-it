@@ -9,6 +9,7 @@ struct BookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
+    let formatting: PageFormatting
     @Binding var mode: WindowMode
 
     var body: some View {
@@ -20,7 +21,7 @@ struct BookWindow: View {
                 ZStack {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
-                        EditorArea(book: book)
+                        EditorArea(book: book, formatting: formatting)
                         Divider()
                         RightPanel(book: book, preferences: preferences)
                     }

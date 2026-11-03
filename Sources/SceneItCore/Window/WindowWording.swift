@@ -72,6 +72,48 @@ public enum WindowWording {
     public static let titleLabel = "Title"
     public static let noSceneOpen = "No scene open"
 
+    // MARK: Formatting (PLAN §6.2, §11)
+
+    public static let formatMenu = "Format"
+    public static let textColor = "Text Color"
+    public static let highlight = "Highlight"
+    public static let noHighlight = "None"
+    public static let showPalette = "Show the palette"
+    public static let readAloud = "Read aloud"
+    /// The bar's tooltip while the page doesn't have the focus.
+    public static let clickInThePageToFormat = "Click in the page to format"
+
+    public static func style(_ style: TextStyle) -> String {
+        switch style {
+        case .bold: "Bold"
+        case .italic: "Italic"
+        case .strike: "Strikethrough"
+        }
+    }
+
+    public static func paletteName(_ color: PaletteColor) -> String {
+        color.rawValue.capitalized
+    }
+
+    /// The command's item in the Format menu: a style, or a color in its submenu.
+    public static func menuItem(_ command: FormattingCommand) -> String {
+        switch command {
+        case .toggle(let style): self.style(style)
+        case .textColor(let color): paletteName(color)
+        case .highlight(let highlight?): paletteName(PaletteColor(highlight))
+        case .highlight(nil): noHighlight
+        }
+    }
+
+    /// The command's name after Undo and Redo in the Edit menu.
+    public static func undoName(_ command: FormattingCommand) -> String {
+        switch command {
+        case .toggle(let style): self.style(style)
+        case .textColor: textColor
+        case .highlight: highlight
+        }
+    }
+
     // MARK: Right panel (PLAN §4.4)
 
     public static func tab(_ tab: RightPanelTab) -> String {
