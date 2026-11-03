@@ -50,6 +50,21 @@ struct AppPreferencesTests {
         #expect(AppPreferences(TransientPreferenceStorage(["zoom": "3"])).zoom == Zoom(clamping: 3))
     }
 
+    @Test func zoomStepsStopAtTheEndsOfTheRange() {
+        let preferences = AppPreferences(TransientPreferenceStorage())
+        preferences.zoom(.zoomIn)
+        #expect(preferences.zoom == Zoom(clamping: 1.1))
+        preferences.setZoom(Zoom(clamping: 3))
+        #expect(!preferences.canZoom(.zoomIn))
+        #expect(preferences.canZoom(.zoomOut))
+        preferences.zoom(.zoomIn)
+        #expect(preferences.zoom == Zoom(clamping: 3))
+        preferences.setZoom(Zoom(clamping: 0.5))
+        #expect(!preferences.canZoom(.zoomOut))
+        preferences.zoom(.zoomOut)
+        #expect(preferences.zoom == Zoom(clamping: 0.5))
+    }
+
     @Test func revealOpensThePanelOnTheTab() {
         let preferences = AppPreferences(TransientPreferenceStorage())
         preferences.setRightPanel(.closed)

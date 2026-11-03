@@ -216,9 +216,10 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return new.id
     }
 
-    /// Opens `scene`. Every way of opening a scene comes here; it first posts
+    /// Opens `scene`. Every way of opening another scene comes here; it first posts
     /// `openBookWillSwitchScene`, so the window can finish what's being typed into the scene
-    /// it's leaving while that scene is still the open one.
+    /// it's leaving while that scene is still the open one. (An Errors-tab fix that changes
+    /// the open scene's id keeps that scene open, so it doesn't come here.)
     public func select(_ scene: SceneID?) {
         guard scene != openScene else { return }
         NotificationCenter.default.post(name: .openBookWillSwitchScene, object: self)
@@ -267,8 +268,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard editingDriver != nil, book.holds(ref), let part = book.part(ref.owner) else { return false }
         var errors = part.errors
         errors.remove(at: ref.index)
-        commit(ref.owner, part.with(errors: errors)) { $0.reinsert(ref.entry, at: ref.index, in: ref.owner) }
-        errorsUndo.setActionName(ErrorsWording.deleteUndoName)
+        commit(ref.owner, part.with(errors: errors), named: ErrorsWording.deleteUndoName) {
+            $0.reinsert(ref.entry, at: ref.index, in: ref.owner)
+        }
         return true
     }
 
@@ -279,17 +281,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         else {
             return .refused
         }
-        defer { errorsUndo.setActionName(ErrorsWording.fixUndoName) }
         switch repair {
         case .repaired(let part):
             let effect = RepairEffect(from: old, to: part)
-            commit(ref.owner, part) {
+            commit(ref.owner, part, named: ErrorsWording.fixUndoName) {
                 $0.unrepair(effect, restoring: ref.entry, at: ref.index, in: part.owner, payload: payload)
             }
             return .repaired
         case .kept(let part, let reason):
             let edited = part.errors[ref.index]
-            commit(ref.owner, part) {
+            commit(ref.owner, part, named: ErrorsWording.fixUndoName) {
                 $0.unedit(ErrorRef(owner: ref.owner, index: ref.index, entry: edited), back: ref.entry)
             }
             return .kept(reason)
@@ -331,8 +332,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
-    /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo.
-    private func commit(_ owner: ErrorOwner, _ part: BookPart, inverse: @escaping (OpenBook) -> Void) {
+    /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo, named `name`
+    /// when given. A part that changes nothing registers nothing, and names nothing, so it
+    /// can't rename the operation before it.
+    private func commit(
+        _ owner: ErrorOwner, _ part: BookPart, named name: String? = nil,
+        inverse: @escaping (OpenBook) -> Void
+    ) {
         let old = book.part(owner)
         guard let driver = editingDriver, old != part, book.replace(owner, with: part) else {
             return
@@ -345,6 +351,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
         }
         errorsUndo.registerUndo(withTarget: self, handler: inverse)
+        if let name { errorsUndo.setActionName(name) }
         driver.send(.edited)
     }
 

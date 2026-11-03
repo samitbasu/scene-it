@@ -159,19 +159,38 @@ extension FocusedValues {
 /// Errors tab after the writer acts in it. Its undo manager is the router's, so anything in
 /// AppKit that asks the focused view for one gets what Undo acts on.
 final class UndoFocusView: NSView {
+    /// Where the view sits, which decides how it takes and shows the focus.
+    enum Role {
+        /// A rail sheet: it takes the focus as it opens, from the page or panel it covers.
+        case sheet
+        /// The Errors tab: it takes the focus when the writer acts in it, and shows a ring
+        /// while it has it, so the writer can see that typing won't reach the page.
+        case errorsTab
+    }
+
     weak var router: UndoRouter?
-    var focus = UndoFocus.elsewhere
-    var takesFocusWhenShown = false
-    /// Drawn while it has the focus, so the writer can see that typing won't reach the page.
-    var showsFocusRing = false
+    var role = Role.sheet {
+        didSet { needsDisplay = true }
+    }
     /// Esc gives the focus back to where the writer was typing.
     var escape: () -> Void = {}
+
+    var focus: UndoFocus {
+        switch role {
+        case .sheet: .elsewhere
+        case .errorsTab: .errorsTab
+        }
+    }
+
+    var showsFocusRing: Bool {
+        role == .errorsTab
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if takesFocusWhenShown { takeFocus() }
+        if role == .sheet { takeFocus() }
     }
 
     override var undoManager: UndoManager? {
@@ -217,23 +236,20 @@ final class UndoFocusView: NSView {
 
 /// Puts an `UndoFocusView` behind its content. `anchor` lets the content give it the focus.
 struct UndoFocusHolder: NSViewRepresentable {
-    let focus: UndoFocus
+    let role: UndoFocusView.Role
     var anchor: UndoFocusAnchor?
-    var takesFocusWhenShown = false
-    var showsFocusRing = false
     var escape: () -> Void = {}
     @Environment(UndoRouter.self) private var router: UndoRouter?
 
     func makeNSView(context: Context) -> UndoFocusView {
         let view = UndoFocusView()
-        view.takesFocusWhenShown = takesFocusWhenShown
+        view.role = role
         return view
     }
 
     func updateNSView(_ view: UndoFocusView, context: Context) {
         view.router = router
-        view.focus = focus
-        view.showsFocusRing = showsFocusRing
+        view.role = role
         view.escape = escape
         anchor?.view = view
     }

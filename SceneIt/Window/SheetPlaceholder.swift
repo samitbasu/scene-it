@@ -35,7 +35,7 @@ struct SheetPlaceholder: View {
         }
         .background(.background)
         // Takes the keyboard focus, so the page or panel the sheet covers no longer has it.
-        .background(UndoFocusHolder(focus: .elsewhere, takesFocusWhenShown: true))
+        .background(UndoFocusHolder(role: .sheet))
     }
 }
 

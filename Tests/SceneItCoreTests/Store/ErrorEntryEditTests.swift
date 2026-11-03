@@ -75,6 +75,21 @@ struct ErrorEntryEditTests {
         }
     }
 
+    /// A Fix that changes nothing registers nothing, so it leaves the name of the operation
+    /// before it alone (review of PR #75, P9).
+    @Test func aFixThatChangesNothingDoesntRenameTheUndoBeforeIt() async throws {
+        try await withTemporaryFolder { folder in
+            let (store, book, _) = try await openBook(in: folder)
+            #expect(book.deleteError(try ref(.line, in: book)))
+            #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
+            let comment = try ref(.comments, in: book)
+            #expect(book.repairError(comment, as: comment.entry.payload) == .kept(.comment(.quoteMismatch)))
+            #expect(book.book.errorCount == 2, "precondition: the fix changed nothing")
+            #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test func aRepairedCommentMovesIntoTheSceneAndIsSaved() async throws {
         try await withTemporaryFolder { folder in
             let (store, book, url) = try await openBook(in: folder)

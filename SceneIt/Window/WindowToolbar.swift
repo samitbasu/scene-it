@@ -27,19 +27,11 @@ struct WindowToolbar: ToolbarContent {
         }
         ToolbarItem {
             ControlGroup {
-                Button(WindowWording.zoomOut, systemImage: "minus") {
-                    preferences.setZoom(preferences.zoom.zoomedOut)
-                }
-                .help(WindowWording.zoomOut)
-                .disabled(!preferences.zoom.canZoomOut)
+                zoomButton(.zoomOut, systemImage: "minus")
                 Text(WindowWording.zoom(preferences.zoom))
                     .monospacedDigit()
                     .frame(minWidth: 44)
-                Button(WindowWording.zoomIn, systemImage: "plus") {
-                    preferences.setZoom(preferences.zoom.zoomedIn)
-                }
-                .help(WindowWording.zoomIn)
-                .disabled(!preferences.zoom.canZoomIn)
+                zoomButton(.zoomIn, systemImage: "plus")
             }
         }
         ToolbarSpacer(.fixed)
@@ -60,6 +52,12 @@ struct WindowToolbar: ToolbarContent {
                 .buttonStyle(.borderedProminent)
                 .disabled(true)
         }
+    }
+
+    private func zoomButton(_ step: ZoomStep, systemImage: String) -> some View {
+        Button(WindowWording.zoomStep(step), systemImage: systemImage) { preferences.zoom(step) }
+            .help(WindowWording.zoomStep(step))
+            .disabled(!preferences.canZoom(step))
     }
 }
 

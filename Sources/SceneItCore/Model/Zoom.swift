@@ -32,6 +32,19 @@ extension Bounded where Bounds == ZoomBounds {
     public var canZoomIn: Bool { zoomedIn != self }
     public var canZoomOut: Bool { zoomedOut != self }
 
+    /// The zoom one `step` away.
+    public func stepped(_ step: ZoomStep) -> Zoom {
+        switch step {
+        case .zoomIn: zoomedIn
+        case .zoomOut: zoomedOut
+        }
+    }
+
     /// A pinch that ends within this of a step counts as that step.
     private static let tolerance = 0.005
+}
+
+/// Zoom In and Zoom Out, in the View menu and on the toolbar.
+public enum ZoomStep: Hashable, Sendable, CaseIterable {
+    case zoomIn, zoomOut
 }

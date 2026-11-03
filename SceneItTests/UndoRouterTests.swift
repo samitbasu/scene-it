@@ -114,12 +114,19 @@ struct UndoRouterTests {
             let next = try titleEditor(in: page)
             page.window.update()
             #expect(router.manager === page.book.titleUndo(for: two.id))
-            #expect(router.state == .nothing, "One's title history isn't offered on Two")
+            #expect(router.state == .nothing, "One's title history is never offered on Two")
 
             next.insertText("Y", replacementRange: next.selectedRange())
             #expect(page.book.book.scene(two.id)?.title.text == "TwoY")
             #expect(page.book.book.scene(one.id)?.title.text == "OneX")
-            #expect(page.book.titleUndo(for: one.id).canUndo, "One keeps its own history")
+            next.breakUndoCoalescing()
+            page.window.update()
+            #expect(router.state.undo == "Undo Typing", "Two offers its own typing")
+            router.undo()
+            #expect(
+                page.book.book.scene(two.id)?.title.text == "Two",
+                "and undoing it changes Two's title only")
+            #expect(page.book.book.scene(one.id)?.title.text == "OneX")
         }
     }
 

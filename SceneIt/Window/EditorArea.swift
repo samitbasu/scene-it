@@ -114,9 +114,14 @@ private struct TitleTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let field = TitleField(string: title)
         context.coordinator.field = field
-        NotificationCenter.default.addObserver(
+        let center = NotificationCenter.default
+        center.addObserver(
             context.coordinator, selector: #selector(Coordinator.sceneWillSwitch),
             name: .openBookWillSwitchScene, object: book)
+        for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+            center.addObserver(
+                context.coordinator, selector: #selector(Coordinator.historyChanged), name: name, object: nil)
+        }
         field.bezelStyle = .roundedBezel
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
@@ -177,9 +182,21 @@ private struct TitleTextField: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let book, let scene = editing ?? scene, let editor = Self.editor(notification) else {
-                return
-            }
+            guard let editor = Self.editor(notification) else { return }
+            sync(editor)
+        }
+
+        /// An undo or redo in the field changes its text without telling the field's delegate,
+        /// so the title is taken from the field editor here instead.
+        @objc func historyChanged(_ notification: Notification) {
+            guard let editor = field?.currentEditor() as? NSTextView,
+                let history = notification.object as? UndoManager, history === editor.undoManager
+            else { return }
+            sync(editor)
+        }
+
+        private func sync(_ editor: NSTextView) {
+            guard let book, let scene = editing ?? scene else { return }
             let typed = editor.string
             let title = SceneTitle(pasted: typed)
             book.setTitle(of: scene, to: title)

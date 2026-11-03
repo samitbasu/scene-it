@@ -66,6 +66,16 @@ public final class AppPreferences {
         showRightPanelTab(tab)
     }
 
+    /// Zoom In or Zoom Out, as the View menu and the toolbar both do it.
+    public func zoom(_ step: ZoomStep) {
+        setZoom(zoom.stepped(step))
+    }
+
+    /// Whether `step` would change the zoom: not past either end of the range.
+    public func canZoom(_ step: ZoomStep) -> Bool {
+        zoom.stepped(step) != zoom
+    }
+
     public func setZoom(_ zoom: Zoom) {
         guard zoom != self.zoom else { return }
         self.zoom = zoom

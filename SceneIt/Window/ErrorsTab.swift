@@ -20,7 +20,7 @@ struct ErrorsTab: View {
         entries
             .background(
                 UndoFocusHolder(
-                    focus: .errorsTab, anchor: focus, showsFocusRing: true,
+                    role: .errorsTab, anchor: focus,
                     escape: { [pageFocus] in pageFocus?.focusBody() }))
     }
 
