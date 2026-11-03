@@ -63,7 +63,7 @@ id: 01JC9Q
 - **`### Unparsed`** holds error entries verbatim. Saving writes them back unchanged. They leave only when the writer deletes
   them in the Errors tab, or fixes them so they parse.
 
-## Characters
+## Characters (superseded by [0028](0028-strict-ascii-no-input-methods.md): strict ASCII)
 - Allowed: **printable Latin-1** (ASCII plus U+00A0–U+00FF), stored as **UTF-8**. One character is one Latin-1 code point.
 - Typographic punctuation is **not stored**: on input, “ ” → `"`, ‘ ’ → `'`, — → `--`, – → `-`, … → `...`. Print and Word
   export "smarten" it back. Searching for `"` therefore finds both opening and closing quotes.
