@@ -7,6 +7,11 @@ import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct PageTests {
+    /// ADR 0026: an Objective-C exception ends the app rather than leaving it running damaged.
+    @Test func uncaughtExceptionsCrashTheApp() {
+        #expect(Bundle.main.object(forInfoDictionaryKey: "NSApplicationCrashOnExceptions") as? Bool == true)
+    }
+
     @Test func thePageIsATextKit2TextViewWithTheBodyStyle() async throws {
         try await withPage([scene("One", [[Run("Hello.")]])]) { page in
             #expect(page.page.textLayoutManager != nil, "TextKit 2")

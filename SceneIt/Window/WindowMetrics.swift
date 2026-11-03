@@ -9,8 +9,7 @@ enum WindowMetrics {
     static let panelWidth: CGFloat = 290
     static let collapsedPanelWidth: CGFloat = 28
     /// US Letter at 72 pt per inch, with 1 in margins. A scene is one continuous sheet this
-    /// wide, never shorter than this, growing as the text does; the find bar sits at the top of
-    /// the desk (both the owner's picks, PR #72).
+    /// wide, never shorter than this, growing as the text does.
     static let pageSize = CGSize(width: 612, height: 792)
     static let pageMargin: CGFloat = 72
     static let deskPadding: CGFloat = 28

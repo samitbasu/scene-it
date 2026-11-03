@@ -250,14 +250,20 @@ model's body isn't the one the storage mirrors and rebuilds the storage. `OpenBo
 scene's page undo history at the same moment, because the old undo steps describe text that is
 gone.
 
-Between the two there's a gap: SwiftUI calls `updateNSView` on its next update, not at once. In
-practice a keystroke can't fall into it, because every event gets its own run-loop pass, but a
-test (or future code) can change the model and then edit the page in the same turn. The sync
-handles that without losing either change when it can: the writer's `BodyChange` was computed
-against the body the page showed, so if the other change left those paragraphs alone and added
-or removed none, the same change applies to the new model, and the page reloads next turn to
-show both. If both touched the same paragraphs, the model, the source of truth, wins, and the
-page reloads from it.
+Between the two there's a gap: SwiftUI calls `updateNSView` on its next update, not at once.
+SwiftUI's update ordering should keep a keystroke out of it, since every event gets its own
+run-loop pass, but a test (or future code) can change the model and then edit the page in the
+same turn. That's a backstop with one rule: the model, the source of truth, wins. The edit is
+dropped, the page reloads from the model next turn, its undo history is cleared (its steps
+describe text that's gone, and replaying them would delete the wrong characters), and the event
+is logged, so it never happens silently. An earlier version tried to merge the two changes; it
+was effectively unreachable, and its undo steps had stale offsets.
+
+**Leaving a scene mid-composition.** If the writer is composing with an input method when the
+page's text is replaced (a scene switch, a new scene, a reload), the marked range would outlive
+the text it belonged to and later replace characters of the next scene. So every load first
+ends the composition: it's committed to the scene it was typed in, or dropped if the model
+changed under the page, before the storage changes.
 
 **Paragraph breaks have no format.** A break typed after bold text would carry bold attributes
 in the storage, which the model can't hold. The storage delegate's
@@ -459,4 +465,5 @@ which caught it and carried on. The runner never restored the thread's record of
 executor, which was left pointing into a dead stack frame; the next isolation check read
 whatever had since been written there. The test now compares code units, and runs each step
 from `RunLoop.main.perform`, as an event's handling runs, so an exception there behaves as it
-would in the app.
+would in the app. Since [ADR 0026](../decisions/0026-crash-on-exceptions.md) the app
+itself stops at once on such an exception instead of carrying on.

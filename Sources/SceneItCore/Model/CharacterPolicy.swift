@@ -24,6 +24,12 @@ public enum CharacterPolicy {
         (0x20...0x7E).contains(scalar.value) || (0xA0...0xFF).contains(scalar.value)
     }
 
+    /// Whether admitted text may hold `scalar`: an allowed character, or the `\n` between
+    /// lines.
+    public static func isAdmitted(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == "\n" || isAllowed(scalar)
+    }
+
     /// `text` with §1.2's steps 3–7 applied: `\r\n` and `\r` become `\n`, then NFC, then the
     /// punctuation table, then a tab becomes a space, then every other disallowed character
     /// becomes `[?]`.
@@ -38,7 +44,7 @@ public enum CharacterPolicy {
     /// comment text, the book's title. Each line break (`Character.isLineBreak`) becomes
     /// `\n` first.
     public static func admitted(_ text: String) -> String {
-        guard !text.unicodeScalars.allSatisfy({ $0 == "\n" || isAllowed($0) }) else { return text }
+        guard !text.unicodeScalars.allSatisfy(isAdmitted) else { return text }
         return admit(String(text.map { $0.isLineBreak ? "\n" : $0 })).text
     }
 

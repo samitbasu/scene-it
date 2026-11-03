@@ -83,8 +83,7 @@ final class ManuscriptTextView: NSTextView {
 
     // MARK: Keys
 
-    /// PLAN §8.4, confirmed by the owner (PR #72): Tab moves the focus on rather than typing a
-    /// tab, which the body can't hold.
+    /// PLAN §8.4: Tab moves the focus on rather than typing a tab, which the body can't hold.
     override func insertTab(_ sender: Any?) {
         window?.selectNextKeyView(sender)
     }
@@ -99,9 +98,11 @@ final class ManuscriptTextView: NSTextView {
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        isComposing = true
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
-        isComposing = false
+        do {
+            isComposing = true
+            defer { isComposing = false }
+            super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        }
         editor?.compositionMayHaveEnded()
     }
 
@@ -140,8 +141,8 @@ final class ManuscriptTextView: NSTextView {
 
     /// Replaces each range with its string as one undoable change, and puts the caret after the
     /// last. A string replacing text takes that text's format, comments included, as Find and
-    /// Replace or a spelling correction would; a string inserted at the caret takes the typing
-    /// attributes.
+    /// Replace or a spelling correction would: the format of the first character it replaces,
+    /// when it spans several runs. A string inserted at the caret takes the typing attributes.
     func replace(_ ranges: [NSRange], with strings: [String]) {
         guard let storage = textStorage, ranges.count == strings.count,
             shouldChangeText(inRanges: ranges.map(NSValue.init(range:)), replacementStrings: strings)

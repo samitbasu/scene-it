@@ -5,8 +5,8 @@ import Testing
 
 @testable import SceneIt
 
-// The adversarial review of #72: a random-edit fuzz of the real page through every path that
-// changes its text, and the cases the review found.
+// A random-edit fuzz of the real page through every path that
+// changes its text, and focused cases for the edges it found.
 
 private struct SplitMix: RandomNumberGenerator {
     var state: UInt64
@@ -228,7 +228,7 @@ struct AdversarialPageTests {
     /// Each step runs from the run loop, as an event's handling does, never inside a Swift task:
     /// an Objective-C exception raised inside a task's job unwinds past the concurrency
     /// runtime's record of the current executor, and the app crashes at the next isolation
-    /// check (seen in the review of #72, from a bug in an earlier version of this harness).
+    /// check.
     @Test(arguments: [1, 2, 3, 4, 5, 6, 7, 8] as [UInt64])
     func randomEditsKeepPageAndModelInStep(seed: UInt64) async throws {
         let one = scene("One", fuzzScene, .withTooEarly)
@@ -276,25 +276,93 @@ struct AdversarialPageTests {
         }
     }
 
-    @Test func aModelChangedInTheSameTurnAsAKeystrokeKeepsBothWhenTheyDontOverlap() async throws {
+    /// The backstop for a model changed under the page within the turn of a keystroke, which
+    /// SwiftUI's update ordering should make unreachable: the model wins, the page reloads, and
+    /// its undo history, which describes the text that's gone, is cleared.
+    @Test func aModelChangedInTheSameTurnAsAKeystrokeWinsAndClearsThePagesUndo() async throws {
         try await withPage([scene("One", [[Run("Alpha.")], [Run("Beta.")]])]) { page in
             page.focusPage(at: 6)
+            page.page.insertText(" More.", replacementRange: page.page.selectedRange())
             let open = try #require(page.book.openScene)
             page.book.replaceBody(of: open, with: [[Run("Alpha.")], [Run("Gamma.")]])
             page.page.insertText("!", replacementRange: page.page.selectedRange())
-            #expect(page.body() == [[Run("Alpha.!")], [Run("Gamma.")]], "both changes are kept")
+            #expect(page.body() == [[Run("Alpha.")], [Run("Gamma.")]], "the model is intact")
             await eventually { page.pageMirrorsModel }
+            await eventually { page.page.undoManager?.canUndo == false }
+            #expect(page.body() == [[Run("Alpha.")], [Run("Gamma.")]])
         }
     }
 
-    @Test func aModelChangedInTheSameTurnAsAKeystrokeInTheSameParagraphWins() async throws {
-        try await withPage([scene("One", [[Run("Alpha.")], [Run("Beta.")]])]) { page in
-            page.focusPage(at: 6)
-            let open = try #require(page.book.openScene)
-            page.book.replaceBody(of: open, with: [[Run("Replaced.")]])
-            page.page.insertText("!", replacementRange: page.page.selectedRange())
-            #expect(page.body() == [[Run("Replaced.")]], "the model is the source of truth")
-            await eventually { page.pageMirrorsModel }
+    /// An input method's composition, interrupted by `leave`, is committed to the scene it was
+    /// typed in and never touches the text that's shown next.
+    private func compose(thenLeaveBy leave: (PageHarness, SceneID) throws -> Void) async throws {
+        let one = scene("One", [[Run("ab")]])
+        let two = scene("Two", [[Run("Second.")]])
+        try await withPage([one, two]) { page in
+            page.focusPage(at: 2)
+            page.page.insertText("x", replacementRange: page.page.selectedRange())
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(page.page.hasMarkedText(), "precondition: a composition is in progress")
+            try leave(page, two.id)
+            await eventually { !page.page.hasMarkedText() && page.pageMirrorsModel }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("abxni")]], "the composition is kept in its own scene")
+            #expect(page.body(two.id) == [[Run("Second.")]], "the other scene is untouched")
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func switchingScenesMidCompositionLeavesTheNewSceneIntact() async throws {
+        try await compose { page, two in
+            page.book.select(two)
+        }
+    }
+
+    @Test func typingAfterAMidCompositionSwitchGoesToTheNewScene() async throws {
+        let one = scene("One", [[Run("ab")]])
+        let two = scene("Two", [[Run("Second.")]])
+        try await withPage([one, two]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            page.book.select(two.id)
+            await eventually { page.storage.string == "Second." }
+            page.page.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+            #expect(page.body(two.id) == [[Run("ZSecond.")]])
+            #expect(page.body(one.id) == [[Run("abni")]])
+        }
+    }
+
+    @Test func addingASceneMidCompositionLeavesTheNewSceneEmpty() async throws {
+        let one = scene("One", [[Run("ab")]])
+        try await withPage([one]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            let added = try #require(page.book.addScene(after: one.id))
+            await eventually { page.storage.length == 0 && !page.page.hasMarkedText() }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("abni")]])
+            #expect(page.body(added) == [])
+        }
+    }
+
+    @Test func aReloadMidCompositionKeepsTheModelsText() async throws {
+        let one = scene("One", [[Run("ab")]])
+        try await withPage([one]) { page in
+            page.focusPage(at: 2)
+            page.page.setMarkedText(
+                "ni", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            page.book.replaceBody(of: one.id, with: [[Run("Replaced elsewhere.")]])
+            await eventually { !page.page.hasMarkedText() && page.storage.string == "Replaced elsewhere." }
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(page.body(one.id) == [[Run("Replaced elsewhere.")]])
+            #expect(page.pageMirrorsModel)
         }
     }
 

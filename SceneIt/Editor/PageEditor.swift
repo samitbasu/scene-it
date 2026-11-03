@@ -17,12 +17,7 @@ final class PageEditor: NSObject {
     /// The body the storage holds, as the model had it after the last edit or load.
     private var shown: [Paragraph] = []
     private var isLoading = false
-    /// The page holds edits the model hasn't seen, because an input method was composing.
-    private var isBehindComposition = false
-    /// The model won a clash with an edit on the page; the page reloads from it next turn.
-    private var isAwaitingReload = false
-    /// An edit put text on the page that the character policy doesn't admit.
-    private var holdsUnadmittedText = false
+    private var sync = Sync.inStep
     /// Comments a paste is adding, handed to the model with the text that carries them.
     private var pastedComments: [Comment] = []
 
@@ -54,6 +49,7 @@ final class PageEditor: NSObject {
         }
         let editable = editability == .editable
         if view.isEditable != editable {
+            if !editable { commitComposition() }
             view.isEditable = editable
             if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
         }
@@ -63,62 +59,80 @@ final class PageEditor: NSObject {
         case editable, readOnly
     }
 
+    /// How the page stands with the model.
+    private enum Sync {
+        /// Every edit on the page has reached the model.
+        case inStep
+        /// An input method is composing, or has just finished: the model hasn't seen the page
+        /// since, and gets all of it when the composition ends.
+        case behindComposition
+        /// An edit bypassed the character policy's veto; the model holds the admitted reading,
+        /// and the page reloads from it once the edit is over.
+        case holdingUnadmittedText
+        /// The model changed under the page; the page ignores its own edits until it reloads.
+        case awaitingReload
+    }
+
     private func load(_ scene: SceneID, _ body: [Paragraph], caret: Int) {
         guard let view = textView, let storage = view.textStorage else { return }
+        commitComposition()
         view.breakUndoCoalescing()
         self.scene = scene
         isLoading = true
         storage.setAttributedString(RunCodec.attributedString(forBody: body))
         isLoading = false
-        isBehindComposition = false
-        isAwaitingReload = false
-        holdsUnadmittedText = false
+        sync = .inStep
         shown = body
         view.setSelectedRange(NSRange(location: min(caret, storage.length), length: 0))
         view.typingAttributes = ParagraphRole.body.typingAttributes
     }
 
+    /// Ends an input method's composition before anything replaces the page's text: a marked
+    /// range left behind would later replace characters of whatever the page shows next. The
+    /// composition is kept, in the scene it was typed in, unless the model changed under the
+    /// page; then the model wins and the composition is dropped.
+    private func commitComposition() {
+        guard let view = textView, view.hasMarkedText() else { return }
+        if scene.flatMap({ book.book.scene($0)?.body }) != shown { sync = .awaitingReload }
+        view.unmarkText()
+        view.inputContext?.discardMarkedText()
+    }
+
     // MARK: Model sync
 
-    private func sync(edited: NSRange, in storage: NSTextStorage) {
-        guard let scene, let view = textView, !isAwaitingReload, let model = book.book.scene(scene)?.body
-        else { return }
+    private func edited(_ range: NSRange, in storage: NSTextStorage) {
+        guard let scene, let view = textView, sync != .awaitingReload else { return }
         // An input method's uncommitted text isn't the writer's yet: the model, and so
         // autosave, never sees it. The page is converted whole once the composition ends.
         if view.hasMarkedText() {
-            isBehindComposition = true
+            sync = .behindComposition
             return
         }
-        if isBehindComposition {
+        if sync == .behindComposition {
             // Caught up by `compositionMayHaveEnded`, outside the storage's editing, where the
             // page can be reloaded at once if it must be.
             DispatchQueue.main.async { [weak self] in self?.compositionMayHaveEnded() }
             return
         }
-        guard
-            let edit = RunCodec.bodyChange(
-                edited: edited, in: storage, linesBefore: BodyChange.lineCount(of: shown))
-        else {
-            push(RunCodec.bodyChange(replacingAll: BodyChange.lineCount(of: model), with: storage), to: scene)
+        if Self.holdsUnadmittedText(storage, in: range) {
+            sync = .holdingUnadmittedText
+            DispatchQueue.main.async { [weak self] in self?.reloadIfThePageHoldsUnadmittedText() }
+        }
+        guard let model = book.book.scene(scene)?.body, model == shown else {
+            // A backstop that SwiftUI's update ordering should make unreachable: it reloads the
+            // page whenever the model changes, before the next event. If the model changed
+            // under the page within this turn anyway, the model, the source of truth, wins.
+            Log.editor.error(
+                "the open scene's body changed under the page; reloading the page from the model",
+                ["paragraphs": .count(shown.count)])
+            sync = .awaitingReload
+            DispatchQueue.main.async { [weak self] in self?.reload(scene, clearingUndo: .yes) }
             return
         }
-        if model == shown {
-            push(edit, to: scene)
-        } else if Self.canMerge(edit, from: shown, into: model) {
-            // Something else changed the model in this same turn, in other paragraphs: both
-            // changes are kept, and the page shows the other one from the next turn.
-            let page = edit.applied(to: shown) ?? shown
-            push(edit, to: scene)
-            shown = page
-            reloadNextTurn(scene)
-        } else {
-            // Both changed the same paragraphs, or the other change added or removed some:
-            // the model, the source of truth, wins, and the page reloads from it. Only a change
-            // to the model made within the very turn of a keystroke gets here; otherwise
-            // SwiftUI reloads the page in between.
-            isAwaitingReload = true
-            reloadNextTurn(scene)
-        }
+        let change =
+            RunCodec.bodyChange(edited: range, in: storage, linesBefore: BodyChange.lineCount(of: shown))
+            ?? RunCodec.bodyChange(replacingAll: BodyChange.lineCount(of: model), with: storage)
+        push(change, to: scene)
     }
 
     /// Hands `change` to the model, with the comments a paste brings.
@@ -129,56 +143,47 @@ final class PageEditor: NSObject {
         shown = book.book.scene(scene)?.body ?? []
         if accepted != change.paragraphs {
             // The model dropped comment ids it has no comment for; the page must too.
-            reloadNextTurn(scene)
+            DispatchQueue.main.async { [weak self] in self?.reload(scene, clearingUndo: .no) }
         }
-    }
-
-    /// Whether `edit`, made by the writer to `base`, can be applied as it is to `model`,
-    /// which something else changed: it can when the other change left the edited
-    /// paragraphs alone and added or removed none.
-    private static func canMerge(_ edit: BodyChange, from base: [Paragraph], into model: [Paragraph]) -> Bool
-    {
-        guard BodyChange.lineCount(of: base) == BodyChange.lineCount(of: model),
-            let before = edit.replaced(in: base), let now = edit.replaced(in: model)
-        else { return false }
-        return before == now
     }
 
     /// Called when the input method may have committed or abandoned its marked text.
     func compositionMayHaveEnded() {
-        guard isBehindComposition, let scene, let view = textView, !view.hasMarkedText(),
+        guard sync == .behindComposition, let scene, let view = textView, !view.hasMarkedText(),
             let storage = view.textStorage, !storage.editedMask.contains(.editedCharacters),
             let model = book.book.scene(scene)?.body
         else { return }
-        isBehindComposition = false
+        sync = .inStep
         push(RunCodec.bodyChange(replacingAll: BodyChange.lineCount(of: model), with: storage), to: scene)
         // Text an input method left behind without committing it through `insertText`
         // skipped the character policy; the page shows what the model admitted instead.
         if !(storage.string as NSString).isEqual(to: RunCodec.attributedString(forBody: shown).string) {
-            load(scene, shown, caret: view.selectedRange().location)
+            reload(scene, clearingUndo: .yes)
         }
     }
 
-    /// The model has the policy's reading of such text; the page shows that instead. The undo
-    /// history describes the text that was there, so it's cleared, after the undo or redo that
-    /// may be running.
     private func reloadIfThePageHoldsUnadmittedText() {
-        guard holdsUnadmittedText, let scene, let view = textView, !view.hasMarkedText(),
+        guard sync == .holdingUnadmittedText, let scene, let view = textView, !view.hasMarkedText(),
             view.textStorage?.editedMask.isEmpty ?? false
         else { return }
-        holdsUnadmittedText = false
-        load(scene, book.book.scene(scene)?.body ?? [], caret: view.selectedRange().location)
-        let undo = book.pageUndo(for: scene)
-        DispatchQueue.main.async { undo.removeAllActions() }
+        reload(scene, clearingUndo: .yes)
     }
 
-    private func reloadNextTurn(_ scene: SceneID) {
-        DispatchQueue.main.async { [weak self] in self?.reload(scene) }
+    enum UndoClearing {
+        /// The page's undo history describes text that's gone.
+        case yes
+        case no
     }
 
-    private func reload(_ scene: SceneID) {
+    /// Shows the model's body of `scene` again, if it's still the page's scene.
+    private func reload(_ scene: SceneID, clearingUndo clearing: UndoClearing) {
         guard scene == self.scene, let view = textView else { return }
         load(scene, book.book.scene(scene)?.body ?? [], caret: view.selectedRange().location)
+        if clearing == .yes {
+            // After any undo or redo that's running: it may be what brought the text in.
+            let undo = book.pageUndo(for: scene)
+            DispatchQueue.main.async { undo.removeAllActions() }
+        }
     }
 
     // MARK: Pasteboard (decision 0017)
@@ -204,7 +209,7 @@ final class PageEditor: NSObject {
                 let pasted = book.resolve(clip, into: scene), !pasted.lines.isEmpty
             else {
                 // A clip with nothing to paste: use the text the same copy put beside it.
-                let fallback = pasteboard.availableType(from: Array(Self.readableTypes.dropFirst()))
+                let fallback = pasteboard.availableType(from: Self.readableTypes.filter { $0 != .pageClip })
                 return fallback.map { paste(from: pasteboard, type: $0) } ?? false
             }
             insert(pasted.lines, adding: pasted.comments)
@@ -317,9 +322,8 @@ extension PageEditor: @MainActor NSTextStorageDelegate {
         guard !isLoading else { return }
         let string = textStorage.string as NSString
         let plain = ParagraphRole.body.typingAttributes
-        let breaks = Set<unichar>([0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029])
         for index in editedRange.location..<editedRange.upperBound
-        where breaks.contains(string.character(at: index)) {
+        where Self.isLineBreak(string.character(at: index)) {
             let attributes = textStorage.attributes(at: index, effectiveRange: nil)
             if !NSDictionary(dictionary: attributes).isEqual(to: plain) {
                 textStorage.setAttributes(plain, range: NSRange(location: index, length: 1))
@@ -333,12 +337,12 @@ extension PageEditor: @MainActor NSTextStorageDelegate {
         changeInLength delta: Int
     ) {
         guard !isLoading else { return }
-        if let view = textView, !view.hasMarkedText(), Self.holdsUnadmittedText(textStorage, in: editedRange)
-        {
-            holdsUnadmittedText = true
-            DispatchQueue.main.async { [weak self] in self?.reloadIfThePageHoldsUnadmittedText() }
-        }
-        sync(edited: editedRange, in: textStorage)
+        edited(editedRange, in: textStorage)
+    }
+
+    /// A UTF-16 unit that is a line break by the codec's rule; a surrogate never is.
+    private static func isLineBreak(_ unit: unichar) -> Bool {
+        Unicode.Scalar(unit).map { Character($0).isLineBreak } ?? false
     }
 
     /// Whether `range` holds a character the policy doesn't admit. Only an edit that bypasses
@@ -346,8 +350,7 @@ extension PageEditor: @MainActor NSTextStorageDelegate {
     private static func holdsUnadmittedText(_ storage: NSTextStorage, in range: NSRange) -> Bool {
         let string = storage.string as NSString
         return (range.location..<range.upperBound).contains { index in
-            let unit = string.character(at: index)
-            return unit != 0x0A && !(Unicode.Scalar(unit).map(CharacterPolicy.isAllowed) ?? false)
+            !(Unicode.Scalar(string.character(at: index)).map(CharacterPolicy.isAdmitted) ?? false)
         }
     }
 }
