@@ -26,3 +26,4 @@
 ## Open for the spec
 The exact review-copy marker, the `.review.md` grammar (comments and notes keyed to scene ids, using range + quote anchors
 against the received text), the HTML layout, and the wording. These go to the owner through the usual spec and aesthetic review.
+The draft spec is [`docs/format/review-format.md`](../format/review-format.md) (#78).
