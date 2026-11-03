@@ -130,7 +130,7 @@ private struct TitleTextField: NSViewRepresentable {
             let typed = editor.string
             let title = SceneTitle(pasted: typed)
             book.setTitle(of: scene, to: title)
-            guard title.text != typed else { return }
+            guard !title.text.utf16.elementsEqual(typed.utf16) else { return }
             let caret = min(editor.selectedRange().location, (typed as NSString).length)
             let before = (typed as NSString).substring(to: caret)
             editor.string = title.text

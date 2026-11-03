@@ -58,6 +58,15 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         return format.attributes(in: self)
     }
 
+    /// `attributes` as the codec would render them in this role: whatever a `Run` holds
+    /// (styles, color, highlight, comments) kept, everything else the role's own.
+    @MainActor
+    public func attributes(normalizing attributes: [NSAttributedString.Key: Any])
+        -> [NSAttributedString.Key: Any]
+    {
+        RunFormat(attributes).attributes(in: self)
+    }
+
     private var pointSize: CGFloat {
         switch self {
         case .title: 18

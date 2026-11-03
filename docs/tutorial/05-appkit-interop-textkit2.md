@@ -250,6 +250,21 @@ model's body isn't the one the storage mirrors and rebuilds the storage. `OpenBo
 scene's page undo history at the same moment, because the old undo steps describe text that is
 gone.
 
+Between the two there's a gap: SwiftUI calls `updateNSView` on its next update, not at once. In
+practice a keystroke can't fall into it, because every event gets its own run-loop pass, but a
+test (or future code) can change the model and then edit the page in the same turn. The sync
+handles that without losing either change when it can: the writer's `BodyChange` was computed
+against the body the page showed, so if the other change left those paragraphs alone and added
+or removed none, the same change applies to the new model, and the page reloads next turn to
+show both. If both touched the same paragraphs, the model, the source of truth, wins, and the
+page reloads from it.
+
+**Paragraph breaks have no format.** A break typed after bold text would carry bold attributes
+in the storage, which the model can't hold. The storage delegate's
+`textStorage(_:willProcessEditing:…)` (the one point where a delegate may still change the
+edited text) resets every break in the edited range to the body role's attributes, so the page
+stays an exact mirror.
+
 ## 5. Delegate veto points
 
 `NSTextView` asks its delegate before every change to the text:
@@ -268,7 +283,11 @@ character policy, so the page never holds a character the model can't:
 ```
 
 When the policy changes the text (a typed `—` becomes `--`), the change is refused and the
-admitted text is put in its place. `replace` goes through the same front door:
+admitted text is put in its place (compared as UTF-16 code units: Swift's `String ==` is
+canonical equivalence, so it calls a typed `e` + U+0301 equal to its admitted `é` and the veto
+would let the decomposed form through), in the format of the text it replaces (so Find and Replace
+of an italic, commented `hi` with `“hi”` keeps both), or in the typing attributes when it's
+inserted at the caret. `replace` goes through the same front door:
 `shouldChangeText(inRanges:replacementStrings:)` (which calls this delegate again, now with
 nothing to change, and registers the undo), the storage edit, then `didChangeText()`. The caret
 goes after the admitted text, which can be longer or shorter than what was typed.
@@ -279,7 +298,13 @@ Two subtleties:
   underlined, that the input method keeps replacing. Turning each update into `[?]` would make
   those languages untypable even to the point of committing them. `ManuscriptTextView` sets
   `isComposing` while `setMarkedText` runs, the veto leaves marked text alone, and the policy
-  applies when the input method commits.
+  applies when the input method commits. The model doesn't see a composition at all: while
+  the page has marked text the sync stands aside, so autosave can never write a half-composed
+  word, and when the composition ends (`insertText`, `unmarkText`, or any later change) the
+  page is converted whole once. Some paths still put composed text on the page without the
+  veto seeing it (undoing and redoing a composition does); the model always gets the codec's
+  admitted reading at once, and the page reloads from the model in the same or the next turn,
+  clearing the undo history that described the old text.
 - **Smart quotes are off.** `isAutomaticQuoteSubstitutionEnabled = false` and the dash
   equivalent: the policy would straighten them straight back. Print and Word export smarten
   quotes on the way out (ADR 0022).
@@ -421,3 +446,17 @@ A private pasteboard (`NSPasteboard(name:)` with a unique name, released afterwa
 writer's clipboard untouched. Each test then checks the model, the page (`pageMirrorsModel`:
 the storage equals the codec's rendering of the model) and, where it matters, the `book.md`
 autosave wrote.
+
+**Drive AppKit from the run loop, not from inside a task.** The review's fuzz test first ran
+its 1,500 edits per seed as a loop inside the (main-actor) test task, and the app crashed later
+in a SwiftUI render, inside `swift_task_isCurrentExecutor`, reading a pointer that was 0x1 or
+ASCII text. The cause was in the harness: a helper compared strings with Swift's `==`, which
+compares *canonical equivalence* (`é` equals `e` + U+0301 at a different length), then indexed
+the shorter `NSAttributedString` past its end. That raised an Objective-C `NSRangeException`.
+An Objective-C exception unwinds through Swift frames without running any Swift cleanup, and
+here it unwound through the concurrency runtime's job runner up to `NSApplication`'s handler,
+which caught it and carried on. The runner never restored the thread's record of the current
+executor, which was left pointing into a dead stack frame; the next isolation check read
+whatever had since been written there. The test now compares code units, and runs each step
+from `RunLoop.main.perform`, as an event's handling runs, so an exception there behaves as it
+would in the app.

@@ -83,7 +83,8 @@ final class ManuscriptTextView: NSTextView {
 
     // MARK: Keys
 
-    /// PLAN §8.4: Tab moves the focus on rather than typing a tab, which the body can't hold.
+    /// PLAN §8.4, confirmed by the owner (PR #72): Tab moves the focus on rather than typing a
+    /// tab, which the body can't hold.
     override func insertTab(_ sender: Any?) {
         window?.selectNextKeyView(sender)
     }
@@ -99,8 +100,19 @@ final class ManuscriptTextView: NSTextView {
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         isComposing = true
-        defer { isComposing = false }
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        isComposing = false
+        editor?.compositionMayHaveEnded()
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        editor?.compositionMayHaveEnded()
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        editor?.compositionMayHaveEnded()
     }
 
     // MARK: The pasteboard (decision 0017)
@@ -126,15 +138,22 @@ final class ManuscriptTextView: NSTextView {
 
     // MARK: Edits
 
-    /// Replaces each range with its string, in the typing attributes, as one undoable change,
-    /// and puts the caret after the last.
+    /// Replaces each range with its string as one undoable change, and puts the caret after the
+    /// last. A string replacing text takes that text's format, comments included, as Find and
+    /// Replace or a spelling correction would; a string inserted at the caret takes the typing
+    /// attributes.
     func replace(_ ranges: [NSRange], with strings: [String]) {
         guard let storage = textStorage, ranges.count == strings.count,
             shouldChangeText(inRanges: ranges.map(NSValue.init(range:)), replacementStrings: strings)
         else { return }
-        let attributes = typingAttributes
+        let formats = ranges.map { range in
+            range.length > 0 && range.location < storage.length
+                ? ParagraphRole.body.attributes(
+                    normalizing: storage.attributes(at: range.location, effectiveRange: nil))
+                : typingAttributes
+        }
         storage.beginEditing()
-        for (range, string) in zip(ranges, strings).reversed() {
+        for ((range, string), attributes) in zip(zip(ranges, strings), formats).reversed() {
             storage.replaceCharacters(
                 in: range, with: NSAttributedString(string: string, attributes: attributes))
         }

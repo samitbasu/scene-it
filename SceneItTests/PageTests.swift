@@ -5,120 +5,6 @@ import Testing
 
 @testable import SceneIt
 
-private func views(in view: NSView?) -> [NSView] {
-    guard let view else { return [] }
-    return [view] + view.subviews.flatMap(views)
-}
-
-private let noted = CommentID(rawValue: "01JC4K00000000000000000NTD")
-private let tooEarly = Comment(
-    id: noted, color: .purple, text: "Too early?",
-    created: Timestamp(Date(timeIntervalSince1970: 1_700_000_000), in: .gmt))
-
-/// A book on disk, opened through a test-host controller and shown in an offscreen window of
-/// our own, with its page and title field found.
-@MainActor
-private struct Harness {
-    let url: URL
-    let store: AppBookStore
-    let book: AppOpenBook
-    let window: NSWindow
-    let page: ManuscriptTextView
-    let title: NSTextField
-
-    var storage: NSTextStorage { page.textStorage! }
-
-    func body(_ scene: SceneID? = nil) -> [Paragraph] {
-        book.book.scene(scene ?? book.openScene)?.body ?? []
-    }
-
-    /// Whether the page shows the open scene's body exactly as the codec renders it.
-    var pageMirrorsModel: Bool {
-        storage.isEqual(to: RunCodec.attributedString(forBody: body()))
-    }
-
-    func focusPage(at location: Int) {
-        window.makeFirstResponder(page)
-        page.setSelectedRange(NSRange(location: location, length: 0))
-    }
-
-    /// A pasteboard of our own, so no test touches the writer's clipboard.
-    static func withPasteboard(_ body: (NSPasteboard) async throws -> Void) async throws {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("SceneItTests-\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        try await body(pasteboard)
-    }
-}
-
-/// `scenes` in a book written to a temporary folder, then opened and shown.
-@MainActor
-private func withPage(
-    _ scenes: [BookScene], holdingTheLock: Bool = false, _ body: (Harness) async throws -> Void
-) async throws {
-    try await withTemporaryFolder { folder in
-        let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
-        let books = BookController(role: .testHost)
-        let store = books.store
-        let holder: EditableBook?
-        if holdingTheLock {
-            holder = try BookPackage.create(at: url, title: "Novel")
-            _ = try holder?.package.save(Book(title: "Novel", scenes: scenes))
-            #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
-        } else {
-            holder = nil
-            #expect(await store.create(at: url) == .created)
-            #expect(await store.closeBook() == .left)
-            try BookFormat.serialize(Book(title: "Novel", scenes: scenes)).write(
-                to: url.appending(path: "book.md"), options: .atomic)
-            #expect(await store.open(url) == .opened)
-        }
-        let book = try #require(store.current)
-
-        let size = WindowMetrics.defaultSize
-        let controller = NSHostingController(
-            rootView: BookWindow(
-                book: book, store: store, preferences: books.preferences, mode: .constant(.page)))
-        controller.sizingOptions = []
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
-            defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentViewController = controller
-        window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
-        window.orderFront(nil)
-        defer { window.close() }
-
-        await eventually { views(in: window.contentView).contains { $0 is ManuscriptTextView } }
-        let page = try #require(views(in: window.contentView).compactMap { $0 as? ManuscriptTextView }.first)
-        let title = try #require(
-            views(in: window.contentView).compactMap { $0 as? NSTextField }.first {
-                $0.placeholderString == WindowWording.untitledScene
-            })
-        let harness = Harness(url: url, store: store, book: book, window: window, page: page, title: title)
-        await eventually { harness.pageMirrorsModel }
-        try await body(harness)
-        #expect(await store.closeBook() == .left)
-        withExtendedLifetime(holder) {}
-    }
-}
-
-private enum Commented {
-    case no, withTooEarly
-}
-
-private func scene(_ title: SceneTitle, _ body: [Paragraph] = [], _ commented: Commented = .no) -> BookScene {
-    var ids = IDGenerator.system
-    return BookScene(
-        id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: title, body: body,
-        comments: commented == .withTooEarly ? [tooEarly] : [])
-}
-
-/// The commented, colored span the comment tests cut, copy and type beside.
-private let letterScene: [Paragraph] = [
-    [Run("The "), Run("letter", color: .red, comments: [noted]), Run(" waited.")],
-    [Run("Dawn.")],
-]
-
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct PageTests {
     @Test func thePageIsATextKit2TextViewWithTheBodyStyle() async throws {
@@ -174,7 +60,7 @@ struct PageTests {
 
     @Test func pastedTextFollowsTheCharacterPolicy() async throws {
         try await withPage([scene("One")]) { page in
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 let pasted =
                     "\u{201C}It\u{2019}s\u{201D} \u{2014} \u{1F30A} \u{03A9}\u{03BC}\u{03AD}\u{03B3}\u{03B1}"
                 pasteboard.clearContents()
@@ -189,7 +75,7 @@ struct PageTests {
 
     @Test func aPastedImageNeverReachesTheModel() async throws {
         try await withPage([scene("One")]) { page in
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 let image = NSImage(size: NSSize(width: 8, height: 8))
                 image.lockFocus()
                 NSColor.red.setFill()
@@ -226,7 +112,7 @@ struct PageTests {
 
     @Test func pastedRichTextKeepsOnlyTheStylesTheModelHolds() async throws {
         try await withPage([scene("One")]) { page in
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 let helvetica = try #require(NSFont(name: "Helvetica", size: 20))
                 let bold = NSFontManager.shared.convert(helvetica, toHaveTrait: .boldFontMask)
                 let foreign = NSMutableAttributedString(
@@ -257,7 +143,7 @@ struct PageTests {
     @Test func cutAndPasteWithinASceneKeepsRunsAndCommentIds() async throws {
         try await withPage([scene("One", letterScene, .withTooEarly)]) { page in
             let before = page.body()
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 let letter = NSRange(location: 4, length: 6)
                 #expect((page.storage.string as NSString).substring(with: letter) == "letter", "precondition")
                 page.window.makeFirstResponder(page.page)
@@ -284,7 +170,7 @@ struct PageTests {
         let source = scene("One", letterScene, .withTooEarly)
         let destination = scene("Two", [[Run("Elsewhere.")]])
         try await withPage([source, destination]) { page in
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 page.window.makeFirstResponder(page.page)
                 page.page.setSelectedRange(NSRange(location: 4, length: 6))
                 #expect(page.page.writeSelection(to: pasteboard, types: page.page.writablePasteboardTypes))
@@ -414,7 +300,7 @@ struct PageTests {
             #expect(!page.title.isEnabled)
             page.window.makeFirstResponder(page.page)
             page.page.insertText("Typed", replacementRange: NSRange(location: 0, length: 0))
-            try await Harness.withPasteboard { pasteboard in
+            try await PageHarness.withPasteboard { pasteboard in
                 pasteboard.clearContents()
                 pasteboard.setString("Pasted", forType: .string)
                 #expect(!page.page.readSelection(from: pasteboard))
