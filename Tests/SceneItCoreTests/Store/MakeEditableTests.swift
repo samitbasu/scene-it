@@ -84,6 +84,34 @@ struct MakeEditableTests {
         }
     }
 
+    @Test func makeEditableFromTheBannerOrMenuAsksFirst() async throws {
+        try await withTemporaryFolder { folder in
+            let bytes = damaged(try draft(1))
+            let url = try package(holding: bytes, in: folder)
+            let prompts = ScriptedPrompts([ReadOnlyChoice.keepReadOnly, ReadOnlyChoice.keepReadOnly])
+            let store = makeStore(in: folder, prompts: prompts, parseDefaults: fixedDefaults)
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(url) else {
+                Issue.record("expected repairedOnOpen")
+                return
+            }
+            #expect(await store.confirmMakeEditable() == .keptReadOnly)
+            #expect(prompts.titles.last == ReadOnlyWording.makeEditableTitle)
+            #expect(prompts.labels.last == [ReadOnlyWording.keepReadOnly, ReadOnlyWording.makeEditable])
+            #expect(store.current?.canBeMadeEditable == true)
+            #expect(try originals(url).isEmpty, "nothing kept until the writer confirms")
+            #expect(try Data(contentsOf: url.layout.book) == bytes, "book.md untouched")
+
+            prompts.answer([ReadOnlyChoice.makeEditable])
+            #expect(await store.confirmMakeEditable() == .editable)
+            #expect(store.current?.isEditable == true)
+            #expect(try originals(url).count == 1)
+            let asked = prompts.titles.count
+            #expect(await store.confirmMakeEditable() == .notRepaired)
+            #expect(prompts.titles.count == asked, "no question once it's editable")
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test func aNewerFormatStaysReadOnly() async throws {
         try await withTemporaryFolder { folder in
             let url = try package(holding: Data("---\ntitle: Later\nformat: 3\n---\n".utf8), in: folder)

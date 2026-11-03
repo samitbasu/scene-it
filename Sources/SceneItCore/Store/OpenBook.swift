@@ -65,6 +65,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         editingDriver != nil
     }
 
+    /// Whether `BookStore.makeEditable()` applies: the book is read-only because it was
+    /// repaired as it opened (ADR 0024).
+    public var canBeMadeEditable: Bool {
+        if case .readOnly(.repairedOnOpen) = access { true } else { false }
+    }
+
     var autosave: AutosaveDriver<C>? {
         if case .writable(let driver, _, _) = access { driver } else { nil }
     }
@@ -134,6 +140,102 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             driver.send(.edited)
             return
         }
+    }
+
+    // MARK: Error entries (book format §5.4)
+
+    public enum EntryEdit: Hashable, Sendable {
+        /// The edited entry took effect and left the Errors tab.
+        case repaired
+        /// The entry stays, holding the edited payload.
+        case kept(ErrorReason)
+        /// The book is read-only, the entry is no longer where the row said, or it can't be
+        /// repaired.
+        case refused
+    }
+
+    // Entry operations act on the book's text through the file format, not as typing, so they
+    // leave every scene's `modified` as it is. Each registers, on `structureUndo`, only the
+    // inverse of its own change, so undoing it keeps whatever was typed in that scene since.
+
+    @discardableResult
+    public func deleteError(_ ref: ErrorRef) -> Bool {
+        guard editingDriver != nil, book.holds(ref), let part = book.part(ref.owner) else { return false }
+        var errors = part.errors
+        errors.remove(at: ref.index)
+        commit(ref.owner, part.with(errors: errors)) { $0.reinsert(ref.entry, at: ref.index, in: ref.owner) }
+        return true
+    }
+
+    @discardableResult
+    public func repairError(_ ref: ErrorRef, as payload: String) -> EntryEdit {
+        guard editingDriver != nil, let old = book.part(ref.owner),
+            let repair = BookFormat.repair(ref, as: payload, in: book)
+        else {
+            return .refused
+        }
+        switch repair {
+        case .repaired(let part):
+            let effect = RepairEffect(from: old, to: part)
+            commit(ref.owner, part) {
+                $0.unrepair(effect, restoring: ref.entry, at: ref.index, in: part.owner, payload: payload)
+            }
+            return .repaired
+        case .kept(let part, let reason):
+            let edited = part.errors[ref.index]
+            commit(ref.owner, part) {
+                $0.unedit(ErrorRef(owner: ref.owner, index: ref.index, entry: edited), back: ref.entry)
+            }
+            return .kept(reason)
+        }
+    }
+
+    private func reinsert(_ entry: ErrorEntry, at index: Int, in owner: ErrorOwner) {
+        guard let part = book.part(owner) else { return }
+        var errors = part.errors
+        let at = min(index, errors.count)
+        errors.insert(entry, at: at)
+        commit(owner, part.with(errors: errors)) {
+            $0.deleteError(ErrorRef(owner: owner, index: at, entry: entry))
+        }
+    }
+
+    private func unrepair(
+        _ effect: RepairEffect, restoring entry: ErrorEntry, at index: Int, in owner: ErrorOwner,
+        payload: String
+    ) {
+        guard let part = book.part(owner) else { return }
+        let undone = effect.undone(in: part)
+        var errors = undone.errors
+        let at = min(index, errors.count)
+        errors.insert(entry, at: at)
+        let restored = undone.with(errors: errors)
+        commit(owner, restored) {
+            $0.repairError(ErrorRef(owner: restored.owner, index: at, entry: entry), as: payload)
+        }
+    }
+
+    private func unedit(_ ref: ErrorRef, back original: ErrorEntry) {
+        guard book.holds(ref), let part = book.part(ref.owner) else { return }
+        var errors = part.errors
+        errors[ref.index] = original
+        commit(ref.owner, part.with(errors: errors)) {
+            $0.repairError(
+                ErrorRef(owner: ref.owner, index: ref.index, entry: original), as: ref.entry.payload)
+        }
+    }
+
+    /// Puts `part` in place of `owner`'s, and registers `inverse` as its undo.
+    private func commit(_ owner: ErrorOwner, _ part: BookPart, inverse: @escaping (OpenBook) -> Void) {
+        guard let driver = editingDriver, book.part(owner) != part, book.replace(owner, with: part) else {
+            return
+        }
+        if case .scene(let scene) = part {
+            wordCounts.recount(scene)
+            if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
+        }
+        structureUndo.registerUndo(withTarget: self, handler: inverse)
+        driver.send(.edited)
     }
 
     // MARK: Saving

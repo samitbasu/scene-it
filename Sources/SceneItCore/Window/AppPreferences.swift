@@ -33,6 +33,12 @@ public final class AppPreferences {
         storage.set(tab.rawValue, forKey: Key.rightPanelTab)
     }
 
+    /// Opens the panel, if it's closed, on `tab`.
+    public func reveal(_ tab: RightPanelTab) {
+        setRightPanel(.open)
+        showRightPanelTab(tab)
+    }
+
     enum Key {
         static let rightPanelOpen = "rightPanelOpen"
         static let rightPanelTab = "rightPanelTab"
@@ -41,7 +47,17 @@ public final class AppPreferences {
 
 /// The right panel's tabs, left to right.
 public enum RightPanelTab: String, CaseIterable, Hashable, Sendable {
-    case comments, notes, tags
+    case comments, notes, tags, errors
+
+    /// The tabs shown over a book with `errorCount` error entries: Errors only while it has any.
+    public static func shown(errorCount: Int) -> [RightPanelTab] {
+        errorCount > 0 ? allCases : allCases.filter { $0 != .errors }
+    }
+
+    /// The tab the panel shows: the one last chosen, or Comments while that one is hidden.
+    public static func selected(_ preferred: RightPanelTab, among shown: [RightPanelTab]) -> RightPanelTab {
+        shown.contains(preferred) ? preferred : .comments
+    }
 }
 
 /// Whether the right panel is open. Format 1 also stored it, as the Boolean

@@ -11,7 +11,7 @@ import Testing
 ///
 /// Each render draws our own window's views into a bitmap (`cacheDisplay`); nothing reads the
 /// screen. Books are created in a temporary folder through a test-host `BookController`.
-nonisolated private var renderFolder: URL? {
+nonisolated var renderFolder: URL? {
     ProcessInfo.processInfo.environment["SCENEIT_RENDER_DIR"].map {
         URL(filePath: $0, directoryHint: .isDirectory)
     }
@@ -31,9 +31,9 @@ struct WindowRenders {
     @Test func window() async throws {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try await withSampleBook { book, preferences in
+        try await withSampleBook { store, book, preferences in
             let window = { (mode: WindowMode) in
-                BookWindow(book: book, preferences: preferences, mode: .constant(mode))
+                BookWindow(book: book, store: store, preferences: preferences, mode: .constant(mode))
             }
             try Self.write(
                 try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",
@@ -62,9 +62,83 @@ struct WindowRenders {
         }
     }
 
+    /// A damaged book (#63, #67): the banner while it's read-only, then the Errors tab once
+    /// it's editable; and a book saved by a newer version.
+    @Test func errorsAndBanner() async throws {
+        let output = try #require(renderFolder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try await withBook(Self.damagedSample()) { store, book, preferences in
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences, mode: .constant(.page))
+            try Self.write(
+                try await Self.render(window), name: "final-banner-repaired",
+                caption: "Repaired while opening: read-only, with the banner", to: output)
+            preferences.reveal(.errors)
+            try Self.write(
+                try await Self.render(window), name: "final-errors-tab-read-only",
+                caption: "Show Repairs: the Errors tab, read-only", to: output)
+            #expect(await store.makeEditable() == .editable)
+            try Self.write(
+                try await Self.render(window), name: "final-errors-tab",
+                caption: "The Errors tab once the book is editable", to: output)
+            preferences.showRightPanelTab(.comments)
+        }
+        let newer = String(decoding: BookFormat.serialize(Self.sampleBook()), as: UTF8.self)
+            .replacingOccurrences(of: "format: 2\n", with: "format: 3\n")
+        try await withBook(Data(newer.utf8)) { store, book, preferences in
+            try Self.write(
+                try await Self.render(
+                    BookWindow(book: book, store: store, preferences: preferences, mode: .constant(.page))),
+                name: "final-banner-newer", caption: "Saved by a newer Scene It: read-only", to: output)
+        }
+    }
+
     // MARK: Sample books
 
-    private func withSampleBook(_ body: (AppOpenBook, AppPreferences) async throws -> Void) async throws {
+    /// Opens `bytes` as a book's `book.md`; the test host's alerts answer Keep Read-Only.
+    private func withBook(
+        _ bytes: Data, _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
+    ) async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            #expect(await store.closeBook() == .left)
+            try bytes.write(to: url.appending(path: "book.md"), options: .atomic)
+            _ = await store.open(url)
+            try await body(store, try #require(store.current), books.preferences)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    /// The sample book with book format §9.2's kinds of damage: an unknown front-matter key, a
+    /// stray line, a mistyped palette name, a quote that doesn't match, an emoji, and an
+    /// unknown metadata key.
+    static func damagedSample() throws -> Data {
+        var text = String(decoding: BookFormat.serialize(sampleBook()), as: UTF8.self)
+        func replace(_ old: String, _ new: String) throws {
+            let range = try #require(text.range(of: old))
+            text.replaceSubrange(range, with: new)
+        }
+        try replace("format: 2\n---\n", "format: 2\ncolour: blue\n---\n\nRemember to back this up!\n")
+        try replace("behind her.", "behind her. \u{1F30A}")
+        try replace(
+            "already ashore.\n",
+            "already ashore.\n\n### Comments\n"
+                + "- c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | \"harbor lights\" | Too pretty?\n"
+                + "- c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | \"ferry left\" | Wrong range.\n")
+        let letter = try #require(text.range(of: "## The letter\n"))
+        let modified = try #require(
+            text.range(
+                of: #"modified: [^\n]+\n"#, options: .regularExpression,
+                range: letter.upperBound..<text.endIndex))
+        text.insert(contentsOf: "mood: grim\n", at: modified.upperBound)
+        return Data(text.utf8)
+    }
+
+    func withSampleBook(_ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void) async throws
+    {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let store = books.store
@@ -75,7 +149,7 @@ struct WindowRenders {
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)
-            try await body(book, books.preferences)
+            try await body(store, book, books.preferences)
             #expect(await store.closeBook() == .left)
         }
     }
@@ -187,17 +261,19 @@ struct WindowRenders {
     static func write(_ renders: Renders, name: String, caption: String, to folder: URL) throws {
         try png(renders.single).write(to: folder.appending(path: "\(name)@1x.png"))
         try png(renders.double).write(to: folder.appending(path: "\(name)@2x.png"))
-        try png(try composite(renders.single, caption: caption)).write(
-            to: folder.appending(path: "\(name)-vs-mockup.png"))
+        let mockup = try #require(NSImage(contentsOf: mockup))
+        try png(try composite(renders.single, caption: caption, beside: mockup, "Mockup: 01-main-window.png"))
+            .write(to: folder.appending(path: "\(name)-vs-mockup.png"))
     }
 
     static func png(_ rep: NSBitmapImageRep) throws -> Data {
         try #require(rep.representation(using: .png, properties: [:]))
     }
 
-    /// The candidate at 1× on the left and the mockup on the right, each under a caption.
-    static func composite(_ candidate: NSBitmapImageRep, caption: String) throws -> NSBitmapImageRep {
-        let mockup = try #require(NSImage(contentsOf: mockup))
+    /// The candidate at 1× on the left and `other` on the right, each under a caption.
+    static func composite(
+        _ candidate: NSBitmapImageRep, caption: String, beside other: NSImage, _ otherCaption: String
+    ) throws -> NSBitmapImageRep {
         let gap: CGFloat = 24
         let header: CGFloat = 40
         let size = CGSize(width: windowSize.width * 2 + gap, height: windowSize.height + header)
@@ -213,10 +289,10 @@ struct WindowRenders {
         ]
         NSAttributedString(string: caption, attributes: attributes).draw(
             at: NSPoint(x: 8, y: size.height - 30))
-        NSAttributedString(string: "Mockup: 01-main-window.png", attributes: attributes)
+        NSAttributedString(string: otherCaption, attributes: attributes)
             .draw(at: NSPoint(x: windowSize.width + gap + 8, y: size.height - 30))
         candidate.draw(in: NSRect(origin: .zero, size: windowSize))
-        mockup.draw(in: NSRect(origin: NSPoint(x: windowSize.width + gap, y: 0), size: windowSize))
+        other.draw(in: NSRect(origin: NSPoint(x: windowSize.width + gap, y: 0), size: windowSize))
         NSGraphicsContext.restoreGraphicsState()
         return rep
     }

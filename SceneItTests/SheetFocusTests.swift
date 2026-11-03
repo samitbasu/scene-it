@@ -13,11 +13,12 @@ private final class ModeBox {
 /// `BookWindow` with its mode in `box`, so the test can open a sheet as the rail would.
 private struct Harness: View {
     let book: AppOpenBook
+    let store: AppBookStore
     let preferences: AppPreferences
     @Bindable var box: ModeBox
 
     var body: some View {
-        BookWindow(book: book, preferences: preferences, mode: $box.mode)
+        BookWindow(book: book, store: store, preferences: preferences, mode: $box.mode)
     }
 }
 
@@ -50,7 +51,7 @@ struct SheetFocusTests {
             let box = ModeBox()
             let size = WindowMetrics.defaultSize
             let controller = NSHostingController(
-                rootView: Harness(book: book, preferences: books.preferences, box: box))
+                rootView: Harness(book: book, store: books.store, preferences: books.preferences, box: box))
             controller.sizingOptions = []
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,

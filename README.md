@@ -147,6 +147,9 @@ at 1440 × 900 pt, and `<name>-vs-mockup.png` beside `01-main-window.png`. Its b
 preferences are throwaway (a temporary folder, a test-host `BookController`). To compare
 candidates for a future look change, render each candidate the same way with a different name.
 
+It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
+`final-errors-tab`) and a book saved by a newer version (`final-banner-newer`), the same way.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

@@ -250,6 +250,11 @@ enum Latin1 {
     static let space = UInt8(ascii: " ")
     static let backslash = UInt8(ascii: "\\")
 
+    /// The code units of text `CharacterPolicy` admitted, every scalar of which is Latin-1.
+    static func bytes(_ admitted: String) -> [UInt8] {
+        admitted.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }
+    }
+
     static func string(_ bytes: ArraySlice<UInt8>) -> String {
         if bytes.allSatisfy({ $0 < 0x80 }) {
             return String(decoding: bytes, as: UTF8.self)

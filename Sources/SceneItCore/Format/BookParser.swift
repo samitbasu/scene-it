@@ -95,10 +95,14 @@ private final class Reader {
     // MARK: Front matter (§1.5)
 
     private func frontMatter(_ line: [UInt8], _ number: Int) {
-        guard let (key, value) = Lexical.keyValue(line), ["title", "format"].contains(key),
-            frontMatterKeys.insert(key).inserted
-        else {
-            return bookEntry(.frontMatter, line, number)
+        guard let (key, value) = Lexical.keyValue(line) else {
+            return bookEntry(.frontMatter, line, number, .frontMatter(.notAField))
+        }
+        guard ["title", "format"].contains(key) else {
+            return bookEntry(.frontMatter, line, number, .frontMatter(.unknownKey))
+        }
+        guard frontMatterKeys.insert(key).inserted else {
+            return bookEntry(.frontMatter, line, number, .frontMatter(.repeatedKey))
         }
         let unescaped = Lexical.fieldUnescaped(value)
         if key == "title" {
@@ -106,7 +110,7 @@ private final class Reader {
         } else if let number = Lexical.formatNumber(unescaped) {
             format = number
         } else {
-            bookEntry(.frontMatter, line, number)
+            bookEntry(.frontMatter, line, number, .frontMatter(.badFormat))
         }
     }
 
@@ -206,8 +210,8 @@ private final class Reader {
             entry?.text += [Lexical.space] + line
         } else {
             switch current?.section {
-            case .comments?: record(.comments, line, number)
-            case .marks?: record(.marks, line, number)
+            case .comments?: record(.comments, line, number, .comment(.strayLine))
+            case .marks?: record(.marks, line, number, .mark(.strayLine))
             default: record(.line, line, number)
             }
         }
@@ -247,18 +251,20 @@ private final class Reader {
 
     /// §2.2.
     private func metadata(_ key: String, _ value: ArraySlice<UInt8>, _ line: [UInt8], _ number: Int) {
-        guard let scene = current, ["id", "modified", "tags"].contains(key),
-            scene.metadataKeys.insert(key).inserted
-        else {
-            return record(.metadata, line, number)
+        guard let scene = current else { return }
+        guard ["id", "modified", "tags"].contains(key) else {
+            return record(.metadata, line, number, .metadata(.unknownKey))
+        }
+        guard scene.metadataKeys.insert(key).inserted else {
+            return record(.metadata, line, number, .metadata(.repeatedKey))
         }
         switch key {
         case "id":
-            guard Lexical.isValidID(value) else { return record(.metadata, line, number) }
+            guard Lexical.isValidID(value) else { return record(.metadata, line, number, .metadata(.badID)) }
             scene.id = SceneID(rawValue: Lexical.string(value))
         case "modified":
             guard let timestamp = Timestamp(Lexical.string(value)) else {
-                return record(.metadata, line, number)
+                return record(.metadata, line, number, .metadata(.badDate))
             }
             scene.modified = timestamp
         default:
@@ -279,7 +285,7 @@ private final class Reader {
         let marks = scene.markLines.compactMap { logical -> ParsedMark? in
             switch Entries.mark(logical.text, in: context) {
             case .success(let mark): return mark
-            case .failure: record(.marks, logical.text, logical.line, in: scene)
+            case .failure(let problem): record(.marks, logical.text, logical.line, .mark(problem), in: scene)
             }
             return nil
         }
@@ -289,7 +295,8 @@ private final class Reader {
             case .success(let comment):
                 comments.append(comment)
                 context.commentIDs.insert(comment.comment.id)
-            case .failure: record(.comments, logical.text, logical.line, in: scene)
+            case .failure(let problem):
+                record(.comments, logical.text, logical.line, .comment(problem), in: scene)
             }
         }
         for mark in marks {
@@ -319,8 +326,12 @@ private final class Reader {
 
     // MARK: Entries
 
-    private func record(_ tag: ErrorTag, _ line: [UInt8], _ number: Int, in scene: SceneDraft? = nil) {
-        let positioned = Positioned(line: number, entry: ErrorEntry(tag, Lexical.string(line)))
+    private func record(
+        _ tag: ErrorTag, _ line: [UInt8], _ number: Int, _ reason: ErrorReason = .line,
+        in scene: SceneDraft? = nil
+    ) {
+        let positioned = Positioned(
+            line: number, entry: ErrorEntry(tag, Lexical.string(line)), reason: reason)
         if let scene = scene ?? current {
             scene.entries.append(positioned)
         } else {
@@ -328,8 +339,9 @@ private final class Reader {
         }
     }
 
-    private func bookEntry(_ tag: ErrorTag, _ line: [UInt8], _ number: Int) {
-        bookEntries.append(Positioned(line: number, entry: ErrorEntry(tag, Lexical.string(line))))
+    private func bookEntry(_ tag: ErrorTag, _ line: [UInt8], _ number: Int, _ reason: ErrorReason) {
+        bookEntries.append(
+            Positioned(line: number, entry: ErrorEntry(tag, Lexical.string(line)), reason: reason))
     }
 
     // MARK: The book
@@ -340,6 +352,7 @@ private final class Reader {
         var story: [BookScene] = []
         var boneyard: [BookScene] = []
         var newInScenes: [ErrorEntry] = []
+        var firstReasonInScenes: ErrorReason?
         for draft in scenes {
             var notices: [RepairNotice] = []
             let id: SceneID
@@ -356,6 +369,8 @@ private final class Reader {
             notices += RepairNotice.replaced(draft.replaced)
             let entries = Positioned.inFileOrder(draft.entries)
             newInScenes += Positioned.new(entries) + notices.map(\.entry)
+            firstReasonInScenes =
+                firstReasonInScenes ?? Positioned.firstNewReason(entries) ?? notices.first.map(\.reason)
             let scene = BookScene(
                 id: id, modified: draft.modified ?? opened, title: SceneTitle(draft.title), tags: draft.tags,
                 body: draft.paragraphs.body, notes: draft.paragraphs.notes, comments: draft.comments,
@@ -375,7 +390,9 @@ private final class Reader {
             errors: entries.map(\.entry) + notices.map(\.entry))
         return ParsedBook(
             book: book, declaredFormat: format.map(FormatVersion.init),
-            newEntries: Positioned.new(entries) + notices.map(\.entry) + newInScenes)
+            newEntries: Positioned.new(entries) + notices.map(\.entry) + newInScenes,
+            firstNewReason: Positioned.firstNewReason(entries) ?? notices.first.map(\.reason)
+                ?? firstReasonInScenes)
     }
 
     /// A fresh id that no scene in the file uses. A source that keeps repeating itself gets

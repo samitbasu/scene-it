@@ -7,11 +7,13 @@ typealias AppOpenBook = OpenBook<ContinuousClock>
 /// with the rail's sheets over the page and the panel.
 struct BookWindow: View {
     let book: AppOpenBook
+    let store: AppBookStore
     let preferences: AppPreferences
     @Binding var mode: WindowMode
 
     var body: some View {
         VStack(spacing: 0) {
+            ReadOnlyBanner(book: book, store: store, preferences: preferences)
             HStack(spacing: 0) {
                 IconRail(book: book, mode: $mode)
                 Divider()
@@ -20,7 +22,7 @@ struct BookWindow: View {
                     HStack(spacing: 0) {
                         EditorArea(book: book)
                         Divider()
-                        RightPanel(preferences: preferences)
+                        RightPanel(book: book, preferences: preferences)
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)

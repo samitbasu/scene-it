@@ -18,6 +18,9 @@ enum WindowMetrics {
     /// Between the title's label and its field.
     static let titleLabelGap: CGFloat = 10
     static let deskColor = Color(red: 0.89, green: 0.89, blue: 0.87)
+    static let bannerHeight: CGFloat = 44
+    /// The mockup's read-only banner (13-read-only-filed-copy.png).
+    static let bannerColor = Color(red: 0.99, green: 0.95, blue: 0.84)
 
     static let defaultSize = CGSize(width: 1440, height: 900)
     /// Room for the rail, the whole page on its desk and the open panel, side by side.

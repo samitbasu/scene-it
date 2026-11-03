@@ -33,7 +33,7 @@ public enum BookFormat {
     public static func verifiedSerialization(of book: Book) throws(VerificationFailure) -> Data {
         let bytes = serialize(book)
         var ids = UnusedSceneIDs()
-        let reread = parse(bytes, opened: verificationTime, ids: &ids).book
+        let reread = parse(bytes, opened: rereadTime, ids: &ids).book
         guard reread.errorEntries == book.errorEntries else {
             throw .newEntries(newEntries(in: reread, comparedWith: book))
         }
@@ -42,7 +42,9 @@ public enum BookFormat {
         return bytes
     }
 
-    private static let verificationTime = Timestamp(secondsSince1970: 0, offset: .zero)
+    /// The `opened` time for parsing text Scene It wrote itself, which needs no defaults: if
+    /// it did, the accompanying notice fails the check anyway.
+    static let rereadTime = Timestamp(secondsSince1970: 0, offset: .zero)
 
     private static func newEntries(in reread: Book, comparedWith book: Book) -> [ErrorEntry] {
         let had = Set(book.errorEntries.joined())
@@ -61,6 +63,8 @@ public struct ParsedBook: Hashable, Sendable {
     /// couldn't read. Entries the file already held in `### Unparsed` sections aren't
     /// among them. A book with any opens read-only until the writer confirms (ADR 0024).
     public var newEntries: [ErrorEntry]
+    /// Why the first of `newEntries` is one.
+    var firstNewReason: ErrorReason?
 
     /// Whether the parse repaired anything (ADR 0024's `.repairedOnOpen`).
     public var wasRepaired: Bool {
@@ -167,7 +171,7 @@ public struct ParseDefaults: Sendable {
 
 /// For re-reading a book's own serialization, which needs no fresh ids: if it did, the
 /// accompanying notice fails verification anyway.
-private struct UnusedSceneIDs: SceneIDSource {
+struct UnusedSceneIDs: SceneIDSource {
     private var count = 0
 
     mutating func sceneID() -> SceneID {

@@ -1,7 +1,8 @@
 import SceneItCore
 import SwiftUI
 
-/// File → New Book…, Open Book… and Save, in place of SwiftUI's New Window and Save.
+/// File → New Book…, Open Book…, Save and Make Editable…, in place of SwiftUI's New Window and
+/// Save.
 struct BookCommands: Commands {
     let books: BookController
 
@@ -15,6 +16,8 @@ struct BookCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }
                 .keyboardShortcut("s")
+            Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
+                .disabled(books.store.current?.canBeMadeEditable != true)
         }
     }
 }

@@ -18,8 +18,15 @@ enum BookSerializer {
     }
 
     private static func frontMatter(_ title: String) -> String {
-        "---\n" + keyValue("title", FieldEscaping.freeText.escape(title))
-            + "\nformat: \(FormatVersion.current)\n---"
+        frontMatter(fields: frontMatterFields(title))
+    }
+
+    static func frontMatter(fields: [String]) -> String {
+        (["---"] + fields + ["---"]).joined(separator: "\n")
+    }
+
+    static func frontMatterFields(_ title: String) -> [String] {
+        [keyValue("title", FieldEscaping.freeText.escape(title)), "format: \(FormatVersion.current)"]
     }
 
     private static func keyValue(_ key: String, _ value: String) -> String {
@@ -40,7 +47,8 @@ enum BookSerializer {
         lines.isEmpty ? [] : [([heading] + lines).joined(separator: "\n")]
     }
 
-    private static func blocks(_ scene: BookScene) -> [String] {
+    /// The scene's blocks; the first is its heading and metadata lines.
+    static func blocks(_ scene: BookScene) -> [String] {
         var header = [
             scene.title.text.isEmpty ? "##" : "## " + Inline.writeTitle(scene.title.text),
             "id: \(scene.id)",
