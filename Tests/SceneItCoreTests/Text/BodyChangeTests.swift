@@ -3,7 +3,7 @@ import Testing
 
 @testable import SceneItCore
 
-@MainActor @Suite(.timeLimit(.minutes(2))) struct BodyChangeTests {
+@Suite(.timeLimit(.minutes(2))) struct BodyChangeTests {
     /// Every piece an edit might insert, line breaks of every kind among them.
     private static let pieces = [
         "a", "word ", "é", "\n", "\r\n", "\r", "\u{2028}", "\u{2029}", "\u{85}", "\u{0B}", "\u{0C}",

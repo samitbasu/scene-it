@@ -162,6 +162,7 @@ struct ErrorsTabTests {
             do {
                 let window = try await host(ErrorsTab(book: book), size: size)
                 defer { window.close() }
+                await eventually { buttons(in: window).count == 2 + 3 }
                 let actions = buttons(in: window)
                 #expect(
                     actions.count == 2 + 3,
@@ -175,6 +176,9 @@ struct ErrorsTabTests {
             await eventually { book.status == .saved }
             let window = try await host(ErrorsTab(book: book), size: size)
             defer { window.close() }
+            await eventually {
+                buttons(in: window).count == 2 + 3 && buttons(in: window).allSatisfy(\.isEnabled)
+            }
             let actions = buttons(in: window)
             #expect(actions.allSatisfy { $0.isEnabled })
             let deleteLine = try #require(actions.dropFirst().first)

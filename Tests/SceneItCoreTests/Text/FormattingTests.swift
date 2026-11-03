@@ -3,7 +3,7 @@ import Testing
 
 @testable import SceneItCore
 
-@MainActor @Suite struct FormattingTests {
+@Suite struct FormattingTests {
     private static let noted = CommentID(rawValue: "01JC4K00000000000000000NTD")
 
     @Test func aStyleIsOnOffOrMixedOverTheSelection() {

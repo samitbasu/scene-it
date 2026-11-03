@@ -46,7 +46,6 @@ public struct SelectionFormatting: Hashable, Sendable {
 
     /// The text in `ranges` of `text`. Line breaks carry no format the model keeps, so they
     /// don't count.
-    @MainActor
     public init(selecting ranges: [NSRange], in text: NSAttributedString) {
         let string = text.string as NSString
         var formats = Set<RunFormat>()
@@ -60,7 +59,6 @@ public struct SelectionFormatting: Hashable, Sendable {
     }
 
     /// The caret's: what typing would produce.
-    @MainActor
     public init(typing attributes: [NSAttributedString.Key: Any]) {
         formats = [RunFormat(attributes)]
     }
@@ -96,7 +94,6 @@ public enum FormatEdit: Hashable, Sendable {
 
     /// `attributes` with the edit applied, as the codec renders them in `role`, `NSColor`s and
     /// palette names together.
-    @MainActor
     public func applied(to attributes: [NSAttributedString.Key: Any], in role: ParagraphRole)
         -> [NSAttributedString.Key: Any]
     {

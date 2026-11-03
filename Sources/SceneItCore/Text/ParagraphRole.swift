@@ -30,18 +30,14 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         return style
     }
 
-    @MainActor
     public func font(_ styles: Set<TextStyle>) -> NSFont {
         let traits = styles.reduce(into: baseTraits) { traits, style in
             traits.formUnion(style.fontTrait)
         }
-        let size = pointSize
-        let base = NSFont(name: Self.fontFamily, size: size) ?? .systemFont(ofSize: size)
-        return NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
+        return typeface[traits]
     }
 
     /// The attributes of text in this role, for `typingAttributes` and paragraph breaks.
-    @MainActor
     public var typingAttributes: [NSAttributedString.Key: Any] {
         RunFormat().attributes(in: self)
     }
@@ -49,7 +45,6 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     /// What text typed after text with `attributes` gets: its styles, color and highlight,
     /// shown in this role, and never its comments, so typing at the edge of a commented span
     /// doesn't extend the comment (PLAN §8.1).
-    @MainActor
     public func typingAttributes(continuing attributes: [NSAttributedString.Key: Any])
         -> [NSAttributedString.Key: Any]
     {
@@ -60,17 +55,57 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
 
     /// `attributes` as the codec would render them in this role: whatever a `Run` holds
     /// (styles, color, highlight, comments) kept, everything else the role's own.
-    @MainActor
     public func attributes(normalizing attributes: [NSAttributedString.Key: Any])
         -> [NSAttributedString.Key: Any]
     {
         RunFormat(attributes).attributes(in: self)
     }
 
-    private var pointSize: CGFloat {
+    /// Each looked up once, because a lookup is a synchronous request to the font server, and
+    /// several at once from different threads can wait for its replies forever (#77).
+    private static let titleTypeface = Typeface(size: 18)
+    private static let textTypeface = Typeface(size: 12)
+
+    private var typeface: Typeface {
         switch self {
-        case .title: 18
-        case .body, .notes: 12
+        case .title: Self.titleTypeface
+        case .body, .notes: Self.textTypeface
+        }
+    }
+}
+
+/// Times New Roman's four faces at one size. Without Times New Roman, the system font's,
+/// for as long as the process runs.
+///
+/// `@unchecked` because `NSFont` isn't marked `Sendable`, but it's immutable and toll-free
+/// bridged to `CTFont`, whose header says all of its functions are thread safe.
+private struct Typeface: @unchecked Sendable {
+    private let regular, bold, italic, boldItalic: NSFont
+
+    init(size: CGFloat) {
+        let base: NSFont
+        if let font = NSFont(name: ParagraphRole.fontFamily, size: size) {
+            base = font
+        } else {
+            Log.editor.error("Times New Roman is missing; using the system font", ["size": .count(Int(size))])
+            base = .systemFont(ofSize: size)
+        }
+        func face(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+            NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
+        }
+        regular = face([])
+        bold = face(.bold)
+        italic = face(.italic)
+        boldItalic = face([.bold, .italic])
+    }
+
+    /// The face with `traits`' bold and italic; no other trait has a face of its own.
+    subscript(traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+        switch (traits.contains(.bold), traits.contains(.italic)) {
+        case (false, false): regular
+        case (true, false): bold
+        case (false, true): italic
+        case (true, true): boldItalic
         }
     }
 }

@@ -170,13 +170,15 @@ struct StoreRaceTests {
                 in: folder, prompts: prompts, fileSystem: fileSystem)
             book.replaceBody(of: scene, with: [[Run("Mine")]])
             let lateTyping = Task { @MainActor in
-                while store.current === book { await Task.yield() }
+                let deadline = ContinuousClock.now + .seconds(10)
+                while store.current === book, ContinuousClock.now < deadline { await Task.yield() }
                 let before = book.book
                 book.replaceBody(of: scene, with: [[Run("Typed after the final check")]])
                 return (accepted: book.book != before, editable: book.isEditable)
             }
             store.saveNow()
             let late = await lateTyping.value
+            try #require(store.current !== book, "precondition: the save closed the book")
             await eventually { store.current != nil }
 
             #expect(!late.accepted)

@@ -3,7 +3,7 @@ import Testing
 
 @testable import SceneItCore
 
-@MainActor @Suite struct DisplayAttributesTests {
+@Suite struct DisplayAttributesTests {
     private static let faces: [(Set<TextStyle>, String)] = [
         ([], "TimesNewRomanPSMT"),
         ([.bold], "TimesNewRomanPS-BoldMT"),

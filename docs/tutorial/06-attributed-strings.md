@@ -212,15 +212,45 @@ bold face*. A font descriptor describes a font by attributes, and
 `withSymbolicTraits` asks for the face with the given traits:
 
 ```swift
+    init(size: CGFloat) {
+        let base = NSFont(name: ParagraphRole.fontFamily, size: size) ?? .systemFont(ofSize: size)
+        func face(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont {
+            NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
+        }
+        regular = face([])
+        bold = face(.bold)
+        italic = face(.italic)
+        boldItalic = face([.bold, .italic])
+    }
+```
+
+That's `Typeface`, Times New Roman's four faces at one size. `ParagraphRole` keeps
+one per size in a `static let` and picks a face from it:
+
+```swift
     public func font(_ styles: Set<TextStyle>) -> NSFont {
         let traits = styles.reduce(into: baseTraits) { traits, style in
             traits.formUnion(style.fontTrait)
         }
-        let size = pointSize
-        let base = NSFont(name: Self.fontFamily, size: size) ?? .systemFont(ofSize: size)
-        return NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: size) ?? base
+        return typeface[traits]
     }
 ```
+
+A `static let` is initialized lazily, the first time it's read, and exactly once:
+Swift guards it with the equivalent of Rust's `std::sync::OnceLock`, so threads that
+read it at the same moment wait for the one that's initializing it. That's why the
+faces are looked up there, once, and never again per call. Each lookup is a
+synchronous request to the font server (`fontd`, another process), and that server
+can stall. With eight threads looking fonts up at once, every one of them waited for
+a reply that never came, which hung `swift test` (#14 and #77). The flip side of
+looking the faces up once: if Times New Roman is missing when they're first needed, the
+system-font fallback is what's kept until the app quits, and the miss is logged once.
+
+`NSFont` isn't marked `Sendable`, but it's immutable and *toll-free bridged* to Core
+Text's `CTFont`: one object, which either API can use. `CTFont.h` says all its functions
+are thread safe. So `Typeface` is declared `@unchecked Sendable`. That's the Swift
+version of a Rust `unsafe impl Sync`: the programmer vouches for something the
+compiler can't check.
 
 Times New Roman has all four faces. The tests check that they really resolve
 (`TimesNewRomanPSMT`, `TimesNewRomanPS-BoldMT`, `TimesNewRomanPS-ItalicMT`,
@@ -233,12 +263,13 @@ attribute.
 `baseTraits` so every face it picks is bold. The editors never use it. It's there
 for print and export, which draw the scene's `SceneTitle` above the body.
 
-`RunCodec` is `@MainActor`. The `NSTextStorage` it fills and reads belongs to a text
-view, and AppKit text is main-thread only, so the codec runs where its input lives
+`RunCodec` isn't tied to an actor. It reads and builds attributed strings on whatever
+thread calls it. The page calls it on the main thread, where its `NSTextStorage` lives,
+and the tests call it from many threads at once
 ([ADR 0011](../decisions/0011-mainactor-default-isolation.md) explains the isolation
-model). The test suites are `@MainActor` too. Before they were, `swift test` hung
-twice while developing this chapter: several test threads were each resolving Times
-New Roman, and all of them were waiting on a reply from the font server.
+model). The codec used to be `@MainActor`, which kept font lookups to one thread.
+But every codec test then queued for the main thread, behind 20,000-round fuzz
+loops, so under load even trivial tests went past their time limits.
 
 ## 6. Saving: read meaning, drop display
 
