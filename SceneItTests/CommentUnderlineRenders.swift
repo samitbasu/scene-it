@@ -8,8 +8,7 @@ import Testing
 /// Comment underlines (#24, ADR 0032) as the owner chose them, on the page at 100%: the
 /// mockup's demo text with one comment, two and three overlapping, one across a line wrap, one
 /// over highlighted text and one inside a selection, all seven palette colors, a stack deeper
-/// than fits, a misspelled commented word, and a comment in two pieces; and in the notes, each
-/// candidate for what they show where no line fits below the letters.
+/// than fits, a misspelled commented word, and a comment in two pieces.
 extension WindowRenders {
     @Test func commentUnderlines() async throws {
         let output = try #require(renderFolder)
@@ -34,58 +33,7 @@ extension WindowRenders {
                 to: output)
             try Self.png(Self.closeUp(page.double, CGRect(x: 360, y: 240, width: 500, height: 330)))
                 .write(to: output.appending(path: "underlines-close-up@2x.png"))
-            preferences.showRightPanelTab(.notes)
-            defer { preferences.showRightPanelTab(.comments) }
-            for (name, caption, option) in Self.notesCandidates {
-                let renders = try await Self.render(window()) { window in
-                    let notes = try #require(
-                        subviewTree(of: window.contentView).compactMap { $0 as? SceneTextView }
-                            .first { !($0 is ManuscriptTextView) })
-                    try #require(!notes.string.isEmpty, "precondition: the notes are shown")
-                    switch option {
-                    case .room(let room): notes.tightRoom = room
-                    case .spaced: Self.spaceLines(of: notes)
-                    }
-                }
-                try Self.write(renders, name: "underlines-notes-\(name)", caption: caption, to: output)
-                try Self.png(Self.closeUp(renders.double, CGRect(x: 1150, y: 140, width: 290, height: 90)))
-                    .write(to: output.appending(path: "underlines-notes-\(name)-close-up@2x.png"))
-            }
         }
-    }
-
-    enum NotesOption {
-        case room(TightRoom)
-        /// A line 3 pt down as on the page, with 2 pt between the notes' lines to hold it.
-        case spaced
-    }
-
-    static let notesCandidates: [(String, String, NotesOption)] = [
-        ("A-line-into-next", "Notes A: one line 3 pt down, into the next line", .room(.lineIntoTheNextLine)),
-        ("B-raised", "Notes B: one line 1 pt below the baseline, through the descenders", .room(.raisedLine)),
-        ("C-tint", "Notes C: a tint of the comment's color instead of a line", .room(.tint)),
-        ("D-spaced", "Notes D: one line 3 pt down, with 2 pt between the notes' lines", .spaced),
-    ]
-
-    /// Candidate D, drawn by giving the notes' paragraphs 2 pt of line spacing in the view alone,
-    /// out of the editor's hearing.
-    private static func spaceLines(of notes: SceneTextView) {
-        guard let storage = notes.textStorage else { return }
-        let editor = storage.delegate
-        storage.delegate = nil
-        defer { storage.delegate = editor }
-        var spaced: [(NSParagraphStyle, NSRange)] = []
-        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) {
-            value, range, _ in
-            guard let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle else {
-                return
-            }
-            style.lineSpacing = 2
-            spaced.append((style, range))
-        }
-        storage.beginEditing()
-        for (style, range) in spaced { storage.addAttribute(.paragraphStyle, value: style, range: range) }
-        storage.endEditing()
     }
 
     /// `rect`, in the window's top-left points, cut from a 2x render.
@@ -118,9 +66,6 @@ extension WindowRenders {
         let letter = comment(.purple)
         let palette = PaletteColor.allCases.map { ($0, comment($0)) }
         let deep = [PaletteColor.red, .blue, .green, .purple, .pink, .gray].map(comment)
-        let notesOlder = comment(.green)
-        let notesNewer = comment(.pink)
-        let notesLetter = comment(.blue)
         let misspelled = comment(.blue)
         let pieces = comment(.red)
         let between = comment(.green)
@@ -167,18 +112,6 @@ extension WindowRenders {
             ],
         ]
         book.scenes[0].body = body
-        book.scenes[0].notes = [
-            [
-                Run("Check the tide tables: would a ferry "),
-                Run("really leave", comments: [notesOlder]),
-                Run(" at dawn", comments: [notesOlder, notesNewer]),
-                Run(" in March?", comments: [notesNewer]),
-            ],
-            [
-                Run("Who kept the mother's "), Run("letter", comments: [notesLetter]),
-                Run(" all these years?"),
-            ],
-        ]
         let text = body.map(\.text).joined(separator: "\n") as NSString
         return (book, text.range(of: selected))
     }

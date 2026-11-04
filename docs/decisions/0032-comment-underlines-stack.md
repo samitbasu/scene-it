@@ -24,11 +24,9 @@ the newest comment's color.
   always stays above the next line's slot and inside the paragraph's drawing surface. At 1x and 50%, for instance, 3 fit.
   **Past the limit, the fallback applies to that stretch only**: one line, at the first level, in the newest covering
   comment's colour.
-- **The notes are single-spaced**: no line fits below their letters (2.51 pt of room; a line 3 pt down needs 4). What they
-  show instead is the owner's call, rendered as four candidates (#24): a line 3 pt down anyway, into the next line (what
-  they show until the pick); a line 1 pt below the baseline, through the descenders; a tint of the comment's colour
-  behind the letters; or 2 pt between the notes' lines, which holds one line 3 pt down. Overlapping comments in the notes
-  show the fallback in every candidate.
+- **The notes have no comments** (ADR 0035), so nothing is drawn there.
+- **A misspelled commented word:** the spelling dots and the first line sit together, the dots over the line (rendered
+  for the owner, #24); the placement (first line 3 pt below the baseline) is accepted as it is for now.
 - **A comment in several pieces** keeps one level across its paragraph, from its first piece to its last, so a comment
   between the pieces goes a level down (a known consequence, rendered for the owner).
 - A line under a wrapped stretch stops at the line's last letter, not under the space the line breaks at.
@@ -42,8 +40,8 @@ some paragraphs drew in another candidate's style. Fragments now read the palett
 correctly) chose F over a one-pixel hairline (G) and the earlier 1 pt / 2 pt-apart (A) and 1.5 pt (B) lines.
 
 ## Hit-testing (#24)
-A plain click on commented text, or on its underlines in the spacing below the line, selects its comment
-(`CommentSelection`, shared by the page, the notes and the comments panel): the newest covering comment, or, if one of
+A plain click on commented text on the page, or on its underlines in the spacing below the line, selects its comment
+(`CommentSelection`, shared by the page and the comments panel): the newest covering comment, or, if one of
 them is already selected, the next older one, round again to the newest, so clicking the same spot cycles. The click still
 places the caret.
 - **Only plain clicks** (the owner's call): a press with Shift, Command, Option or Control, a double click, and a press that

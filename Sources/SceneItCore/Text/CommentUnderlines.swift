@@ -71,22 +71,6 @@ enum UnderlineStyle {
     }
 }
 
-/// What a paragraph with no room for a line below its letters shows (the single-spaced notes).
-/// Candidates for the owner's pick (#24).
-public enum TightRoom: Hashable, Sendable {
-    /// One line 3 pt below the baseline anyway, into the next line's slot.
-    case lineIntoTheNextLine
-    /// One line just below the baseline, through the descenders, where it fits.
-    case raisedLine
-    /// A tint of the comment's color behind the letters instead of a line.
-    case tint
-
-    /// From the baseline down to the top of the raised line.
-    static let raisedOffset: CGFloat = 1
-    /// How strong the tint is.
-    static let tintAlpha: CGFloat = 0.18
-}
-
 /// The open scene's comments as the page draws them: each one's color, and which is newer.
 public struct CommentPalette: Hashable, Sendable {
     private let entries: [CommentID: Entry]
@@ -380,43 +364,20 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
     }
 
     public override func draw(at point: CGPoint, in context: CGContext) {
-        guard let first = textLineFragments.first else {
-            super.draw(at: point, in: context)
-            return
-        }
+        super.draw(at: point, in: context)
+        guard let first = textLineFragments.first else { return }
         let step = DeviceStep(of: context, at: point.y + baseline(of: first))
         let underlines = underlineRects(at: step)
-        let tight = UnderlineStyle.depth(below: first, spacedBy: paragraphStyle, at: step) == 0
-        let tightRoom = underliner.tightRoom
-        context.saveGState()
-        if tight, tightRoom == .tint {
-            for underline in underlines {
-                context.setFillColor(underline.color.nsColor.withAlphaComponent(TightRoom.tintAlpha).cgColor)
-                context.fill(tint(under: underline, at: point))
-            }
-        }
-        context.restoreGState()
-        super.draw(at: point, in: context)
-        guard !(tight && tightRoom == .tint) else { return }
+        guard !underlines.isEmpty else { return }
         context.saveGState()
         for underline in underlines {
-            let top =
-                tight && tightRoom == .raisedLine
-                ? Int((TightRoom.raisedOffset * step.pixelsPerPoint).rounded())
-                : UnderlineStyle.pixels(of: underline.level, at: step).top
             context.setFillColor(underline.color.nsColor.cgColor)
-            context.fill(pixelAligned(underline, top: top, at: point, step: step, in: context))
+            context.fill(
+                pixelAligned(
+                    underline, top: UnderlineStyle.pixels(of: underline.level, at: step).top, at: point,
+                    step: step, in: context))
         }
         context.restoreGState()
-    }
-
-    /// The letters' slot above `underline`.
-    private func tint(under underline: PlacedUnderline, at point: CGPoint) -> CGRect {
-        let slot = textLineFragments.first { baseline(of: $0) == underline.baseline }?.typographicBounds
-        let top = slot?.minY ?? underline.baseline - ParagraphRole.textLineHeight
-        let height = slot?.height ?? ParagraphRole.textLineHeight
-        return CGRect(x: underline.rect.minX, y: top, width: underline.rect.width, height: height)
-            .offsetBy(dx: point.x, dy: point.y)
     }
 
     /// `underline` on whole device pixels, `top` pixels below its baseline's pixel.
@@ -441,27 +402,22 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
 /// Lays out every paragraph of a text as a `CommentUnderlineFragment`, which draws with the
 /// palette this was last given. TextKit asks on whichever thread lays out.
 public final class CommentUnderliner: NSObject, NSTextLayoutManagerDelegate, Sendable {
-    private let state = Mutex((palette: CommentPalette.empty, tightRoom: TightRoom.lineIntoTheNextLine))
+    private let state = Mutex(CommentPalette.empty)
 
     /// Draws `palette`'s comments from now on. Only the paragraphs whose comments changed are
     /// laid out again, which draws them again.
     public func show(_ palette: CommentPalette, laidOutBy layout: NSTextLayoutManager?) {
-        let changed = state.withLock { state in
-            let changed = state.palette.changes(to: palette)
-            state.palette = palette
+        let changed = state.withLock { current in
+            let changed = current.changes(to: palette)
+            current = palette
             return changed
         }
         guard !changed.isEmpty, let layout else { return }
         invalidate(changed, in: layout)
     }
 
-    public var tightRoom: TightRoom {
-        get { state.withLock(\.tightRoom) }
-        set { state.withLock { $0.tightRoom = newValue } }
-    }
-
     public var palette: CommentPalette {
-        state.withLock(\.palette)
+        state.withLock(\.self)
     }
 
     private func invalidate(_ comments: Set<CommentID>, in layout: NSTextLayoutManager) {

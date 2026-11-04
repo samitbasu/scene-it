@@ -139,6 +139,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     private func replace(_ part: TextPart, of scene: SceneID, with paragraphs: [Paragraph]) {
+        guard let current = book.scene(scene) else { return }
+        let paragraphs =
+            part == .notes
+            ? paragraphs.map { $0.keepingComments(Self.commentsAllowed(in: .notes, of: current)) }
+            : paragraphs
         edit(scene) { $0[keyPath: part.paragraphs] = paragraphs }
         if book.scene(scene)?[keyPath: part.paragraphs] == paragraphs {
             textUndoManagers[part]?[scene]?.removeAllActions()
@@ -146,8 +151,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// An editor's edit to `scene`'s body or notes, adding `comments` to the scene with it (a
-    /// paste that brings comments along, decision 0017). Any comment id the scene then has no
-    /// comment for is dropped from the new paragraphs, so the book always saves. Returns the
+    /// paste onto the page that brings comments along, decisions 0017 and 0035). Any comment id
+    /// the scene then has no comment for is dropped from the new paragraphs, so the book always
+    /// saves; the notes take no comment and keep no id they didn't already carry. Returns the
     /// paragraphs the part now holds in place of the replaced lines; `nil`, changing nothing,
     /// if the book is read-only, there's no such scene or the lines aren't in the part. Only
     /// the body's words are counted (PLAN §4.5).
@@ -157,21 +163,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     ) -> [Paragraph]? {
         guard let driver = editingDriver, let place = place(of: scene) else { return nil }
         var edited = book[keyPath: place.list][place.index]
-        let added = comments.filter { comment in !edited.comments.contains { $0.id == comment.id } }
+        let added =
+            part == .body
+            ? comments.filter { comment in !edited.comments.contains { $0.id == comment.id } } : []
         edited.comments += added
-        let known = Set(edited.comments.map(\.id))
-        let accepted = change.mapParagraphs { paragraph in
-            guard Paragraph.commentIDs(in: [paragraph]).isSubset(of: known) else {
-                return Paragraph(
-                    paragraph.runs.map { run in
-                        var run = run
-                        run.comments.formIntersection(known)
-                        return run
-                    }
-                ).withMaximalRuns
-            }
-            return paragraph
-        }
+        let known = Self.commentsAllowed(in: part, of: edited)
+        let accepted = change.mapParagraphs { $0.keepingComments(known) }
         let text = part.paragraphs
         guard let replaced = accepted.replaced(in: edited[keyPath: text]),
             let paragraphs = accepted.applied(to: edited[keyPath: text])
@@ -188,6 +185,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         driver.send(.edited)
         return accepted.paragraphs
+    }
+
+    /// The comment ids `part` of `scene` may carry: the scene's, on the page. Comments are made
+    /// on the page alone (ADR 0032), so the notes keep only those they were loaded with.
+    private static func commentsAllowed(in part: TextPart, of scene: BookScene) -> Set<CommentID> {
+        let known = Set(scene.comments.map(\.id))
+        switch part {
+        case .body: return known
+        case .notes: return Paragraph.commentIDs(in: scene.notes).intersection(known)
+        }
     }
 
     /// Takes back comments a paste into `part` added (its undo), unless some text still

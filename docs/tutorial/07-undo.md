@@ -88,7 +88,7 @@ PLAN §8.6, and the owner's decision for the Errors tab:
 | --- | --- | --- |
 | A scene's page text (and comments, which register there) | `OpenBook.pageUndo(for:)`, one per scene | for the session |
 | A scene's title | `OpenBook.titleUndo(for:)`, one per scene | for the session |
-| A scene's notes (and comments pasted into them) | `OpenBook.notesUndo(for:)`, one per scene | for the session |
+| A scene's notes (comments never reach them, ADR 0035) | `OpenBook.notesUndo(for:)`, one per scene | for the session |
 | The book's structure: scenes added, moved, cut (#28) | `OpenBook.structureUndo` | for the session |
 | The Errors tab's Delete and Fix | `OpenBook.errorsUndo` | for the session |
 

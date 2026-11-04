@@ -143,6 +143,26 @@ struct CommentClickTests {
         }
     }
 
+    // MARK: The notes have no comments (the owner's ruling, ADR 0032; pasting, in NotesTests)
+
+    /// Notes from a file that anchors a comment in them (the format allows it, ADR 0032) show no
+    /// underline, and a click there selects nothing.
+    @Test func theNotesDrawNoUnderlinesAndClicksThereSelectNothing() async throws {
+        var commented = scene("One", letterScene, .withTooEarly)
+        commented.notes = [[Run("The "), Run("letter", comments: [noted]), Run(" again.")]]
+        try await withPage([commented]) { harness in
+            let notes = try await harness.showNotes()
+            await eventually { notes.string == "The letter again." }
+            #expect(notes.textLayoutManager?.delegate == nil, "TextKit's own fragments")
+            let letter = try Self.frame(of: 6, in: notes)
+            #expect(try Self.colors(below: letter, in: notes).isEmpty)
+            try Self.click(harness, onCharacter: 6, in: notes)
+            let selection = try #require(harness.page.editor?.comments)
+            #expect(selection.selected == nil)
+            #expect((6...7).contains(notes.selectedRange().location), "the click placed the caret")
+        }
+    }
+
     // MARK: Support
 
     /// The character at `index`'s segment, in the page's coordinates.
@@ -167,22 +187,24 @@ struct CommentClickTests {
         segment.maxY - (ParagraphRole.textLineHeight - 11)
     }
 
-    static func click(_ harness: PageHarness, onCharacter index: Int) throws {
-        let frame = try frame(of: index, in: harness.page)
-        try click(harness, at: CGPoint(x: frame.midX, y: baseline(of: frame) - 4))
+    static func click(_ harness: PageHarness, onCharacter index: Int, in view: SceneTextView? = nil) throws {
+        let view = view ?? harness.page
+        let frame = try frame(of: index, in: view)
+        try click(harness, at: CGPoint(x: frame.midX, y: baseline(of: frame) - 4), in: view)
     }
 
-    /// A single press at `point` in the page, released there or at `end` after dragging to it:
-    /// the drag and the release queued for the page's tracking loop, then the press handed to the
-    /// page.
+    /// A single press at `point` in `view` (the page), released there or at `end` after dragging
+    /// to it: the drag and the release queued for the view's tracking loop, then the press handed
+    /// to the view.
     static func click(
-        _ harness: PageHarness, at point: CGPoint, modifiers: NSEvent.ModifierFlags = [],
-        draggingTo end: CGPoint? = nil
+        _ harness: PageHarness, at point: CGPoint, in view: SceneTextView? = nil,
+        modifiers: NSEvent.ModifierFlags = [], draggingTo end: CGPoint? = nil
     ) throws {
+        let view = view ?? harness.page
         func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
             try #require(
                 NSEvent.mouseEvent(
-                    with: type, location: harness.page.convert(point, to: nil), modifierFlags: modifiers,
+                    with: type, location: view.convert(point, to: nil), modifierFlags: modifiers,
                     timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: harness.window.windowNumber,
                     context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
@@ -191,7 +213,7 @@ struct CommentClickTests {
             harness.window.postEvent(try event(.leftMouseDragged, at: end), atStart: false)
         }
         harness.window.postEvent(try event(.leftMouseUp, at: end ?? point), atStart: false)
-        harness.page.mouseDown(with: try event(.leftMouseDown, at: point))
+        view.mouseDown(with: try event(.leftMouseDown, at: point))
     }
 
     /// The palette colors drawn in the room below `segment`, in the column at its middle, at 2×.

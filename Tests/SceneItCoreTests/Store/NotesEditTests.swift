@@ -48,19 +48,19 @@ struct NotesEditTests {
         }
     }
 
-    /// Book format §4.2: a comment may cover the notes' text as well as the body's.
-    @Test func aCommentCanCoverTheNotesAndAnUnknownIdIsDropped() async throws {
+    /// Comments are made on the page alone (ADR 0032): an edit or a paste can't put one in the
+    /// notes, and the comments a paste would bring aren't added.
+    @Test func noCommentReachesTheNotes() async throws {
         try await withScene { book, scene in
             let change = BodyChange(
                 lines: 0..<1, paragraphs: [[Run("Check "), Run("the tides.", comments: [noted, stray])]])
-            #expect(
-                book.apply(change, to: scene, in: .notes)
-                    == [[Run("Check "), Run("the tides.", comments: [noted])]])
-            book.replaceBody(of: scene, with: [[Run("No comment here.")]])
+            let copy = Comment(id: stray, color: .red, text: "Copied", created: tooEarly.created)
+            #expect(book.apply(change, to: scene, in: .notes, adding: [copy]) == [[Run("Check the tides.")]])
+            book.replaceNotes(of: scene, with: [[Run("Again", comments: [noted])]])
             let edited = try #require(book.book.scene(scene))
-            #expect(!edited.isDetached(noted), "the notes carry the comment")
-            let saved = try BookFormat.verifiedSerialization(of: book.book)
-            #expect(String(decoding: saved, as: UTF8.self).contains("notes c6-16"))
+            #expect(edited.notes == [[Run("Again")]])
+            #expect(edited.comments == [tooEarly], "the copy wasn't added")
+            #expect(!edited.isDetached(noted), "still on the page")
         }
     }
 

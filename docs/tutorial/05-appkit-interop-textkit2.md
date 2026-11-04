@@ -235,9 +235,9 @@ selection moves gives the highlight back. The notes draw no background, and then
 
 TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws itself
 (`draw(at:in:)`). The layout manager asks its delegate for every paragraph's fragment
-(`textLayoutManager(_:textLayoutFragmentFor:in:)`), so `SceneTextView` makes a
-`CommentUnderliner` its layout manager's delegate, and every paragraph of the page and the notes
-is a `CommentUnderlineFragment`: TextKit's own drawing, then a line per comment below the
+(`textLayoutManager(_:textLayoutFragmentFor:in:)`), so the page (`ManuscriptTextView`) makes a
+`CommentUnderliner` its layout manager's delegate, and every paragraph of the page is a
+`CommentUnderlineFragment` (the notes have no comments, ADR 0035, and keep TextKit's own): TextKit's own drawing, then a line per comment below the
 baseline, in the comment's colour. A Rust analogy: the delegate is a factory closure the layout
 engine calls, and the fragment is a type that wraps the default `draw` and adds to it.
 
@@ -642,8 +642,10 @@ itself stops at once on such an exception instead of carrying on.
 The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced (with 6 pt
 between paragraphs, `ParagraphRole.notes`'s paragraph style, which like every paragraph style
 is display only and never saved), 14 pt in from the panel's sides, with the same
-bold, italic, strike, color and highlight, comments included (book format §4.2 lets a comment
-cover notes text, `notes c10-21`). Everything that makes the page safe — the character veto,
+bold, italic, strike, color and highlight, but no comments: comments are on the manuscript
+only (ADR 0035), so a paste into the notes drops them, and the model won't let an edit add one.
+(Book format §4.2 still lets a comment cover notes text, `notes c10-21`; what to do with such a
+file is an open question.) Everything that makes the page safe — the character veto,
 the backstops, the codec's rules for pastes, the app's own pasteboard clip, per-keystroke
 ranged sync, per-scene undo — applies to it unchanged. Writing a `NotesEditor` beside the page's
 editor would have been two copies of that, which drift. So the page's machinery was

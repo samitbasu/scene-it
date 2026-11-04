@@ -40,8 +40,10 @@ final class SceneTextEditor: NSObject {
     /// The writer clicked the character at `index`, or its underlines: if comments cover it,
     /// the newest is selected, or the next of them when one is already (PLAN §8.1).
     func clickedComments(at index: Int) {
-        guard let scene, let view = textView, let storage = view.textStorage else { return }
-        comments.click(covering: view.commentPalette.newestFirst(at: index, in: storage), in: scene)
+        guard let scene, let page = textView as? ManuscriptTextView, let storage = page.textStorage else {
+            return
+        }
+        comments.click(covering: page.commentPalette.newestFirst(at: index, in: storage), in: scene)
     }
 
     private var role: ParagraphRole {
@@ -70,9 +72,11 @@ final class SceneTextEditor: NSObject {
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
         guard let view = textView else { return }
-        let comments = book.book.scene(scene)?.comments ?? []
-        view.commentPalette = CommentPalette(comments)
-        self.comments.forget(allBut: Set(comments.map(\.id)), in: scene)
+        if let page = view as? ManuscriptTextView {
+            let comments = book.book.scene(scene)?.comments ?? []
+            page.commentPalette = CommentPalette(comments)
+            self.comments.forget(allBut: Set(comments.map(\.id)), in: scene)
+        }
         let text = modelText(of: scene) ?? []
         if scene != self.scene {
             load(scene, text, caret: 0)
@@ -261,23 +265,32 @@ final class SceneTextEditor: NSObject {
                 let fallback = pasteboard.availableType(from: Self.readableTypes.filter { $0 != .pageClip })
                 return fallback.map { paste(from: pasteboard, type: $0) } ?? false
             }
-            insert(pasted.lines, adding: pasted.comments)
+            switch part {
+            case .body: insert(pasted.lines, adding: pasted.comments)
+            case .notes: insert(Self.withoutComments(pasted.lines), adding: [])
+            }
             return true
         }
         guard let text = Self.foreignText(on: pasteboard, type: type, typing: view.typingAttributes) else {
             return false
         }
-        let lines = RunCodec.paragraphs(from: text).map { paragraph in
+        let lines = Self.withoutComments(RunCodec.paragraphs(from: text))
+        guard !lines.isEmpty else { return false }
+        insert(lines, adding: [])
+        return true
+    }
+
+    /// Comments are made on the page alone (ADR 0032), and text from elsewhere brings none.
+    private static func withoutComments(_ lines: [Paragraph]) -> [Paragraph] {
+        lines.map { paragraph in
             Paragraph(
                 paragraph.runs.map { run in
                     var run = run
                     run.comments = []
                     return run
-                })
+                }
+            )
         }
-        guard !lines.isEmpty else { return false }
-        insert(lines, adding: [])
-        return true
     }
 
     /// Text another app put on the pasteboard; plain text takes the typing attributes.

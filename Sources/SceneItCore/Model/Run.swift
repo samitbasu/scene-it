@@ -74,6 +74,18 @@ public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
         Set(paragraphs.lazy.flatMap(\.runs).flatMap(\.comments))
     }
 
+    /// The same text, carrying no comment but `known`.
+    func keepingComments(_ known: Set<CommentID>) -> Paragraph {
+        guard !Paragraph.commentIDs(in: [self]).isSubset(of: known) else { return self }
+        return Paragraph(
+            runs.map { run in
+                var run = run
+                run.comments.formIntersection(known)
+                return run
+            }
+        ).withMaximalRuns
+    }
+
     /// The same text with neighbouring runs of the same format merged, as `book.md`
     /// writes it.
     var withMaximalRuns: Paragraph {
