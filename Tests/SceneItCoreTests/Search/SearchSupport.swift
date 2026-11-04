@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import SceneItCore
@@ -58,5 +59,31 @@ func searchedToCompletion(_ index: KeywordSearch, _ query: SearchQuery) -> Searc
     while true {
         let update = run.advance()!
         if update.progress == .complete { return update }
+    }
+}
+
+/// A clock that stands still and cancels the task reading it on its `onRead`th reading, counting
+/// from 1. A search step reads it once to set its deadline and again after each unit, so the
+/// cancellation lands just after a chosen unit.
+final class CancellingClock: Clock, Sendable {
+    private let base = ManualClock()
+    private let cancellingRead: Int
+    private let reads = Mutex(0)
+
+    init(onRead cancellingRead: Int) { self.cancellingRead = cancellingRead }
+
+    var now: ManualClock.Instant {
+        let read = reads.withLock {
+            $0 += 1
+            return $0
+        }
+        if read == cancellingRead { withUnsafeCurrentTask { $0?.cancel() } }
+        return base.now
+    }
+
+    var minimumResolution: Duration { base.minimumResolution }
+
+    func sleep(until deadline: ManualClock.Instant, tolerance: Duration?) async throws {
+        try await base.sleep(until: deadline, tolerance: tolerance)
     }
 }
