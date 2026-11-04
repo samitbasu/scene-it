@@ -138,8 +138,16 @@ build in Xcode, the **installed** app shows the crash alert the next time it lau
 App-hosted tests launch the real app. Under the test runner (`XCTestConfigurationFilePath`
 is set) or SwiftUI previews (`XCODE_RUNNING_FOR_PREVIEWS=1`), every diagnostics location
 (marker, log ring, MetricKit, crash reports to read, report output) is in
-`$TMPDIR/Scene It Test Diagnostics/`, which is emptied at each launch. A test run never
+`$TMPDIR/Scene It Temporary Diagnostics/<pid>/`, which starts empty. A test run never
 leaves a marker in your real Application Support or copies your real crash reports.
+
+The folder is per process because two test runs can overlap, for example two worktrees'
+`check.sh` gates on one Mac. When every host shared one folder and emptied it at launch, a
+second host starting up deleted the first host's half-built report. The first host then
+logged `Report not zipped` with `NSCocoaErrorDomain 260` (no such file) and fell back to a
+folder that no longer existed (issue #100). Now `DiagnosticsDirectory.temporary(under:)`
+removes only its own folder and those whose process has exited. It checks with `kill(pid, 0)`,
+which sends no signal and only asks whether the process exists.
 
 ## MetricKit
 
@@ -185,7 +193,9 @@ day, then all but the newest four. It uses the same `RetentionPolicy` as MetricK
 The folder is zipped with `NSFileCoordinator` and the `.forUploading` reading option. Asked to
 read a directory "for uploading", the coordinator hands you a temporary zip of it. That's
 in-process, uses no third-party code and no subprocess, and keeps working if we ever
-sandbox. If zipping fails anyway, the report is the unzipped folder.
+sandbox. If zipping fails anyway, the report is the unzipped folder. The zipper was
+suspected in issue #100, but 320 concurrent zips of folders with the same name all
+succeeded. The real fault was the shared test folder described above.
 
 The test `reportContainsNoManuscriptText` plants three sentences from a fixture book, and
 first requires that each is really there:

@@ -98,7 +98,7 @@ extension LastSession {
 
 extension DiagnosticsDirectory {
     /// Application Support, except under the test runner and SwiftUI previews, which get a
-    /// temporary folder (emptied at each launch) so they never touch the user's real files.
+    /// temporary folder of their own so they never touch the user's real files.
     static func forThisProcess() -> DiagnosticsDirectory {
         if ProcessRole.current == .app {
             do {
@@ -110,6 +110,6 @@ extension DiagnosticsDirectory {
             }
         }
         return temporary(
-            at: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Diagnostics"))
+            under: FileManager.default.temporaryDirectory.appending(path: "Scene It Temporary Diagnostics"))
     }
 }
