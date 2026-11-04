@@ -112,19 +112,18 @@ private struct NotesTab: View {
     let book: AppOpenBook
     let formatting: EditorFormatting
     let editors: SceneEditors
-    @Environment(\.notesLook) private var look
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                FormattingBar(formatting: formatting, part: .notes, compactLayout: look.barLayout)
+                FormattingBar(formatting: formatting, part: .notes)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .frame(height: WindowMetrics.barHeight)
             Divider()
             if let scene = book.location.scene {
-                NotesView(book: book, editors: editors, scene: scene.id, notes: scene.notes, look: look)
+                NotesView(book: book, editors: editors, scene: scene.id, notes: scene.notes)
             } else {
                 Spacer()
             }

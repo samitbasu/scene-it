@@ -347,7 +347,7 @@ Two subtleties:
   With no input context, `interpretKeyEvents` hands keys straight to the key bindings, which
   type them with `insertText`, so there's never any marked text, and the `setMarkedText`
   override makes sure of it should anything call that directly. The page, the title field's
-  own field editor and (when it lands) the notes editor all inherit it. What the writer loses:
+  own field editor and the notes editor all inherit it. What the writer loses:
   **accents can't be typed at all.** Option-E then E, press-and-hold on `e`, and every IME are
   gone on the page and in the title. Accented text pasted in arrives as its plain letters
   (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
@@ -526,7 +526,9 @@ itself stops at once on such an exception instead of carrying on.
 
 ## 11. The notes: one editor, two texts
 
-The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced, with the same
+The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced (with 6 pt
+between paragraphs, `ParagraphRole.notes`'s paragraph style, which like every paragraph style
+is display only and never saved), 14 pt in from the panel's sides, with the same
 bold, italic, strike, color and highlight, comments included (book format §4.2 lets a comment
 cover notes text, `notes c10-21`). Everything that makes the page safe — the character veto,
 the backstops, the codec's rules for pastes, the app's own pasteboard clip, per-keystroke
@@ -597,7 +599,7 @@ again:
 
 ```swift
     static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
-        editors.notes.unmount(handingFocusTo: editors.page.textView)
+        editors.notes.unmount(from: slot, handingFocusTo: editors.page.textView)
     }
 ```
 

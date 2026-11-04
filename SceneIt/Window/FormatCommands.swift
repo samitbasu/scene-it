@@ -25,8 +25,15 @@ struct FormatCommands: Commands {
         }
     }
 
+    /// Choosing an item applies its color even when it's already checked: colors never toggle.
     private func checkedItem(_ command: FormattingCommand) -> some View {
-        PaletteMenuItem(formatting: formatting, target: .focusedEditor, command: command)
-            .keyboardShortcut(command.shortcut)
+        Toggle(
+            WindowWording.menuItem(command),
+            isOn: Binding(
+                get: { formatting.state(of: command) == .on },
+                set: { _ in formatting.perform(command) })
+        )
+        .keyboardShortcut(command.shortcut)
+        .disabled(formatting.selection == nil)
     }
 }

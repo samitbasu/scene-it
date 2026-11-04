@@ -49,6 +49,7 @@ final class SceneEditors {
         let notes = SceneTextView(usingTextLayoutManager: true)
         notes.configure(.notes)
         notes.drawsBackground = false
+        notes.textContainerInset = WindowMetrics.Notes.padding
         notes.textContainer?.widthTracksTextView = true
         notes.isVerticallyResizable = true
         notes.isHorizontallyResizable = false

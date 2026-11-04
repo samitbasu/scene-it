@@ -33,9 +33,31 @@ import Testing
         let body = ParagraphRole.body.paragraphStyle
         #expect(body.lineHeightMultiple == 2)
         #expect(body.firstLineHeadIndent == 36)
-        for role in [ParagraphRole.title, .notes] {
-            #expect(role.paragraphStyle == NSParagraphStyle.default)
-        }
+        #expect(ParagraphRole.title.paragraphStyle == NSParagraphStyle.default)
+        let notes = ParagraphRole.notes.paragraphStyle
+        #expect(notes.paragraphSpacing == 6, "6 pt between the notes' paragraphs (#19)")
+        let single = NSMutableParagraphStyle()
+        single.paragraphSpacing = 6
+        #expect(notes == single, "and otherwise single-spaced, with no indent")
+    }
+
+    /// The notes' paragraph gap is display only: nothing of it is saved.
+    @Test func theNotesParagraphGapNeverReachesTheModel() throws {
+        let notes: [Paragraph] = [[Run("One", styles: [.bold])], [Run("Two", color: .red)]]
+        let shown = RunCodec.attributedString(forNotes: notes)
+        #expect(
+            (shown.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+                .paragraphSpacing
+                == 6, "precondition: the notes show the gap")
+        #expect(RunCodec.notes(from: shown) == notes)
+        var ids = IDGenerator<SystemRandomNumberGenerator>.system
+        let scene = BookScene(
+            id: ids.sceneID(), modified: Timestamp(secondsSince1970: 1_700_000_000, offset: .zero),
+            title: "One", notes: RunCodec.notes(from: shown))
+        let saved = try BookFormat.verifiedSerialization(of: Book(title: "Novel", scenes: [scene]))
+        let unspaced = BookScene(
+            id: scene.id, modified: scene.modified, title: "One", notes: notes)
+        #expect(saved == BookFormat.serialize(Book(title: "Novel", scenes: [unspaced])))
     }
 
     @Test(arguments: [(Editor.body, ParagraphRole.body), (.notes, .notes)])

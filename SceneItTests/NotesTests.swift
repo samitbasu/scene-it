@@ -251,6 +251,75 @@ struct NotesTests {
     }
 }
 
+extension NotesTests {
+    /// The owner's picks (#19): Times New Roman 12, 14 pt from the panel's sides and 12 pt from
+    /// its top, 6 pt between paragraphs, and no placeholder in empty notes.
+    @Test func theNotesAreSetAsPicked() async throws {
+        let empty = sceneWithNotes("Empty", notes: [])
+        try await withPage([sceneWithNotes("One"), empty]) { page in
+            let notes = try await page.showNotes()
+            #expect(notes.textContainerInset == NSSize(width: 14, height: 12))
+            let storage = try #require(notes.textStorage)
+            #expect(storage.length > 0, "precondition: the notes have text")
+            let font = storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+            #expect(font?.familyName == "Times New Roman")
+            #expect(font?.pointSize == 12)
+            let style = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            #expect(style?.paragraphSpacing == 6)
+            #expect(style?.lineHeightMultiple == 0, "single-spaced")
+            #expect(style?.firstLineHeadIndent == 0)
+
+            page.focusNotes(notes, at: notes.string.utf16.count)
+            notes.insertNewline(nil)
+            notes.insertText("Typed.", replacementRange: notes.selectedRange())
+            let typed =
+                notes.textStorage?.attribute(
+                    .paragraphStyle, at: notes.string.utf16.count - 1, effectiveRange: nil)
+                as? NSParagraphStyle
+            #expect(typed?.paragraphSpacing == 6, "a new paragraph has the gap too")
+            #expect(page.notes().last == [Run("Typed.")], "the gap isn't part of the notes")
+
+            page.book.select(empty.id)
+            await eventually { notes.string.isEmpty }
+            #expect(notes.textStorage?.length == 0)
+        }
+    }
+
+    /// Whichever way the notes leave the window while they have the focus, the focus goes back
+    /// to the page, so what's typed next goes there.
+    @Test func theFocusGoesBackToThePageWhenTheNotesLeave() async throws {
+        let one = sceneWithNotes("One", [[Run("Page.")]])
+        try await withPage([one]) { page in
+            let leaving: [(String, () -> Void, () -> Void)] = [
+                (
+                    "another tab", { page.preferences.showRightPanelTab(.comments) },
+                    { page.preferences.showRightPanelTab(.notes) }
+                ),
+                (
+                    "the panel closed", { page.preferences.setRightPanel(.closed) },
+                    { page.preferences.setRightPanel(.open) }
+                ),
+            ]
+            for (way, leave, comeBack) in leaving {
+                let notes = try await page.showNotes()
+                page.focusNotes(notes, at: 0)
+                #expect(page.activeBars == [.notes], "precondition: \(way)")
+                leave()
+                await eventually { page.notesView == nil }
+                #expect(page.window.firstResponder === page.page, "\(way): the page has the focus")
+                #expect(page.activeBars == [.body], "\(way): and the page's bar is active")
+                let typing = try #require(page.window.firstResponder as? NSTextView)
+                typing.insertText("X", replacementRange: typing.selectedRange())
+                #expect(
+                    page.body().first?.runs.first?.text.contains("X") == true,
+                    "\(way): typing reaches the page")
+                #expect(page.notes() == notesScene, "\(way): and not the notes")
+                comeBack()
+            }
+        }
+    }
+}
+
 extension BookStoreIntegrationTests {
     /// The real path: the app's own window, store and Format menu, with the notes focused.
     @Test func theFormatMenuFormatsTheNotesWhileTheyHaveTheFocus() async throws {

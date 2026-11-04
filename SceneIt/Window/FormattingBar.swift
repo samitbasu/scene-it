@@ -10,7 +10,6 @@ struct FormattingBar: View {
     let formatting: EditorFormatting
     /// Whose bar it is: the page's, or the notes' compact copy.
     let part: TextPart
-    var compactLayout = WindowMetrics.Notes.provisional.barLayout
 
     var body: some View {
         HStack(spacing: WindowMetrics.Bar.groupSpacing) {
@@ -25,13 +24,8 @@ struct FormattingBar: View {
                 }
             }
             BarDivider()
-            switch (part, compactLayout) {
-            case (.body, _), (.notes, .glyphRow):
-                ColorControl(formatting: formatting, part: part, kind: .textColor)
-                ColorControl(formatting: formatting, part: part, kind: .highlight)
-            case (.notes, .overflowMenu):
-                PaletteMenu(formatting: formatting, part: part)
-            }
+            ColorControl(formatting: formatting, part: part, kind: .textColor)
+            ColorControl(formatting: formatting, part: part, kind: .highlight)
             if part == .body {
                 BarDivider()
                 Button {
@@ -54,14 +48,6 @@ struct FormattingBar: View {
         case .strike: "strikethrough"
         }
     }
-}
-
-/// The compact bar's candidate layouts (#19), until the owner picks one.
-enum CompactBarLayout {
-    /// The same glyph buttons as the page's bar, in one row.
-    case glyphRow
-    /// B, I and S, then a ⋯ menu holding the two palettes.
-    case overflowMenu
 }
 
 /// A button that performs `command` and shows its state for its editor's selection.
@@ -247,57 +233,6 @@ private struct Swatch: View {
         .clipShape(Circle())
         .padding(3)
         .overlay(Circle().strokeBorder(ringed ? Color.accentColor : .clear, lineWidth: 2))
-    }
-}
-
-/// The overflow layout's ⋯: the Text Color and Highlight submenus, as the Format menu has them.
-private struct PaletteMenu: View {
-    let formatting: EditorFormatting
-    let part: TextPart
-
-    var body: some View {
-        Menu {
-            Menu(WindowWording.textColor) {
-                ForEach(FormattingCommand.textColors, id: \.self) {
-                    PaletteMenuItem(formatting: formatting, target: .editor(part), command: $0)
-                }
-            }
-            Menu(WindowWording.highlight) {
-                ForEach(FormattingCommand.highlights, id: \.self) {
-                    PaletteMenuItem(formatting: formatting, target: .editor(part), command: $0)
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(BarButtonStyle(state: .off))
-        .fixedSize()
-        .help(
-            formatting.selection(in: part) == nil
-                ? WindowWording.clickToFormat(part) : WindowWording.colorsAndHighlights
-        )
-        .accessibilityLabel(WindowWording.colorsAndHighlights)
-    }
-}
-
-/// A color or highlight in a menu, checked when its target's whole selection has it. Choosing
-/// it applies it even when it's already checked: colors never toggle.
-struct PaletteMenuItem: View {
-    let formatting: EditorFormatting
-    let target: EditorFormatting.Target
-    let command: FormattingCommand
-
-    var body: some View {
-        let selection = formatting.selection(for: target)
-        Toggle(
-            WindowWording.menuItem(command),
-            isOn: Binding(
-                get: { selection?.state(of: command) == .on },
-                set: { _ in formatting.perform(command) })
-        )
-        .disabled(selection == nil)
     }
 }
 

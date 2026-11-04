@@ -101,17 +101,13 @@ public enum WindowWording {
     public static let noHighlight = "None"
     public static let showPalette = "Show the palette"
     public static let readAloud = "Read aloud"
-    /// A bar's tooltip while its editor doesn't have the focus (PLAN §6.2's wording; the
-    /// notes' is pending the owner's approval, #19).
+    /// A bar's tooltip while its editor doesn't have the focus (PLAN §6.2; approved, #18, #19).
     public static func clickToFormat(_ part: TextPart) -> String {
         switch part {
         case .body: "Click in the page to format"
         case .notes: "Click in the notes to format"
         }
     }
-
-    /// The compact bar's ⋯ menu, in one of its candidate layouts (#19); pending the owner.
-    public static let colorsAndHighlights = "Colors and highlights"
 
     public static func style(_ style: TextStyle) -> String {
         switch style {

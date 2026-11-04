@@ -12,7 +12,6 @@ struct NotesView: NSViewRepresentable {
     /// The scene's notes. The view reads the model itself; this is here so that SwiftUI updates
     /// the view whenever the notes change.
     let notes: [Paragraph]
-    let look: WindowMetrics.Notes.Look
 
     func makeCoordinator() -> SceneEditors {
         editors
@@ -27,8 +26,6 @@ struct NotesView: NSViewRepresentable {
     func updateNSView(_ slot: HostingSlot, context: Context) {
         let notes = editors.notes
         notes.mount(in: slot)
-        let inset = NSSize(width: look.padding.width, height: look.padding.height)
-        if notes.textView.textContainerInset != inset { notes.textView.textContainerInset = inset }
         notes.editor.show(scene, .init(book, in: context.environment))
     }
 
@@ -51,9 +48,4 @@ final class NotesScrollView: NSScrollView {
             notes.sizeToFit()
         }
     }
-}
-
-extension EnvironmentValues {
-    /// How the Notes tab looks: the provisional pick, or a candidate being rendered (#19).
-    @Entry var notesLook = WindowMetrics.Notes.provisional
 }
