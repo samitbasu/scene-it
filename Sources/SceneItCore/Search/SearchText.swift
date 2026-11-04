@@ -74,7 +74,7 @@ enum SearchText {
 
     /// `word` reduced to a stem, so that "bear", "bears", "bear's" and "Bears'" share one.
     /// Suffixes are recognized whatever their case.
-    /// 1. "news" and "does" are kept whole.
+    /// 1. "news", "does" and the `contractions` are kept whole.
     /// 2. A possessive `'s` is removed and the rest is stemmed again ("James's" → "James" →
     ///    "Jame", the stem of "James" too).
     /// 3. Otherwise, only when at least 3 characters remain, one plural ending is removed:
@@ -87,8 +87,8 @@ enum SearchText {
     ///    "shoes" share "sho", as "hero" and "heroes" share "hero"; "toe" and "toes" share "toe".
     static func stem(_ word: [UInt16]) -> [UInt16] {
         let minimumStem = 3
-        if word.count == 4, endsWith(word, "news") || endsWith(word, "does") { return word }
-        if endsWith(word, possessive) { return stem(withoutPossessive(word)) }
+        if keptWhole.contains(word.map(lower)) { return word }
+        if let owner = possessor(word) { return stem(owner) }
         var stem = word
         if stem.count - 2 >= minimumStem,
             ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { endsWith(stem, $0) })
@@ -107,12 +107,26 @@ enum SearchText {
         return stem
     }
 
-    /// `word` without a final possessive `'s`, whatever its case ("James's" → "James").
+    /// `word` without a final possessive `'s`, whatever its case ("James's" → "James"). A
+    /// contraction such as "it's" isn't a possessive, so it's kept whole.
     static func withoutPossessive(_ word: [UInt16]) -> [UInt16] {
-        endsWith(word, possessive) ? Array(word.dropLast(2)) : word
+        possessor(word) ?? word
     }
 
-    private static let possessive = "'s"
+    /// Words ending in `'s` that aren't possessives, in lower case.
+    static let contractions: Set<[UInt16]> = Set(
+        [
+            "it's", "he's", "she's", "that's", "let's", "what's", "there's", "here's", "who's", "where's",
+            "how's", "why's", "when's",
+        ].map { Array($0.utf16) })
+
+    private static let keptWhole = contractions.union([Array("news".utf16), Array("does".utf16)])
+
+    /// What the possessive `word` belongs to ("bear" for "bear's"), or `nil` if it isn't one.
+    private static func possessor(_ word: [UInt16]) -> [UInt16]? {
+        guard endsWith(word, "'s"), !contractions.contains(word.map(lower)) else { return nil }
+        return Array(word.dropLast(2))
+    }
 
     /// Whether `word` ends with the lower-case `suffix`, whatever the case of `word`.
     private static func endsWith(_ word: [UInt16], _ suffix: String) -> Bool {

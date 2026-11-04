@@ -1,13 +1,24 @@
-# 0033 — Search: Whole word keeps the possessive; tags are one per line; punctuation goes to the find bar
+# 0033 — Search: Whole word keeps the possessive; contractions stay whole; tags are single-line, one per line; punctuation goes to the find bar
 
 **Status:** Accepted (2026-11-03). Refines PLAN §9.2; resolves the open questions of PR #84 (#89).
 
 1. **Whole word** turns the endings off but still matches a possessive `'s`. `James` finds `James's`, and `bear`
-   finds `bear's`, but not `Jameses` or `bears`. There is no substring mode.
-2. **Tags:** a scene's tag set stays one search unit, but its tags are joined by a line break instead of `", "`. A line
+   finds `bear's`, but not `bears`. There is no substring mode.
+2. **Contractions aren't possessives,** in any mode. A short list, kept as data in one place
+   (`SearchText.contractions`): it's, he's, she's, that's, let's, what's, there's, here's, who's, where's, how's, why's,
+   when's. Each is kept whole, so `it` doesn't find `it's`, and `it's` finds only `it's` (in any case, unless Match case
+   is on).
+3. **Tags:** a scene's tag set stays one search unit, but its tags are joined by a line break instead of `", "`. A line
    break ends a sentence, so a phrase can't span two tags: `"red door"` matches only a tag that says `red door`.
-3. **Punctuation:** the Search window stays word-based and can't find literal punctuation. A stray straight quote, `--`
+4. **Tags are single-line,** as a scene title is: a line break typed or pasted into a tag becomes a space
+   (`CharacterPolicy.admittedTags`, applied by `BookScene.tags` and `FiledCopy.tags`). So a `"\n"` in a tag unit is
+   always a separator between two tags, which the Search sheet (#31) can rely on to split or show them.
+5. **Punctuation:** the Search window stays word-based and can't find literal punctuation. A stray straight quote, `--`
    or `...` is found with the scene's find bar (Cmd+F, PLAN §8).
+
+Known gap, accepted: the stemmer doesn't join an `-es` plural of a word that ends in `s`, so `James` doesn't find
+`Jameses` and `bus` doesn't find `buses`, in any mode. `horse`/`horses` and `house`/`houses` do match (the `s` is
+dropped from a stem that ends in `e`). `pluralsOfWordsEndingInSAreAKnownGap` pins this.
 
 Unchanged: hyphenated query words are separate keywords, ranked by adjacency. Since ADR 0028 accents no longer matter for
 Match case.
@@ -16,6 +27,8 @@ Match case.
 - **Whole word as an exact match** (as first built), so `bear` misses `bear's`. A writer looking for a name nearly always
   wants its possessive too.
 - **A substring mode** (`bear` in `bearing`). Declined: the find bar already does literal matching within a scene.
+- **Treating every `'s` as a possessive** (as first built), so `it` finds `it's`. A writer searching for `it` doesn't
+  mean `it is`.
 - **One unit per tag.** Gives the same phrase boundary, but a scene's tags would then compete as separate hits and
   repeat the "+N more" count. A line break gets the boundary from the sentence rule that already exists.
 - **Searching punctuation in the Search window.** `"` already delimits phrases, and a token model that keeps
@@ -24,8 +37,11 @@ Match case.
 ## Consequences
 - `SearchText.withoutPossessive` is shared by the stemmer and Whole word, so the two can't disagree on what a possessive is.
 - Each distinct spelling is interned under six comparison keys instead of four.
-- Whole word's possessive rule also applies to contractions spelled with `'s`: `it` finds `it's`, as it already did
-  without Whole word.
+- The contraction list is closed: an `'s` contraction not on it (`one's`, `John's` meaning "John is") reads as a
+  possessive. Adding one is a one-line change to the list.
+- **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1), but the model turns it into a
+  space without a notice, and the writer never writes one in a tag. The app never produced such tags, so only a
+  hand-edited file can hold one.
 - Phrases still compare words exactly: `"bear claw"` doesn't find `bear's claw`.
 - Words that occur in different tags of a scene rank in the paragraph tier, not the sentence tier.
 

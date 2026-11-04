@@ -30,8 +30,8 @@ public enum CharacterPolicy {
         return AdmittedText(text: ASCII.string(scanned.bytes[...]), changes: scanned.changes)
     }
 
-    /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
-    /// comment text, the book's title. Each line break (`Character.isLineBreak`) becomes
+    /// `text` admitted, for a field that may hold line breaks (written `\n`): comment text,
+    /// the book's title. Each line break (`Character.isLineBreak`) becomes
     /// `\n` first.
     public static func admitted(_ text: String) -> String {
         guard !text.unicodeScalars.allSatisfy(isAdmitted) else { return text }
@@ -49,6 +49,12 @@ public enum CharacterPolicy {
     public static func admittedLine(_ text: String) -> String {
         guard !text.unicodeScalars.allSatisfy(isAllowed) else { return text }
         return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
+    }
+
+    /// `tags` each admitted as one line (a line break becomes a space, as in a title), without
+    /// the empty ones. Search joins a scene's tags with `\n`, so that stays an exact separator.
+    public static func admittedTags(_ tags: [String]) -> [String] {
+        tags.map(admittedLine).filter { !$0.isEmpty }
     }
 
     /// A whole file with §1.2's steps 3–5 applied, as UTF-8: the change step 7 will

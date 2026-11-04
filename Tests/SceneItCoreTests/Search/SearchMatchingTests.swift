@@ -47,7 +47,8 @@ import Testing
     /// Each rule of `SearchText.stem`, and the words it must leave alone.
     @Test(arguments: [
         ("news", "news"), ("News", "News"), ("does", "does"),
-        ("bear's", "bear"), ("it's", "it"), ("James's", "Jame"), ("James", "Jame"), ("Jones's", "Jone"),
+        ("bear's", "bear"), ("it's", "it's"), ("What's", "What's"), ("James's", "Jame"), ("James", "Jame"),
+        ("Jones's", "Jone"),
         ("Charles's", "Charle"), ("Thomas's", "Thoma"),
         ("kisses", "kiss"), ("boxes", "box"), ("buzzes", "buzz"), ("churches", "church"), ("wishes", "wish"),
         ("hero", "hero"), ("heroes", "hero"), ("potato", "potato"), ("potatoes", "potato"),
@@ -99,7 +100,7 @@ import Testing
     @Test func wholeWordDropsTheEndingsButKeepsThePossessive() async throws {
         let units = bodyUnits(["bear", "Bear", "bears", "bear's", "Bear's", "bearing", "Bears'"])
         #expect(
-            Set(try await foundTexts(units, "bears")).count == units.count - 1,
+            Set(try await foundTexts(units, "bears")) == Set(units.map(\.text)).subtracting(["bearing"]),
             "precondition: without Whole word, every ending but -ing matches")
         #expect(Set(try await foundTexts(units, "bear", .wholeWord)) == ["bear", "Bear", "bear's", "Bear's"])
         #expect(
@@ -110,25 +111,62 @@ import Testing
     }
 
     @Test func wholeWordFindsANamesPossessiveButNotItsPlural() async throws {
-        let units = bodyUnits(["James", "James's hat", "JAMES'S hat", "the Jameses", "Jame"])
+        let units = bodyUnits(["Smith", "Smith's hat", "SMITH'S hat", "the Smiths"])
         #expect(
-            try await foundTexts(units, "James").contains("Jame"),
-            "precondition: without Whole word, the stem matches more")
+            Set(try await foundTexts(units, "Smith")) == Set(units.map(\.text)),
+            "precondition: without Whole word, the plural matches too")
         #expect(
-            Set(try await foundTexts(units, "James", .wholeWord)) == ["James", "James's hat", "JAMES'S hat"])
+            Set(try await foundTexts(units, "Smith", .wholeWord)) == ["Smith", "Smith's hat", "SMITH'S hat"])
         let hit = try #require(
-            hits(try await finalUpdate(units, "James", .wholeWord)).first { $0.unit.text == "James's hat" })
-        #expect(highlighted(hit) == ["James's"])
+            hits(try await finalUpdate(units, "Smith", .wholeWord)).first { $0.unit.text == "Smith's hat" })
+        #expect(highlighted(hit) == ["Smith's"])
+    }
+
+    /// A known gap (ADR 0033): the stemmer doesn't join an `-es` plural of a word ending in `s`.
+    @Test func pluralsOfWordsEndingInSAreAKnownGap() async throws {
+        let units = bodyUnits(["James", "the Jameses", "a bus", "two buses", "a horse", "two horses"])
+        for options: SearchOptions in [[], .wholeWord] {
+            #expect(try await foundTexts(units, "James", options) == ["James"])
+            #expect(try await foundTexts(units, "bus", options) == ["a bus"])
+        }
+        #expect(Set(try await foundTexts(units, "horse")) == ["a horse", "two horses"])
+    }
+
+    @Test(arguments: [SearchOptions(), .wholeWord])
+    func aContractionIsNotAPossessive(options: SearchOptions) async throws {
+        let units = bodyUnits(["it", "it's late", "IT'S late", "its", "What's that", "what"])
+        #expect(try await foundTexts(units, "it", options) == ["it"])
+        #expect(Set(try await foundTexts(units, "it's", options)) == ["it's late", "IT'S late"])
+        #expect(try await foundTexts(units, "IT'S", options.union(.matchCase)) == ["IT'S late"])
+        #expect(try await foundTexts(units, "what", options) == ["what"])
+        #expect(try await foundTexts(units, "what's", options) == ["What's that"])
+    }
+
+    @Test func everyContractionIsKeptWhole() {
+        for contraction in SearchText.contractions {
+            #expect(SearchText.withoutPossessive(contraction) == contraction)
+            #expect(SearchText.stem(contraction) == contraction)
+            let upper = contraction.map { (0x61...0x7A).contains($0) ? $0 - 0x20 : $0 }
+            #expect(SearchText.withoutPossessive(upper) == upper, "whatever its case")
+        }
+        #expect(SearchText.contractions.count == 13, "precondition: the list is there")
     }
 
     @Test(arguments: [
-        ("bear's", "bear"), ("Bear'S", "Bear"), ("James's", "James"), ("it's", "it"), ("bears", "bears"),
-        ("James", "James"), ("don't", "don't"),
+        ("bear's", "bear"), ("Bear'S", "Bear"), ("BEAR'S", "BEAR"), ("s's", "s"), ("James's", "James"),
+        ("bears'", "bears'"), ("it's", "it's"), ("Let's", "Let's"), ("bears", "bears"), ("James", "James"),
+        ("don't", "don't"),
     ])
     func thePossessiveRule(word: String, withoutPossessive: String) {
         #expect(
             String(decoding: SearchText.withoutPossessive(Array(word.utf16)), as: UTF16.self)
                 == withoutPossessive)
+    }
+
+    @Test func aComparisonsOrdinalIsItsPlaceInAll() {
+        #expect(Comparison.all.count == 6)
+        #expect(Comparison.all.map(\.ordinal) == Array(Comparison.all.indices))
+        #expect(Set(Comparison.all).count == Comparison.all.count)
     }
 
     @Test func highlightsAreUTF16RangesOfTheWholeWord() async throws {

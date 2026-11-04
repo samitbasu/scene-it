@@ -371,8 +371,9 @@ splits that scene in two (see §6).
 | `tags` | Tags separated by `,`. Each tag is trimmed, then field-unescaped (§4.1): a comma inside a tag is `\,` and a backslash is `\\`. An unescaped `#` at the start of a tag is dropped silently (tags are stored without `#`, PLAN §8.3). Empty items (`a,,b`) are dropped silently. Order and duplicates are kept as written. | No tags, silently. The line is **omitted** when there are no tags (as in the demo book), so its absence is normal † (§10 Q9). |
 
 **Written as:** `id: <id>`, `modified: <timestamp>`, and, if there are tags, `tags: ` + the tags joined by `, `. In each
-tag, `\` → `\\`, `,` → `\,`, a newline → `\n`, a leading `#` → `\#`, and a space at the tag's first or last position
-→ `\␠`.
+tag, `\` → `\\`, `,` → `\,`, a leading `#` → `\#`, and a space at the tag's first or last position → `\␠`. Tags
+are single-line (ADR 0033): `\n` in a tag still reads as a line break, which the model turns into a space, silently,
+as in a title, so the writer never writes `\n` in a tag.
 
 ### 2.3 The body
 
@@ -522,7 +523,7 @@ Three things that surprise writers typing in another editor. Scene It never writ
 | You type | Scene It reads | To get what you meant |
 | --- | --- | --- |
 | `C:\` at the end of a paragraph line | `C:` and a space: a trailing `\` is an escaped space whose space an editor stripped (§1.3) | `C:\\` |
-| `see C:\new` in a comment's text | `see C:`, a line break, `ew`: `\n` is a line break in comment text, tags and the book title (§4.1) | `see C:\\new` |
+| `see C:\new` in a comment's text | `see C:`, a line break, `ew`: `\n` is a line break in comment text and the book title (§4.1); in a tag it becomes a space | `see C:\\new` |
 | `## Chapter 2*3*4` | the title `Chapter 234`: `*3*` is italic, and formatting in a title is dropped (§2.1) | `## Chapter 2\*3\*4` |
 
 ---
@@ -850,8 +851,8 @@ section; malformed Unparsed lines.
 `serialize` is total, but the verification rule only holds if the model satisfies these invariants. The editor and
 store maintain them; a violation shows up as a refused save, never as a silently different file.
 
-- All text (title, tags, paragraphs, comment text, the book title) contains only allowed characters (§1.2). Paragraphs
-  and titles contain no line breaks; tags and comment text may (they're written `\n`), though the UI shouldn't produce
+- All text (title, tags, paragraphs, comment text, the book title) contains only allowed characters (§1.2). Paragraphs,
+  titles and tags contain no line breaks; comment text may (it's written `\n`), though the UI shouldn't produce
   them.
 - No empty runs (an empty paragraph has no runs). No empty tags.
 - Scene ids are unique in the book; comment ids are unique in their scene; every id matches §2.2's character set.

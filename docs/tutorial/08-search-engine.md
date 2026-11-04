@@ -48,7 +48,9 @@ units the same way with `version: .filed(number)`, and the arrays are simply con
 A scene's tags become one unit, joined by a line break (`SearchUnit.tagSeparator`). A line break
 ends a sentence (§5), so a phrase can't run from one tag into the next: `"red door"` finds the
 tag `red door` but not the tags `red` and `door` side by side, while the words `red door`
-without quotes still find both, in different sentences
+without quotes still find both, in different sentences. Tags are single-line in the model
+(`CharacterPolicy.admittedTags` turns a line break into a space, as in a title), so `\n` in a
+tag unit is always a separator
 ([ADR 0033](../decisions/0033-search-matching-rules.md)).
 
 Every field is a `let`, and every type inside is a value type, so the snapshot can't change
@@ -233,8 +235,8 @@ searched as `cafe`, and finds it.
 
 | Rule | Examples |
 | --- | --- |
-| 1. "news" and "does" are kept whole | news, does |
-| 2. A possessive `'s` is removed and the rest is stemmed again | bear's → bear, it's → it, James's → James → Jame (as James) |
+| 1. "news", "does" and the contractions are kept whole | news, does, it's, what's |
+| 2. A possessive `'s` is removed and the rest is stemmed again | bear's → bear, James's → James → Jame (as James) |
 | 3a. Only when at least 3 characters remain: `es` is removed after `ss`, `x`, `zz`, `ch`, `sh` or `o` | kisses → kiss, boxes → box, buzzes → buzz, churches → church, heroes → hero, echoes → echo |
 | 3b. Otherwise, with the same minimum, `s` is removed unless it follows another `s` | bears → bear, sizes → size, horses → horse, menus → menu, taxis → taxi, skis → ski; glass, his and bus are kept |
 | 4. A final `ie` becomes `y` | movie, movies → movy; lady, ladies → lady; tie, ties → ty |
@@ -243,7 +245,13 @@ searched as `cafe`, and finds it.
 A stem doesn't have to be a word ("Jame", "movy"): it only has to be the same for the forms
 that should match. The rule accepts some false positives (Hans, Carlos and Mars lose their `s`,
 so "Han" finds "Hans"; Whole word is the escape hatch) and doesn't know irregular plurals
-(mice, children).
+(mice, children), or an `-es` plural of a word ending in `s` (James and Jameses, bus and buses
+don't match; horse and horses do).
+
+**Contractions aren't possessives.** `SearchText.contractions` lists the `'s` contractions (it's,
+he's, she's, that's, let's, what's, ...) once, as data. The stemmer and Whole word both read a
+possessive through one private `possessor` function, which checks that list, so `it` never finds
+`it's` in either mode, and `it's` finds only `it's`.
 
 **Whole word** turns the endings off but keeps the possessive (`SearchText.withoutPossessive`):
 "bear" finds "bear's" but not "bears", and "James" finds "James's" but not "Jameses". There's no
