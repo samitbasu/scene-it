@@ -12,6 +12,8 @@ final class SceneEditors {
     private let preferences: AppPreferences
     private let formatting: EditorFormatting
     private let focus: PageFocus
+    /// The selected comment, which the page, the notes and the comments panel share.
+    let comments = CommentSelection()
 
     init(book: AppOpenBook, preferences: AppPreferences, formatting: EditorFormatting, focus: PageFocus) {
         self.book = book
@@ -37,7 +39,8 @@ final class SceneEditors {
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .body, formatting: formatting), page, in: scrollView)
+            SceneTextEditor(book: book, part: .body, formatting: formatting, comments: comments), page,
+            in: scrollView)
     }()
 
     private(set) lazy var notes: SceneTextHost<NotesScrollView> = {
@@ -53,7 +56,8 @@ final class SceneEditors {
         notes.setAccessibilityLabel(WindowWording.tab(.notes))
         scrollView.holdGrowingText(notes)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .notes, formatting: formatting), notes, in: scrollView)
+            SceneTextEditor(book: book, part: .notes, formatting: formatting, comments: comments), notes,
+            in: scrollView)
     }()
 }
 

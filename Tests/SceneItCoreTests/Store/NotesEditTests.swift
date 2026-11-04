@@ -48,19 +48,61 @@ struct NotesEditTests {
         }
     }
 
-    /// Book format §4.2: a comment may cover the notes' text as well as the body's.
-    @Test func aCommentCanCoverTheNotesAndAnUnknownIdIsDropped() async throws {
+    /// Comments are made on the page alone (ADR 0032): an edit or a paste can't put one in the
+    /// notes, and the comments a paste would bring aren't added.
+    @Test func noCommentReachesTheNotes() async throws {
         try await withScene { book, scene in
             let change = BodyChange(
                 lines: 0..<1, paragraphs: [[Run("Check "), Run("the tides.", comments: [noted, stray])]])
-            #expect(
-                book.apply(change, to: scene, in: .notes)
-                    == [[Run("Check "), Run("the tides.", comments: [noted])]])
-            book.replaceBody(of: scene, with: [[Run("No comment here.")]])
+            let copy = Comment(id: stray, color: .red, text: "Copied", created: tooEarly.created)
+            #expect(book.apply(change, to: scene, in: .notes, adding: [copy]) == [[Run("Check the tides.")]])
+            book.replaceNotes(of: scene, with: [[Run("Again", comments: [noted])]])
             let edited = try #require(book.book.scene(scene))
-            #expect(!edited.isDetached(noted), "the notes carry the comment")
-            let saved = try BookFormat.verifiedSerialization(of: book.book)
-            #expect(String(decoding: saved, as: UTF8.self).contains("notes c6-16"))
+            #expect(edited.notes == [[Run("Again")]])
+            #expect(edited.comments == [tooEarly], "the copy wasn't added")
+            #expect(!edited.isDetached(noted), "still on the page")
+        }
+    }
+
+    /// A comment the file anchored in the notes (ADR 0035, until #112 repairs it on load) survives
+    /// typing there, a delete and its undo and redo, and a cut and paste within the notes.
+    @Test func aCommentTheNotesOpenedWithIsNeverLost() async throws {
+        try await withTemporaryFolder { folder in
+            let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
+            var ids = IDGenerator.system
+            let scene = BookScene(
+                id: ids.sceneID(), modified: tooEarly.created, title: "One", body: [[Run("Body.")]],
+                notes: [[Run("Check "), Run("the tides", comments: [noted]), Run(".")]], comments: [tooEarly])
+            try BookFormat.serialize(Book(title: "Novel", scenes: [scene])).write(
+                to: url.appending(path: "book.md"), options: .atomic)
+            #expect(await store.open(url) == .opened)
+            let book = try #require(store.current)
+            let carried: [Paragraph] = [[Run("Check "), Run("the tides", comments: [noted]), Run(".")]]
+            #expect(book.book.scene(scene.id)?.notes == carried, "precondition: the notes carry the comment")
+
+            let typed: [Paragraph] = [[Run("Check "), Run("the tides", comments: [noted]), Run(" twice.")]]
+            #expect(
+                book.apply(BodyChange(lines: 0..<1, paragraphs: typed), to: scene.id, in: .notes) == typed)
+            let deleted: [Paragraph] = [[Run("Check twice.")]]
+            #expect(
+                book.apply(BodyChange(lines: 0..<1, paragraphs: deleted), to: scene.id, in: .notes) == deleted
+            )
+            #expect(book.book.scene(scene.id)?.isDetached(noted) == true, "precondition: deleted")
+            #expect(
+                book.apply(BodyChange(lines: 0..<1, paragraphs: typed), to: scene.id, in: .notes) == typed,
+                "undone")
+            #expect(
+                book.apply(BodyChange(lines: 0..<1, paragraphs: deleted), to: scene.id, in: .notes)
+                    == deleted, "redone")
+            let moved: [Paragraph] = [[Run("the tides", comments: [noted]), Run(": check twice.")]]
+            #expect(
+                book.apply(BodyChange(lines: 0..<1, paragraphs: moved), to: scene.id, in: .notes) == moved,
+                "cut and pasted")
+            #expect(book.book.scene(scene.id)?.comments == [tooEarly])
+            #expect(book.commentsAllowedInTheNotes(of: scene.id) == [noted])
+            #expect(await store.closeBook() == .left)
         }
     }
 

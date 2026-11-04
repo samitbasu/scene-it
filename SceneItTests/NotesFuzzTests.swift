@@ -132,9 +132,9 @@ struct EditorLifetimeTests {
         }
     }
 
-    /// A commented span from one scene's page pasted into another's notes: one undo takes both
-    /// the text and the copied comment away.
-    @Test func aCommentedPasteIntoAnotherScenesNotesUndoesInOneStep() async throws {
+    /// A commented span from one scene's page pasted into another's notes brings no comment
+    /// (ADR 0032), and one undo takes the text away.
+    @Test func aCommentedPasteIntoAnotherScenesNotesBringsNoComment() async throws {
         let one = withNotes("One", letterScene, notes: [], .withTooEarly)
         let two = withNotes("Two", [[Run("Second.")]], notes: [[Run("See ")]])
         try await withPage([one, two]) { page in
@@ -152,19 +152,17 @@ struct EditorLifetimeTests {
                     _ = notes.readSelection(from: pasteboard)
                 }
                 let pasted = try #require(page.book.book.scene(two.id))
-                #expect(Paragraph.commentIDs(in: pasted.notes).count == 1)
-                #expect(pasted.comments.count == 1)
-                #expect(Paragraph.commentIDs(in: pasted.notes).isSubset(of: Set(pasted.comments.map(\.id))))
+                #expect(pasted.notes == [[Run("See "), Run("letter", color: .red)]])
+                #expect(pasted.comments.isEmpty)
                 let undo = try #require(notes.undoManager)
                 #expect(!page.book.pageUndo(for: two.id).canUndo)
                 await undoInAnEvent(undo)
                 let undone = try #require(page.book.book.scene(two.id))
                 #expect(undone.notes == two.notes)
-                #expect(undone.comments.isEmpty, "one step takes the text and the comment")
+                #expect(undone.comments.isEmpty)
                 await undoInAnEvent(undo, .redo)
-                let redone = try #require(page.book.book.scene(two.id))
-                #expect(Paragraph.commentIDs(in: redone.notes).isSubset(of: Set(redone.comments.map(\.id))))
-                #expect(redone.comments.count == 1)
+                #expect(page.book.book.scene(two.id)?.notes == pasted.notes)
+                #expect(page.book.book.scene(two.id)?.comments == [])
                 #expect(page.book.book.scene(one.id)?.body == letterScene, "the source is untouched")
                 await eventually { page.book.status == .saved }
                 #expect(try bookOnDisk(page.url) == page.book.book)
