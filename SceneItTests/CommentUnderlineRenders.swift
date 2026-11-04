@@ -16,7 +16,12 @@ extension WindowRenders {
         ("thick", "C: 2 pt lines, 2 pt apart, 3 pt below the baseline", .thick),
         ("medium-tight", "D: 1.5 pt lines, 1 pt apart, 3 pt below the baseline", .mediumTight),
         ("medium-high", "E: 1.5 pt lines, 2 pt apart, 1.5 pt below the baseline", .mediumHigh),
+        ("thin-tight", "F: 1 pt lines, 1.5 pt apart, 3 pt below the baseline", .thinTight),
+        ("hairline", "G: hairlines (one pixel), 1.5 pt apart, 3 pt below the baseline", .hairline),
     ]
+
+    /// The second round (the owner asked for thinner lines): these, on a sheet of their own.
+    static let secondRound: Set = ["thin", "medium", "thin-tight", "hairline"]
 
     @Test func commentUnderlines() async throws {
         let output = try #require(renderFolder)
@@ -45,9 +50,16 @@ extension WindowRenders {
                         try Self.crop(renders.double, to: pageCrop, scale: 2)
                     ))
             }
+            let second = crops.filter { crop in
+                Self.underlineCandidates.contains {
+                    Self.secondRound.contains($0.name) && $0.caption == crop.caption
+                }
+            }
             for scale in [1, 2] {
                 try Self.png(try Self.sideBySide(crops, scale: scale))
                     .write(to: output.appending(path: "underlines-compare@\(scale)x.png"))
+                try Self.png(try Self.sideBySide(second, scale: scale))
+                    .write(to: output.appending(path: "underlines-compare-2@\(scale)x.png"))
             }
         }
     }

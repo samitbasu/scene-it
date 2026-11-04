@@ -69,11 +69,27 @@ struct CommentUnderlinesTests {
         let line = try #require(fragment.textLineFragments.first)
         let style = ParagraphRole.body.paragraphStyle
         #expect(line.typographicBounds.height - line.glyphOrigin.y + style.lineSpacing == 17.509765625)
-        #expect(UnderlineStyle.thin.depth(below: line, spacedBy: style) == 5)
-        #expect(UnderlineStyle.medium.depth(below: line, spacedBy: style) == 4)
-        #expect(UnderlineStyle.thick.depth(below: line, spacedBy: style) == 3)
-        #expect(UnderlineStyle.mediumTight.depth(below: line, spacedBy: style) == 5)
-        #expect(UnderlineStyle.mediumHigh.depth(below: line, spacedBy: style) == 4)
+        let depths = [
+            UnderlineStyle.thin, .medium, .thick, .mediumTight, .mediumHigh, .thinTight, .hairline,
+        ].map { $0.depth(below: line, spacedBy: style) }
+        #expect(depths == [5, 3, 3, 4, 4, 5, 7])
+    }
+
+    /// Whole pixels from the baseline's, the same number between every two levels.
+    @Test func linesMeetThePixelsEvenly() {
+        #expect((0..<3).map { UnderlineStyle.medium.pixels(of: $0, scale: 1).top } == [3, 7, 11])
+        #expect(UnderlineStyle.medium.pixels(of: 0, scale: 1).height == 2)
+        #expect((0..<3).map { UnderlineStyle.medium.pixels(of: $0, scale: 2).top } == [6, 13, 20])
+        #expect(UnderlineStyle.medium.pixels(of: 0, scale: 2).height == 3)
+        #expect(UnderlineStyle.thinTight.pixels(of: 1, scale: 1) == (6, 1))
+        #expect(UnderlineStyle.thinTight.pixels(of: 1, scale: 2) == (11, 2))
+    }
+
+    @Test func aHairlineIsOnePixelAtEveryScale() {
+        #expect(UnderlineStyle.hairline.pixels(of: 0, scale: 1) == (3, 1))
+        #expect(UnderlineStyle.hairline.pixels(of: 1, scale: 1) == (5, 1))
+        #expect(UnderlineStyle.hairline.pixels(of: 0, scale: 2) == (6, 1))
+        #expect(UnderlineStyle.hairline.pixels(of: 1, scale: 2) == (10, 1))
     }
 
     @Test func aLineAcrossAWrapStopsAtItsLastLetter() throws {
@@ -92,6 +108,39 @@ struct CommentUnderlinesTests {
                 + firstLine.locationForCharacter(at: lastLetter + 1).x)
         #expect(first.minY == firstLine.typographicBounds.minY + firstLine.glyphOrigin.y + 3)
         #expect(first.height == 1.5)
+    }
+
+    /// TextKit keeps a paragraph's fragment when its layout is invalidated, so a fragment made
+    /// before a change of style or palette must draw with the new one.
+    @Test func aFragmentDrawsWithTheLatestStyleAndPalette() throws {
+        let content = NSTextContentStorage()
+        let layout = NSTextLayoutManager()
+        let underliner = CommentUnderliner()
+        layout.delegate = underliner
+        content.addTextLayoutManager(layout)
+        layout.textContainer = NSTextContainer(size: NSSize(width: 468, height: 10_000))
+        underliner.show(Self.palette, in: .thin, laidOutBy: layout)
+        content.attributedString = Self.overlapping()
+        func fragment() -> CommentUnderlineFragment? {
+            var first: CommentUnderlineFragment?
+            layout.enumerateTextLayoutFragments(
+                from: layout.documentRange.location, options: [.ensuresLayout]
+            ) {
+                first = $0 as? CommentUnderlineFragment
+                return false
+            }
+            return first
+        }
+        let before = try #require(fragment())
+        #expect(before.underlineRects().first?.rect.height == 1)
+        underliner.show(Self.palette, in: .thick, laidOutBy: layout)
+        #expect(try #require(fragment()).underlineRects().first?.rect.height == 2)
+        #expect(before.underlineRects().first?.rect.height == 2)
+        let recolored = Comment(
+            id: Self.older.id, color: .pink, text: "", created: Self.older.created)
+        underliner.show(CommentPalette([recolored, Self.newer]), in: .thick, laidOutBy: layout)
+        #expect(fragment() === before, "precondition: TextKit kept the fragment")
+        #expect(before.underlineRects().map(\.color) == [.pink, .blue])
     }
 
     @Test func theSurfaceReachesTheDeepestLineBelowTheLastLine() throws {
