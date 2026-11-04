@@ -5,55 +5,40 @@ import Testing
 
 /// A sanity check, not a benchmark (PLAN §9.2 targets about 100 ms for a 120,000-word working book
 /// in a release build). A debug build is far slower, and other suites load the machine, so this
-/// asserts only a generous ceiling and that the whole book costs about twice half of it.
+/// asserts only a generous ceiling and that doubling the input about doubles the time
+/// (`expectLinear`).
 @Suite struct SearchPerformanceTests {
-    private struct Timing {
-        let indexing: Duration
-        let searching: Duration
-    }
+    private static let queries = ["harbor gulls", "\"the island\"", "Mara watched the letter", "cafe zebra"]
+        .map { SearchQuery($0) }
 
-    /// The best of three, to shed scheduling noise.
-    private func timing(words: Int) async -> Timing {
-        let units = SearchUnit.units(of: PerformanceTests.novel(words: words), version: .working)
-        let clock = ContinuousClock()
-        var indexings: [Duration] = []
-        var searchings: [Duration] = []
-        for _ in 0..<3 {
-            var index: KeywordSearch?
-            indexings.append(clock.measure { index = KeywordSearch(units: units) })
-            let start = clock.now
-            for query in ["harbor gulls", "\"the island\"", "Mara watched the letter", "cafe zebra"] {
-                _ = await updates(index!, SearchQuery(query))
-            }
-            searchings.append((clock.now - start) / 4)
-        }
-        return Timing(indexing: indexings.min()!, searching: searchings.min()!)
-    }
-
-    @Test func aLongNovelIsSearchedQuickly() async throws {
+    @Test func aLongNovelIsSearchedQuickly() {
         let book = PerformanceTests.novel(words: 120_000)
         let words = book.scenes.flatMap(\.body).map(\.text).map { $0.split(separator: " ").count }.reduce(
             0, +)
         #expect(words >= 120_000, "precondition: a long novel")
-        let found = try #require(
-            await updates(
-                KeywordSearch(units: SearchUnit.units(of: book, version: .working)),
-                SearchQuery("harbor gulls")
-            ).last)
-        #expect(found.hitCount > 100, "precondition: the query matches throughout")
+        let units = SearchUnit.units(of: book, version: .working)
+        let index = KeywordSearch(units: units)
+        #expect(
+            searchedToCompletion(index, SearchQuery("harbor gulls")).hitCount > 100,
+            "precondition: the query matches throughout")
 
-        let full = await timing(words: 120_000)
-        let half = await timing(words: 60_000)
-        print(
-            "search, \(words) words: index \(full.indexing), query \(full.searching); half: index \(half.indexing), query \(half.searching)"
-        )
-        #expect(full.indexing + full.searching < .seconds(10))
-        #expect(
-            full.indexing < half.indexing * 3 + .milliseconds(50),
-            "\(half.indexing) for half, \(full.indexing) for all")
-        #expect(
-            full.searching < half.searching * 3 + .milliseconds(50),
-            "\(half.searching) for half, \(full.searching) for all")
+        let clock = ContinuousClock()
+        let indexing = clock.measure { _ = KeywordSearch(units: units) }
+        let searching = clock.measure { for query in Self.queries { _ = searchedToCompletion(index, query) } }
+        print("search, \(words) words: index \(indexing), \(Self.queries.count) queries \(searching)")
+        #expect(indexing + searching < .seconds(10))
+
+        let unitsOfNovel = { (words: Int) in
+            SearchUnit.units(of: PerformanceTests.novel(words: words), version: .working)
+        }
+        expectLinear("indexing", doubling: 60_000) { words in
+            let units = unitsOfNovel(words)
+            return { _ = KeywordSearch(units: units) }
+        }
+        expectLinear("searching", doubling: 60_000) { words in
+            let index = KeywordSearch(units: unitsOfNovel(words))
+            return { for query in Self.queries { _ = searchedToCompletion(index, query) } }
+        }
     }
 
     /// A paragraph whose only window holding both keywords is the whole of it: `repeats` bears,
@@ -62,23 +47,15 @@ import Testing
         unit(String(repeating: "bear ", count: repeats) + "claw", field: .body(paragraph: paragraph))
     }
 
-    @Test func aHugeParagraphIsSearchedInLinearTime() async throws {
+    @Test func aHugeParagraphIsSearchedInLinearTime() {
         let query = SearchQuery("bear claw")
-        let clock = ContinuousClock()
-        func time(_ repeats: Int) async throws -> Duration {
+        let found = searchedToCompletion(KeywordSearch(units: [Self.bearsThenAClaw(10_000)]), query)
+        #expect(hits(found).first?.rank.coverage == 2, "precondition: one window holds both keywords")
+        let scaling = expectLinear("one paragraph", doubling: 10_000) { repeats in
             let index = KeywordSearch(units: [Self.bearsThenAClaw(repeats)])
-            let last = try #require(await updates(index, query).last)
-            #expect(hits(last).first?.rank.coverage == 2, "precondition: one window holds both keywords")
-            var best = Duration.seconds(3600)
-            for _ in 0..<3 {
-                best = min(best, await clock.measure { _ = await updates(index, query) })
-            }
-            return best
+            return { _ = searchedToCompletion(index, query) }
         }
-        let half = try await time(50_000)
-        let full = try await time(100_000)
-        print("search, one paragraph of 50,000 and 100,000 words: \(half), \(full)")
-        #expect(full < half * 3 + .milliseconds(50), "\(half) for half, \(full) for all")
+        print("search, one paragraph of 10,000 and 20,000 words: \(scaling)")
     }
 
     /// Timing alone can't place the cancellation mid-search on a loaded machine, so this test

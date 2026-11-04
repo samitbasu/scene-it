@@ -6,7 +6,7 @@ import Testing
 /// A sanity check, not a benchmark: a long novel (120,000 words) parses and serializes in
 /// well under a second in a debug build run on its own (the printed times). The assertions
 /// are loose enough to hold when other suites load the machine: a ceiling far above that,
-/// and the novel costing about twice half of it. `ScalingTests` guards growth more tightly.
+/// and the novel costing about twice half of it (`expectLinear`).
 @Suite struct PerformanceTests {
     static func novel(words: Int) -> Book {
         var random = SplitMix64(seed: 120)
@@ -56,11 +56,9 @@ import Testing
         )
         #expect(serializing < .seconds(10))
         #expect(parsing < .seconds(10))
-        let half = BookFormat.serialize(Self.novel(words: 60_000))
-        let halfParsing = (0..<3).map { _ in clock.measure { _ = parse(half) } }.min()!
-        let fullParsing = (0..<3).map { _ in clock.measure { _ = parse(bytes) } }.min()!
-        #expect(
-            fullParsing < halfParsing * 3 + .milliseconds(50),
-            "\(halfParsing) for half, \(fullParsing) for all")
+        expectLinear("parsing", doubling: 60_000) { words in
+            let bytes = BookFormat.serialize(Self.novel(words: words))
+            return { _ = parse(bytes) }
+        }
     }
 }
