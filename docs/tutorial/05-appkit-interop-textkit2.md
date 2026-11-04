@@ -17,6 +17,8 @@ attributed strings are new to you.
 | [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
 | [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
+| [`Sources/SceneItCore/Text/CommentUnderlines.swift`](../../Sources/SceneItCore/Text/CommentUnderlines.swift) | comment underlines: a custom `NSTextLayoutFragment`, its delegate, and hit-testing (ADR 0032) |
+| [`Sources/SceneItCore/Window/CommentSelection.swift`](../../Sources/SceneItCore/Window/CommentSelection.swift) | the selected comment, which a click on commented text changes |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
 | [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `apply(_:to:in:adding:)`, `undo(for:_:)`, `resolve(_:into:)` |
@@ -228,6 +230,41 @@ range, kept by the layout manager rather than the storage, and they win over the
 visible ranges draws the selection colour in the highlight's place, and removing it when the
 selection moves gives the highlight back. The notes draw no background, and then
 `NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
+
+### Comment underlines: a layout fragment of our own
+
+TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws itself
+(`draw(at:in:)`). The layout manager asks its delegate for every paragraph's fragment
+(`textLayoutManager(_:textLayoutFragmentFor:in:)`), so `SceneTextView` makes a
+`CommentUnderliner` its layout manager's delegate, and every paragraph of the page and the notes
+is a `CommentUnderlineFragment`: TextKit's own drawing, then a line per comment below the
+baseline, in the comment's colour. A Rust analogy: the delegate is a factory closure the layout
+engine calls, and the fragment is a type that wraps the default `draw` and adds to it.
+
+Three things about fragments are worth knowing:
+
+- **They outlive invalidation.** `invalidateLayout(for:)` lays the same fragment objects out
+  again; it doesn't ask the delegate for new ones. So a fragment must not copy anything that can
+  change (the comments' colours): it holds its `CommentUnderliner` and reads the palette, behind
+  a `Mutex`, each time it draws. (A first version copied it, and kept drawing the old style.)
+- **They may draw outside their frame.** A paragraph's frame ends at its last line's letters,
+  since the double spacing is above each line (ADR 0034); stacked lines go below that, into the
+  next paragraph's frame. `renderingSurfaceBounds` says how far the drawing reaches.
+- **They draw in points, but pixels decide what's crisp.** `draw(at:in:)` converts each line to
+  device space (`CGContext.convertToDeviceSpace`), rounds it to whole pixels from the baseline's
+  pixel, and converts back, so a 1 pt line is one pixel at 1x and two at 2x, evenly stacked.
+
+Each comment keeps one level across its paragraph (`CommentPalette.underlines(of:depth:)`, a
+pure function of the paragraph's attributed string), and past the depth that fits below a line
+the stretch gets one line in the newest comment's colour.
+
+Clicking commented text selects its comment. `SceneTextView.mouseDown(with:)` asks
+`CommentUnderlineFragment.character(at:in:)` which character is under the click, or above the
+underline it's on, using TextKit 2's `NSTextLineFragment.characterIndex(for:)`, then hands it to
+the editor, which picks among the comments covering it (`CommentSelection.click`) and lets the
+click go on to place the caret. The tests click the real view with `NSEvent`s made in the test
+process: a mouse-up posted to the window's queue first, so that `NSTextView`'s mouse-tracking
+loop, which waits for it, returns.
 
 The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
 the accent colour, as in TextEdit.

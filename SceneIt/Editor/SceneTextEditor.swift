@@ -16,6 +16,8 @@ final class SceneTextEditor: NSObject {
     let book: AppOpenBook
     let part: TextPart
     let formatting: EditorFormatting
+    /// The window's selected comment, which a click on commented text changes.
+    let comments: CommentSelection
     private(set) weak var textView: SceneTextView?
     private(set) var scene: SceneID?
     /// The part the storage holds, as the model had it after the last edit or load.
@@ -28,10 +30,18 @@ final class SceneTextEditor: NSObject {
     /// Our own type first; then rich text, so pasted bold and italic survive; then plain.
     static let readableTypes: [NSPasteboard.PasteboardType] = [.pageClip, .rtf, .rtfd, .html, .string]
 
-    init(book: AppOpenBook, part: TextPart, formatting: EditorFormatting) {
+    init(book: AppOpenBook, part: TextPart, formatting: EditorFormatting, comments: CommentSelection) {
         self.book = book
         self.part = part
         self.formatting = formatting
+        self.comments = comments
+    }
+
+    /// The writer clicked the character at `index`, or its underlines: if comments cover it,
+    /// the newest is selected, or the next of them when one is already (PLAN §8.1).
+    func clickedComments(at index: Int) {
+        guard let scene, let view = textView, let storage = view.textStorage else { return }
+        comments.click(covering: view.commentPalette.newestFirst(at: index, in: storage), in: scene)
     }
 
     private var role: ParagraphRole {

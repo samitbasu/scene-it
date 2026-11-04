@@ -1,23 +1,15 @@
 import AppKit
 import Synchronization
 
-/// How commented text is underlined (ADR 0032): a line per comment in its color, below the
-/// baseline, stacked downward into the double spacing where comments overlap.
-public struct UnderlineStyle: Hashable, Sendable {
-    let thickness: CGFloat
+/// How commented text is underlined (ADR 0032, the owner's pick on #24): a 1 pt line per
+/// comment in its color, 3 pt below the baseline, the lines of overlapping comments stacked
+/// downward 1.5 pt apart into the double spacing.
+enum UnderlineStyle {
+    static let thickness: CGFloat = 1
     /// The clear space between two stacked lines.
-    let spacing: CGFloat
+    static let spacing: CGFloat = 1.5
     /// From the baseline down to the top of the first line.
-    let offset: CGFloat
-    let stroke: Stroke
-
-    /// How a line meets the device's pixels.
-    enum Stroke: Hashable, Sendable {
-        /// Its thickness rounded to whole pixels, at least one.
-        case wholePixels
-        /// One device pixel at every scale, whatever its thickness in points.
-        case hairline
-    }
+    static let offset: CGFloat = 3
 
     /// What the deepest line keeps clear of the next line's letters' slot (its cursor and its
     /// selection band).
@@ -27,29 +19,30 @@ public struct UnderlineStyle: Hashable, Sendable {
     static let scales = [1, 2]
 
     /// The top of the line at `level`, below the baseline, before it meets the pixels.
-    func top(of level: Int) -> CGFloat {
+    static func top(of level: Int) -> CGFloat {
         offset + CGFloat(level) * (thickness + spacing)
     }
 
     /// The line at `level` in device pixels below the baseline's pixel, at `scale` pixels a
-    /// point. Every level is the same whole number of pixels below the last, so a stack is even.
-    func pixels(of level: Int, scale: Int) -> (top: Int, height: Int) {
+    /// point: its thickness and its distance from the line above rounded to whole pixels, so
+    /// a stack is even.
+    static func pixels(of level: Int, scale: Int) -> (top: Int, height: Int) {
         let perPoint = CGFloat(scale)
-        let height = stroke == .hairline ? 1 : max(1, Int((thickness * perPoint).rounded()))
+        let height = max(1, Int((thickness * perPoint).rounded()))
         let pitch = max(height + 1, Int(((thickness + spacing) * perPoint).rounded()))
         return (Int((offset * perPoint).rounded()) + level * pitch, height)
     }
 
     /// From the baseline down to what the lines below `line` must keep clear of: the next
     /// line's slot, which `paragraph`'s line spacing puts below it.
-    func room(below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle) -> CGFloat {
-        line.typographicBounds.height - line.glyphOrigin.y + paragraph.lineSpacing - Self.clearance
+    static func room(below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle) -> CGFloat {
+        line.typographicBounds.height - line.glyphOrigin.y + paragraph.lineSpacing - clearance
     }
 
     /// How many lines fit below `line` at every scale, at least one.
-    func depth(below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle) -> Int {
+    static func depth(below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle) -> Int {
         let room = room(below: line, spacedBy: paragraph)
-        let fitting = Self.scales.map { scale in
+        let fitting = scales.map { scale in
             (0...).first { level in
                 let line = pixels(of: level, scale: scale)
                 return CGFloat(line.top + line.height) > room * CGFloat(scale)
@@ -57,19 +50,6 @@ public struct UnderlineStyle: Hashable, Sendable {
         }
         return max(1, fitting.min() ?? 1)
     }
-
-    // Candidates for the owner's pick (#24): thickness 1, 1.5 and 2 pt clear of the descenders,
-    // two spacings, and an offset through the descenders, as the system's underline is; then,
-    // thinner, 1 pt and a hairline 1.5 pt apart.
-    public static let thin = Self(thickness: 1, spacing: 2, offset: 3, stroke: .wholePixels)
-    public static let medium = Self(thickness: 1.5, spacing: 2, offset: 3, stroke: .wholePixels)
-    public static let thick = Self(thickness: 2, spacing: 2, offset: 3, stroke: .wholePixels)
-    public static let mediumTight = Self(thickness: 1.5, spacing: 1, offset: 3, stroke: .wholePixels)
-    public static let mediumHigh = Self(thickness: 1.5, spacing: 2, offset: 1.5, stroke: .wholePixels)
-    public static let thinTight = Self(thickness: 1, spacing: 1.5, offset: 3, stroke: .wholePixels)
-    public static let hairline = Self(thickness: 0.7, spacing: 1.5, offset: 3, stroke: .hairline)
-
-    public static let standard = medium
 }
 
 /// The open scene's comments as the page draws them: each one's color, and which is newer.
@@ -105,8 +85,7 @@ public struct CommentPalette: Hashable, Sendable {
     public func underlines(of text: NSAttributedString, depth: Int) -> [CommentUnderline] {
         var runs: [(range: NSRange, comments: [CommentID])] = []
         text.enumerateAttribute(.comments, in: NSRange(location: 0, length: text.length)) { value, range, _ in
-            let ids = ((value as? NSSet)?.allObjects as? [String] ?? []).map(CommentID.init(rawValue:))
-                .filter { entries[$0] != nil }
+            let ids = ids(in: value)
             if !ids.isEmpty { runs.append((range, ids)) }
         }
         let levels = levels(of: runs)
@@ -123,6 +102,19 @@ public struct CommentPalette: Hashable, Sendable {
             }
         }
         return CommentUnderline.merged(underlines)
+    }
+
+    /// The comments covering the character at `index` of `text`, newest first; none past its end.
+    public func newestFirst(at index: Int, in text: NSAttributedString) -> [CommentID] {
+        guard index >= 0, index < text.length else { return [] }
+        return ids(in: text.attribute(.comments, at: index, effectiveRange: nil))
+            .sorted { age(of: $0) > age(of: $1) }
+    }
+
+    /// The ids of a `.comments` value that this palette has.
+    private func ids(in value: Any?) -> [CommentID] {
+        ((value as? NSSet)?.allObjects as? [String] ?? []).map(CommentID.init(rawValue:))
+            .filter { entries[$0] != nil }
     }
 
     private func levels(of runs: [(range: NSRange, comments: [CommentID])]) -> [CommentID: Int] {
@@ -190,16 +182,12 @@ public struct CommentUnderline: Hashable, Sendable {
 
 /// A paragraph laid out as TextKit does, with its comments' underlines drawn below its lines.
 public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Sendable {
-    /// TextKit keeps a fragment when its layout is invalidated, so it reads its palette and
-    /// style from here each time rather than keeping the ones it was made with.
+    /// TextKit keeps a fragment when its layout is invalidated, so it reads the palette from
+    /// here each time rather than keeping the one it was made with.
     private let underliner: CommentUnderliner
 
     private var palette: CommentPalette {
         underliner.palette
-    }
-
-    var style: UnderlineStyle {
-        underliner.style
     }
 
     init(_ element: NSTextElement, range: NSTextRange?, underliner: CommentUnderliner) {
@@ -223,7 +211,7 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
 
     private func depth(of paragraph: NSTextParagraph) -> Int {
         guard let line = textLineFragments.first else { return 1 }
-        return style.depth(below: line, spacedBy: paragraphStyle(of: paragraph))
+        return UnderlineStyle.depth(below: line, spacedBy: paragraphStyle(of: paragraph))
     }
 
     /// One underline where it's drawn: `rect` is where it is before it meets the pixels.
@@ -261,12 +249,60 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
                     PlacedUnderline(
                         rect: CGRect(
                             x: line.typographicBounds.minX + from,
-                            y: baseline + style.top(of: underline.level),
-                            width: to - from, height: style.thickness),
+                            y: baseline + UnderlineStyle.top(of: underline.level),
+                            width: to - from, height: UnderlineStyle.thickness),
                         baseline: baseline, level: underline.level, color: underline.color))
             }
         }
         return rects
+    }
+
+    /// The character of this paragraph at `point`, in this fragment's coordinates: under it on
+    /// its line, or above it in the room below the line, where its underlines are. Its offset in
+    /// the paragraph.
+    func character(at point: CGPoint) -> Int? {
+        guard let paragraph else { return nil }
+        let style = paragraphStyle(of: paragraph)
+        for line in textLineFragments {
+            let bounds = line.typographicBounds
+            let bottom = bounds.minY + line.glyphOrigin.y + UnderlineStyle.room(below: line, spacedBy: style)
+            guard point.y >= bounds.minY, point.y < max(bottom, bounds.maxY) else { continue }
+            let x = point.x - bounds.minX
+            let range = line.characterRange
+            let near = line.characterIndex(for: CGPoint(x: x, y: line.glyphOrigin.y))
+            return [near - 1, near, near + 1].first { index in
+                index >= range.location && index < range.upperBound
+                    && x >= line.locationForCharacter(at: index).x
+                    && x < line.locationForCharacter(at: index + 1).x
+            }
+        }
+        return nil
+    }
+
+    /// The character of `layout`'s text at `point`, in its text container's coordinates, as
+    /// `character(at:)` finds it: its offset in the text. The room below a paragraph's last line
+    /// is in the next paragraph's fragment, so the fragments starting at or above `point` are
+    /// asked, nearest first: the last of them, then the one before. A click is in view, so the
+    /// search starts at the viewport.
+    public static func character(at point: CGPoint, in layout: NSTextLayoutManager) -> Int? {
+        guard let content = layout.textContentManager else { return nil }
+        let documentStart = layout.documentRange.location
+        let start = layout.textViewportLayoutController.viewportRange?.location ?? documentStart
+        var nearest: [NSTextLayoutFragment] = []
+        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            guard fragment.layoutFragmentFrame.minY <= point.y else { return false }
+            nearest = [fragment] + nearest.prefix(1)
+            return true
+        }
+        for fragment in nearest {
+            let frame = fragment.layoutFragmentFrame
+            if let ours = fragment as? CommentUnderlineFragment,
+                let index = ours.character(at: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
+            {
+                return content.offset(from: documentStart, to: fragment.rangeInElement.location) + index
+            }
+        }
+        return nil
     }
 
     /// The lines below the last line of text reach into the spacing below it, outside the frame.
@@ -275,7 +311,8 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         guard let paragraph, let last = textLineFragments.last else { return bounds }
         let lowest =
             last.typographicBounds.minY + last.glyphOrigin.y
-            + style.room(below: last, spacedBy: paragraphStyle(of: paragraph)) + UnderlineStyle.clearance
+            + UnderlineStyle.room(below: last, spacedBy: paragraphStyle(of: paragraph))
+            + UnderlineStyle.clearance
         return bounds.union(
             CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: lowest - bounds.minY))
     }
@@ -302,7 +339,7 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         let step = below.y - baseline.y
         let scale = max(1, Int(abs(step).rounded()))
         let down: CGFloat = step < 0 ? -1 : 1
-        let line = style.pixels(of: underline.level, scale: scale)
+        let line = UnderlineStyle.pixels(of: underline.level, scale: scale)
         let top = baseline.y.rounded() + down * CGFloat(line.top)
         let bottom = top + down * CGFloat(line.height)
         let left = context.convertToDeviceSpace(CGPoint(x: point.x + underline.rect.minX, y: 0)).x
@@ -315,29 +352,23 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
 }
 
 /// Lays out every paragraph of a text as a `CommentUnderlineFragment`, which draws with the
-/// palette and style this was last given. TextKit asks on whichever thread lays out.
+/// palette this was last given. TextKit asks on whichever thread lays out.
 public final class CommentUnderliner: NSObject, NSTextLayoutManagerDelegate, Sendable {
-    private let state = Mutex((palette: CommentPalette.empty, style: UnderlineStyle.standard))
+    private let state = Mutex(CommentPalette.empty)
 
-    /// Draws `palette`'s comments in `style` from now on, laying `layout`'s text out again if
-    /// either changed.
-    public func show(
-        _ palette: CommentPalette, in style: UnderlineStyle, laidOutBy layout: NSTextLayoutManager?
-    ) {
-        let changed = state.withLock { state in
-            guard state.palette != palette || state.style != style else { return false }
-            state = (palette, style)
+    /// Draws `palette`'s comments from now on, laying `layout`'s text out again, so that it's
+    /// drawn again, if it changed.
+    public func show(_ palette: CommentPalette, laidOutBy layout: NSTextLayoutManager?) {
+        let changed = state.withLock { current in
+            guard current != palette else { return false }
+            current = palette
             return true
         }
         if changed, let layout { layout.invalidateLayout(for: layout.documentRange) }
     }
 
     public var palette: CommentPalette {
-        state.withLock(\.palette)
-    }
-
-    public var style: UnderlineStyle {
-        state.withLock(\.style)
+        state.withLock(\.self)
     }
 
     public func textLayoutManager(

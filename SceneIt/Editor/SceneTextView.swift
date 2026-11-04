@@ -50,12 +50,22 @@ class SceneTextView: KeyboardTextView {
     /// The comments underlined, as the scene has them.
     var commentPalette: CommentPalette {
         get { underliner.palette }
-        set { underliner.show(newValue, in: underliner.style, laidOutBy: textLayoutManager) }
+        set { underliner.show(newValue, laidOutBy: textLayoutManager) }
     }
 
-    var underlineStyle: UnderlineStyle {
-        get { underliner.style }
-        set { underliner.show(underliner.palette, in: newValue, laidOutBy: textLayoutManager) }
+    /// A click on commented text, or on its underlines, selects its comment (PLAN §8.1). The
+    /// click goes on to place the caret as any click does.
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1, let layout = textLayoutManager {
+            let point = convert(event.locationInWindow, from: nil)
+            let origin = textContainerOrigin
+            if let index = CommentUnderlineFragment.character(
+                at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), in: layout)
+            {
+                editor?.clickedComments(at: index)
+            }
+        }
+        super.mouseDown(with: event)
     }
 
     /// The typing attributes take the style of the caret's paragraph. TextKit also lays out the
