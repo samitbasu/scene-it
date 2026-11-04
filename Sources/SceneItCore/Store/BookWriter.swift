@@ -53,6 +53,33 @@ final class BookWriter: Sendable {
         }
     }
 
+    /// `BookPackage.fileCopy`, snapshotting the book if its save wrote it.
+    @concurrent
+    func fileCopy(of book: Book, as record: FilingRecord, pending: Archive.Pending)
+        async throws(FilingFailure)
+        -> FilingOutcome
+    {
+        try held.withLock { (held) throws(FilingFailure) -> FilingOutcome in
+            guard let held else { throw .unavailable }
+            let filed = try held.package.fileCopy(of: book, as: record, pending: pending)
+            if case .saved(_, let published) = filed.saved { _ = held.keeper.keep(published, now: .now) }
+            return filed.outcome
+        }
+    }
+
+    /// `Archive.reconcile`, after any running save or filing; `nil` once released.
+    @concurrent
+    func reconcileArchive(_ access: Archive.Access, pending: Archive.Pending = [:]) async
+        -> ReconciledArchive?
+    {
+        held.withLock { held in
+            held.map {
+                Archive(layout: $0.package.layout, fileSystem: $0.package.fileSystem)
+                    .reconcile(access, pending: pending)
+            }
+        }
+    }
+
     /// Waits for a running save, then drops the package, which releases the book's lock.
     @concurrent
     func release() async {
@@ -97,9 +124,15 @@ final class BookWriter: Sendable {
 
     /// Releases a copy that never received its book and removes it, so no empty "(my edits)"
     /// book is left to be mistaken for the writer's version.
+    /// A copy holding a filed copy isn't unfinished, and is left whole.
     @concurrent
     func discardCopy() async {
         await release()
+        let archive = (try? fileSystem.contents(of: layout.archive)) ?? []
+        guard ArchiveReconciliation.filedCopies(in: archive).isEmpty else {
+            Log.store.error("an unfinished copy of a book holds a filed copy; left it in place")
+            return
+        }
         do {
             try Self.removeTree(layout.root, fileSystem)
         } catch {

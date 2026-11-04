@@ -15,6 +15,8 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
 | `My Novel.sceneit/book.md.conflict-<time>`, also `-<time>-2`, `-<time>-3`, … | a version another program wrote while Scene It was saving (the number is added when there was more than one in the same second). Rarely, if that name couldn't be used, the version is first left in a hidden `.book.md.<…>.tmp` file, and a save at least 10 minutes later renames it to `book.md.recovered-<time>.md` | until you delete it |
 | `My Novel.sceneit/book.md.original-<time>.md`, also `-<time>-2.md`, `-<time>-3.md`, … | the book's file exactly as it was when Scene It found it damaged (or changed by hand in a way it couldn't fully read) and you chose **Make Editable**; `<time>` is when you chose it | until you delete it: Scene It never deletes, rotates or replaces it |
 | `My Novel.sceneit/book.md.recovered-<time>.md`, also `-<time>-2.md`, `-<time>-3.md`, … | a version left behind by a save that was interrupted (a crash, or another program writing at the same moment) and found nowhere else in the book; `<time>` is when that version was written | until you delete it |
+| `My Novel.sceneit/Archive/save0001.md`, `save0002.md`, … | the copies you filed with **File a Copy…**, each exactly the book as it was when you filed it. Locked (Finder shows them as Locked) | until you delete them: Scene It never changes, renames or deletes one |
+| `My Novel.sceneit/Archive/index.md` | the File Cabinet's list: each filed copy's date, tags, note and counts. A plain text file | rewritten when you file a copy |
 | `My Novel.sceneit/Backups/book-<time>.md` | snapshots | one per 10 minutes for a day, one per day for 30 days, then one per week |
 | `My Novel.sceneit/Backups/book.md.recovered-<time>.md`, also `-<time>-2.md`, … | a snapshot that was interrupted before it was finished (a crash), holding a version found nowhere else in the book; `<time>` is when that version was written | until you delete it |
 | `~/Library/Application Support/Scene It/Backups/<id>/book-<time>.md` | the same snapshots, outside the book, so they survive the book being deleted | the same |
@@ -60,6 +62,37 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
   `Application Support` folder can mix. Each book's own `Backups/` folder is still right.
 - To open `~/Library`, choose **Go ▸ Go to Folder…** in Finder and type
   `~/Library/Application Support/Scene It/Backups`.
+
+## Filed copies
+
+- A filed copy is a complete `book.md`: to read one, open it in any text editor, or copy it
+  out of the package and rename it `book.md` to restore it as below.
+- Scene It locks each filed copy as it files it, so nothing (Scene It included) can change,
+  rename or delete it by accident. On a disk that can't lock files (some network shares)
+  Scene It says so when you file; it still never writes to the copy.
+- If `index.md` is lost, nothing is lost but the tags and notes: the next time the book opens,
+  every `saveNNNN.md` is listed again, with its date and counts. A line that `index.md`
+  doesn't understand is kept in it, under `### Unparsed`, and so is the entry of a copy whose
+  file isn't there (renamed or moved, say). Before Scene It rewrites an `index.md` like that,
+  it keeps the file exactly as it was, as `Archive/index.md.original-<time>.md` (never
+  deleted automatically). An `index.md` saved by a newer version of Scene It is left exactly
+  as it is.
+- Hidden files named `.save0001.md.<…>.tmp` or `.index.md.<…>.tmp` in `Archive/` were left by
+  a filing that was interrupted. Once one is 10 minutes old, the next save deletes a
+  `.saveNNNN.md.<…>.tmp` if a filed copy, `book.md`, a `.bak` file or a snapshot holds exactly
+  the same text (otherwise it's renamed to `Archive/book.md.recovered-<time>.md`), and a
+  `.index.md.<…>.tmp` once `index.md` beside it reads cleanly. A filed copy itself is never
+  touched.
+- A file named `save` and more than six digits (`save1234567.md`) isn't counted as a filed
+  copy, so it can't use the numbers up; it's still never changed.
+- **To unlock a filed copy** (to delete it, say), quit Scene It, then in Terminal:
+
+  ```sh
+  chflags nouchg "My Novel.sceneit/Archive/save0001.md"
+  ```
+
+  Or select it in Finder (Show Package Contents), choose **File ▸ Get Info**, and uncheck
+  **Locked**. `chflags uchg` locks it again.
 
 To restore a version: copy the book somewhere safe first, then replace its `book.md`
 with a copy of the backup, renamed to `book.md`.

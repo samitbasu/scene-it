@@ -20,7 +20,7 @@ public struct PackageLayout: Hashable, Sendable {
 
     public var book: URL { file(Self.bookFileName, in: root) }
     public var legacyBook: URL { file(Self.legacyBookFileName, in: root) }
-    public var archive: URL { root.appending(path: "Archive", directoryHint: .isDirectory) }
+    public var archive: URL { root.appending(path: Self.archiveFolderName, directoryHint: .isDirectory) }
     public var archiveIndex: URL { file("index.md", in: archive) }
     /// Tiered snapshots (ADR 0005), distinct from the rotated `book.md.bak1…3`.
     public var snapshots: URL { root.appending(path: "Backups", directoryHint: .isDirectory) }
@@ -37,6 +37,24 @@ public struct PackageLayout: Hashable, Sendable {
 
     public func filedCopy(_ number: FiledCopyNumber) -> URL {
         file(number.fileName, in: archive)
+    }
+
+    static let archiveFolderName = "Archive"
+
+    /// Whether `url` names a filed copy: a `saveNNNN.md` in a folder named `Archive`, in any
+    /// package. Nothing may change or remove one (`FileSystem`). Case doesn't matter, as on
+    /// APFS and HFS+, where `archive/SAVE0001.MD` is the same file.
+    static func isFiledCopy(_ url: URL) -> Bool {
+        let folder = url.deletingLastPathComponent().lastPathComponent
+        return folder.lowercased() == archiveFolderName.lowercased()
+            && FiledCopyNumber(fileName: url.lastPathComponent.lowercased()) != nil
+    }
+
+    /// Where an `Archive/index.md` that reconciliation is about to rewrite is kept first, when
+    /// the rewrite would change what the writer wrote: `index.md.original-<UTC time>.md` in
+    /// `Archive/`, then `-2`, `-3`, … before `.md`. Nothing rotates, prunes, sweeps or replaces it.
+    public func originalIndex(at date: Date, attempt: Int) -> URL {
+        file("index.md.original-\(Self.stamp(date, attempt)).md", in: archive)
     }
 
     /// Where a version of `book.md` that another program wrote during a save is kept:
@@ -131,4 +149,18 @@ public struct FiledCopyNumber: Hashable, Comparable, Sendable, CustomStringConve
     }
 
     public var description: String { fileName }
+
+    public static let first = FiledCopyNumber(1)!
+
+    /// The highest number filing uses or counts: a stray `save9223372036854775807.md` mustn't
+    /// use the numbers up. Six digits, a filing a day for 2,700 years.
+    public static let highest = FiledCopyNumber(999_999)!
+
+    /// Whether filing counts this number (`highest`).
+    public var isInRange: Bool { self <= Self.highest }
+
+    /// The number after this one; `nil` past `highest`.
+    public var next: FiledCopyNumber? {
+        self < Self.highest ? FiledCopyNumber(value + 1) : nil
+    }
 }

@@ -21,18 +21,21 @@ public enum ArchiveIndexFormat {
         var blocks = ["---\nformat: \(FormatVersion.current)\n---"]
         blocks += BookSerializer.unparsed(index.errors)
         for copy in index.copies.sorted(by: { $0.number < $1.number }) {
-            var header = ["## \(copy.number.fileName)", "filed: \(copy.filed)"]
-            if !copy.tags.isEmpty { header.append(BookSerializer.tagsLine(copy.tags)) }
-            if !copy.note.isEmpty { header.append("note: " + FieldEscaping.freeText.escape(copy.note)) }
-            if let counts = copy.counts {
-                header += [
-                    "scenes: \(counts.scenes)", "words: \(counts.words)", "comments: \(counts.comments)",
-                ]
-            }
-            blocks.append(header.joined(separator: "\n"))
+            blocks.append(sectionLines(copy).joined(separator: "\n"))
             blocks += BookSerializer.unparsed(copy.errors)
         }
         return Data((blocks.joined(separator: "\n\n") + "\n").utf8)
+    }
+
+    /// A copy's heading and metadata lines, as `serialize` writes them.
+    static func sectionLines(_ copy: FiledCopy) -> [String] {
+        var lines = ["## \(copy.number.fileName)", "filed: \(copy.filed)"]
+        if !copy.tags.isEmpty { lines.append(BookSerializer.tagsLine(copy.tags)) }
+        if !copy.note.isEmpty { lines.append("note: " + FieldEscaping.freeText.escape(copy.note)) }
+        if let counts = copy.counts {
+            lines += ["scenes: \(counts.scenes)", "words: \(counts.words)", "comments: \(counts.comments)"]
+        }
+        return lines
     }
 
     /// The bytes to save for `index`, after checking that they read back as `index` itself,

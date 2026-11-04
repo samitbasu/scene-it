@@ -21,6 +21,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public private(set) var openScene: SceneID?
     /// The last save that succeeded: when, and what it did for the backups.
     public private(set) var lastSave: (at: Date, backups: SavedBackups?)?
+    /// What the File Cabinet lists: `Archive/index.md` reconciled with the filed copies.
+    public private(set) var archive: ArchiveIndex
+    /// What the last reconciliation noticed.
+    public private(set) var archiveNotices: [ArchiveNotice]
+    /// What the writer gave copies whose filing couldn't save their section in the index:
+    /// recorded by the next save or reconciliation that can write it.
+    public private(set) var pendingRecords: [FiledCopyNumber: FilingRecord] = [:]
+    /// File a Copy's dialog while it's up (PLAN §7.1): what the writer has typed there, which
+    /// leaving the book asks about first.
+    public var filingDraft: FilingDraft?
     /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
@@ -44,9 +54,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         case refused
     }
 
-    init(_ opened: OpenedBook, clock: C, mirror: BackupMirror, store: BookStore<C>) {
+    init(
+        _ opened: OpenedBook, archive: ReconciledArchive, clock: C, mirror: BackupMirror, store: BookStore<C>
+    ) {
         self.store = store
         book = opened.book
+        self.archive = archive.index
+        archiveNotices = archive.notices
         wordCounts = SceneWordCounts(opened.book)
         access = .closed
         switch opened {
@@ -96,6 +110,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let driver = AutosaveDriver(clock: clock, saver: self)
         access = .writable(driver, writer, .accepted)
         driver.send(.edited)
+    }
+
+    func show(_ reconciled: ReconciledArchive) {
+        archive = reconciled.index
+        archiveNotices = reconciled.notices
     }
 
     func setEdits(_ edits: Edits) {
@@ -276,6 +295,62 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         driver.send(.edited)
     }
 
+    // MARK: Filing a copy (PLAN §7.1)
+
+    /// Saves every edit so far, then files a copy of the book. Only while it's editable.
+    func fileCopy(as record: FilingRecord) async -> FilingResult {
+        guard let driver = editingDriver, case .writable(_, let writer, _) = access else {
+            return .unavailable
+        }
+        let verdict: QuitVerdict
+        do {
+            verdict = try await driver.saveAndWait()
+        } catch {
+            return .failed(.stillSaving)
+        }
+        switch verdict {
+        case .terminate: break
+        case .askWriter(.saveFailed(let error)), .askWriter(.changedOnDisk(let error)):
+            return .failed(.save(error))
+        case .askWriter(.stillSaving): return .failed(.stillSaving)
+        }
+        guard editingDriver != nil else { return .unavailable }
+        let result: FilingResult
+        do throws(FilingFailure) {
+            let outcome = try await writer.fileCopy(of: book, as: record, pending: pendingRecords)
+            switch outcome.index {
+            case .updated(let index):
+                forgetPending(recordedIn: index)
+            case .notUpdated(.couldNotRead), .notUpdated(.notWritten):
+                pendingRecords[outcome.number] = record
+            case .notUpdated(.newerFormat):
+                break
+            }
+            result = .filed(outcome)
+        } catch .unavailable {
+            result = .unavailable
+        } catch {
+            result = .failed(error)
+        }
+        if let reconciled = await writer.reconcileArchive(.readOnly, pending: pendingRecords) {
+            show(reconciled)
+        }
+        return result
+    }
+
+    /// Records the pending records, if any, now that a save may have cleared what stopped them.
+    private func recordPending(_ writer: BookWriter) async {
+        guard !pendingRecords.isEmpty,
+            let reconciled = await writer.reconcileArchive(.writable, pending: pendingRecords)
+        else { return }
+        show(reconciled)
+        if reconciled.isSaved { forgetPending(recordedIn: reconciled.index) }
+    }
+
+    private func forgetPending(recordedIn index: ArchiveIndex) {
+        for copy in index.copies { pendingRecords[copy.number] = nil }
+    }
+
     // MARK: Error entries (book format §5.4)
 
     public enum EntryEdit: Hashable, Sendable {
@@ -405,6 +480,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             let now = Date.now
             lastSave = (now, backups)
             store?.bookSaved(at: now)
+            await recordPending(writer)
         } catch {
             Log.store.error("a save failed", ["error": .error(LoggedError(error))])
             // Runs after the driver has handled this failure, so it sees the pause, if any.
@@ -414,6 +490,22 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             }
             throw error
         }
+    }
+
+    /// Before the writer leaves the book: if File a Copy's dialog holds typed text, asks whether
+    /// to leave it unfiled. The draft stays as it is either way; it goes with the book only if
+    /// the book really is left, so a leave that fails later (a save, the next book) loses nothing.
+    func confirmLeaving(_ leaving: Leaving, asking prompts: any StorePrompts) async -> LeaveConfirmation {
+        guard let draft = filingDraft, draft.holdsTypedText else { return .leave }
+        switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record, leaving: leaving)) {
+        case .cancel: return .stay
+        case .leaveAnyway: return .leave
+        }
+    }
+
+    enum LeaveConfirmation {
+        case leave
+        case stay
     }
 
     /// Saves before the writer leaves the book, asking whenever that would lose edits.

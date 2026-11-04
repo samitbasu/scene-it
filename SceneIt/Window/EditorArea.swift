@@ -112,8 +112,10 @@ private struct TitleTextField: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = TitleField(string: title)
+    func makeNSView(context: Context) -> AdmittingTextField {
+        let editor = AdmittingTextView.fieldEditor(admitting: { SceneTitle(pasted: $0).text })
+        editor.isContinuousSpellCheckingEnabled = true
+        let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
         context.coordinator.field = field
         let center = NotificationCenter.default
         center.addObserver(
@@ -126,20 +128,18 @@ private struct TitleTextField: NSViewRepresentable {
         field.bezelStyle = .roundedBezel
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
-        field.lineBreakMode = .byTruncatingTail
-        field.cell?.isScrollable = true
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.delegate = context.coordinator
         focus.title = field
         return field
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: AdmittingTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.book = book
         coordinator.scene = scene
         coordinator.focus = focus
-        (field.cell as? TitleField.Cell)?.history = book.titleUndo(for: scene)
+        field.editor?.history = book.titleUndo(for: scene)
         if field.currentEditor() == nil, field.stringValue != title { field.stringValue = title }
         if coordinator.resumesEditing {
             coordinator.resumesEditing = false
@@ -229,71 +229,6 @@ private struct TitleTextField: NSViewRepresentable {
 
         private static func editor(_ notification: Notification) -> NSTextView? {
             notification.userInfo?["NSFieldEditor"] as? NSTextView
-        }
-    }
-}
-
-/// A text field with a field editor of its own, which checks spelling as the writer types and has
-/// no input method (ADR 0028). (The window's shared field editor serves every other field, which
-/// shouldn't.)
-private final class TitleField: NSTextField {
-    override class var cellClass: AnyClass? {
-        get { Cell.self }
-        set {}
-    }
-
-    final class Cell: NSTextFieldCell {
-        /// The open scene's title history.
-        var history: UndoManager? {
-            get { editor.history }
-            set { editor.history = newValue }
-        }
-
-        private lazy var editor: Editor = {
-            let editor = Editor()
-            editor.isFieldEditor = true
-            editor.allowsUndo = true
-            editor.isContinuousSpellCheckingEnabled = true
-            return editor
-        }()
-
-        override func fieldEditor(for controlView: NSView) -> NSTextView? {
-            editor
-        }
-    }
-
-    final class Editor: KeyboardTextView {
-        var history: UndoManager?
-
-        /// The character policy's veto, as the page has it: a change the title can't hold is
-        /// refused and its admitted reading made instead, as one undoable change.
-        override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)
-            -> Bool
-        {
-            guard let strings = replacementStrings,
-                let admitted = Self.corrected(strings, by: { SceneTitle(pasted: $0).text })
-            else {
-                return super.shouldChangeText(
-                    inRanges: affectedRanges, replacementStrings: replacementStrings)
-            }
-            let ranges = affectedRanges.map(\.rangeValue)
-            guard let storage = textStorage,
-                super.shouldChangeText(inRanges: affectedRanges, replacementStrings: admitted)
-            else { return false }
-            let selection = selectedRanges.map(\.rangeValue)
-            storage.beginEditing()
-            for (range, string) in zip(ranges, admitted).reversed() {
-                storage.replaceCharacters(in: range, with: string)
-            }
-            storage.endEditing()
-            didChangeText()
-            let edits = zip(ranges, admitted).map { Edit(range: $0, length: $1.utf16.count) }
-            selectedRanges = Self.selection(selection, after: edits).map(NSValue.init(range:))
-            return false
-        }
-
-        override var undoManager: UndoManager? {
-            history ?? super.undoManager
         }
     }
 }

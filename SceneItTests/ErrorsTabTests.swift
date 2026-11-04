@@ -145,7 +145,8 @@ struct ErrorsTabTests {
                 if book.book.errorCount > 0 { #expect(books.preferences.rightPanelTab == .errors) }
             }
             await eventually { books.preferences.rightPanelTab == .comments }
-            #expect(!selectableTexts(in: window).contains(strayLine))
+            // The window re-renders on a later turn, later still on a busy machine.
+            await eventually { !selectableTexts(in: window).contains(strayLine) }
             #expect(await store.closeBook() == .left)
         }
     }

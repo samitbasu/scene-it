@@ -119,15 +119,24 @@ private func sampleBook() throws -> Book {
 @Suite struct UndoRoutingTests {
     @Test func whileTheScenesSheetIsOpenUndoActsOnTheStructure() {
         for focus in [UndoFocus.text, .errorsTab, .elsewhere] {
-            #expect(UndoStack(mode: .scenes, focus: focus) == .structure, "\(focus)")
+            #expect(UndoStack(mode: .scenes, focus: focus, dialog: .none) == .structure, "\(focus)")
+        }
+    }
+
+    /// File a Copy's sheet keeps the page as the window's first responder behind it.
+    @Test func whileADialogIsAttachedOnlyItsTextFieldCanBeUndone() {
+        for mode in WindowMode.allCases {
+            #expect(UndoStack(mode: mode, focus: .text, dialog: .attached) == .focusedText, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .errorsTab, dialog: .attached) == UndoStack.none, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .elsewhere, dialog: .attached) == UndoStack.none, "\(mode)")
         }
     }
 
     @Test func otherwiseTheFocusDecides() {
         for mode in WindowMode.allCases where mode != .scenes {
-            #expect(UndoStack(mode: mode, focus: .text) == .focusedText, "\(mode)")
-            #expect(UndoStack(mode: mode, focus: .errorsTab) == .errors, "\(mode)")
-            #expect(UndoStack(mode: mode, focus: .elsewhere) == UndoStack.none, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .text, dialog: .none) == .focusedText, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .errorsTab, dialog: .none) == .errors, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .elsewhere, dialog: .none) == UndoStack.none, "\(mode)")
         }
     }
 }

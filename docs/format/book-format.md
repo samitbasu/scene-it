@@ -905,7 +905,7 @@ comments: 44
 | `scenes`, `words`, `comments` | Non-negative decimal integers. They're a cache of facts about an immutable file, so if one is missing or bad it's **recomputed from the filed copy, silently** †, and written on the next save of the index. |
 | Unknown key, duplicate key | `[metadata]` entry in the section's `### Unparsed`. |
 | Canonical | Front matter, then sections in ascending file number, each: heading, `filed`, `tags` (if any), `note` (if any), `scenes`, `words`, `comments`, then `### Unparsed` (if any). Blocks joined by one blank line; one final newline. |
-| Reconciliation (PLAN §5.5) | A filed copy with no section is listed with no tags, its counts computed, and gets a section on the next index write. A section whose file is missing is dropped on the next index write. `NNNN` is one more than the highest existing number. |
+| Reconciliation (PLAN §5.5) | A filed copy with no section is listed with no tags, its counts computed, and gets a section on the next index write. A section whose file is missing (or isn't a regular file named exactly so) isn't listed, and its lines are kept as `[line]` entries in the index's own `### Unparsed` on the next index write †. Before a rewrite that changes what was written (new error entries, or such a section), the file is kept as `Archive/index.md.original-<UTC time>.md` †. `NNNN` is one more than the highest existing number up to 999999; higher numbers are ignored. |
 
 The index has no Errors tab of its own; see §10 Q12.
 

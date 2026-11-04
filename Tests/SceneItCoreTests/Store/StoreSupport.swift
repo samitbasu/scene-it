@@ -65,7 +65,7 @@ func withTemporaryFolder<T>(_ body: (URL) async throws -> T) async throws -> T {
     let url = FileManager.default.temporaryDirectory
         .appending(path: "SceneItStoreTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-    defer { try? FileManager.default.removeItem(at: url) }
+    defer { removeUnlocking(url) }
     return try await body(url)
 }
 

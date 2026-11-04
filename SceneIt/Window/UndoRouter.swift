@@ -45,14 +45,22 @@ final class UndoRouter {
         refresh()
     }
 
+    /// The window whose first responder decides: a dialog attached to the window, while there
+    /// is one, since the window behind it keeps its first responder (the page, say).
+    private var focusedWindow: NSWindow? {
+        window?.attachedSheet ?? window
+    }
+
     var stack: UndoStack {
-        UndoStack(mode: mode, focus: Self.focus(of: window?.firstResponder))
+        UndoStack(
+            mode: mode, focus: Self.focus(of: focusedWindow?.firstResponder),
+            dialog: window?.attachedSheet == nil ? .none : .attached)
     }
 
     /// The undo manager Undo and Redo act on now, if any.
     var manager: UndoManager? {
         switch stack {
-        case .focusedText: window?.firstResponder?.undoManager
+        case .focusedText: focusedWindow?.firstResponder?.undoManager
         case .structure: book.structureUndo
         case .errors: book.errorsUndo
         case .none: nil

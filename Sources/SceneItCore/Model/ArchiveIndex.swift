@@ -1,3 +1,5 @@
+import Foundation
+
 /// `Archive/index.md` (book format §8): what the writer recorded about each filed copy.
 public struct ArchiveIndex: Hashable, Sendable {
     /// Ascending by number, at most one per number.
@@ -63,5 +65,20 @@ public struct FiledCopyCounts: Hashable, Sendable {
         self.scenes = scenes
         self.words = words
         self.comments = comments
+    }
+}
+
+extension FiledCopyCounts {
+    /// The story's scenes, words (ADR 0023) and comments, as the status bar counts the book:
+    /// the Boneyard isn't counted.
+    public init(_ book: Book) {
+        scenes = book.scenes.count
+        words = book.scenes.reduce(0) { $0 + $1.wordCount.words }
+        comments = book.scenes.reduce(0) { $0 + $1.comments.count }
+    }
+
+    /// The counts of a filed copy's bytes, parsed as a book and never opened as one.
+    init(filedBytes bytes: Data) {
+        self.init(ParseDefaults.system.parse(bytes).book)
     }
 }

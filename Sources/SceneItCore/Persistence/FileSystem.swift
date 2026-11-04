@@ -3,6 +3,9 @@ import Foundation
 /// The file operations persistence uses. `LocalFileSystem` is the real one; tests wrap it
 /// to inject faults.
 ///
+/// A filed copy (`PackageLayout.isFiledCopy`) is never changed through it: `remove`, `move`
+/// and `exchange` refuse one with `.filedCopy`, and `publish` never replaces anything.
+///
 /// Writing is split in two so that every write that can fail (a full disk, an I/O error)
 /// happens before anything visible changes: `writeTemporary` makes a durable copy under a
 /// hidden name, and a rename (`publish`, `exchange` or `move`) puts it in place. Every
@@ -49,6 +52,12 @@ public protocol FileSystem: Sendable {
     /// Removes the file or symbolic link at `file`; never a directory. Not flushed: after a
     /// power loss the file may still be there.
     func remove(_ file: URL) throws(FileSystemError)
+
+    /// Sets the immutable flag on the file at `file` (`chflags uchg`, Finder's "Locked"), never
+    /// following a link. APFS, HFS+, FAT and exFAT all keep it on macOS 27; a volume that has
+    /// no such flag (some network shares) refuses, and one could accept the call without
+    /// keeping the flag: `item(at:)` tells which.
+    func makeImmutable(_ file: URL) throws(FileSystemError)
 
     /// Removes the empty directory at `directory` (`rmdir`); never follows a link.
     func removeDirectory(_ directory: URL) throws(FileSystemError)
@@ -195,6 +204,7 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
     public enum Operation: String, Hashable, Sendable {
         case inspect, read, write, publish, exchange, move, list, remove, lock
         case createDirectory = "create a directory"
+        case makeImmutable = "set the locked flag on"
     }
 
     public enum Cause: Error, Hashable, Sendable, CustomStringConvertible {
@@ -205,6 +215,8 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
         case readOnlyVolume
         case unsupported
         case io
+        /// The file is a filed copy, which nothing may change or remove (PLAN §5.5).
+        case filedCopy
         case other(POSIXErrorCode)
 
         public init(errno code: Int32) {
@@ -229,6 +241,7 @@ public struct FileSystemError: Error, Hashable, Sendable, CustomStringConvertibl
             case .readOnlyVolume: "the disk is read-only"
             case .unsupported: "the disk doesn't support this operation"
             case .io: "an input/output error"
+            case .filedCopy: "it's a filed copy, which is never changed"
             case .other(let code): String(cString: strerror(code.rawValue))
             }
         }
@@ -270,6 +283,7 @@ extension FileSystemError.Operation {
         case .remove: "remove"
         case .lock: "lock"
         case .createDirectory: "createDirectory"
+        case .makeImmutable: "makeImmutable"
         }
     }
 }
@@ -284,6 +298,7 @@ extension FileSystemError.Cause {
         case .readOnlyVolume: "readOnlyVolume"
         case .unsupported: "unsupported"
         case .io: "io"
+        case .filedCopy: "filedCopy"
         case .other: "other"
         }
     }
