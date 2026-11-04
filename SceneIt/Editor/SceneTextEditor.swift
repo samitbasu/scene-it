@@ -24,7 +24,6 @@ final class SceneTextEditor: NSObject {
     private var sync = Sync.inStep
     /// Comments a paste is adding, handed to the model with the text that carries them.
     private var pastedComments: [Comment] = []
-    private var keyboardFocus = KeyboardFocus.elsewhere
 
     /// Our own type first; then rich text, so pasted bold and italic survive; then plain.
     static let readableTypes: [NSPasteboard.PasteboardType] = [.pageClip, .rtf, .rtfd, .html, .string]
@@ -83,12 +82,6 @@ final class SceneTextEditor: NSObject {
         init(_ book: AppOpenBook, in environment: EnvironmentValues) {
             self = book.isEditable && environment.isEnabled ? .editable : .readOnly
         }
-    }
-
-    enum KeyboardFocus {
-        /// The editor's text view has it.
-        case here
-        case elsewhere
     }
 
     /// How the text view stands with the model.
@@ -181,11 +174,6 @@ final class SceneTextEditor: NSObject {
 
     // MARK: Formatting (PLAN §6.2)
 
-    func keyboardFocusChanged(_ focus: KeyboardFocus) {
-        keyboardFocus = focus
-        showFormatting()
-    }
-
     /// Applies `command` to the selection as one undoable change, through the text view so the
     /// model hears of it as of any edit; with nothing selected, to what the writer types next.
     /// Returns whether it applied.
@@ -220,7 +208,8 @@ final class SceneTextEditor: NSObject {
 
     /// The selection's formats, while the text can be formatted.
     private var formattingSelection: SelectionFormatting? {
-        guard let view = textView, let storage = view.textStorage, keyboardFocus == .here, view.isEditable
+        guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here,
+            view.isEditable
         else { return nil }
         let ranges = view.selectedRanges.map(\.rangeValue)
         return ranges.contains(where: { $0.length > 0 })
@@ -228,7 +217,8 @@ final class SceneTextEditor: NSObject {
             : SelectionFormatting(typing: view.typingAttributes)
     }
 
-    private func showFormatting() {
+    /// Shows the formats of the selection, or none while the text view can't be formatted.
+    func showFormatting() {
         formatting.show(formattingSelection, from: self)
     }
 

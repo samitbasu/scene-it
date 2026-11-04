@@ -10,6 +10,13 @@ extension NSPasteboard.PasteboardType {
 /// typed or pasted into it; the view hands it its focus, its pasteboard traffic and its edits.
 class SceneTextView: KeyboardTextView {
     weak var editor: SceneTextEditor?
+    /// Whether this view has the keyboard focus, as it last became or resigned first responder:
+    /// inside `resignFirstResponder` the window's `firstResponder` is still this view.
+    private(set) var keyboardFocus = KeyboardFocus.elsewhere {
+        didSet {
+            if keyboardFocus != oldValue { keyboardFocusDidChange() }
+        }
+    }
     /// How the text is displayed, which every replaced string takes.
     private(set) var role = ParagraphRole.body
 
@@ -38,16 +45,31 @@ class SceneTextView: KeyboardTextView {
 
     // MARK: Focus
 
+    enum KeyboardFocus {
+        /// This view has it.
+        case here
+        case elsewhere
+    }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { editor?.keyboardFocusChanged(.here) }
+        if accepted { keyboardFocus = .here }
         return accepted
     }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { editor?.keyboardFocusChanged(.elsewhere) }
+        if resigned { keyboardFocus = .elsewhere }
         return resigned
+    }
+
+    /// The view is leaving the window, which takes its focus with it.
+    func leaveKeyboardFocus() {
+        keyboardFocus = .elsewhere
+    }
+
+    func keyboardFocusDidChange() {
+        editor?.showFormatting()
     }
 
     // MARK: Keys

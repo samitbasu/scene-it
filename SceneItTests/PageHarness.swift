@@ -88,11 +88,20 @@ struct PageHarness {
     }
 }
 
-/// `scenes` in a book written to a temporary folder, then opened and shown.
+/// A window that says it's key, so a test sees what only a key window shows, such as the caret,
+/// without activating the app, which would take the keyboard from whatever the owner is using.
+final class KeyWindow: NSWindow {
+    nonisolated(unsafe) static var isKey = true
+
+    override var isKeyWindow: Bool { Self.isKey }
+}
+
+/// `scenes` in a book written to a temporary folder, then opened and shown in a window of
+/// `windowType`.
 @MainActor
 func withPage(
     _ scenes: [BookScene], holdingTheLock: Bool = false,
-    books: BookController = BookController(role: .testHost),
+    books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
@@ -120,7 +129,7 @@ func withPage(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                 box: modes))
         controller.sizingOptions = []
-        let window = NSWindow(
+        let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
             defer: false)
         window.isReleasedWhenClosed = false

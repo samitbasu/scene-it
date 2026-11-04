@@ -90,7 +90,7 @@ final class SceneTextHost<Scroll: NSScrollView> {
             let handedOn = next.map { $0.window === window && window.makeFirstResponder($0) } ?? false
             if !handedOn { window.makeFirstResponder(nil) }
         }
-        editor.keyboardFocusChanged(.elsewhere)
+        textView.leaveKeyboardFocus()
         scrollView.removeFromSuperview()
     }
 
