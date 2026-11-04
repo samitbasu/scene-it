@@ -399,7 +399,7 @@ All three tabs are view-only when a filed copy is open (§7.5).
 
 ### 8.6 Undo model
 - **Text:** each scene's page and notes have their own `UndoManager` stacks, kept for the session. They're not persisted.
-- **Comments:** comment actions register on the page's undo manager.
+- **Comments:** comment actions register on the undo manager of the text they were made in: the page's, or the notes' (comments can cover notes text too).
 - **Structure:** add, reorder, cut, restore and delete-permanently register on `BookStore.structureUndo`.
 - **Routing:** the toolbar Undo/Redo buttons and Cmd+Z / Shift+Cmd+Z go to the focused text view's undo manager. While the Scenes sheet is open, they go to `structureUndo`.
 

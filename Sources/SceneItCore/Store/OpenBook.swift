@@ -11,6 +11,10 @@ import Observation
 @Observable
 public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public let layout: PackageLayout
+    /// This opening of the book, never shared with another: reopening the same package (Open
+    /// Anyway, say) makes a new `OpenBook` at the same `layout`, which the window mustn't take
+    /// for the old one.
+    @ObservationIgnored public let instanceID = UUID()
     public private(set) var book: Book
     /// Kept in step with `book` by every edit, so the status bar never recounts the book.
     public private(set) var wordCounts: SceneWordCounts
@@ -21,7 +25,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
     @ObservationIgnored public let errorsUndo = UndoManager()
-    @ObservationIgnored private var pageUndoManagers: [SceneID: UndoManager] = [:]
+    @ObservationIgnored private var textUndoManagers: [TextPart: [SceneID: UndoManager]] = [:]
     @ObservationIgnored private var titleUndoManagers: [SceneID: UndoManager] = [:]
 
     private var access: Access
@@ -107,19 +111,31 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Replaces the whole body, as something other than the page's own editing: the page's
     /// undo history for the scene no longer fits its text, so it's cleared.
     public func replaceBody(of scene: SceneID, with body: [Paragraph]) {
-        edit(scene) { $0.body = body }
-        if book.scene(scene)?.body == body { pageUndoManagers[scene]?.removeAllActions() }
+        replace(.body, of: scene, with: body)
     }
 
-    /// The page's edit to `scene`'s body, adding `comments` to the scene with it (a paste
-    /// that brings comments along, decision 0017). Any comment id the scene then has no
+    /// `replaceBody(of:with:)` for the notes, whose undo history is cleared likewise.
+    public func replaceNotes(of scene: SceneID, with notes: [Paragraph]) {
+        replace(.notes, of: scene, with: notes)
+    }
+
+    private func replace(_ part: TextPart, of scene: SceneID, with paragraphs: [Paragraph]) {
+        edit(scene) { $0[keyPath: part.paragraphs] = paragraphs }
+        if book.scene(scene)?[keyPath: part.paragraphs] == paragraphs {
+            textUndoManagers[part]?[scene]?.removeAllActions()
+        }
+    }
+
+    /// An editor's edit to `scene`'s body or notes, adding `comments` to the scene with it (a
+    /// paste that brings comments along, decision 0017). Any comment id the scene then has no
     /// comment for is dropped from the new paragraphs, so the book always saves. Returns the
-    /// paragraphs the body now holds in place of the replaced lines; `nil`, changing nothing,
-    /// if the book is read-only, there's no such scene or the lines aren't in its body.
+    /// paragraphs the part now holds in place of the replaced lines; `nil`, changing nothing,
+    /// if the book is read-only, there's no such scene or the lines aren't in the part. Only
+    /// the body's words are counted (PLAN §4.5).
     @discardableResult
-    public func apply(_ change: BodyChange, to scene: SceneID, adding comments: [Comment] = [])
-        -> [Paragraph]?
-    {
+    public func apply(
+        _ change: BodyChange, to scene: SceneID, in part: TextPart = .body, adding comments: [Comment] = []
+    ) -> [Paragraph]? {
         guard let driver = editingDriver, let place = place(of: scene) else { return nil }
         var edited = book[keyPath: place.list][place.index]
         let added = comments.filter { comment in !edited.comments.contains { $0.id == comment.id } }
@@ -137,45 +153,62 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             }
             return paragraph
         }
-        guard let replaced = accepted.replaced(in: edited.body), let body = accepted.applied(to: edited.body)
+        let text = part.paragraphs
+        guard let replaced = accepted.replaced(in: edited[keyPath: text]),
+            let paragraphs = accepted.applied(to: edited[keyPath: text])
         else {
             return nil
         }
         guard !added.isEmpty || Array(replaced) != accepted.paragraphs else { return accepted.paragraphs }
-        edited.body = body
+        edited[keyPath: text] = paragraphs
         edited.modified = Timestamp(.now, in: .current)
         book[keyPath: place.list][place.index] = edited
-        wordCounts.adjust(scene, removing: WordCount(Array(replaced)), adding: WordCount(accepted.paragraphs))
+        if part == .body {
+            wordCounts.adjust(
+                scene, removing: WordCount(Array(replaced)), adding: WordCount(accepted.paragraphs))
+        }
         driver.send(.edited)
         return accepted.paragraphs
     }
 
-    /// Takes back comments a paste added (its undo), unless some text still carries them.
-    /// Registers putting them back on the scene's page undo.
-    public func removeComments(_ ids: Set<CommentID>, from scene: SceneID) {
+    /// Takes back comments a paste into `part` added (its undo), unless some text still
+    /// carries them. Registers putting them back on that part's undo.
+    public func removeComments(_ ids: Set<CommentID>, from scene: SceneID, pastedInto part: TextPart = .body)
+    {
         guard editingDriver != nil, let place = place(of: scene) else { return }
         let current = book[keyPath: place.list][place.index]
         let removed = current.comments.filter { ids.contains($0.id) && current.isDetached($0.id) }
         guard !removed.isEmpty else { return }
         book[keyPath: place.list][place.index].comments.removeAll { removed.contains($0) }
-        pageUndo(for: scene).registerUndo(withTarget: self) { $0.restoreComments(removed, to: scene) }
-        editingDriver?.send(.edited)
-    }
-
-    private func restoreComments(_ comments: [Comment], to scene: SceneID) {
-        guard editingDriver != nil, let place = place(of: scene) else { return }
-        let present = Set(book[keyPath: place.list][place.index].comments.map(\.id))
-        let restored = comments.filter { !present.contains($0.id) }
-        book[keyPath: place.list][place.index].comments += restored
-        pageUndo(for: scene).registerUndo(withTarget: self) {
-            $0.removeComments(Set(restored.map(\.id)), from: scene)
+        undo(for: scene, part).registerUndo(withTarget: self) {
+            $0.restoreComments(removed, to: scene, pastedInto: part)
         }
         editingDriver?.send(.edited)
     }
 
-    /// The undo history of `scene`'s page (PLAN §8.6), kept while the book is open.
+    private func restoreComments(_ comments: [Comment], to scene: SceneID, pastedInto part: TextPart) {
+        guard editingDriver != nil, let place = place(of: scene) else { return }
+        let present = Set(book[keyPath: place.list][place.index].comments.map(\.id))
+        let restored = comments.filter { !present.contains($0.id) }
+        book[keyPath: place.list][place.index].comments += restored
+        undo(for: scene, part).registerUndo(withTarget: self) {
+            $0.removeComments(Set(restored.map(\.id)), from: scene, pastedInto: part)
+        }
+        editingDriver?.send(.edited)
+    }
+
+    /// The undo history of `scene`'s page or notes (PLAN §8.6), each its own, kept while the
+    /// book is open.
+    public func undo(for scene: SceneID, _ part: TextPart) -> UndoManager {
+        Self.manager(for: scene, in: &textUndoManagers[part, default: [:]])
+    }
+
     public func pageUndo(for scene: SceneID) -> UndoManager {
-        Self.manager(for: scene, in: &pageUndoManagers)
+        undo(for: scene, .body)
+    }
+
+    public func notesUndo(for scene: SceneID) -> UndoManager {
+        undo(for: scene, .notes)
     }
 
     /// The undo history of `scene`'s title field, kept while the book is open.
@@ -197,10 +230,6 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public func resolve(_ clip: PageClip, into scene: SceneID) -> (lines: [Paragraph], comments: [Comment])? {
         guard let destination = book.scene(scene) else { return nil }
         return clip.resolved(into: destination, ids: &ids)
-    }
-
-    public func replaceNotes(of scene: SceneID, with notes: [Paragraph]) {
-        edit(scene) { $0.notes = notes }
     }
 
     /// Adds an untitled scene after `scene` (at the end if `nil` or not in the story) and opens it.
@@ -345,8 +374,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         if case .scene(let scene) = part {
             wordCounts.recount(scene)
-            if case .scene(let before) = old, before.body != scene.body {
-                pageUndoManagers[before.id]?.removeAllActions()
+            if case .scene(let before) = old {
+                for part in TextPart.allCases
+                where before[keyPath: part.paragraphs] != scene[keyPath: part.paragraphs] {
+                    textUndoManagers[part]?[before.id]?.removeAllActions()
+                }
             }
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
         }

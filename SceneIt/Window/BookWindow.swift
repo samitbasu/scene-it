@@ -9,13 +9,14 @@ struct BookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     @Binding var mode: WindowMode
     @State private var undo: UndoRouter
-    @State private var pageFocus = PageFocus()
+    @State private var pageFocus: PageFocus
+    @State private var editors: SceneEditors
 
     init(
-        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: PageFormatting,
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>
     ) {
         self.book = book
@@ -24,6 +25,11 @@ struct BookWindow: View {
         self.formatting = formatting
         _mode = mode
         _undo = State(initialValue: UndoRouter(book: book))
+        let focus = PageFocus()
+        _pageFocus = State(initialValue: focus)
+        _editors = State(
+            initialValue: SceneEditors(
+                book: book, preferences: preferences, formatting: formatting, focus: focus))
     }
 
     var body: some View {
@@ -36,9 +42,11 @@ struct BookWindow: View {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
                         EditorArea(
-                            book: book, preferences: preferences, formatting: formatting, focus: pageFocus)
+                            book: book, preferences: preferences, formatting: formatting, focus: pageFocus,
+                            editors: editors)
                         Divider()
-                        RightPanel(book: book, preferences: preferences)
+                        RightPanel(
+                            book: book, preferences: preferences, formatting: formatting, editors: editors)
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)

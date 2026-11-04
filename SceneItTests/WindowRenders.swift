@@ -37,7 +37,7 @@ struct WindowRenders {
             let window = { (mode: WindowMode) in
                 BookWindow(
                     book: book, store: store, preferences: preferences,
-                    formatting: PageFormatting(preferences: preferences), mode: .constant(mode))
+                    formatting: EditorFormatting(preferences: preferences), mode: .constant(mode))
             }
             try Self.write(
                 try await Self.render(window(.page)), name: "final-window", caption: "Scene It: a scene open",
@@ -74,7 +74,7 @@ struct WindowRenders {
         try await withBook(Self.damagedSample()) { store, book, preferences in
             let window = BookWindow(
                 book: book, store: store, preferences: preferences,
-                formatting: PageFormatting(preferences: preferences), mode: .constant(.page))
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
             try Self.write(
                 try await Self.render(window), name: "final-banner-repaired",
                 caption: "Repaired while opening: read-only, with the banner", to: output)
@@ -102,7 +102,7 @@ struct WindowRenders {
                 try await Self.render(
                     BookWindow(
                         book: book, store: store, preferences: preferences,
-                        formatting: PageFormatting(preferences: preferences), mode: .constant(.page))),
+                        formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))),
                 name: "final-banner-newer", caption: "Saved by a newer Scene It: read-only", to: output)
         }
     }
@@ -115,7 +115,7 @@ struct WindowRenders {
         try await withSampleBook { store, book, preferences in
             let window = BookWindow(
                 book: book, store: store, preferences: preferences,
-                formatting: PageFormatting(preferences: preferences), mode: .constant(.page))
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
             let scene = try #require(book.openScene)
             book.replaceBody(of: scene, with: Self.formattedBody)
             try Self.write(

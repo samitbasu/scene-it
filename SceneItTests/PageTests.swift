@@ -98,7 +98,7 @@ struct PageTests {
                 pasteboard.clearContents()
                 pasteboard.setData(rtfd, forType: .rtfd)
                 #expect(
-                    pasteboard.availableType(from: PageEditor.readableTypes) == .rtfd,
+                    pasteboard.availableType(from: SceneTextEditor.readableTypes) == .rtfd,
                     "precondition: only RTFD")
 
                 page.focusPage(at: 0)
