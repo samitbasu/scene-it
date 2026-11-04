@@ -46,7 +46,8 @@ public struct SearchUnit: Hashable, Sendable {
         self.text = CharacterPolicy.admitted(text)
     }
 
-    public static let tagSeparator = ", "
+    /// A line break ends a sentence, so a phrase can't run from one tag into the next.
+    public static let tagSeparator = "\n"
 
     /// Every non-empty unit of `book`, in book order: the story's scenes, then the Boneyard's;
     /// in each, the title, the body, the notes, the comments, then the tags. A filed copy's

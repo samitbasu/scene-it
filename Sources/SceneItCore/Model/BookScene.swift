@@ -22,10 +22,10 @@ public struct BookScene: Identifiable, Hashable, Sendable {
     public var id: SceneID
     public var modified: Timestamp
     public var title: SceneTitle
-    /// Stored without the leading `#`. Each is text `CharacterPolicy` admits, and none is
-    /// empty: every assignment applies the policy and drops empty tags.
+    /// Stored without the leading `#`. Each is one line of text `CharacterPolicy` admits, and
+    /// none is empty: every assignment applies `CharacterPolicy.admittedTags`.
     public var tags: [String] {
-        didSet { tags = Self.admitted(tags) }
+        didSet { tags = CharacterPolicy.admittedTags(tags) }
     }
     public var body: [Paragraph]
     public var notes: [Paragraph]
@@ -47,15 +47,11 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         self.id = id
         self.modified = modified
         self.title = title
-        self.tags = Self.admitted(tags)
+        self.tags = CharacterPolicy.admittedTags(tags)
         self.body = body
         self.notes = notes
         self.comments = comments
         self.errors = errors
-    }
-
-    private static func admitted(_ tags: [String]) -> [String] {
-        tags.map(CharacterPolicy.admitted).filter { !$0.isEmpty }
     }
 
     /// Whether no run in the body or the notes carries the comment.

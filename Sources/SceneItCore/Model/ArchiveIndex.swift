@@ -22,10 +22,10 @@ public struct FiledCopy: Hashable, Sendable {
     public var number: FiledCopyNumber
     /// The date the writer gave (PLAN §7.1).
     public var filed: CalendarDay
-    /// Each is text `CharacterPolicy` admits, and none is empty: every assignment applies
-    /// the policy and drops empty tags.
+    /// Each is one line of text `CharacterPolicy` admits, and none is empty: every assignment
+    /// applies `CharacterPolicy.admittedTags`.
     public var tags: [String] {
-        didSet { tags = Self.admitted(tags) }
+        didSet { tags = CharacterPolicy.admittedTags(tags) }
     }
     /// Text `CharacterPolicy` admits, which may hold line breaks; every assignment applies
     /// the policy.
@@ -43,15 +43,12 @@ public struct FiledCopy: Hashable, Sendable {
     ) {
         self.number = number
         self.filed = filed
-        self.tags = Self.admitted(tags)
+        self.tags = CharacterPolicy.admittedTags(tags)
         self.note = CharacterPolicy.admitted(note)
         self.counts = counts
         self.errors = errors
     }
 
-    private static func admitted(_ tags: [String]) -> [String] {
-        tags.map(CharacterPolicy.admitted).filter { !$0.isEmpty }
-    }
 }
 
 /// How big a filed copy is, as the File Cabinet lists it.

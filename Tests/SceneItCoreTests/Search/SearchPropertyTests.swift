@@ -9,13 +9,15 @@ import Testing
     private static let pieces = [
         "bear", "Bears", "bear's", "BEAR", "claw", "claws", "caf\u{E9}", "Cafe", "CAF\u{C9}", "don't",
         "well-known", "ladies", "lady", "box", "boxes", "the", "a", "and", "--", "...", ".", "!\"", ",", "\n",
-        "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "movie", "movies", "heroes",
+        "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "BEAR'S", "it's", "It's", "movie",
+        "movies",
+        "heroes",
         "hero",
         "news", "sizes", "size", "glass", "shoe", "shoes", "toe", "toes", "canoes",
     ]
     private static let queryWords = [
         "bear", "Bears", "claw", "cafe", "CAF\u{C9}", "don't", "known", "lady", "box", "the", "naive", "wolf",
-        "James", "movie", "hero", "news", "size", "glass", "shoes", "canoe", "toe",
+        "James", "bear's", "it's", "movie", "hero", "news", "size", "glass", "shoes", "canoe", "toe",
     ]
 
     private struct Case {
@@ -115,8 +117,8 @@ import Testing
 
         static func stem(_ word: String) -> String {
             let lower = word.lowercased()
-            if lower == "news" || lower == "does" { return word }
-            if lower.hasSuffix("'s") { return stem(String(word.dropLast(2))) }
+            if lower == "news" || lower == "does" || contractions.contains(lower) { return word }
+            if lower.hasSuffix("'s") { return stem(withoutPossessive(word)) }
             var stem = word
             if stem.count >= 5,
                 ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { lower.hasSuffix($0) })
@@ -133,12 +135,23 @@ import Testing
             return stem
         }
 
+        static let contractions: Set = [
+            "it's", "he's", "she's", "that's", "let's", "what's", "there's", "here's", "who's", "where's",
+            "how's", "why's", "when's",
+        ]
+
+        static func withoutPossessive(_ word: String) -> String {
+            let lower = word.lowercased()
+            return lower.hasSuffix("'s") && !contractions.contains(lower) ? String(word.dropLast(2)) : word
+        }
+
         func folded(_ word: String) -> String {
             query.options.contains(.matchCase) ? word : word.lowercased()
         }
 
         func wordKey(_ word: String) -> String {
-            query.options.contains(.wholeWord) ? folded(word) : Self.stem(folded(word))
+            query.options.contains(.wholeWord)
+                ? Self.withoutPossessive(folded(word)) : Self.stem(folded(word))
         }
 
         /// Each distinct keyword, as the keys its words must have.
@@ -199,6 +212,7 @@ import Testing
     @Test func theHitsAndTheirHighlightsAreExactlyWhatTheRulesSay() async throws {
         var random = SplitMix64(seed: 30)
         var seen: Set<MatchQuality> = []
+        var wholeWordPossessiveMatches = 0
         for _ in 0..<300 {
             let testCase = Self.randomCase(&random)
             let query = testCase.query
@@ -224,6 +238,12 @@ import Testing
                 #expect(hit.rank.coverage == reading.coverage, "\(hit.unit.text) for \(query)")
                 #expect(hit.rank.tier == reading.tier, "\(hit.unit.text) for \(query)")
                 let matches = hit.highlights.filter { $0.kind == .match }.map(\.range)
+                if query.options.contains(.wholeWord) {
+                    wholeWordPossessiveMatches += reading.words.count { word in
+                        Oracle.withoutPossessive(word.text) != word.text
+                            && matches.contains { $0.contains(word.range.lowerBound) }
+                    }
+                }
                 #expect(
                     matches == Oracle.merged(reading.occurrences.flatMap { $0 }),
                     "every occurrence, and only those")
@@ -247,5 +267,6 @@ import Testing
             #expect(result.scenes.map(\.best.rank) == result.scenes.map(\.best.rank).sorted(by: >))
         }
         #expect(seen == [.exact, .near], "precondition: the cases exercise both qualities")
+        #expect(wholeWordPossessiveMatches > 0, "precondition: Whole word matched a possessive")
     }
 }

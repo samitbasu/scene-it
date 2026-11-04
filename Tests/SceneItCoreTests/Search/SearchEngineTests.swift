@@ -64,7 +64,7 @@ import Testing
                 .body(paragraph: 0),
             ])
         #expect(units[2].text == "Mara waved")
-        #expect(units[5].text == "opening, Mara")
+        #expect(units[5].text == "opening\nMara")
         #expect(
             units.map(\.placement) == Array(repeating: .story(number: 1), count: 6) + [
                 .story(number: 2), .story(number: 2), .boneyard, .boneyard,
@@ -92,6 +92,35 @@ import Testing
         #expect(
             hits(mara).map(\.unit.field) == [.body(paragraph: 2)],
             "the tag Mara isn't found without the option")
+    }
+
+    private func taggedUnits(_ tags: [String]) -> [SearchUnit] {
+        let scene = BookScene(
+            id: SceneID(rawValue: "s1"), modified: Self.created, title: "Untitled", tags: tags, body: [])
+        return SearchUnit.units(of: Book(title: "Book", scenes: [scene]), version: .working)
+            .filter { $0.field == .tags }
+    }
+
+    @Test func aPhraseMatchesWithinOneTagButNeverAcrossTwo() async throws {
+        let across = taggedUnits(["red", "door", "blue"])
+        #expect(across.map(\.text) == ["red\ndoor\nblue"])
+        let words = try #require(hits(try await finalUpdate(across, "red door", .searchTags)).first)
+        #expect(highlighted(words) == ["red", "door"], "precondition: both words are in the tag set")
+        #expect(try await finalUpdate(across, "\"red door\"", .searchTags).scenes.isEmpty)
+
+        let within = taggedUnits(["blue", "red door"])
+        let phrase = try #require(hits(try await finalUpdate(within, "\"red door\"", .searchTags)).first)
+        #expect(highlighted(phrase) == ["red door"])
+        #expect(phrase.highlights.map(\.range) == [5..<13])
+    }
+
+    @Test func tagHighlightsFallOnTheirOwnTag() async throws {
+        let units = taggedUnits(["opening", "Mara's boat", "doors"])
+        let hit = try #require(hits(try await finalUpdate(units, "door mara boat", .searchTags)).first)
+        #expect(hit.unit.text == "opening\nMara's boat\ndoors")
+        #expect(highlighted(hit) == ["Mara's", "boat", "doors"])
+        #expect(hit.highlights.map(\.range) == [8..<14, 15..<19, 20..<25])
+        #expect(hit.rank.tier == .paragraph, "each tag is its own sentence")
     }
 
     @Test func updatesArriveProgressivelyAndEndComplete() async throws {

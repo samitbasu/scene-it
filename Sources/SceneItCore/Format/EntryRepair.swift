@@ -146,15 +146,28 @@ private enum EntryRepairTrial {
         let others = (book.scenes + book.boneyard).filter { $0.id != scene.id }.map {
             BookScene(id: $0.id, modified: $0.modified, title: "")
         }
-        let parsed = parse(
+        var parsed = parse(
             BookSerializer.text(of: Book(title: "", scenes: others)) + "\n" + blocks.joined(separator: "\n\n")
                 + "\n")
+        acceptingTagLineBreaks(in: &parsed)
         guard parsed.newEntries.isEmpty, parsed.book.scenes.count == others.count + 1,
             let read = parsed.book.scenes.last, read.errors == scene.errors
         else {
             return .failure(parsed.firstNewReason ?? .line)
         }
         return .success(.scene(read))
+    }
+
+    /// A repair is the writer's own edit, which is never noticed (ADR 0028), so a line break it
+    /// puts in a tag becomes a space, as typing does, and the notice the parse made for it is
+    /// dropped. Notices follow a scene's other errors, so it's the last one like it.
+    private static func acceptingTagLineBreaks(in parsed: inout ParsedBook) {
+        let notice = RepairNotice.lineBreaksInTags(.scene).entry
+        guard let new = parsed.newEntries.lastIndex(of: notice), let last = parsed.book.scenes.indices.last,
+            let held = parsed.book.scenes[last].errors.lastIndex(of: notice)
+        else { return }
+        parsed.newEntries.remove(at: new)
+        parsed.book.scenes[last].errors.remove(at: held)
     }
 
     /// `fields` with the one whose key `line` has replaced by `line`, or `line` added after

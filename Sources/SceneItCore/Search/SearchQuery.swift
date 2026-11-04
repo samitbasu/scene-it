@@ -8,7 +8,9 @@ public struct SearchOptions: OptionSet, Hashable, Sendable {
 
     /// Case is significant. (Model text is ASCII, so there are no diacritics to consider.)
     public static let matchCase = SearchOptions(rawValue: 1 << 0)
-    /// A word matches only itself, without the endings `SearchText.stem` removes.
+    /// A word matches only itself and its possessive: "bear" finds "bear's" but not "bears"
+    /// (`SearchText.withoutPossessive`), where by default it would find every ending
+    /// `SearchText.stem` removes.
     public static let wholeWord = SearchOptions(rawValue: 1 << 1)
     /// Scene tags are searched too.
     public static let searchTags = SearchOptions(rawValue: 1 << 2)
@@ -16,7 +18,7 @@ public struct SearchOptions: OptionSet, Hashable, Sendable {
 
 /// One thing a query asks for. Coverage counts the distinct keywords a unit matches.
 public enum Keyword: Hashable, Sendable {
-    /// Matches a word with the same stem, or with `.wholeWord` the same word.
+    /// Matches a word with the same stem, or with `.wholeWord` the same word or its possessive.
     case word(String)
     /// `"quoted"`: these words exactly, adjacent and in one sentence.
     case phrase([String])
