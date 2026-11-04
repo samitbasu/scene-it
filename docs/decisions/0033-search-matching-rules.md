@@ -39,9 +39,12 @@ Match case.
 - Each distinct spelling is interned under six comparison keys instead of four.
 - The contraction list is closed: an `'s` contraction not on it (`one's`, `John's` meaning "John is") reads as a
   possessive. Adding one is a one-line change to the list.
-- **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1), but the model turns it into a
-  space without a notice, and the writer never writes one in a tag. The app never produced such tags, so only a
-  hand-edited file can hold one.
+- **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1). Read from `book.md` or
+  `Archive/index.md`, it's a **repair**: the tag gets a space, and the scene or filed copy gets a notice (`This scene's
+  tags held line breaks, which were changed to spaces.`), so the book opens read-only as repaired, with its original
+  kept (ADR 0024). Typing and pasting stay silent (ADR 0028): `CharacterPolicy.admittedTags` is the model's backstop.
+  The writer never writes `\n` in a tag. The app never produced such tags, so only a hand-edited file can hold one.
+  Corpus cases `s2.2-tags-line-break-noticed` and `s8-tags-line-break-noticed` pin it.
 - Phrases still compare words exactly: `"bear claw"` doesn't find `bear's claw`.
 - Words that occur in different tags of a scene rank in the paragraph tier, not the sentence tier.
 

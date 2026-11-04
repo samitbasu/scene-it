@@ -27,15 +27,35 @@ import Testing
         #expect(copy.tags == ["before the end"])
     }
 
-    /// The format still reads `\n` in a tag as a line break (§4.1), which the model turns into a
-    /// space without a notice, and the writer never writes one.
-    @Test func anEscapedLineBreakInATagReadsAsASpace() throws {
+    /// Typing and pasting are never noticed (ADR 0028), but a line break read from the file is a
+    /// repair, so the book opens as repaired (ADR 0024).
+    @Test func anEscapedLineBreakInASceneTagIsARepair() throws {
         let parsed = parse(
             "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n"
                 + "tags: red\\ndoor, b\n\nBody.\n")
         let scene = try #require(parsed.book.scenes.first)
         #expect(scene.tags == ["red door", "b"])
-        #expect(parsed.newEntries.isEmpty)
+        let notice = RepairNotice.lineBreaksInTags(.scene).entry
+        #expect(parsed.newEntries == [notice])
+        #expect(scene.errors == [notice])
+        #expect(parsed.wasRepaired)
         #expect(serialized(parsed.book).contains("tags: red door, b\n"))
+    }
+
+    @Test func anEscapedBackslashBeforeNIsNotALineBreak() throws {
+        let parsed = parse(
+            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n"
+                + "tags: a\\\\nb\n\nBody.\n")
+        #expect(parsed.book.scenes.first?.tags == ["a\\nb"])
+        #expect(!parsed.wasRepaired)
+    }
+
+    @Test func anEscapedLineBreakInAFiledCopyTagIsARepair() throws {
+        let parsed = ArchiveIndexFormat.parse(
+            Data("---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-09-14\ntags: first\\ndraft\n".utf8),
+            filed: Corpus.filedDay)
+        let copy = try #require(parsed.index.copies.first)
+        #expect(copy.tags == ["first draft"])
+        #expect(parsed.newEntries == [RepairNotice.lineBreaksInTags(.filedCopy).entry])
     }
 }

@@ -280,6 +280,13 @@ public enum RepairNotice: Hashable, Sendable {
     case missingModified(setTo: Timestamp)
     /// A filed copy's section in `Archive/index.md` (book format §8).
     case missingFiledDate(setTo: CalendarDay)
+    /// A tag held a line break (an escaped `\n`), which became a space (ADR 0033).
+    case lineBreaksInTags(TagOwner)
+
+    public enum TagOwner: Hashable, Sendable {
+        case scene
+        case filedCopy
+    }
 
     public var entry: ErrorEntry {
         ErrorEntry(.notice, payload)
@@ -306,6 +313,9 @@ public enum RepairNotice: Hashable, Sendable {
             "This scene had no modified date, so it was set to \(timestamp)."
         case .missingFiledDate(let day):
             "This filed copy had no filed date, so it was set to \(day)."
+        case .lineBreaksInTags(.scene): "This scene's tags held line breaks, which were changed to spaces."
+        case .lineBreaksInTags(.filedCopy):
+            "This filed copy's tags held line breaks, which were changed to spaces."
         }
     }
 
@@ -320,6 +330,12 @@ extension RepairNotice {
     static func characters(transliterated: [Unicode.Scalar], replaced: [Unicode.Scalar]) -> [RepairNotice] {
         (transliterated.isEmpty ? [] : [.transliteratedCharacters(transliterated)])
             + (replaced.isEmpty ? [] : [.replacedCharacters(replaced)])
+    }
+
+    /// The notice for `tags` as the file spelled them, if any holds a line break that
+    /// `CharacterPolicy.admittedTags` will turn into a space.
+    static func lineBreaks(in tags: [String], of owner: TagOwner) -> [RepairNotice] {
+        tags.contains { $0.contains("\n") } ? [.lineBreaksInTags(owner)] : []
     }
 
     /// The notices for the characters one part of the file had changed, if any.
