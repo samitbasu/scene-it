@@ -39,36 +39,50 @@ private let damaged = """
 
 private let newerText = "---\ntitle: Newer\nformat: 3\n---\n"
 
-/// Hosts `view` in an offscreen window of our own.
+/// The book's window, hosted offscreen once its Errors tab shows the stray line.
 @MainActor
-private func host(_ view: some View, size: CGSize = WindowMetrics.defaultSize) async throws -> NSWindow {
-    let controller = NSHostingController(rootView: view)
-    controller.sizingOptions = []
-    let window = NSWindow(
-        contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false
-    )
-    window.isReleasedWhenClosed = false
-    window.contentViewController = controller
-    window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
-    window.orderFront(nil)
-    try await Task.sleep(for: .milliseconds(400))
-    return window
+private func hostWindowShowingTheStrayLine(_ view: some View) async -> NSWindow {
+    await hostOffscreen(view, size: WindowMetrics.defaultSize) { selectableTexts(in: $0).contains(strayLine) }
 }
 
+/// The banner, hosted offscreen above a view of the test's own. SwiftUI makes the banner's
+/// controls in the same update as that view, so once it's there, the banner's are too, even
+/// when the banner has none.
 @MainActor
-private func views(in view: NSView?) -> [NSView] {
-    guard let view else { return [] }
-    return [view] + view.subviews.flatMap(views)
+private func hostBanner(_ banner: some View) async -> NSWindow {
+    await hostOffscreen(
+        VStack {
+            banner
+            MarkerView()
+        }, size: CGSize(width: 1000, height: 140)
+    ) { window in
+        subviewTree(of: window.contentView).contains { $0 is MarkerView.Marker }
+    }
+}
+
+private struct MarkerView: NSViewRepresentable {
+    final class Marker: NSView {}
+
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ marker: Marker, context: Context) {}
+}
+
+/// The key view loop of a window from `hostBanner`, without the marker or SwiftUI's host for it.
+@MainActor
+private func bannerKeyViews(in window: NSWindow) -> [NSView] {
+    keyViews(in: window).filter { view in !subviewTree(of: view).contains { $0 is MarkerView.Marker } }
 }
 
 /// The window's buttons, left to right, then top to bottom.
 @MainActor
 private func buttons(in window: NSWindow) -> [NSButton] {
-    views(in: window.contentView).compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
-        .sorted {
-            let (a, b) = ($0.convert($0.bounds, to: nil), $1.convert($1.bounds, to: nil))
-            return (-a.minY, a.minX) < (-b.minY, b.minX)
-        }
+    subviewTree(of: window.contentView).compactMap { $0 as? NSButton }.filter {
+        !$0.isHiddenOrHasHiddenAncestor
+    }
+    .sorted {
+        let (a, b) = ($0.convert($0.bounds, to: nil), $1.convert($1.bounds, to: nil))
+        return (-a.minY, a.minX) < (-b.minY, b.minX)
+    }
 }
 
 /// The window's key view loop: every control Tab could reach with full keyboard access on.
@@ -85,10 +99,12 @@ private func keyViews(in window: NSWindow) -> [NSView] {
     return found
 }
 
-/// The selectable text the window shows: the entries' lines, as written.
+/// The selectable text the window shows: the entries' lines, as written. SwiftUI may keep a
+/// removed entry's view in the window, hidden.
 @MainActor
 private func selectableTexts(in window: NSWindow) -> [String] {
-    views(in: window.contentView).filter { $0.accessibilityRole() == .staticText }
+    subviewTree(of: window.contentView)
+        .filter { $0.accessibilityRole() == .staticText && !$0.isHiddenOrHasHiddenAncestor }
         .compactMap { $0.accessibilityValue() as? String }
 }
 
@@ -112,7 +128,7 @@ struct ErrorsTabTests {
             let book = try #require(store.current)
             #expect(await store.makeEditable() == .editable)
             books.preferences.showRightPanelTab(.errors)
-            let window = try await host(
+            let window = await hostWindowShowingTheStrayLine(
                 BookWindow(
                     book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                     mode: .constant(.page)))
@@ -132,17 +148,24 @@ struct ErrorsTabTests {
             let book = try #require(store.current)
             #expect(await store.makeEditable() == .editable)
             books.preferences.showRightPanelTab(.errors)
-            let window = try await host(
+            let window = await hostWindowShowingTheStrayLine(
                 BookWindow(
                     book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                     mode: .constant(.page)))
             defer { window.close() }
             try #require(
                 selectableTexts(in: window).contains(strayLine), "precondition: the Errors tab shows")
+            @MainActor func entriesShown() -> Int {
+                selectableTexts(in: window).filter { [strayLine, brokenComment].contains($0) }.count
+            }
+            try #require(entriesShown() == 2, "precondition: the line and the comment")
             while let ref = book.book.errorGroups.first?.refs.first {
                 #expect(book.deleteError(ref))
-                try await Task.sleep(for: .milliseconds(100))
-                if book.book.errorCount > 0 { #expect(books.preferences.rightPanelTab == .errors) }
+                if book.book.errorCount > 0 {
+                    // The update that drops the entry is the one whose onChange would switch tabs.
+                    await eventually { entriesShown() == book.book.errorCount }
+                    #expect(books.preferences.rightPanelTab == .errors)
+                }
             }
             await eventually { books.preferences.rightPanelTab == .comments }
             // The window re-renders on a later turn, later still on a busy machine.
@@ -161,9 +184,10 @@ struct ErrorsTabTests {
             try #require(book.book.errorCount == 2, "precondition: the line and the comment")
             let size = CGSize(width: WindowMetrics.panelWidth, height: 700)
             do {
-                let window = try await host(ErrorsTab(book: book), size: size)
+                let window = await hostOffscreen(ErrorsTab(book: book), size: size) {
+                    buttons(in: $0).count == 2 + 3
+                }
                 defer { window.close() }
-                await eventually { buttons(in: window).count == 2 + 3 }
                 let actions = buttons(in: window)
                 #expect(
                     actions.count == 2 + 3,
@@ -175,11 +199,10 @@ struct ErrorsTabTests {
 
             #expect(await store.makeEditable() == .editable)
             await eventually { book.status == .saved }
-            let window = try await host(ErrorsTab(book: book), size: size)
-            defer { window.close() }
-            await eventually {
-                buttons(in: window).count == 2 + 3 && buttons(in: window).allSatisfy(\.isEnabled)
+            let window = await hostOffscreen(ErrorsTab(book: book), size: size) {
+                buttons(in: $0).count == 2 + 3 && buttons(in: $0).allSatisfy(\.isEnabled)
             }
+            defer { window.close() }
             let actions = buttons(in: window)
             #expect(actions.allSatisfy { $0.isEnabled })
             let deleteLine = try #require(actions.dropFirst().first)
@@ -208,22 +231,28 @@ struct ErrorsTabTests {
             #expect(await store.makeEditable() == .editable)
             books.preferences.showRightPanelTab(.errors)
             let modes = ModeBox()
-            let window = try await host(
-                BookWindowWithMode(book: book, store: store, preferences: books.preferences, box: modes))
+            let window = await hostOffscreen(
+                BookWindowWithMode(book: book, store: store, preferences: books.preferences, box: modes),
+                size: WindowMetrics.defaultSize
+            ) { window in
+                let tree = subviewTree(of: window.contentView)
+                return tree.contains { $0 is ManuscriptTextView }
+                    && tree.contains { ($0 as? UndoFocusView)?.focus == .errorsTab }
+            }
             defer { window.close() }
-            let routers = views(in: window.contentView).compactMap {
+            let routers = subviewTree(of: window.contentView).compactMap {
                 ($0 as? UndoRouterWindow.WindowView)?.router
             }
             let router = try #require(routers.first)
             let page = try #require(
-                views(in: window.contentView).compactMap { $0 as? ManuscriptTextView }.first)
+                subviewTree(of: window.contentView).compactMap { $0 as? ManuscriptTextView }.first)
             let scene = try #require(book.openScene)
             #expect(window.makeFirstResponder(page))
             window.update()
             #expect(router.manager === book.pageUndo(for: scene))
 
             // What the tab's Delete does (deleteActsOnTheBookOnlyOnceItsEditable clicks it).
-            let tabs = views(in: window.contentView).compactMap { $0 as? UndoFocusView }
+            let tabs = subviewTree(of: window.contentView).compactMap { $0 as? UndoFocusView }
             let tab = try #require(tabs.first { $0.focus == .errorsTab })
             tab.takeFocus()
             #expect(book.deleteError(try #require(book.book.errorGroups.first?.refs.first)))
@@ -278,9 +307,9 @@ struct ErrorsTabTests {
             }
             try #expect(height(of: banner()) > 30)
             do {
-                let window = try await host(try banner(), size: CGSize(width: 1000, height: 100))
+                let window = await hostBanner(try banner())
                 defer { window.close() }
-                #expect(keyViews(in: window).count == 2, "Show Repairs and Make Editable…")
+                #expect(bannerKeyViews(in: window).count == 2, "Show Repairs and Make Editable…")
             }
             #expect(await store.makeEditable() == .editable)
             try #expect(height(of: banner()) == 0, "gone once the book is editable")
@@ -291,9 +320,9 @@ struct ErrorsTabTests {
                     == .openedReadOnly(.newerFormat(FormatVersion(3))))
             try #expect(height(of: banner()) > 30)
             do {
-                let window = try await host(try banner(), size: CGSize(width: 1000, height: 100))
+                let window = await hostBanner(try banner())
                 defer { window.close() }
-                #expect(keyViews(in: window).isEmpty, "a newer book can't be made editable here")
+                #expect(bannerKeyViews(in: window).isEmpty, "a newer book can't be made editable here")
             }
             #expect(await store.closeBook() == .left)
 
@@ -332,19 +361,24 @@ extension BookStoreIntegrationTests {
             #expect(makeEditableItem != nil)
             await eventually { makeEditableItem?.isEnabled == false }
 
-            let newer = try package(newerText, named: "Newer", in: folder)
-            #expect(await store.open(newer) == .openedReadOnly(.newerFormat(FormatVersion(3))))
-            try await Task.sleep(for: .milliseconds(100))
-            #expect(makeEditableItem?.isEnabled == false)
-
-            guard case .openedReadOnly(.repairedOnOpen) = await store.open(try package(damaged, in: folder))
-            else {
+            // A repaired book first, so the newer book's disabled item is an update the menu made.
+            let repaired = try package(damaged, in: folder)
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
                 Issue.record("precondition: the book opens repaired and read-only")
                 return
             }
             await eventually { makeEditableItem?.isEnabled == true }
+            let newer = try package(newerText, named: "Newer", in: folder)
+            #expect(await store.open(newer) == .openedReadOnly(.newerFormat(FormatVersion(3))))
+            await eventually { makeEditableItem?.isEnabled == false }
+
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
+                Issue.record("precondition: the book opens repaired and read-only again")
+                return
+            }
+            await eventually { makeEditableItem?.isEnabled == true }
             let headless = try #require(books.prompts as? HeadlessPrompts)
-            #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle, ReadOnlyWording.readOnlyTitle])
+            #expect(headless.takeTitles() == Array(repeating: ReadOnlyWording.readOnlyTitle, count: 3))
             try perform(try #require(makeEditableItem))
             await eventually { headless.titles == [ReadOnlyWording.makeEditableTitle] }
             let book = try #require(store.current)

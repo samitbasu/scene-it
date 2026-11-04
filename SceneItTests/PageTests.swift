@@ -355,27 +355,37 @@ struct PageTests {
 
     /// The cost the writer feels per keystroke in a long scene: the page's edit, its conversion
     /// and the model's update, all of which happen before `insertText` returns.
+    /// Timed against a scene twice as long (`expectLinear`), not against the wall clock.
     @Test func aKeystrokeInATenThousandWordSceneIsCheap() async throws {
         let words = ["the", "ferry", "crossed", "grey", "water", "and", "Mara", "watched", "it", "go"]
-        let long: [Paragraph] = (0..<100).map { index in
-            [Run((0..<100).map { words[($0 + index) % words.count] }.joined(separator: " ") + ".")]
+        func long(_ paragraphs: Int) -> [Paragraph] {
+            (0..<paragraphs).map { index in
+                [Run((0..<100).map { words[($0 + index) % words.count] }.joined(separator: " ") + ".")]
+            }
         }
-        #expect(WordCount(long).words == 10_000, "precondition: 10,000 words")
-        try await withPage([scene("Long", long)]) { page in
-            page.focusPage(at: (page.storage.string as NSString).length / 2)
-            let clock = ContinuousClock()
-            let keystrokes = 100
-            let elapsed = clock.measure {
-                for _ in 0..<keystrokes {
-                    page.page.insertText("x", replacementRange: page.page.selectedRange())
+        #expect(WordCount(long(100)).words == 10_000, "precondition: 10,000 words")
+        try await withPage([scene("Long", long(100))]) { page in
+            try await withPage([scene("Longer", long(200))]) { longer in
+                let pages = [100: page, 200: longer]
+                for page in pages.values {
+                    page.focusPage(at: (page.storage.string as NSString).length / 2)
+                }
+                let scaling = expectLinear("20 keystrokes", doubling: 100) { paragraphs in
+                    let typed = paragraphs == 100 ? page : longer
+                    return {
+                        for _ in 0..<20 {
+                            typed.page.insertText("x", replacementRange: typed.page.selectedRange())
+                        }
+                    }
+                }
+                print("PageTests: 20 keystrokes in 100, then 200 paragraphs: \(scaling)")
+                for (paragraphs, page) in pages {
+                    #expect(WordCount(page.body()).words == 100 * paragraphs)
+                    #expect(
+                        page.body() == RunCodec.body(from: page.storage),
+                        "the ranged edits added up to the page")
                 }
             }
-            let wholeBody = clock.measure { _ = RunCodec.body(from: page.storage) }
-            let perKeystroke = elapsed / keystrokes
-            print("PageTests: per keystroke \(perKeystroke); converting the whole body \(wholeBody)")
-            #expect(WordCount(page.body()).words == 10_000)
-            #expect(page.body() == RunCodec.body(from: page.storage), "the ranged edits added up to the page")
-            #expect(perKeystroke < .milliseconds(50))
         }
     }
 }
