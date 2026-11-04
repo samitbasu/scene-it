@@ -285,6 +285,12 @@ candidates for a future look change, render each candidate the same way with a d
 It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
 `final-errors-tab`, and `final-errors-focus`, the tab with the keyboard focus) and a book saved by a newer version (`final-banner-newer`), the same way.
 
+The Search sheet's renders (`SearchSheetRenders.swift`, #31) go in a `search/` subfolder: each
+state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
+`search-near-end`, `search-near-all`, `search-no-results`, `search-no-words`,
+`search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`. To
+render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)`.
+
 `commentUnderlines` renders comment underlines (#24, ADR 0032) on the page (`underlines`) and in
 the Notes tab (`underlines-notes`), each as `@1x.png`, `@2x.png` and `-vs-mockup.png`.
 

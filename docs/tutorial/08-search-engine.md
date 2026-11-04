@@ -371,3 +371,49 @@ asserts only a generous ceiling and that doubling the input about doubles the ti
 style of the format's `PerformanceTests`, so that it can't flake. One of its cases is a single
 paragraph of 100,000 words whose only window holding both keywords is the whole paragraph: a
 window search that rescanned its window as it shrank would be quadratic there.
+
+## 10. The sheet: one task per query
+
+The Search sheet ([`SearchSheetModel.swift`](../../SceneIt/Search/SearchSheetModel.swift),
+issue #31) drives the engine from SwiftUI. Its query text, checkboxes and scope are plain
+stored properties of an `@Observable` class; each `didSet` cancels the search in progress and
+starts another:
+
+```swift
+run = Task { [weak self] in
+    let index = await index.value
+    for await update in index.search(query) {
+        guard !Task.isCancelled, let self else { return }
+        self.reported = Reported(query: query, scope: scope, update: update)
+    }
+}
+```
+
+The app target is `@MainActor` by default (ADR 0011), so this `Task` and its loop body run on
+the main actor, while each `next()` hops off it (`@concurrent`, §4) to do the searching. The
+`guard` is the important line. Cancelling is cooperative: the old task may already hold one
+update when the new query cancels it. Both run on the main actor, though, and `cancel()` is
+called there before the new task starts, so a check made on the main actor *after* the update
+arrives can't miss it, and a stale update never replaces a newer one. In Rust you'd get the
+same effect by dropping the old future (`JoinHandle::abort`) and checking a generation counter
+before writing to shared state; here the actor plays the counter's part.
+
+Closing the sheet (`close()`) cancels the search and drops the indexes and the results;
+opening it (`refresh()`) searches the book as it is then. Results from an earlier opening are
+never shown, because their offsets describe text that may have changed. As a second line of
+defence, `SearchHit.target(in:)` checks that the hit's text is still what the book holds before
+it selects anything (`.scene` otherwise).
+
+The model keeps one index per scope, each a `Task<any SearchIndex, Never>`, so a query typed
+while the book is still being indexed simply awaits the same task. *This scene* doesn't filter
+results: the sheet gives the engine only the open scene's units
+(`SearchScope.units(of:openScene:)`), so that scene's exact and near matches are its own. What
+the sheet lists for an update, including the near-match cap, is a pure value,
+`SearchListing`, in [`SearchListing.swift`](../../Sources/SceneItCore/Search/SearchListing.swift),
+and `SearchHit.target(in:)` turns a hit's paragraph-relative highlight into the offset the text
+view selects, by adding the lengths of the paragraphs before it, plus one line break each.
+
+The tests inject the index (`SearchSheetModel(book:indexing:)`) with one that holds back a
+search's last update until it's cancelled, so "a new query cancels the old search" is checked
+without any timing: see `aNewQueryCancelsTheSearchInProgress` in
+[`SearchSheetTests.swift`](../../SceneItTests/SearchSheetTests.swift).

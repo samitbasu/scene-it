@@ -14,7 +14,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 05 | [AppKit interop and TextKit 2](05-appkit-interop-textkit2.md): `NSViewRepresentable` and coordinators, TextKit 2 versus 1, the text storage as a mirror of the model, delegate veto points, `typingAttributes`, the pasteboard, undo managers, field editors | written |
 | 06 | [Attributed strings and the `RunCodec`](06-attributed-strings.md): `NovelAttributes`, runs to `NSAttributedString` and back | written |
 | 07 | [Undo](07-undo.md): `UndoManager` versus the command pattern, grouping and coalescing, per-scene and structural histories, routing Undo to the right one | written |
-| 08 | [The search engine](08-search-engine.md): search units as `Sendable` snapshots, the `SearchIndex` protocol as a trait object, `AsyncSequence` versus Rust's `Stream`, cooperative cancellation, words and endings, ranking as one comparison, near matches | written |
+| 08 | [The search engine](08-search-engine.md): search units as `Sendable` snapshots, the `SearchIndex` protocol as a trait object, `AsyncSequence` versus Rust's `Stream`, cooperative cancellation, words and endings, ranking as one comparison, near matches, the Search sheet's one task per query | written |
 | 09 | Printing and export: `NSPrintOperation`, Word export | planned, lands with #35 |
 | 10 | [Shipping](10-shipping.md): certificates and identities, Developer ID, the hardened runtime, timestamps, notarization and stapling, Gatekeeper, the DMG, dSYMs | written |
 | 11 | [Crash reporting](11-crash-reporting.md): logging, MetricKit, Report a Problem | written |

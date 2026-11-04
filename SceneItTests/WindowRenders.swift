@@ -290,7 +290,7 @@ struct WindowRenders {
     }
 
     /// The whole window, title bar and toolbar included, at 1× and 2×.
-    static func render(_ view: some View, preparing prepare: (NSWindow) throws -> Void = { _ in })
+    static func render(_ view: some View, preparing prepare: (NSWindow) async throws -> Void = { _ in })
         async throws
         -> Renders
     {
@@ -304,7 +304,7 @@ struct WindowRenders {
 
     /// `view` in an offscreen window of `windowSize`, laid out and drawn, for `capture`.
     static func withWindow<T>(
-        _ view: some View, preparing prepare: (NSWindow) throws -> Void = { _ in },
+        _ view: some View, preparing prepare: (NSWindow) async throws -> Void = { _ in },
         capture: (NSWindow) throws -> T
     ) async throws -> T {
         let controller = NSHostingController(rootView: view)
@@ -325,7 +325,7 @@ struct WindowRenders {
         }
         try await Task.sleep(for: .milliseconds(800))
         window.makeFirstResponder(nil)
-        try prepare(window)
+        try await prepare(window)
         try await Task.sleep(for: .milliseconds(200))
         let frameView = try #require(window.contentView?.superview)
         frameView.layoutSubtreeIfNeeded()
