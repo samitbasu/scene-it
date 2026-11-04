@@ -5,8 +5,9 @@ import Testing
 
 @testable import SceneIt
 
-/// Hosts `view` in an offscreen window of our own and returns the window, ordered in.
-private func hostOffscreen(_ view: some View, size: CGSize = CGSize(width: 600, height: 200)) async throws
+/// Hosts `view` in an offscreen window of our own and returns the window, ordered in, once
+/// SwiftUI has made its text fields.
+private func hostOffscreen(_ view: some View, size: CGSize = CGSize(width: 600, height: 200)) async
     -> NSWindow
 {
     let controller = NSHostingController(rootView: view)
@@ -18,7 +19,7 @@ private func hostOffscreen(_ view: some View, size: CGSize = CGSize(width: 600, 
     window.contentViewController = controller
     window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
     window.orderFront(nil)
-    try await Task.sleep(for: .milliseconds(300))
+    await eventually { !textFields(in: window.contentView).isEmpty }
     return window
 }
 
@@ -39,7 +40,7 @@ struct SceneTitleFieldTests {
             let scene = try #require(book.addScene(after: nil))
             await eventually { book.status == .saved }
 
-            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            let window = await hostOffscreen(SceneTitleField(book: book, scene: scene))
             defer { window.close() }
             let fields = textFields(in: window.contentView).filter(\.isEditable)
             try #require(fields.count == 1, "one editable field, the title")
@@ -64,7 +65,7 @@ struct SceneTitleFieldTests {
             let book = try #require(store.current)
             let scene = try #require(book.addScene(after: nil))
 
-            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            let window = await hostOffscreen(SceneTitleField(book: book, scene: scene))
             defer { window.close() }
             let fields = textFields(in: window.contentView).filter(\.isEditable)
             try #require(fields.count == 1, "one editable field, the title")
@@ -107,7 +108,7 @@ struct SceneTitleFieldTests {
             let book = try #require(store.current)
             let scene = try #require(book.openScene)
             do {
-                let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+                let window = await hostOffscreen(SceneTitleField(book: book, scene: scene))
                 defer { window.close() }
                 let fields = textFields(in: window.contentView)
                 try #require(!fields.isEmpty)
@@ -115,7 +116,7 @@ struct SceneTitleFieldTests {
             }
 
             #expect(await store.makeEditable() == .editable)
-            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            let window = await hostOffscreen(SceneTitleField(book: book, scene: scene))
             defer { window.close() }
             let fields = textFields(in: window.contentView).filter(\.isEditable)
             try #require(fields.count == 1, "the title is editable now")
@@ -150,7 +151,7 @@ struct SceneTitleFieldTests {
             let book = try #require(store.current)
             let scene = try #require(book.openScene)
 
-            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            let window = await hostOffscreen(SceneTitleField(book: book, scene: scene))
             defer { window.close() }
             let fields = textFields(in: window.contentView)
             try #require(!fields.isEmpty)

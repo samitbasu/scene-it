@@ -83,6 +83,8 @@ struct BookStoreIntegrationTests {
         }
     }
 
+    /// The autosave timer runs on the main actor, and nothing here suspends between the edit and
+    /// the menu, so a save running as the menu returns was started by the menu, not the timer.
     @Test func fileSaveSavesAtOnce() async throws {
         try await withTemporaryFolder { folder in
             let store = BookController.shared.store
@@ -92,12 +94,10 @@ struct BookStoreIntegrationTests {
             let scene = try #require(book.addScene(after: nil))
             await eventually { book.status == .saved }
             book.setTitle(of: scene, to: "Saved by the menu")
-            let start = ContinuousClock.now
+            #expect(book.status == .unsaved, "precondition: the edit waits for autosave")
             try perform(try #require(menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)))
+            #expect(book.status == .saving, "the menu started the save in its own turn")
             await eventually { book.status == .saved }
-            #expect(
-                ContinuousClock.now - start < AutosavePolicy.idleDelay.duration, "saved before the idle delay"
-            )
             #expect(try bookOnDisk(url).scenes.first?.title == "Saved by the menu")
             #expect(await store.closeBook() == .left)
             expectNoQuestions()
