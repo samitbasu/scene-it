@@ -210,7 +210,7 @@ struct WindowRenders {
     }
 
     func withSampleBook(
-        _ sample: Book = sampleBook(),
+        _ sample: Book = WindowRenders.sampleBook(),
         _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
     ) async throws {
         try await withTemporaryFolder { folder in

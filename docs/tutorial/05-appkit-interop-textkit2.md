@@ -17,6 +17,8 @@ attributed strings are new to you.
 | [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
 | [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
+| [`Sources/SceneItCore/Text/CommentUnderlines.swift`](../../Sources/SceneItCore/Text/CommentUnderlines.swift) | comment underlines: a custom `NSTextLayoutFragment`, its delegate, and hit-testing (ADR 0032) |
+| [`Sources/SceneItCore/Window/CommentSelection.swift`](../../Sources/SceneItCore/Window/CommentSelection.swift) | the selected comment, which a click on commented text changes |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
 | [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `apply(_:to:in:adding:)`, `undo(for:_:)`, `resolve(_:into:)` |
@@ -228,6 +230,45 @@ range, kept by the layout manager rather than the storage, and they win over the
 visible ranges draws the selection colour in the highlight's place, and removing it when the
 selection moves gives the highlight back. The notes draw no background, and then
 `NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
+
+### Comment underlines: a layout fragment of our own
+
+TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws itself
+(`draw(at:in:)`). The layout manager asks its delegate for every paragraph's fragment
+(`textLayoutManager(_:textLayoutFragmentFor:in:)`), so the page (`ManuscriptTextView`) makes a
+`CommentUnderliner` its layout manager's delegate, and every paragraph of the page is a
+`CommentUnderlineFragment` (the notes have no comments, ADR 0035, and keep TextKit's own): TextKit's own drawing, then a line per comment below the
+baseline, in the comment's colour. A Rust analogy: the delegate is a factory closure the layout
+engine calls, and the fragment is a type that wraps the default `draw` and adds to it.
+
+Three things about fragments are worth knowing:
+
+- **They outlive invalidation.** `invalidateLayout(for:)` lays the same fragment objects out
+  again; it doesn't ask the delegate for new ones. So a fragment must not copy anything that can
+  change (the comments' colours): it holds its `CommentUnderliner` and reads the palette, behind
+  a `Mutex`, each time it draws. (A first version copied it, and kept drawing the old style.)
+- **They may draw outside their frame.** TextKit lays a line's spacing out above the next line,
+  so the double spacing below a paragraph's last line (ADR 0034) is at the top of the next
+  paragraph's frame, and stacked lines reach into it. `renderingSurfaceBounds` says how far a
+  commented paragraph's drawing reaches.
+- **They draw in points, but pixels decide what's crisp.** `draw(at:in:)` measures how many
+  device pixels a point covers there (the display's scale times the page's zoom), rounds each line
+  to whole pixels from the baseline's pixel, and stacks only as deep as fits at that step, so a
+  1 pt line is one pixel at 1x and two at 2x, evenly stacked, at any zoom.
+
+Each comment keeps one level across its paragraph (`CommentPalette.underlines(of:depth:)`, a
+pure function of the paragraph's attributed string), and past the depth that fits below a line
+the stretch gets one line in the newest comment's colour.
+
+A plain click on commented text selects its comment. `SceneTextView.mouseDown(with:)` asks
+`CommentUnderlineFragment.character(at:in:)` which character is under the press, or above the
+underline it's on, using TextKit 2's `NSTextLineFragment.characterIndex(for:)`. It lets
+`super` place the caret (or drag out a selection: `NSTextView` runs its own tracking loop inside
+`mouseDown`, and returns when the button comes up), and only then, if the press was a plain click
+(`CommentPress`), hands the character to the editor, which picks among the comments covering it
+(`CommentSelection.click`). The tests click the real view with `NSEvent`s made in the test
+process: a mouse-up posted to the window's queue first, so that `NSTextView`'s mouse-tracking
+loop, which waits for it, returns.
 
 The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
 the accent colour, as in TextEdit.
@@ -601,8 +642,10 @@ itself stops at once on such an exception instead of carrying on.
 The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced (with 6 pt
 between paragraphs, `ParagraphRole.notes`'s paragraph style, which like every paragraph style
 is display only and never saved), 14 pt in from the panel's sides, with the same
-bold, italic, strike, color and highlight, comments included (book format §4.2 lets a comment
-cover notes text, `notes c10-21`). Everything that makes the page safe — the character veto,
+bold, italic, strike, color and highlight, but no comments: comments are on the manuscript
+only (ADR 0035), so a paste into the notes drops them, and the model won't let an edit add one.
+(Book format §4.2 still lets a comment cover notes text, `notes c10-21`; what to do with such a
+file is an open question.) Everything that makes the page safe — the character veto,
 the backstops, the codec's rules for pastes, the app's own pasteboard clip, per-keystroke
 ranged sync, per-scene undo — applies to it unchanged. Writing a `NotesEditor` beside the page's
 editor would have been two copies of that, which drift. So the page's machinery was
