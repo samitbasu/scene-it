@@ -465,6 +465,30 @@ struct SelectionTests {
     }
 }
 
+/// The share of `rect`'s pixels in `color` as the window composites `view` at 100% (its layers
+/// rendered into a bitmap; nothing reads the screen), highlights and rendering attributes
+/// included, which the view's own drawing leaves out.
+@MainActor
+private func composited(_ view: NSView, in rect: NSRect, matching color: NSColor) async throws -> Double {
+    let root = try #require(view.window?.contentView?.superview)
+    root.wantsLayer = true
+    root.layoutSubtreeIfNeeded()
+    root.display()
+    // The layers draw their contents on the next turns of the run loop.
+    try await Task.sleep(for: .milliseconds(200))
+    let rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
+    rep.size = rect.size
+    let context = try #require(NSGraphicsContext(bitmapImageRep: rep)).cgContext
+    let inRoot = view.convert(rect, to: root)
+    if root.isFlipped {
+        context.translateBy(x: 0, y: rect.height)
+        context.scaleBy(x: 1, y: -1)
+    }
+    context.translateBy(x: -inRoot.minX, y: -inRoot.minY)
+    try #require(root.layer).render(in: context)
+    return try share(of: color, in: rep, as: view)
+}
+
 /// The share of `rect`'s pixels in `color`, as `view` draws itself into a bitmap (nothing reads
 /// the screen). The page's layers are tiled, which a layer render misses, so this is the view's own
 /// drawing, where the bands are.
@@ -473,6 +497,11 @@ private func rendered(_ view: NSView, in rect: NSRect, matching color: NSColor) 
     view.displayIfNeeded()
     let rep = try #require(view.bitmapImageRepForCachingDisplay(in: rect))
     view.cacheDisplay(in: rect, to: rep)
+    return try share(of: color, in: rep, as: view)
+}
+
+@MainActor
+private func share(of color: NSColor, in rep: NSBitmapImageRep, as view: NSView) throws -> Double {
     var target: NSColor?
     view.effectiveAppearance.performAsCurrentDrawingAppearance { target = color.usingColorSpace(.deviceRGB) }
     let wanted = try #require(target)
@@ -581,5 +610,61 @@ struct EndLineTests {
                 #expect(abs(elsewhere.bottom - expected.bottom) < 0.01, "the page's height, caret elsewhere")
             }
         }
+    }
+}
+
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct HighlightSelectionTests {
+    /// The owner's pick (ADR 0034): inside the selection the selection's colour replaces a
+    /// highlight; outside it the highlight keeps its own.
+    @Test func theSelectionColourReplacesTheHighlightInsideTheSelection() async throws {
+        let body: [Paragraph] = [
+            [
+                Run("Plain words, then "), Run("a highlighted phrase in green", highlight: .green),
+                Run(" and plain again."),
+            ]
+        ]
+        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
+            try await settle(page, at: .standard)
+            let view = page.page
+            let string = page.storage.string as NSString
+            let highlighted = string.range(of: "a highlighted phrase in green")
+            let green = try #require(
+                page.storage.attribute(.backgroundColor, at: highlighted.location, effectiveRange: nil)
+                    as? NSColor)
+            let selected = NSRange(location: 6, length: highlighted.location + 10 - 6)
+            page.focusPage(at: 0)
+            try expectBands(view, selecting: selected, lines: 1)
+            let inside = try textRect(NSRange(location: highlighted.location + 2, length: 6), in: view)
+            let outside = try textRect(NSRange(location: highlighted.location + 14, length: 8), in: view)
+            let selection = try await composited(view, in: inside, matching: .selectedTextBackgroundColor)
+            #expect(selection > 0.3, "the selected part of the highlight shows the selection: \(selection)")
+            let kept = try await composited(view, in: outside, matching: green)
+            #expect(kept > 0.3, "the rest keeps its highlight: \(kept)")
+            page.window.makeFirstResponder(page.title)
+            let inactive = try await composited(
+                view, in: inside, matching: .unemphasizedSelectedTextBackgroundColor)
+            #expect(inactive > 0.3, "and the grey selection without the focus: \(inactive)")
+        }
+    }
+
+    /// The glyphs' extent of `range` on one line, a little inside, in the view's coordinates.
+    @MainActor
+    private func textRect(_ range: NSRange, in view: NSTextView) throws -> NSRect {
+        let layout = try #require(view.textLayoutManager)
+        let content = try #require(layout.textContentManager)
+        let start = try #require(content.location(content.documentRange.location, offsetBy: range.location))
+        let end = try #require(content.location(start, offsetBy: range.length))
+        var rect: NSRect?
+        layout.enumerateTextSegments(
+            in: try #require(NSTextRange(location: start, end: end)), type: .standard, options: []
+        ) { _, frame, _, _ in
+            rect = frame
+            return false
+        }
+        let origin = view.textContainerOrigin
+        let found = try #require(rect).offsetBy(dx: origin.x, dy: origin.y)
+        // The highlight is the glyphs' height, inside the line.
+        return found.insetBy(dx: 2, dy: found.height * 0.35)
     }
 }

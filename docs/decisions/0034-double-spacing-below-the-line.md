@@ -37,6 +37,12 @@ height. The owner chose instead to put the spacing below each line, so that the 
   - **A band ends at the line's last selected letter** (the owner's pick, over the system's way of reaching the
     line's trailing edge whenever the selection goes on past it): the bands come from TextKit's standard segments,
     which cover the selected text alone. A selected empty paragraph is a sliver a space wide at its indent.
+  - **Over highlighted text the selection colour replaces the highlight** (the owner's pick, #98): a highlight is a
+    background drawn over the bands, so it hid the selection. Within the selection a TextKit 2 rendering attribute
+    (`addRenderingAttribute(.backgroundColor, ...)`) draws the selection's colour in the highlight's place; outside it
+    the highlight keeps its own. It covers the same viewport-clipped ranges as the bands and changes colour with
+    them. Rejected: the system's selected-text background (it brings the continuous block back, and the highlight
+    still covers it) and a translucent band over the text (it greys the letters).
   - **The notes get bands too**, for one look across both editors: single-spaced, their lines' bands meet, but the
     6 pt between paragraphs stays clear, as it does on the page.
   - **The plain-text fields keep the system's selection**: the title, and File a Copy's tags and note

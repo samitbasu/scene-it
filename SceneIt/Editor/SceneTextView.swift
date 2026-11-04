@@ -74,6 +74,8 @@ class SceneTextView: KeyboardTextView {
 
     /// Where the selection's bands are drawn, in this view's coordinates.
     private(set) var selectionBands: [NSRect] = []
+    /// Where the selection colour overrides a highlight, and in which colour.
+    private var highlightOverride: (ranges: [NSTextRange], color: NSColor) = ([], .clear)
     private var windowObservers: [NSObjectProtocol] = []
 
     isolated deinit {
@@ -108,7 +110,7 @@ class SceneTextView: KeyboardTextView {
         windowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {
             NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) {
                 [weak self] _ in
-                MainActor.assumeIsolated { self?.redrawSelectionBands() }
+                MainActor.assumeIsolated { self?.selectionColorChanged() }
             }
         }
     }
@@ -116,7 +118,9 @@ class SceneTextView: KeyboardTextView {
     /// Redraws only where the bands were and are, so dragging a selection out never redraws the
     /// whole text.
     func refreshSelectionBands() {
-        let bands = currentSelectionBands()
+        let ranges = visibleSelection()
+        overrideHighlights(in: ranges)
+        let bands = bands(of: ranges)
         guard bands != selectionBands else { return }
         let previous = Set(selectionBands.map(Band.init))
         let current = Set(bands.map(Band.init))
@@ -140,20 +144,41 @@ class SceneTextView: KeyboardTextView {
         didSet { refreshSelectionBands() }
     }
 
-    private func redrawSelectionBands() {
+    /// The focus or the window's key state changed, and the selection's colour with them.
+    private func selectionColorChanged() {
+        overrideHighlights(in: highlightOverride.ranges)
         for band in selectionBands { setNeedsDisplay(band) }
     }
 
-    /// The bands of what's selected within the viewport, the only part that can be drawn, so a
-    /// long selection costs no more than a short one.
-    private func currentSelectionBands() -> [NSRect] {
+    /// What's selected within the viewport, the only part that can be drawn, so a long selection
+    /// costs no more than a short one.
+    private func visibleSelection() -> [NSTextRange] {
         guard let layout = textLayoutManager, let viewport = layout.textViewportLayoutController.viewportRange
         else { return [] }
-        let ranges = layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
+        return layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
+    }
+
+    private func bands(of ranges: [NSTextRange]) -> [NSRect] {
+        guard let layout = textLayoutManager else { return [] }
         let origin = textContainerOrigin
-        return SelectionBands.bands(of: ranges, in: layout).map {
-            $0.offsetBy(dx: origin.x, dy: origin.y)
+        return SelectionBands.bands(of: ranges, in: layout).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
+    }
+
+    /// A highlight is a background colour drawn over the bands, so within the selection a
+    /// rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
+    private func overrideHighlights(in ranges: [NSTextRange]) {
+        guard let layout = textLayoutManager else { return }
+        let color = selectionColor
+        let previous = highlightOverride
+        guard
+            previous.color != color || previous.ranges.count != ranges.count
+                || !zip(previous.ranges, ranges).allSatisfy({ $0.isEqual(to: $1) })
+        else { return }
+        for range in previous.ranges { layout.removeRenderingAttribute(.backgroundColor, for: range) }
+        for range in ranges where !range.isEmpty {
+            layout.addRenderingAttribute(.backgroundColor, value: color, for: range)
         }
+        highlightOverride = (ranges, color)
     }
 
     /// Draws the selection's bands behind the text.
@@ -202,7 +227,7 @@ class SceneTextView: KeyboardTextView {
 
     func keyboardFocusDidChange() {
         editor?.showFormatting()
-        redrawSelectionBands()
+        selectionColorChanged()
     }
 
     // MARK: Keys

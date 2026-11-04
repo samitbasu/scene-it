@@ -218,7 +218,14 @@ container's inset moves, only for what's selected within the viewport (TextKit's
 bands that appeared or went (a set difference) as needing display, `setNeedsDisplay(_:)` with a
 rect rather than the whole view, so a drag redraws little. The colour is the system's pair:
 `selectedTextBackgroundColor` while the view has the focus in the key window,
-`unemphasizedSelectedTextBackgroundColor` otherwise. The notes draw no background, and then
+`unemphasizedSelectedTextBackgroundColor` otherwise.
+
+A highlight (`.backgroundColor` in the text) is drawn with the text, over the bands, so on its own
+it would hide a selection. TextKit 2's *rendering attributes* are display-only attributes on a
+range, kept by the layout manager rather than the storage, and they win over the text's own:
+`addRenderingAttribute(.backgroundColor, value: selectionColor, for: range)` on the selected,
+visible ranges draws the selection colour in the highlight's place, and removing it when the
+selection moves gives the highlight back. The notes draw no background, and then
 `NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
 
 The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
