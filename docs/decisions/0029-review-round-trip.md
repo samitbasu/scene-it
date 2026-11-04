@@ -13,7 +13,8 @@
 3. **Copy Review** puts the reviewer's comments and notes on the clipboard as **HTML** (inline styles only, so it pastes formatted
    into Gmail and Mail) **and plain text**. Per scene: its title, then each comment as **☐ the commented passage with a little
    surrounding context, then the comment**, then the reviewer's notes for that scene. It contains no full manuscript text, and no app
-   is needed to read it. Typography is smartened (straight quotes become curly, -- becomes a dash).
+   is needed to read it. (Spec decision, 2026-11-03: the "context" is the passage's whole paragraph, with the passage marked;
+   reviews are anonymous, with no reviewer name.) Typography is smartened (straight quotes become curly, -- becomes a dash).
 4. **Save Review…** writes the same content as a **standalone `.html` file** with **real checkboxes** the author can tick in any
    browser (remembered in that browser via localStorage). No external resources and no network.
 5. The **author addresses the comments by hand** in their book. There's no automatic import.
@@ -26,3 +27,4 @@
 ## Open for the spec
 The exact review-copy marker, the `.review.md` grammar (comments and notes keyed to scene ids, using range + quote anchors
 against the received text), the HTML layout, and the wording. These go to the owner through the usual spec and aesthetic review.
+The draft spec is [`docs/format/review-format.md`](../format/review-format.md) (#78).

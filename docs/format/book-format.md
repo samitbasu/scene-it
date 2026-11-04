@@ -3,6 +3,9 @@
 **Status:** Draft for the owner's review. Implements [ADR 0022](../decisions/0022-markdown-book-format.md), which is
 binding. This document is the precise grammar ADR 0022 refers to, and it's versioned with the code.
 
+The review round trip's files (the exported review copy and `<name>.review.md`, [ADR 0029](../decisions/0029-review-round-trip.md))
+reuse this document's rules; they're specified in [review-format.md](review-format.md).
+
 It's written for two readers:
 
 - **A writer** editing `book.md` in a text editor. §1–§5 explain what you can type and what happens if you get it
@@ -292,7 +295,7 @@ It *looks* like YAML but isn't: there's no quoting, and a value is simply the re
 | Lines | `key: value`. A key is one or more ASCII letters, matched case-insensitively. The value is everything after the first `:`, trimmed (§1.3), then field-unescaped (§4.1). Blank lines are ignored. |
 | `title` | The book's title (plain text, may be empty). **Missing → `Untitled`** † plus a notice. |
 | `format` | A decimal integer: ASCII digits, optionally after one `+` (`03` and `+2` are numbers; leading zeros and the `+` are dropped on save). A number too large for the implementation counts as larger than any format, so the file reads as newer, never as damaged. **Missing → read as 2**, plus a notice. **Not 2 → read as 2 anyway**, plus a notice naming the number (§10 Q7). Not an integer (`-3`, `3.0`, `two`) → the line is a `[front matter]` error entry, and then it's missing. |
-| Unknown key, duplicate key, or a line that isn't `key: value` | A `[front matter]` error entry, kept verbatim. The first occurrence of a key wins. |
+| Unknown key, duplicate key, or a line that isn't `key: value` | A `[front matter]` error entry, kept verbatim. The first occurrence of a key wins. The review copy's `export` and `exported` keys are known only when a copy is read for review ([review-format.md §2.4](review-format.md#24-reading-a-copy-review-copy-mode)); in a book they're unknown keys like any other. |
 
 **Written as:** `---⏎title: <title>⏎format: 2⏎---⏎`, with `title:` (no trailing space) for an empty title. The
 title is field-escaped (§4.1).
