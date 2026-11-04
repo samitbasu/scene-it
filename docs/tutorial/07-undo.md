@@ -48,8 +48,12 @@ Two consequences shape the code:
   `reinsert(entry, at: index, in: owner)`, never "put the scene back as it was", so undoing a
   deletion keeps whatever the writer typed in that scene since (ErrorEntryEditTests,
   `undoingADeleteKeepsWhatWasTypedSince`). A snapshot would silently revert the typing.
-- **The target is held strongly until the action runs or is cleared,** like an `Rc` captured
-  in the closure. `withTarget:` also lets `removeAllActions(withTarget:)` find them.
+- **The target is *not* retained,** unlike an `Rc` captured in the closure: the manager keeps
+  a bare pointer to it, and the closure is handed that pointer when it runs. Register against
+  an object that outlives the history (the book, which owns the managers), never a throwaway
+  one: #118 registered a comment's removal against a fresh `NSObject`, so the action called
+  into freed memory on Undo and crashed (#119). `withTarget:` also lets
+  `removeAllActions(withTarget:)` find a target's actions.
 
 ## 2. Groups
 

@@ -306,16 +306,15 @@ final class SceneTextEditor: NSObject {
         undo.beginUndoGrouping()
         defer { undo.endUndoGrouping() }
         // Registered before the text, so undoing takes the text's id away first and no run is
-        // ever left naming a comment the scene doesn't have. Under a target of its own, so it can
-        // be withdrawn if the text refuses the change.
-        let removal = NSObject()
+        // ever left naming a comment the scene doesn't have. If the text refuses the change, the
+        // comment never reaches the scene and this removes nothing. Its target is the book, which
+        // outlives the history: an undo manager doesn't retain targets.
         if !added.isEmpty {
-            undo.registerUndo(withTarget: removal) { [weak book, scene = commenting.scene] _ in
-                book?.removeComments(Set(added.map(\.id)), from: scene)
+            undo.registerUndo(withTarget: book) { [scene = commenting.scene] in
+                $0.removeComments(Set(added.map(\.id)), from: scene)
             }
         }
         guard rewrite(ranges, adding: added, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
-            undo.removeAllActions(withTarget: removal)
             return false
         }
         undo.setActionName(name)

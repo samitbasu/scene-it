@@ -97,6 +97,32 @@ struct CommentOperationTests {
         }
     }
 
+    /// An undo manager doesn't retain its targets (#119): a new comment's undo crashed once the
+    /// object it was registered against was freed. Undo and redo again and again, freeing and
+    /// reusing memory in between, so a freed target would be called.
+    @Test func aNewCommentUndoesAndRedoesLongAfterItWasMade() async throws {
+        try await withPage([scene("One", Self.plain)]) { harness in
+            let editor = try #require(harness.page.editor)
+            let undo = try #require(harness.page.undoManager)
+            let scene = try #require(harness.book.openScene)
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(Self.letter)
+            let id = try #require(await asAnEvent(undo) { editor.newComment() })
+            let made = try #require(harness.book.book.scene(scene)?.comments.first)
+            for round in 0..<20 {
+                churnTheHeap()
+                undo.undo()
+                #expect(harness.body() == Self.plain, "round \(round)")
+                #expect(harness.book.book.scene(scene)?.comments.isEmpty == true, "round \(round)")
+                churnTheHeap()
+                undo.redo()
+                #expect(harness.book.book.scene(scene)?.comments == [made], "round \(round)")
+                #expect(Paragraph.commentIDs(in: harness.body()) == [id], "round \(round)")
+            }
+            #expect(harness.pageMirrorsModel)
+        }
+    }
+
     // MARK: Typing and pasting never extend a comment (PLAN §8.1)
 
     @Test func pastingAtEitherEdgeOfACommentNeverExtendsItAndUndoRestoresIt() async throws {
@@ -310,6 +336,15 @@ private func asAnEvent<T>(_ undo: UndoManager, _ body: @escaping @MainActor () -
     let box = ResultBox<T>()
     await inAnEvent(undo) { box.value = body() }
     return box.value!
+}
+
+/// Allocates and frees many small objects, so memory freed earlier is reused and overwritten.
+private func churnTheHeap() {
+    autoreleasepool {
+        var objects: [NSObject] = (0..<20_000).map { _ in NSObject() }
+        objects += (0..<5_000).map { NSString(format: "churn %d", $0) }
+        objects.removeAll()
+    }
 }
 
 @MainActor
