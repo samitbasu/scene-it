@@ -22,21 +22,13 @@ enum TextKitLine {
         return height
     }
 
-    static func fallbackHeight(of font: NSFont, in style: NSParagraphStyle) -> CGFloat {
-        if !reported.withLock({ $0.swap(true) }) {
+    private static func fallbackHeight(of font: NSFont, in style: NSParagraphStyle) -> CGFloat {
+        if !reported.exchange(true, ordering: .relaxed) {
             Log.editor.error("TextKit laid out no line to measure; using the font's metrics")
         }
         let multiple = style.lineHeightMultiple > 0 ? style.lineHeightMultiple : 1
         return (font.ascender - font.descender) * multiple + font.leading
     }
 
-    private static let reported = Mutex(false)
-}
-
-extension Bool {
-    /// Sets the value, and says what it was.
-    fileprivate mutating func swap(_ value: Bool) -> Bool {
-        defer { self = value }
-        return self
-    }
+    private static let reported = Atomic(false)
 }

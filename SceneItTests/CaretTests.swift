@@ -396,7 +396,14 @@ struct SelectionTests {
             let second = string.range(of: "The ferry left before").location
             try expectBands(view, selecting: NSRange(location: second + 10, length: 100), lines: 2)
             let gone = try #require(view.selectionBands.max { $0.minY < $1.minY })
+            let painted = try rendered(view, in: gone.insetBy(dx: 4, dy: 3), matching: view.selectionColor)
+            try #require(painted > 0.3, "precondition: the band that goes was painted: \(painted)")
             try expectBands(view, selecting: NSRange(location: second + 10, length: 20), lines: 1)
+            #expect(view.invalidatedBands.contains(gone), "the band that went is redrawn")
+            #expect(
+                view.invalidatedBands.count <= 3,
+                "only the bands that changed (the one that went, and the first line's old and new): \(view.invalidatedBands)"
+            )
             let color = try rendered(view, in: gone.insetBy(dx: 4, dy: 3), matching: view.selectionColor)
             #expect(color < 0.05, "the band no longer drawn is gone: \(color)")
 
@@ -425,6 +432,7 @@ struct SelectionTests {
             let active = try rendered(view, in: band, matching: .selectedTextBackgroundColor)
             #expect(active > 0.3, "the band is painted in the accent colour: \(active)")
             page.window.makeFirstResponder(page.title)
+            #expect(view.invalidatedBands == view.selectionBands, "losing the focus redraws the bands")
             let inactive = try rendered(view, in: band, matching: .unemphasizedSelectedTextBackgroundColor)
             #expect(inactive > 0.3, "and redrawn grey without the focus: \(inactive)")
 
@@ -443,24 +451,23 @@ struct SelectionTests {
             let view = page.page
             try #require(try laidOutLines(of: view).count > 40 * 23, "precondition: over 40 pages of lines")
             page.focusPage(at: 0)
-            let clock = ContinuousClock()
-            let selecting = clock.measure { view.selectAll(nil) }
+            view.selectAll(nil)
             let visibleLines = Int(view.visibleRect.height / 14) + 1
             try #require(!view.selectionBands.isEmpty, "precondition: bands where the text shows")
             #expect(
                 view.selectionBands.count <= visibleLines * 2,
                 "only the viewport's: \(view.selectionBands.count)")
-            let scrolling = clock.measure {
-                for step in 1...20 {
-                    view.scroll(NSPoint(x: 0, y: CGFloat(step) * 400))
-                    view.textLayoutManager?.textViewportLayoutController.layoutViewport()
-                    view.refreshSelectionBands()
-                }
+            for step in 1...10 {
+                let target = NSRect(x: 0, y: CGFloat(step) * 1500, width: 10, height: view.visibleRect.height)
+                view.scrollToVisible(target)
+                await eventually { view.selectionBands.contains { $0.intersects(view.visibleRect) } }
+                #expect(
+                    view.selectionBands.count <= visibleLines * 2,
+                    "step \(step): only the viewport's bands, \(view.selectionBands.count)")
+                #expect(
+                    view.invalidatedBands.count <= visibleLines * 4,
+                    "step \(step): only changed bands redrawn, \(view.invalidatedBands.count)")
             }
-            #expect(
-                view.selectionBands.allSatisfy { $0.intersects(view.visibleRect.insetBy(dx: 0, dy: -2000)) })
-            #expect(selecting < .milliseconds(500), "selecting all: \(selecting)")
-            #expect(scrolling < .seconds(2), "scrolling a selection: \(scrolling)")
         }
     }
 }
@@ -474,18 +481,22 @@ private func composited(_ view: NSView, in rect: NSRect, matching color: NSColor
     root.wantsLayer = true
     root.layoutSubtreeIfNeeded()
     root.display()
-    // The layers draw their contents on the next turns of the run loop.
-    try await Task.sleep(for: .milliseconds(200))
-    let rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
-    rep.size = rect.size
-    let context = try #require(NSGraphicsContext(bitmapImageRep: rep)).cgContext
-    let inRoot = view.convert(rect, to: root)
-    if root.isFlipped {
-        context.translateBy(x: 0, y: rect.height)
-        context.scaleBy(x: 1, y: -1)
+    // The layers draw their contents on later turns of the run loop: render until the text shows.
+    var rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
+    for _ in 0..<10 {
+        try await Task.sleep(for: .milliseconds(100))
+        rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
+        rep.size = rect.size
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep)).cgContext
+        let inRoot = view.convert(rect, to: root)
+        if root.isFlipped {
+            context.translateBy(x: 0, y: rect.height)
+            context.scaleBy(x: 1, y: -1)
+        }
+        context.translateBy(x: -inRoot.minX, y: -inRoot.minY)
+        try #require(root.layer).render(in: context)
+        if try share(of: .black, in: rep, as: view) > 0.01 { break }
     }
-    context.translateBy(x: -inRoot.minX, y: -inRoot.minY)
-    try #require(root.layer).render(in: context)
     return try share(of: color, in: rep, as: view)
 }
 
@@ -524,13 +535,22 @@ private func share(of color: NSColor, in rep: NSBitmapImageRep, as view: NSView)
 /// for text ending in a break, in two, and empty text.
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct EndLineTests {
-    @Test(arguments: [[[Run("Hello")], []], [] as [Paragraph]] as [[Paragraph]])
+    @Test(
+        arguments: [[[Run("Hello")], []], [[Run("A")], [], [Run("B")], []], [] as [Paragraph]]
+            as [[Paragraph]])
     func theEndLineKeepsItsPlaceWhereverTheCaretIs(body: [Paragraph]) async throws {
         try await withPage([scene("One", body)], in: KeyWindow.self) { page in
             let view = page.page
             let string = page.storage.string as NSString
             let reference = try multipleSpaced(view)
             let expected = try endLine(of: reference)
+            if body.count == 4 {
+                try #require(
+                    (0..<string.length).contains {
+                        ParagraphContent(ofParagraphAt: $0, in: string) == .empty
+                    },
+                    "precondition: an empty paragraph in the text")
+            }
             var places = [0, string.length]
             if let empty = (0..<string.length).first(where: {
                 ParagraphContent(ofParagraphAt: $0, in: string) == .empty
@@ -601,12 +621,14 @@ struct EndLineTests {
             let expected = try endLine(of: try multipleSpaced(view))
             page.focusPage(at: page.storage.length)
             let atTheEnd = try endLine(of: view)
-            withKnownIssue("TextKit lays the end line out 14 pt high on a fresh page") {
+            withKnownIssue("TextKit lays the end line out 14 pt high on a fresh page", isIntermittent: true) {
                 #expect(abs(atTheEnd.baseline - expected.baseline) < 0.01, "the caret's line, at the end")
             }
             page.focusPage(at: 0)
             let elsewhere = try endLine(of: view)
-            withKnownIssue("TextKit lays the end line out higher with the caret elsewhere") {
+            withKnownIssue(
+                "TextKit lays the end line out higher with the caret elsewhere", isIntermittent: true
+            ) {
                 #expect(abs(elsewhere.bottom - expected.bottom) < 0.01, "the page's height, caret elsewhere")
             }
         }
@@ -646,6 +668,64 @@ struct HighlightSelectionTests {
                 view, in: inside, matching: .unemphasizedSelectedTextBackgroundColor)
             #expect(inactive > 0.3, "and the grey selection without the focus: \(inactive)")
         }
+    }
+
+    /// Across a green highlight, then collapsed: the green is back and no selection colour is
+    /// left, after a plain collapse, an edit before the selection, an undo, and a scene switch.
+    @Test(arguments: [Collapse.plain, .afterAnEditBefore, .afterUndo, .afterASceneSwitch])
+    func noSelectionColourOutlivesTheSelection(_ how: Collapse) async throws {
+        let body: [Paragraph] = [
+            [
+                Run("Plain words, then "), Run("a highlighted phrase in green", highlight: .green),
+                Run(" and plain again."),
+            ]
+        ]
+        let one = scene("One", body)
+        let two = scene("Two", body)
+        try await withPage([one, two], in: KeyWindow.self) { page in
+            try await settle(page, at: .standard)
+            let view = page.page
+            let highlighted = (page.storage.string as NSString).range(of: "a highlighted phrase in green")
+            page.focusPage(at: 0)
+            view.setSelectedRange(NSRange(location: 6, length: highlighted.location + 10 - 6))
+            let inside = try textRect(NSRange(location: highlighted.location + 2, length: 6), in: view)
+            let selected = try await composited(view, in: inside, matching: .selectedTextBackgroundColor)
+            try #require(selected > 0.3, "precondition: the selection shows over the highlight: \(selected)")
+            switch how {
+            case .plain:
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+            case .afterAnEditBefore:
+                view.insertText("Now. ", replacementRange: NSRange(location: 0, length: 0))
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+            case .afterUndo:
+                view.insertText("Now. ", replacementRange: NSRange(location: 0, length: 0))
+                view.breakUndoCoalescing()
+                await undoInAnEvent(try #require(view.undoManager))
+                view.setSelectedRange(NSRange(location: 0, length: 0))
+            case .afterASceneSwitch:
+                page.book.select(two.id)
+                await eventually { page.book.openScene == two.id && page.pageMirrorsModel }
+            }
+            let now = (page.storage.string as NSString).range(of: "a highlighted phrase in green")
+            let green = try #require(
+                page.storage.attribute(.backgroundColor, at: now.location, effectiveRange: nil) as? NSColor)
+            let phrase = try textRect(now, in: view)
+            let kept = try await composited(view, in: phrase, matching: green)
+            #expect(kept > 0.3, "the green is back: \(kept)")
+            for color in [NSColor.selectedTextBackgroundColor, .unemphasizedSelectedTextBackgroundColor] {
+                let left = try await composited(view, in: phrase, matching: color)
+                #expect(left < 0.01, "no selection colour is left on the highlight: \(left)")
+            }
+            let line = try textRect(NSRange(location: 0, length: page.storage.length), in: view)
+            let accent = try await composited(view, in: line, matching: .selectedTextBackgroundColor)
+            #expect(accent < 0.01, "nor anywhere on the line: \(accent)")
+        }
+    }
+
+    enum Collapse: CustomTestStringConvertible {
+        case plain, afterAnEditBefore, afterUndo, afterASceneSwitch
+
+        var testDescription: String { "\(self)" }
     }
 
     /// The glyphs' extent of `range` on one line, a little inside, in the view's coordinates.

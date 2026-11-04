@@ -44,9 +44,9 @@ class SceneTextView: KeyboardTextView {
         typingAttributes = role.typingAttributes
     }
 
-    /// TextKit lays out the empty line after a final paragraph break in the typing attributes, so
-    /// their paragraph style is always that line's, wherever the caret is, and the line is laid
-    /// out again when it changes. (What's typed is restyled for its own paragraph as it's typed.)
+    /// The typing attributes take the style of the caret's paragraph. TextKit also lays out the
+    /// empty line after a final paragraph break in them, so when their style changes that line is
+    /// laid out again. (What's typed is restyled for its own paragraph as it's typed.)
     override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
         set {
@@ -75,7 +75,9 @@ class SceneTextView: KeyboardTextView {
     /// Where the selection's bands are drawn, in this view's coordinates.
     private(set) var selectionBands: [NSRect] = []
     /// Where the selection colour overrides a highlight, and in which colour.
-    private var highlightOverride: (ranges: [NSTextRange], color: NSColor) = ([], .clear)
+    private var highlightOverride: (ranges: [NSRange], color: NSColor) = ([], .clear)
+    /// Where the last refresh or colour change asked for display, for tests of what's redrawn.
+    private(set) var invalidatedBands: [NSRect] = []
     private var windowObservers: [NSObjectProtocol] = []
 
     isolated deinit {
@@ -125,7 +127,12 @@ class SceneTextView: KeyboardTextView {
         let previous = Set(selectionBands.map(Band.init))
         let current = Set(bands.map(Band.init))
         selectionBands = bands
-        for band in previous.symmetricDifference(current) { setNeedsDisplay(band.rect) }
+        invalidate(previous.symmetricDifference(current).map(\.rect))
+    }
+
+    private func invalidate(_ rects: [NSRect]) {
+        invalidatedBands = rects
+        for rect in rects { setNeedsDisplay(rect) }
     }
 
     /// A band as a set member: `NSRect` isn't `Hashable`.
@@ -146,8 +153,8 @@ class SceneTextView: KeyboardTextView {
 
     /// The focus or the window's key state changed, and the selection's colour with them.
     private func selectionColorChanged() {
-        overrideHighlights(in: highlightOverride.ranges)
-        for band in selectionBands { setNeedsDisplay(band) }
+        overrideHighlights(in: visibleSelection())
+        invalidate(selectionBands)
     }
 
     /// What's selected within the viewport, the only part that can be drawn, so a long selection
@@ -164,21 +171,42 @@ class SceneTextView: KeyboardTextView {
         return SelectionBands.bands(of: ranges, in: layout).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
     }
 
-    /// A highlight is a background colour drawn over the bands, so within the selection a
-    /// rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
+    /// A highlight is a background colour drawn over the bands, so where the selection covers one
+    /// a rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
+    /// They're set by character offsets, which an edit or a new scene can't leave pointing at the
+    /// wrong text, and every one goes before new ones are set: no other code sets this attribute.
     private func overrideHighlights(in ranges: [NSTextRange]) {
-        guard let layout = textLayoutManager else { return }
-        let color = selectionColor
-        let previous = highlightOverride
-        guard
-            previous.color != color || previous.ranges.count != ranges.count
-                || !zip(previous.ranges, ranges).allSatisfy({ $0.isEqual(to: $1) })
+        guard let layout = textLayoutManager, let content = layout.textContentManager,
+            let storage = textStorage
         else { return }
-        for range in previous.ranges { layout.removeRenderingAttribute(.backgroundColor, for: range) }
-        for range in ranges where !range.isEmpty {
+        let start = content.documentRange.location
+        var highlighted: [NSRange] = []
+        for range in ranges {
+            let offsets = NSRange(
+                location: content.offset(from: start, to: range.location),
+                length: content.offset(from: range.location, to: range.endLocation))
+            storage.enumerateAttribute(.backgroundColor, in: offsets) { value, run, _ in
+                if value != nil { highlighted.append(run) }
+            }
+        }
+        let color = selectionColor
+        guard highlightOverride.ranges != highlighted || highlightOverride.color != color else { return }
+        layout.removeRenderingAttribute(.backgroundColor, for: layout.documentRange)
+        for run in highlighted {
+            guard let from = content.location(start, offsetBy: run.location),
+                let to = content.location(from, offsetBy: run.length),
+                let range = NSTextRange(location: from, end: to)
+            else { continue }
             layout.addRenderingAttribute(.backgroundColor, value: color, for: range)
         }
-        highlightOverride = (ranges, color)
+        highlightOverride = (highlighted, color)
+    }
+
+    /// An edit can change what the same offsets hold, so the highlights are looked at afresh.
+    override func didChangeText() {
+        super.didChangeText()
+        highlightOverride = ([], .clear)
+        refreshSelectionBands()
     }
 
     /// Draws the selection's bands behind the text.

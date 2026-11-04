@@ -19,8 +19,10 @@ height. The owner chose instead to put the spacing below each line, so that the 
   with its line spacing inside it (28.51 pt, the letters' slot at its top), which made the caret there double height.
   With the gap before it, the line is 14.51 pt and sits exactly where text typed into it goes.
 - **The empty paragraph at the very end** (after a final Return, or an empty scene) has no character to carry a style:
-  TextKit lays it out in the typing attributes. It gets the body's indent and no spacing, since the line above has
-  its spacing below it.
+  TextKit lays it out in the typing attributes, which `SceneTextView` gives the style of the caret's paragraph. After
+  a line of text it gets the body's indent and no spacing, since that line has its spacing below it; after an empty
+  paragraph, whose gap is above it, it's spaced as an empty paragraph, with the gap before it. (TextKit doesn't always
+  honour that last case; see the known issue below.)
 - One rule, `ParagraphRole.paragraphStyle(for: ParagraphContent)`, decides the style from what the paragraph holds. The
   codec applies it as it renders text, the editor re-applies it to the paragraphs an edit touches
   (`styleParagraphs(of:around:)`), and `SceneTextView` gives the typing attributes the style of the caret's paragraph,
