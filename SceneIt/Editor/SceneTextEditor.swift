@@ -356,11 +356,18 @@ extension SceneTextEditor: @MainActor NSTextStorageDelegate {
         let plain = role.typingAttributes
         for index in editedRange.location..<editedRange.upperBound
         where Self.isLineBreak(string.character(at: index)) {
+            var expected = plain
+            expected[.paragraphStyle] = role.paragraphStyle(
+                for: ParagraphContent(ofParagraphAt: index, in: string))
             let attributes = textStorage.attributes(at: index, effectiveRange: nil)
-            if !NSDictionary(dictionary: attributes).isEqual(to: plain) {
-                textStorage.setAttributes(plain, range: NSRange(location: index, length: 1))
+            if !NSDictionary(dictionary: attributes).isEqual(to: expected) {
+                textStorage.setAttributes(expected, range: NSRange(location: index, length: 1))
             }
         }
+        // The paragraph after the edit too: a break inserted before its text can leave it empty.
+        let rest = string.length - editedRange.location
+        let following = NSRange(location: editedRange.location, length: min(editedRange.length + 1, rest))
+        role.styleParagraphs(of: textStorage, around: following)
     }
 
     func textStorage(

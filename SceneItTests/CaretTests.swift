@@ -31,12 +31,14 @@ private func glyphLine(at location: Int, in page: ManuscriptTextView) throws
     let layout = try #require(page.textLayoutManager)
     let content = try #require(layout.textContentManager)
     let start = try #require(content.location(content.documentRange.location, offsetBy: location))
+    layout.ensureLayout(for: NSTextRange(location: start))
     let fragment = try #require(layout.textLayoutFragment(for: start))
     let offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
     let lines = fragment.textLineFragments
     let index = try #require(
         lines.firstIndex { NSLocationInRange(location - offset, $0.characterRange) },
-        "a line holds \(location)")
+        "a line holds \(location): \(lines.map(\.characterRange)) from \(offset) in \(fragment.rangeInElement)"
+    )
     let line = lines[index]
     let origin = page.textContainerOrigin
     let x = line.locationForCharacter(at: location - offset).x
@@ -47,65 +49,56 @@ private func glyphLine(at location: Int, in page: ManuscriptTextView) throws
     )
 }
 
-@MainActor
-private func caret(of page: PageHarness) throws -> CaretIndicator {
-    try #require(page.page.caret, "the page has its caret")
-}
-
-/// The text view's own caret: the indicator under the page that isn't ours.
+/// The text view's caret: the system's own, which the page no longer replaces (ADR 0034).
 @MainActor
 private func systemCaret(of page: PageHarness) throws -> NSTextInsertionIndicator {
-    let ours = try caret(of: page).indicator
-    let others = subviewTree(of: page.page).compactMap { $0 as? NSTextInsertionIndicator }.filter {
-        $0 !== ours
-    }
-    try #require(others.count == 1, "precondition: the text view has one caret of its own")
-    return others[0]
-}
-
-/// Our caret is where the text view puts its own: the same x, and the same bottom, since
-/// double spacing puts the line's extra height above the letters.
-@MainActor
-private func expectCaretMatchesTheSystemCaret(
-    _ page: PageHarness, sourceLocation: SourceLocation = #_sourceLocation
-) throws {
-    let ours = try caret(of: page).frame
-    let system = try systemCaret(of: page).frame
-    #expect(abs(ours.minX - system.minX) < 0.01, "x: \(ours) vs \(system)", sourceLocation: sourceLocation)
-    #expect(
-        abs(ours.maxY - system.maxY) < 0.01, "bottom: \(ours) vs \(system)", sourceLocation: sourceLocation)
+    let carets = subviewTree(of: page.page).compactMap { $0 as? NSTextInsertionIndicator }
+    try #require(carets.count == 1, "precondition: the page has one caret")
+    return carets[0]
 }
 
 @MainActor
-private func keyAndFocused(_ page: PageHarness, at location: Int) async throws -> NSRect {
+private func keyAndFocused(
+    _ page: PageHarness, at location: Int, _ affinity: NSSelectionAffinity = .downstream
+)
+    async throws -> NSRect
+{
     try #require(page.window.isKeyWindow, "precondition: a key window")
     page.focusPage(at: location)
-    let caret = try caret(of: page)
-    await eventually { caret.isShown }
-    try #require(caret.isShown, "precondition: the caret shows")
+    page.page.setSelectedRange(
+        NSRange(location: location, length: 0), affinity: affinity, stillSelecting: false)
+    let caret = try systemCaret(of: page)
+    await eventually { !caret.isHidden && caret.frame.height > 0 }
+    try #require(!caret.isHidden, "precondition: the caret shows")
     return caret.frame
 }
 
+/// The caret is text height around `baseline`: as tall as a single-spaced line, its top a
+/// single-spaced ascent above the baseline.
+@MainActor
+private func expectTextHeight(
+    _ caret: NSRect, onBaseline baseline: CGFloat, sourceLocation: SourceLocation = #_sourceLocation
+) throws {
+    let single = try singleSpacedLine()
+    #expect(
+        abs(caret.minY - (baseline - single.baselineOffset)) < 0.01, "top: \(caret) on \(baseline)",
+        sourceLocation: sourceLocation)
+    #expect(
+        abs(caret.height - single.height) < 0.01, "a single-spaced line tall: \(caret)",
+        sourceLocation: sourceLocation)
+}
+
 /// The caret at `location` is exactly where a letter typed there sits: at its leading edge, and
-/// as tall as a single-spaced line around its baseline.
+/// text height around its baseline.
 @MainActor
 private func expectCaretFitsTypedText(
     _ page: PageHarness, at location: Int, sourceLocation: SourceLocation = #_sourceLocation
 ) async throws {
     let caret = try await keyAndFocused(page, at: location)
-    try expectCaretMatchesTheSystemCaret(page, sourceLocation: sourceLocation)
     page.page.insertText("x", replacementRange: NSRange(location: location, length: 0))
     let typed = try glyphLine(at: location, in: page.page)
-    let single = try singleSpacedLine()
     #expect(abs(caret.minX - typed.x) < 0.01, "at the letter's leading edge", sourceLocation: sourceLocation)
-    #expect(
-        abs(caret.minY - (typed.baseline - single.baselineOffset)) < 0.01, "top: \(caret) for \(typed)",
-        sourceLocation: sourceLocation)
-    #expect(
-        abs(caret.height - single.height) < 0.01, "a single-spaced line tall", sourceLocation: sourceLocation)
-    #expect(
-        try systemCaret(of: page).color.alphaComponent == 0, "the text view's own caret is clear",
-        sourceLocation: sourceLocation)
+    try expectTextHeight(caret, onBaseline: typed.baseline, sourceLocation: sourceLocation)
 }
 
 private let long =
@@ -132,9 +125,6 @@ struct CaretTests {
             try await settle(page, at: zoom)
             try #require(try glyphLine(at: 5, in: page.page).isFirstLine, "precondition: the first line")
             try await expectCaretFitsTypedText(page, at: 5)
-            let onScreen = page.page.convert(try caret(of: page).frame, to: nil)
-            let single = try singleSpacedLine()
-            #expect(abs(onScreen.height - single.height * Double(zoom)) < 0.01, "it scales with the zoom")
         }
     }
 
@@ -146,6 +136,19 @@ struct CaretTests {
             try #require(
                 try !glyphLine(at: location, in: page.page).isFirstLine, "precondition: a wrapped line")
             try await expectCaretFitsTypedText(page, at: location)
+        }
+    }
+
+    @Test func atTheEndOfAWrappedLine() async throws {
+        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
+            let layout = try #require(page.page.textLayoutManager)
+            let first = try #require(layout.textLayoutFragment(for: layout.documentRange.location))
+            try #require(first.textLineFragments.count > 1, "precondition: the paragraph wraps")
+            let lineEnd = first.textLineFragments[0].characterRange.upperBound
+            let lastOnTheLine = try glyphLine(at: lineEnd - 1, in: page.page)
+            let upstream = try await keyAndFocused(page, at: lineEnd, .upstream)
+            #expect(upstream.minX > lastOnTheLine.x, "after the line's last letter")
+            try expectTextHeight(upstream, onBaseline: lastOnTheLine.baseline)
         }
     }
 
@@ -176,154 +179,34 @@ struct CaretTests {
         }
     }
 
-    @Test func followsTheCaretAsItMoves() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            let first = try await keyAndFocused(page, at: 0)
-            let ours = try caret(of: page)
-            page.page.moveDown(nil)
-            await eventually { ours.frame.minY > first.minY }
-            #expect(ours.frame.minY > first.minY)
-            #expect(abs(ours.frame.height - first.height) < 0.01)
-        }
-    }
-
-    @Test func hiddenWithARangeSelected() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: 0)
-            let ours = try caret(of: page)
-            page.page.setSelectedRange(NSRange(location: 0, length: 3))
-            #expect(!ours.isShown)
-            page.page.setSelectedRange(NSRange(location: 3, length: 0))
-            #expect(ours.isShown)
-        }
-    }
-
-    @Test func hiddenWhenThePageLosesTheFocusOrTheWindowIsNotKey() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: 0)
-            let ours = try caret(of: page)
-            page.window.makeFirstResponder(page.title)
-            let shownWithTheTitleFocused = ours.isShown
-            #expect(
-                !shownWithTheTitleFocused,
-                "the title has the focus \(String(describing: page.window.firstResponder))")
-            page.focusPage(at: 0)
-            #expect(ours.isShown)
-            KeyWindow.isKey = false
-            defer { KeyWindow.isKey = true }
-            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: page.window)
-            #expect(!ours.isShown, "another window is key")
-            KeyWindow.isKey = true
-            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: page.window)
-            #expect(ours.isShown)
-        }
-    }
-
-    @Test func atTheEndOfAWrappedLine() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            let layout = try #require(page.page.textLayoutManager)
-            let first = try #require(layout.textLayoutFragment(for: layout.documentRange.location))
-            let lineEnd = try #require(first.textLineFragments.first).characterRange.upperBound
-            try #require(first.textLineFragments.count > 1, "precondition: the paragraph wraps")
-            _ = try await keyAndFocused(page, at: lineEnd)
-            page.page.setSelectedRange(
-                NSRange(location: lineEnd, length: 0), affinity: .downstream, stillSelecting: false)
-            let downstream = try caret(of: page).frame
-            try expectCaretMatchesTheSystemCaret(page)
-            page.page.setSelectedRange(
-                NSRange(location: lineEnd, length: 0), affinity: .upstream, stillSelecting: false)
-            let upstream = try caret(of: page).frame
-            try #require(
-                upstream.minY < downstream.minY,
-                "precondition: upstream is on the line above: \(upstream) \(downstream) system \(String(describing: try? systemCaret(of: page).frame)) lineEnd \(lineEnd)"
-            )
-            try expectCaretMatchesTheSystemCaret(page)
-            #expect(abs(upstream.height - downstream.height) < 0.01)
-        }
-    }
-
-    /// A layout pass that moves the caret's line, with the selection unmoved. (Placing the caret
-    /// lays out everything above it, so no estimate is left to replace; a narrower column rewraps
-    /// the paragraph above, which no selection or frame hook sees.)
-    @Test func followsALineThatLayoutMoves() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: (long as NSString).length + 2 + 3)
-            let ours = try caret(of: page)
-            let system = try systemCaret(of: page)
-            let before = system.frame
-            let container = try #require(page.page.textContainer)
-            container.size = NSSize(width: container.size.width / 2, height: container.size.height)
-            await eventually { system.frame.minY > before.minY }
-            try #require(system.frame.minY > before.minY, "precondition: the line moved down")
-            await eventually { abs(ours.frame.maxY - system.frame.maxY) < 0.01 }
-            try expectCaretMatchesTheSystemCaret(page)
-        }
-    }
-
-    @Test func followsTheTypingFont() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
+    @Test func inAParagraphEmptiedByDeletingItsText() async throws {
+        try await withPage([scene("One", [[Run("Gone.")], [Run("Short.")]])], in: KeyWindow.self) { page in
             _ = try await keyAndFocused(page, at: 5)
-            var attributes = page.page.typingAttributes
-            attributes[.font] = NSFont(name: ParagraphRole.fontFamily, size: 24)
-            page.page.typingAttributes = attributes
-            #expect(try caret(of: page).frame.height > 20, "the caret grew with the typing font at once")
+            page.page.setSelectedRange(NSRange(location: 0, length: 5))
+            page.page.deleteBackward(nil)
+            try #require(page.storage.string == "\nShort.", "precondition: the first paragraph is empty")
+            #expect(page.pageMirrorsModel)
+            try await expectCaretFitsTypedText(page, at: 0)
         }
     }
 
-    @Test func hiddenWhileReadOnlyAndShownOnceEditable() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true, in: KeyWindow.self) {
-            page in
-            try #require(page.window.isKeyWindow, "precondition: a key window")
-            page.focusPage(at: 2)
-            try #require(!page.page.isEditable, "precondition: read-only")
-            try #require(page.window.firstResponder === page.page, "precondition: the page has the focus")
-            #expect(!(try caret(of: page).isShown), "no caret while read-only")
-            let editor = try #require(page.page.editor)
-            editor.show(try #require(page.book.openScene), .editable)
-            #expect(try caret(of: page).isShown)
-            try expectCaretMatchesTheSystemCaret(page)
-        }
-    }
-
-    @Test func followsASceneSwitch() async throws {
-        let one = scene("One", body)
-        let two = scene("Two", [[Run("Second.")]])
-        try await withPage([one, two], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: 5)
-            page.book.select(two.id)
-            await eventually { page.storage.string == "Second." }
-            try expectCaretMatchesTheSystemCaret(page)
-        }
-    }
-
-    @Test func followsAModelReload() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: 5)
-            page.book.replaceBody(of: try #require(page.book.openScene), with: [[Run("Replaced.")], []])
-            await eventually { page.storage.string == "Replaced.\n" }
-            try expectCaretMatchesTheSystemCaret(page)
-        }
-    }
-
-    @Test func followsUndoAndRedo() async throws {
-        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            _ = try await keyAndFocused(page, at: 0)
+    @Test func afterReturnAtTheEnd() async throws {
+        try await withPage([scene("One", [[Run("Short.")]])], in: KeyWindow.self) { page in
+            _ = try await keyAndFocused(page, at: 6)
             page.page.insertParagraphSeparator(nil)
-            page.page.breakUndoCoalescing()
-            let undo = try #require(page.page.undoManager)
-            await undoInAnEvent(undo)
-            try expectCaretMatchesTheSystemCaret(page)
-            await undoInAnEvent(undo, .redo)
-            try expectCaretMatchesTheSystemCaret(page)
+            try #require(page.storage.string == "Short.\n", "precondition: an empty paragraph at the end")
+            #expect(page.pageMirrorsModel)
+            try await expectCaretFitsTypedText(page, at: 7)
         }
     }
 
-    /// The metrics the caret falls back on when TextKit lays out no line are about the right size.
-    @Test func theFallbackMetricsAreAboutTheRightSize() throws {
-        let font = ParagraphRole.body.font([])
-        let laidOut = SingleSpacedLine(font)
-        let fallback = SingleSpacedLine(metricsOf: font)
-        #expect(fallback.height > 0 && abs(fallback.height - laidOut.height) < 1)
-        #expect(fallback.ascent > 0 && abs(fallback.ascent - laidOut.ascent) < 1)
+    @Test func scrollingToTheCaretShowsIt() async throws {
+        let paragraphs: [Paragraph] = Array(repeating: [Run(long)], count: 40)
+        try await withPage([scene("Long", paragraphs)], in: KeyWindow.self) { page in
+            let caret = try await keyAndFocused(page, at: page.storage.length)
+            try #require(!page.page.visibleRect.contains(caret), "precondition: the caret starts out of view")
+            page.page.scrollRangeToVisible(page.page.selectedRange())
+            #expect(page.page.visibleRect.contains(try systemCaret(of: page).frame))
+        }
     }
 }

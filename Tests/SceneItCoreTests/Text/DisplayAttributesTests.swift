@@ -31,7 +31,7 @@ import Testing
 
     @Test func paragraphStylesFollowTheRole() {
         let body = ParagraphRole.body.paragraphStyle
-        #expect(body.lineHeightMultiple == 2)
+        #expect(body.lineSpacing == ParagraphRole.doubleSpacingGap, "double spacing, below the line")
         #expect(body.firstLineHeadIndent == 36)
         #expect(ParagraphRole.title.paragraphStyle == NSParagraphStyle.default)
         let notes = ParagraphRole.notes.paragraphStyle
@@ -71,7 +71,11 @@ import Testing
         for offset in 0..<text.length {
             let attributes = text.attributes(at: offset, effectiveRange: nil)
             #expect(attributes[.font] as? NSFont == role.font([]))
-            #expect(attributes[.paragraphStyle] as? NSParagraphStyle == role.paragraphStyle)
+            let content = ParagraphContent(ofParagraphAt: offset, in: text.string as NSString)
+            #expect(
+                content == (offset == 2 ? .empty : .text),
+                "precondition: the empty paragraph is the second break")
+            #expect(attributes[.paragraphStyle] as? NSParagraphStyle == role.paragraphStyle(for: content))
         }
     }
 

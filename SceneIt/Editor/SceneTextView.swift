@@ -43,6 +43,32 @@ class SceneTextView: KeyboardTextView {
         typingAttributes = role.typingAttributes
     }
 
+    /// What's typed takes the style of the paragraph it's typed into. TextKit also lays out the
+    /// empty line after a final paragraph break in the typing attributes, so when their style
+    /// changes that line is laid out again.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        get { super.typingAttributes }
+        set {
+            guard let string = textStorage?.string as NSString? else {
+                super.typingAttributes = newValue
+                return
+            }
+            var attributes = newValue
+            let style = role.paragraphStyle(
+                for: ParagraphContent(ofParagraphAt: selectedRange().location, in: string))
+            attributes[.paragraphStyle] = style
+            let restyled = super.typingAttributes[.paragraphStyle] as? NSParagraphStyle != style
+            super.typingAttributes = attributes
+            if restyled, string.length > 0, let layout = textLayoutManager,
+                let last = layout.location(layout.documentRange.endLocation, offsetBy: -1),
+                let range = NSTextRange(location: last, end: layout.documentRange.endLocation)
+            {
+                layout.invalidateLayout(for: range)
+                updateInsertionPointStateAndRestartTimer(false)
+            }
+        }
+    }
+
     // MARK: Focus
 
     enum KeyboardFocus {
