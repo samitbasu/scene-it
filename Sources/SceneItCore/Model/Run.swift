@@ -76,14 +76,28 @@ public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
 
     /// The same text, carrying no comment but `known`.
     public func keepingComments(_ known: Set<CommentID>) -> Paragraph {
-        guard !Paragraph.commentIDs(in: [self]).isSubset(of: known) else { return self }
-        return Paragraph(
-            runs.map { run in
-                var run = run
-                run.comments.formIntersection(known)
-                return run
-            }
-        ).withMaximalRuns
+        changingComments { $0.formIntersection(known) }
+    }
+
+    /// The same text without the comments `ids`.
+    public func removingComments(_ ids: Set<CommentID>) -> Paragraph {
+        changingComments { $0.subtract(ids) }
+    }
+
+    /// The same text with no comments at all.
+    public var uncommented: Paragraph {
+        changingComments { $0 = [] }
+    }
+
+    /// Every run's comments changed by `change`, and the runs that then match merged; `self`
+    /// if that changes no run's comments.
+    private func changingComments(_ change: (inout Set<CommentID>) -> Void) -> Paragraph {
+        let changed = runs.map { run in
+            var run = run
+            change(&run.comments)
+            return run
+        }
+        return changed.map(\.comments) == runs.map(\.comments) ? self : Paragraph(changed).withMaximalRuns
     }
 
     /// The same text with neighbouring runs of the same format merged, as `book.md`

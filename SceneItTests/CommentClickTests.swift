@@ -160,53 +160,21 @@ struct CommentClickTests {
 
     // MARK: The notes have no comments (the owner's ruling, ADR 0032; pasting, in NotesTests)
 
-    /// Notes from a file that anchors a comment in them (the format allows it, ADR 0032) show no
-    /// underline, and a click there selects nothing.
-    /// A comment the file anchored in the notes survives a cut and paste within them, and its
-    /// undo and redo, through the notes' own editor (ADR 0035): nothing is silently detached.
-    @Test func aCommentTheNotesOpenedWithSurvivesACutAndPasteThere() async throws {
+    /// The notes have TextKit's own layout, and a click there selects no comment, though the same
+    /// words are commented on the page.
+    @Test func aClickInTheNotesSelectsNoComment() async throws {
         var commented = scene("One", letterScene, .withTooEarly)
-        commented.notes = [[Run("The "), Run("letter", comments: [noted]), Run(" again.")]]
-        try await withPage([commented]) { harness in
-            let notes = try await harness.showNotes()
-            await eventually { notes.string == "The letter again." }
-            @MainActor func carried() -> Bool {
-                harness.book.book.scene(commented.id).map { Paragraph.commentIDs(in: $0.notes) == [noted] }
-                    ?? false
-            }
-            try await PageHarness.withPasteboard { pasteboard in
-                harness.focusNotes(notes, at: 4)
-                notes.setSelectedRange(NSRange(location: 4, length: 6))
-                #expect(notes.writeSelection(to: pasteboard, types: notes.writablePasteboardTypes))
-                notes.delete(nil)
-                #expect(!carried(), "precondition: cut")
-                notes.setSelectedRange(NSRange(location: 0, length: 0))
-                #expect(notes.readSelection(from: pasteboard))
-                #expect(carried(), "pasted back with its comment")
-                let undo = try #require(notes.undoManager)
-                await undoInAnEvent(undo)
-                await undoInAnEvent(undo)
-                #expect(carried(), "the cut undone")
-                await undoInAnEvent(undo, .redo)
-                await undoInAnEvent(undo, .redo)
-                #expect(carried(), "and redone")
-                #expect(harness.book.book.scene(commented.id)?.comments == [tooEarly])
-            }
-        }
-    }
-
-    @Test func theNotesDrawNoUnderlinesAndClicksThereSelectNothing() async throws {
-        var commented = scene("One", letterScene, .withTooEarly)
-        commented.notes = [[Run("The "), Run("letter", comments: [noted]), Run(" again.")]]
+        commented.notes = [[Run("The letter again.")]]
         try await withPage([commented]) { harness in
             let notes = try await harness.showNotes()
             await eventually { notes.string == "The letter again." }
             #expect(notes.textLayoutManager?.delegate == nil, "TextKit's own fragments")
-            let letter = try Self.frame(of: 6, in: notes)
-            #expect(try Self.colors(below: letter, in: notes).isEmpty)
-            try Self.click(harness, onCharacter: 6, in: notes)
             let selection = try #require(harness.page.editor?.comments)
-            #expect(selection.selected == nil)
+            try Self.click(harness, onCharacter: 6)
+            let pageSelection = selection.selected
+            try #require(pageSelection?.comment == noted, "precondition: the page's words are commented")
+            try Self.click(harness, onCharacter: 6, in: notes)
+            #expect(selection.selected == pageSelection, "the click in the notes neither selected nor cycled")
             #expect((6...7).contains(notes.selectedRange().location), "the click placed the caret")
         }
     }

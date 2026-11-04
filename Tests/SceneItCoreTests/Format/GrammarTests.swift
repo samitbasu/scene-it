@@ -243,7 +243,8 @@ import Testing
             scene.body.map { $0.runs.filter { $0.comments.contains(c10) }.map(\.text).joined() } == [
                 "ter.", "Mar",
             ])
-        #expect(scene.notes[0].runs.first == Run("Tide", comments: [CommentID(rawValue: "c8")]))
+        let c8 = CommentID(rawValue: "c8")
+        #expect(scene.body[0].runs.filter { $0.comments.contains(c8) }.map(\.text) == ["He", "found"])
     }
 
     /// §4.3: only `\"`, `\\` and `\n` are escapes in a quote; any other backslash is text.

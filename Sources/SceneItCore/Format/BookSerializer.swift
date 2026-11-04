@@ -64,32 +64,25 @@ enum BookSerializer {
         }
         let body = WrittenText(scene.body)
         let notes = WrittenText(scene.notes)
-        let anchors = (body: body.commentRanges(), notes: notes.commentRanges())
+        let anchors = body.commentRanges()
         blocks += section(
             "### Comments",
-            scene.comments.map { comment in
-                let ranges =
-                    anchors.body[comment.id, default: []].map { (TextPart.body, $0) }
-                    + anchors.notes[comment.id, default: []].map { (TextPart.notes, $0) }
-                return self.comment(comment, ranges, body, notes)
-            })
+            scene.comments.map { comment($0, anchors[$0.id, default: []], body) })
         blocks += section("### Marks", marks(body, notes))
         blocks += unparsed(scene.errors)
         return blocks
     }
 
-    /// §4.4, §4.5.
-    private static func comment(
-        _ comment: Comment, _ ranges: [(TextPart, Range<Int>)], _ body: WrittenText, _ notes: WrittenText
-    ) -> String {
+    /// §4.4, §4.5. A comment covers the body alone (ADR 0035).
+    private static func comment(_ comment: Comment, _ ranges: [Range<Int>], _ body: WrittenText) -> String {
         let fields = [comment.id.rawValue, comment.color.rawValue, comment.created.description]
         let anchor: [String]
         if ranges.isEmpty {
             anchor = ["detached"]
         } else {
             anchor = [
-                ranges.map { range($0.0, $0.1) }.joined(separator: ", "),
-                ranges.map { ($0.0 == .body ? body : notes).quote($0.1) }.joined(separator: ", "),
+                ranges.map { range(.body, $0) }.joined(separator: ", "),
+                ranges.map(body.quote).joined(separator: ", "),
             ]
         }
         let text = FieldEscaping.freeText.escape(comment.text)

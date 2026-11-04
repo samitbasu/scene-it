@@ -248,8 +248,9 @@ as the copy parses (§2.4), not anything in the review file. So:
   (§4.3). A mismatch is E9, a `[comments]` entry, exactly as in a book. This is what protects a review if its copy is
   swapped for a different one: no comment can silently point at the wrong words.
 - **A `notes` range is always E7** †: the copy's scenes have no notes text a reviewer could see (§2.4), so the
-  addressed plain text is empty.
-- Errors are book format §4.8's E1–E10, tagged `[comments]`.
+  addressed plain text is empty. (In a book, a comment's notes range is a repair instead, book format §4.2: comments
+  are on the manuscript only, ADR 0035. A review never had notes to point at, so it stays an error.)
+- Errors are book format §4.8's E1–E10, tagged `[comments]`. E11 never arises: a notes range is already E7 here.
 
 **Detached comments in a review** are **comments on the scene as a whole** †: the text a review points at never
 changes, so the only way to make one is deliberately (in the app, Comment on Scene, §9 Q6; or by hand). They become ☐
@@ -285,7 +286,7 @@ The notices the review format adds (wording to be agreed, §9 Q12):
 | No (valid) `id` | `This review had no id, so it was given <review id>.` |
 | An orphan section | §3.4 |
 
-The reasons the Errors tab derives (book format §5.4; the corpus's `entries.txt` reasons) are the book's: E1–E10,
+The reasons the Errors tab derives (book format §5.4; the corpus's `entries.txt` reasons) are the book's: E1–E10 (not E11, since a review's notes range is E7),
 `not-a-field`, `unknown-key`, `repeated-key`, `bad-id`, `bad-date`, `bad-format`, `other-format`, `line`, `notice`,
 `reads-now`.
 

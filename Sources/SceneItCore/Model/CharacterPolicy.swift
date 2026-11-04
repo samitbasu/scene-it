@@ -282,6 +282,16 @@ public enum RepairNotice: Hashable, Sendable {
     case missingFiledDate(setTo: CalendarDay)
     /// A tag held a line break (an escaped `\n`), which became a space (ADR 0033).
     case lineBreaksInTags(TagOwner)
+    /// A comment covered text in the notes, given by its quotes; comments are on the manuscript
+    /// only (ADR 0035), so those ranges were taken off it.
+    case commentInTheNotes(CommentID, quotes: [String], left: CommentLeft)
+
+    public enum CommentLeft: Hashable, Sendable {
+        /// The comment still covers its manuscript text.
+        case onTheManuscript
+        /// It covered nothing else, so it's detached.
+        case detached
+    }
 
     public enum TagOwner: Hashable, Sendable {
         case scene
@@ -316,6 +326,12 @@ public enum RepairNotice: Hashable, Sendable {
         case .lineBreaksInTags(.scene): "This scene's tags had line breaks, so they were changed to spaces."
         case .lineBreaksInTags(.filedCopy):
             "This filed copy's tags had line breaks, so they were changed to spaces."
+        case .commentInTheNotes(let id, let quotes, let left):
+            "Comment \(id) covered "
+                + quotes.map { "\"" + FieldEscaping.quoted.escape($0) + "\"" }.joined(separator: ", ")
+                + " in the notes; comments are on the manuscript only, so "
+                + (left == .onTheManuscript
+                    ? "it now covers only its manuscript text." : "it was kept as a detached comment.")
         }
     }
 

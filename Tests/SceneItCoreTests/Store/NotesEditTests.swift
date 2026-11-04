@@ -64,46 +64,46 @@ struct NotesEditTests {
         }
     }
 
-    /// A comment the file anchored in the notes (ADR 0035, until #112 repairs it on load) survives
-    /// typing there, a delete and its undo and redo, and a cut and paste within the notes.
-    @Test func aCommentTheNotesOpenedWithIsNeverLost() async throws {
+    /// A comment `book.md` anchors in the notes is a repair (#112): the book opens read-only as
+    /// repaired (ADR 0024), the comment is kept, detached, with a notice, and the notes carry no id.
+    @Test func aCommentInTheNotesOfTheFileOpensAsARepair() async throws {
         try await withTemporaryFolder { folder in
             let store = makeStore(in: folder)
             let url = try await createBook("Novel", in: folder, store: store)
             #expect(await store.closeBook() == .left)
-            var ids = IDGenerator.system
-            let scene = BookScene(
-                id: ids.sceneID(), modified: tooEarly.created, title: "One", body: [[Run("Body.")]],
-                notes: [[Run("Check "), Run("the tides", comments: [noted]), Run(".")]], comments: [tooEarly])
-            try BookFormat.serialize(Book(title: "Novel", scenes: [scene])).write(
-                to: url.appending(path: "book.md"), options: .atomic)
-            #expect(await store.open(url) == .opened)
-            let book = try #require(store.current)
-            let carried: [Paragraph] = [[Run("Check "), Run("the tides", comments: [noted]), Run(".")]]
-            #expect(book.book.scene(scene.id)?.notes == carried, "precondition: the notes carry the comment")
-
-            let typed: [Paragraph] = [[Run("Check "), Run("the tides", comments: [noted]), Run(" twice.")]]
+            let file = [
+                "---", "title: Novel", "format: 2", "---", "", "## One", "id: s1",
+                "modified: 2026-01-01T00:00:00+00:00", "", "Body.", "", "### Notes", "Check the tides.", "",
+                "### Comments",
+                "- c1 | purple | 2026-01-01T00:00:00+00:00 | notes c6-15 | \"the tides\" | Too early?", "",
+            ].joined(separator: "\n")
+            try Data(file.utf8).write(to: url.appending(path: "book.md"), options: .atomic)
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(url) else {
+                Issue.record("expected the book to open as repaired")
+                return
+            }
+            let scene = try #require(store.current?.book.scenes.first)
+            let c1 = CommentID(rawValue: "c1")
+            #expect(scene.notes == [[Run("Check the tides.")]])
+            #expect(scene.comments.map(\.id) == [c1])
+            #expect(scene.isDetached(c1))
             #expect(
-                book.apply(BodyChange(lines: 0..<1, paragraphs: typed), to: scene.id, in: .notes) == typed)
-            let deleted: [Paragraph] = [[Run("Check twice.")]]
-            #expect(
-                book.apply(BodyChange(lines: 0..<1, paragraphs: deleted), to: scene.id, in: .notes) == deleted
-            )
-            #expect(book.book.scene(scene.id)?.isDetached(noted) == true, "precondition: deleted")
-            #expect(
-                book.apply(BodyChange(lines: 0..<1, paragraphs: typed), to: scene.id, in: .notes) == typed,
-                "undone")
-            #expect(
-                book.apply(BodyChange(lines: 0..<1, paragraphs: deleted), to: scene.id, in: .notes)
-                    == deleted, "redone")
-            let moved: [Paragraph] = [[Run("the tides", comments: [noted]), Run(": check twice.")]]
-            #expect(
-                book.apply(BodyChange(lines: 0..<1, paragraphs: moved), to: scene.id, in: .notes) == moved,
-                "cut and pasted")
-            #expect(book.book.scene(scene.id)?.comments == [tooEarly])
-            #expect(book.commentsAllowedInTheNotes(of: scene.id) == [noted])
+                scene.errors == [
+                    RepairNotice.commentInTheNotes(c1, quotes: ["the tides"], left: .detached).entry
+                ])
             #expect(await store.closeBook() == .left)
         }
+    }
+
+    /// Nothing can put a comment id in the notes: every assignment takes it off.
+    @Test func theNotesNeverCarryACommentId() {
+        var ids = IDGenerator.system
+        var scene = BookScene(
+            id: ids.sceneID(), modified: tooEarly.created, title: "One",
+            notes: [[Run("Tides", comments: [noted])]], comments: [tooEarly])
+        #expect(scene.notes == [[Run("Tides")]])
+        scene.notes = [[Run("Check "), Run("the tides", comments: [noted])]]
+        #expect(scene.notes == [[Run("Check the tides")]])
     }
 
     @Test func eachScenesNotesHaveTheirOwnUndoApartFromItsPage() async throws {
@@ -133,6 +133,23 @@ struct NotesEditTests {
             book.replaceNotes(of: scene, with: [[Run("Replaced.")]])
             #expect(!notes.canUndo)
             #expect(page.canUndo, "the page's history is its own")
+        }
+    }
+
+    /// Notes given with a comment id are stored without it (ADR 0035), and still replace the
+    /// notes: their history, which describes the old text, goes.
+    @Test func notesReplacedWithACommentIdStillClearTheirHistory() async throws {
+        try await withScene { book, scene in
+            let notes = book.notesUndo(for: scene)
+            book.apply(BodyChange(lines: 0..<1, paragraphs: [[Run("Typed.")]]), to: scene, in: .notes)
+            notes.groupsByEvent = false
+            notes.beginUndoGrouping()
+            notes.registerUndo(withTarget: book) { _ in }
+            notes.endUndoGrouping()
+            try #require(notes.canUndo, "precondition: a history to clear")
+            book.replaceNotes(of: scene, with: [[Run("Replaced", comments: [noted])]])
+            #expect(book.book.scene(scene)?.notes == [[Run("Replaced")]])
+            #expect(!notes.canUndo)
         }
     }
 

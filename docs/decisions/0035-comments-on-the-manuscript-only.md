@@ -10,16 +10,20 @@ too").
   carries comments" applies to the page alone: page text copied into the notes arrives without comment ids, and no
   comment is added to the scene. Cut from the page and pasted into the notes, a comment is left detached (its card
   stays), and copied back to the page that text is plain.
-- **The model enforces it:** an edit or a replacement of the notes adds no comment and keeps only the ids the book's
-  notes carried as it opened (`OpenBook.apply(_:to:in:adding:)`, `replaceNotes(of:with:)`), so such a comment survives
-  typing, undo, redo and a cut and paste within the notes, and nothing new gets in. A paste from the page still drops its
-  comments.
+- **The model enforces it:** a scene's notes never carry a comment id. `BookScene.notes` takes any off on every
+  assignment, and an edit of the notes adds no comment (`OpenBook.apply(_:to:in:adding:)`).
 
-## Open: notes-anchored comments in `book.md`
-The format (book format §4.2) still allows a comment's range to point into the notes (`notes c<start>-<end>`), and the
-parser and serializer handle them in full today: the parser puts the id on the notes' runs, the comment is anchored, and
-the next save writes the range back. The app now shows them nowhere (no underline, no click), and an edit of the notes
-keeps an id they already carry, so nothing is lost silently, but the rule for such files is the owner's to make (#24).
+## Notes-anchored comments in `book.md` (#112)
+The owner chose a repair. A comment's range in the notes, read from `book.md`, is taken off the comment, which keeps its
+body ranges or, with none, is kept detached; a notice names the comment and quotes the text, so the book opens as
+repaired (ADR 0024) with the original kept. Marks keep their notes ranges. The serializer never writes a comment's
+notes range, and book format §4.2 drops `notes` from a comment's range grammar; in an Unparsed entry or a repair it's
+E11. Before #112, the model kept the ids the notes opened with, so a file's notes comment survived edits; now none gets
+in, so that rule is gone.
+
+**Why the notes' runs still have a comment field:** the notes and the body are the same `[Paragraph]` everywhere a scene's
+text is handled (the codec, `BodyChange`, the editors, `TextPart`'s key paths), so a separate run type for the notes would
+fork all of them. The invariant is kept instead where the notes are stored (`BookScene.notes`), so nothing can hold one.
 
 ## Consequences
 - The notes keep only `TextKit`'s own layout; the comment underliner is the page's (`ManuscriptTextView`).

@@ -48,7 +48,7 @@ payload). The two words before it:
 
 | Reason | Meaning |
 | --- | --- |
-| `E1` … `E10` | A `[comments]` or `[marks]` entry: §4.8's rule. |
+| `E1` … `E11` | A `[comments]` or `[marks]` entry: §4.8's rule. |
 | `not-a-field` | A `[front matter]` or `[metadata]` payload that isn't `key: value`. |
 | `unknown-key`, `repeated-key` | A key the section doesn't have, or has already had (§1.5, §2.2). |
 | `bad-id`, `bad-date`, `bad-format` | A value that doesn't parse (§2.2, §1.5). |

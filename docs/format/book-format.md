@@ -603,12 +603,19 @@ These rules are shared by Comments, Marks and Unparsed sections (and by the arch
 
 | Rule | Detail |
 | --- | --- |
-| Syntax | `c<start>-<end>` addresses the body's plain text; `notes c<start>-<end>` addresses the notes' plain text. `c` and `notes` are case-insensitive; the numbers are decimal (leading zeros accepted, never written). |
+| Syntax | `c<start>-<end>` addresses the body's plain text. A mark's range may instead be `notes c<start>-<end>`, which addresses the notes' plain text; a comment's may not, because comments are on the manuscript only (ADR 0035; read tolerantly, below). `c` and `notes` are case-insensitive; the numbers are decimal (leading zeros accepted, never written). |
 | Meaning | **Start inclusive, end exclusive**: the characters at offsets `start … end−1`. `c13-19` is 6 characters. Chosen because ADR 0022's own example and the demo book use it (`"letter"` is `c13-19`), the length is simply `end − start`, adjacent ranges share an endpoint, and it's the convention of Swift's `..<` and most string APIs. |
 | Valid | `0 ≤ start < end ≤ length` of the addressed plain text, and the range contains at least one character other than `\n`. |
 | Spanning paragraphs | A range may span paragraph breaks. The `\n` characters inside it are part of its quote, but they carry no formatting: a comment or mark covers the non-`\n` characters in its range. |
-| Lists | A field may hold several ranges separated by `,` (written `, `), for a comment whose text isn't contiguous (typing inside a commented passage leaves a gap, PLAN §8.1). Each range carries its own `notes` prefix if it needs one, and one entry may mix body and notes ranges. |
-| Written as † | The covered characters, grouped into maximal ranges. A gap consisting only of `\n` characters is bridged, so a passage commented across three paragraphs is one range. All body ranges first, then all notes ranges, each in ascending order. |
+| Lists | A field may hold several ranges separated by `,` (written `, `), for a comment whose text isn't contiguous (typing inside a commented passage leaves a gap, PLAN §8.1). Each range of a mark carries its own `notes` prefix if it needs one. |
+| Written as † | The covered characters, grouped into maximal ranges. A gap consisting only of `\n` characters is bridged, so a passage commented across three paragraphs is one range. In ascending order. |
+
+**A comment range in the notes †** (a file from an earlier version, or edited by hand) is read tolerantly, as a
+repair (ADR 0035, #112). A comment entry that is otherwise valid (its notes ranges in bounds, their quotes matching, as
+§4.8 checks) is kept, and its notes ranges are taken off it: it keeps its body ranges, or, if it had only notes ranges,
+it's kept as a **detached** comment (§4.5). A notice (§5.3) gives the comment's id and the quotes of the ranges taken off,
+so the book opens as repaired (ADR 0024), with the original kept, and the notes text itself is untouched. Marks keep
+their notes ranges. In an Unparsed `[comments]` entry, or a repair from the Errors tab, a notes range is E11 (§4.8).
 
 ### 4.3 Quotes
 
@@ -654,7 +661,8 @@ It's also the writer's escape hatch: when you've rewritten the text a comment po
 new range, replace its range and quote with `detached`.
 
 A comment with ranges that don't match (§4.8) is **an error**, not detached. The parser never decides on its own that
-a comment has lost its text.
+a comment has lost its text, with one exception: a comment whose only ranges are in the notes is kept detached, with a
+notice (§4.2), since comments are on the manuscript only (ADR 0035).
 
 ### 4.6 Mark entries
 
@@ -692,7 +700,9 @@ After a scene's body and notes are read, its marks are applied in file order, th
 ### 4.8 What makes an entry an error
 
 Any of the following makes the whole entry (its logical line, verbatim after trimming) an error entry, tagged
-`[comments]` or `[marks]` by the section it was in. It then has no effect on the text.
+`[comments]` or `[marks]` by the section it was in. It then has no effect on the text. The exception is E11: read
+from `### Comments`, a valid comment's notes ranges are taken off it with a notice instead (§4.2), and the comment is
+kept; E11 is the reason only in an Unparsed entry or a repair.
 
 | # | Problem | Example |
 | --- | --- | --- |
@@ -706,6 +716,7 @@ Any of the following makes the whole entry (its logical line, verbatim after tri
 | E8 | The number of quotes differs from the number of ranges; a quote unterminated | `"letter` (a truncated line) |
 | E9 | **A quote that doesn't equal the plain text at its range** | `c13-19 | "lettre"` |
 | E10 | Anything left over after a mark's quotes | `- color red | c0-3 | "The" | extra` |
+| E11 | A comment range in the notes, in an Unparsed entry or a repair (a comment read from `### Comments` is repaired instead, §4.2) | `- c1 | red | … | notes c10-21 | "tide tables" |` |
 
 ---
 
@@ -748,7 +759,7 @@ Within a scene (or the book), entries are kept in this order:
 1. Entries in file order of the line that produced them: those read from `### Unparsed` sections, and those produced
    by failed front-matter, metadata, comment, mark and heading lines, interleaved by position in the file.
 2. Then the notices produced at the end of the scene, in the order: id (missing or duplicate), modified, line breaks
-   in tags, then the transliterated and replaced characters. For the book: encoding, title, format, then the
+   in tags, comments in the notes (in file order), then the transliterated and replaced characters. For the book: encoding, title, format, then the
    transliterated and replaced characters. For a filed copy's section of the archive index (§8): filed date, line
    breaks in tags, then the transliterated and replaced characters.
 
@@ -773,6 +784,8 @@ stays in the file until the writer deletes it. The texts are proposals †; word
 | No (valid) `modified` | Scene | `This scene had no modified date, so it was set to <timestamp>.` |
 | A tag held `\n` (§2.2) | Scene | `This scene's tags had line breaks, so they were changed to spaces.` It comes before the character notices. |
 | A filed copy's tag held `\n` (§8) | Filed copy | `This filed copy's tags had line breaks, so they were changed to spaces.` |
+| A comment had ranges in the notes and also in the body (§4.2) | Scene | `Comment <id> covered "<quote>" in the notes; comments are on the manuscript only, so it now covers only its manuscript text.` (each quote written as §4.3 writes one, separated by `, `) |
+| A comment had ranges only in the notes (§4.2) | Scene | `Comment <id> covered "<quote>" in the notes; comments are on the manuscript only, so it was kept as a detached comment.` |
 
 The parser takes the current time, the local time zone and an id generator as inputs, so tests can make the defaults
 deterministic.
@@ -987,7 +1000,7 @@ scenes and one Boneyard scene, and extended to use every feature. Changes from t
 1. Only the first three story scenes and the first Boneyard scene are kept.
 2. *The ferry*: inline formatting added (italic, overlapping bold and italic, bold+italic+strike). Its text is
    unchanged, so the demo's offsets (`c0-22`, `c332-338`, `notes c114-136`) still hold. Comments `c4` (spans two
-   paragraphs, overlaps `c2`, empty text), `c5` (two ranges, `|` and `"` in its text), `c7` (in the notes) and `c6` (detached), and
+   paragraphs, overlaps `c2`, empty text), `c5` (two ranges, `|` and `"` in its text), `c7` (inside `c2`) and `c6` (detached), and
    three marks, are added.
 3. *Arrival*: four paragraphs added after the demo's three, to show escapes, an empty paragraph and a trailing space.
    The demo's `c263-275` still holds.
@@ -1028,7 +1041,7 @@ Mara should notice the blue house before she reaches it.
 - c1 | purple | 2026-10-31T20:40:00-07:00 | c332-338 | "letter" | Too early for this reveal?
 - c4 | green | 2026-11-01T09:15:00-08:00 | c15-115 | "at dawn, and Mara watched the harbor lights go out one by one behind her.\nShe had packed in the dark" |
 - c5 | blue | 2026-11-01T09:20:00-08:00 | c236-254, c272-283 | "the engine coughed", "swore at it" | Too much | "noise" here?
-- c7 | gray | 2026-11-01T10:02:00-08:00 | notes c160-170 | "blue house" | Plant this in Arrival.
+- c7 | gray | 2026-11-01T10:02:00-08:00 | c4-9 | "ferry" | Plant this in Arrival.
 - c6 | pink | 2026-10-29T18:00:00-07:00 | detached | Cut the dream sequence?
 
 ### Marks
@@ -1104,7 +1117,7 @@ What it parses to, in the places that exercise a rule:
 | *The ferry*, paragraph 2 | `She had packed in the dark, ` · *`by feel`* · `, the way … when ` · **`the house was asleep and `** · ***`leaving`*** · *` still seemed like a game.`* |
 | *The ferry*, paragraph 3 | … `by then she was ` · bold+italic+strike `already` · ` ashore.` |
 | *The ferry*, body plain text | 405 characters. `c4` covers the end of paragraph 1 and the start of paragraph 2 (the `\n` between them carries nothing); it overlaps `c2` (`at dawn`) and the purple mark (`harbor lights`). `c5` covers two separate stretches, and the blue highlight `the deckhand swore` overlaps its second one. |
-| *The ferry*, comments | `c2`, `c1`, `c4` (text empty), `c5` (text `Too much | "noise" here?`), `c7` (notes), `c6` (detached) |
+| *The ferry*, comments | `c2`, `c1`, `c4` (text empty), `c5` (text `Too much | "noise" here?`), `c7` (inside `c2`), `c6` (detached) |
 | *Arrival*, paragraphs 4–7 | `#7 was painted on the gate, and under it someone had chalked *KEEP OUT*.` · *(empty paragraph)* · `- Hello? she called, to the gate, to the gulls, to no one.␠` · `A tin sign read ROOM_2 ~ C:\ATTIC.` |
 | *Arrival*, body plain text | 445 characters; the empty paragraph makes `…*KEEP OUT*.\n\n- Hello?…` |
 | *The letter*, tags | `mother`, `clue`, `letters, unsent` |

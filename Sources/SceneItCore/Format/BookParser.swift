@@ -45,6 +45,8 @@ private final class SceneDraft {
     let part: FilePart
     var paragraphs: (body: [Paragraph], notes: [Paragraph]) = ([], [])
     var comments: [Comment] = []
+    /// Comments whose notes ranges were taken off (ADR 0035), in file order.
+    var notesComments: [RepairNotice] = []
 
     init(title: String, part: FilePart) {
         self.title = title
@@ -313,16 +315,19 @@ private final class Reader {
             }
         }
         for (number, comment) in comments.enumerated() {
-            for range in comment.ranges {
-                if range.part == .body {
-                    body.addComment(number, in: range.offsets)
-                } else {
-                    notes.addComment(number, in: range.offsets)
-                }
+            let inTheNotes = comment.ranges.filter { $0.part == .notes }
+            for range in comment.ranges where range.part == .body {
+                body.addComment(number, in: range.offsets)
             }
+            guard !inTheNotes.isEmpty else { continue }
+            scene.notesComments.append(
+                .commentInTheNotes(
+                    comment.comment.id,
+                    quotes: inTheNotes.map { String(decoding: notes.text[$0.offsets], as: UTF8.self) },
+                    left: inTheNotes.count == comment.ranges.count ? .detached : .onTheManuscript))
         }
         let ids = comments.map(\.comment.id)
-        scene.paragraphs = (body.paragraphs(comments: ids), notes.paragraphs(comments: ids))
+        scene.paragraphs = (body.paragraphs(comments: ids), notes.paragraphs(comments: []))
         scene.comments = comments.map(\.comment)
         scenes.append(scene)
     }
@@ -369,7 +374,8 @@ private final class Reader {
                 notices.append(.missingModified(setTo: opened))
             }
             notices +=
-                RepairNotice.lineBreaks(in: draft.tags, of: .scene) + RepairNotice.characters(draft.changed)
+                RepairNotice.lineBreaks(in: draft.tags, of: .scene) + draft.notesComments
+                + RepairNotice.characters(draft.changed)
             let entries = Positioned.inFileOrder(draft.entries)
             newInScenes += Positioned.new(entries) + notices.map(\.entry)
             firstReasonInScenes =

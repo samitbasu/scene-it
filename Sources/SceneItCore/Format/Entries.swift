@@ -1,4 +1,4 @@
-/// Why a comment or mark entry is an error (book format §4.8, E1–E10).
+/// Why a comment or mark entry is an error (book format §4.8, E1–E11).
 public enum EntryProblem: String, Error, Hashable, CaseIterable, Sendable {
     case strayLine = "E1"
     case fields = "E2"
@@ -10,6 +10,8 @@ public enum EntryProblem: String, Error, Hashable, CaseIterable, Sendable {
     case quoteSyntax = "E8"
     case quoteMismatch = "E9"
     case leftover = "E10"
+    /// A comment range in the notes: comments are on the manuscript only (ADR 0035).
+    case notesRange = "E11"
 }
 
 /// What a comment or mark entry is checked against: the scene's plain texts.

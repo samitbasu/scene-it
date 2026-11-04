@@ -668,9 +668,9 @@ The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced (
 between paragraphs, `ParagraphRole.notes`'s paragraph style, which like every paragraph style
 is display only and never saved), 14 pt in from the panel's sides, with the same
 bold, italic, strike, color and highlight, but no comments: comments are on the manuscript
-only (ADR 0035), so a paste into the notes drops them, and the model won't let an edit add one.
-(Book format §4.2 still lets a comment cover notes text, `notes c10-21`; what to do with such a
-file is an open question.) Everything that makes the page safe — the character veto,
+only (ADR 0035), so a paste into the notes drops them, and `BookScene.notes` takes any comment id
+off whatever is stored there. (A `book.md` that anchors a comment in the notes, from an earlier
+version, opens as a repair: book format §4.2.) Everything that makes the page safe — the character veto,
 the backstops, the codec's rules for pastes, the app's own pasteboard clip, per-keystroke
 ranged sync, per-scene undo — applies to it unchanged. Writing a `NotesEditor` beside the page's
 editor would have been two copies of that, which drift. So the page's machinery was

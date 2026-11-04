@@ -55,8 +55,7 @@ struct RepairEffect: Hashable, Sendable {
             if !comments.isEmpty {
                 let added = Set(comments)
                 scene.comments.removeAll { added.contains($0.id) }
-                scene.body = Self.removing(added, from: scene.body)
-                scene.notes = Self.removing(added, from: scene.notes)
+                scene.body = scene.body.map { $0.removingComments(added) }
             }
             for change in colors {
                 switch change.part {
@@ -94,13 +93,6 @@ struct RepairEffect: Hashable, Sendable {
         return runs.paragraphs
     }
 
-    private static func removing(_ ids: Set<CommentID>, from paragraphs: [Paragraph]) -> [Paragraph] {
-        paragraphs.map { paragraph in
-            var runs = paragraph.runs
-            for index in runs.indices { runs[index].comments.subtract(ids) }
-            return Paragraph(runs).withMaximalRuns
-        }
-    }
 }
 
 /// A character's color and highlight.

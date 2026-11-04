@@ -29,7 +29,7 @@ Mara should notice the blue house before she reaches it.
 - c1 | purple | 2026-10-31T20:40:00-07:00 | c332-338 | "letter" | Too early for this reveal?
 - c4 | green | 2026-11-01T09:15:00-08:00 | c15-115 | "at dawn, and Mara watched the harbor lights go out one by one behind her.\nShe had packed in the dark" |
 - c5 | blue | 2026-11-01T09:20:00-08:00 | c236-254, c272-283 | "the engine coughed", "swore at it" | Too much | "noise" here?
-- c7 | gray | 2026-11-01T10:02:00-08:00 | notes c160-170 | "blue house" | Plant this in Arrival.
+- c7 | gray | 2026-11-01T10:02:00-08:00 | c4-9 | "ferry" | Plant this in Arrival.
 - c6 | pink | 2026-10-29T18:00:00-07:00 | detached | Cut the dream sequence?
 
 ### Marks
