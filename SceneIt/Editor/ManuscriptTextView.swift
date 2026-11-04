@@ -11,7 +11,14 @@ extension NSPasteboard.PasteboardType {
 /// scene's body only (decision 0015); `PageEditor` keeps it in step with the model.
 final class ManuscriptTextView: KeyboardTextView {
     weak var editor: PageEditor?
-    private(set) lazy var caret = CaretIndicator(in: self, color: .black)
+    /// Set up by `page()`, so `nil` only while the view is being created.
+    private(set) var caret: CaretIndicator?
+    private(set) var keyboardFocus = PageEditor.KeyboardFocus.elsewhere {
+        didSet {
+            editor?.keyboardFocusChanged()
+            caret?.update()
+        }
+    }
 
     static func page() -> ManuscriptTextView {
         let view = ManuscriptTextView(usingTextLayoutManager: true)
@@ -32,7 +39,7 @@ final class ManuscriptTextView: KeyboardTextView {
         view.usesInspectorBar = false
         view.drawsBackground = true
         view.backgroundColor = NSColor(WindowMetrics.deskColor)
-        _ = view.caret
+        view.caret = CaretIndicator(in: view, color: .black)
         view.textContainer?.lineFragmentPadding = 0
         // The text column is always 6.5 in, however wide the view, so zoom and the window's
         // width never change a line break.
@@ -66,7 +73,7 @@ final class ManuscriptTextView: KeyboardTextView {
             width: page.minX + WindowMetrics.pageMargin,
             height: WindowMetrics.deskPadding + WindowMetrics.pageMargin)
         if textContainerInset != inset { textContainerInset = inset }
-        caret.update()
+        caret?.update()
     }
 
     override func drawBackground(in rect: NSRect) {
@@ -87,35 +94,41 @@ final class ManuscriptTextView: KeyboardTextView {
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted {
-            editor?.keyboardFocusChanged(.page)
-            caret.focus = .page
-        }
+        if accepted { keyboardFocus = .page }
         return accepted
     }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned {
-            editor?.keyboardFocusChanged(.elsewhere)
-            caret.focus = .elsewhere
-        }
+        if resigned { keyboardFocus = .elsewhere }
         return resigned
     }
 
     override var isEditable: Bool {
-        didSet { caret.update() }
+        didSet { caret?.update() }
+    }
+
+    /// The caret's height follows the typing font, which the editor sets after the selection moves.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        didSet { caret?.update() }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        caret.observe(window)
+        caret?.observe(window)
     }
 
     /// Where the text view moves its own (clear) caret, for every caret move and edit.
     override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
         super.updateInsertionPointStateAndRestartTimer(restartFlag)
-        caret.update()
+        caret?.update()
+    }
+
+    /// TextKit 2 lays out lazily, so a line can move after an edit or an estimate is replaced
+    /// without the selection moving.
+    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
+        super.textViewportLayoutControllerDidLayout(controller)
+        caret?.update()
     }
 
     // MARK: Keys

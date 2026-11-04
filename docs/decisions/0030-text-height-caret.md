@@ -23,13 +23,18 @@ height of the text. Measured (Times New Roman 12 pt: ascender 10.69, descender â
 2. **The selection highlight stays full line height** (28.5 pt blocks, as in Pages and Word).
 3. **The caret is as tall as a single-spaced line of the typing font** (ascent + descent + leading as TextKit lays
    them out: 14.51 pt at 12 pt Times), so it matches the single-spaced notes. It sits on the line's baseline, from
-   the system caret's own segment, so empty paragraphs, the end of the scene and an empty scene get it too. It's a
+   the selection segment the system caret itself uses (the standard segment of an empty range leaves out a first
+line's indent), so empty paragraphs, the end of the scene and an empty scene get it too. It's a
    subview of the page, so it scales with the zoom.
 
 One policy, in `CaretIndicator`: it shows only for a single empty selection in an editable page that has the
 keyboard focus in the key window, and moves whenever the text view moves its own caret
-(`updateInsertionPointStateAndRestartTimer(_:)`), the focus or key state changes, editability changes, or the
-page is resized.
+(`updateInsertionPointStateAndRestartTimer(_:)`), the viewport finishes a layout pass
+(`textViewportLayoutControllerDidLayout(_:)`: TextKit 2 lays out lazily, so a line can move without the selection
+moving), the typing attributes change (the editor sets them after the
+selection moves), the focus or key state changes, editability changes, or the page is resized. If TextKit lays out
+no line to measure, the caret falls back to the font's own metrics and logs it; a failed measurement is never
+cached.
 
 ## Rejected
 - **`lineSpacing` instead of the multiple** (with the text container moved down 14 pt to keep the first line): every
@@ -47,6 +52,9 @@ page is resized.
   system one does (measured side by side).
 - **Accessibility:** assistive technologies read the text view's own caret bounds (`accessibilityFrame(for:)`),
   which stay the full 28.5 pt line; Zoom's focus tracking follows the line, which is harmless.
+- **Caps Lock and dictation:** the caps-lock badge and dictation's glow attach to the text view's own (clear)
+  indicator, so they appear where the full-height system caret is, not beside ours. Dictation is unavailable on the
+  page anyway (no input context, ADR 0028).
 - **Drag and drop:** the drop caret `NSTextView` shows during a drag takes `insertionPointColor`, so a clear caret
   makes it clear too (measured on a plain `NSTextView`). The page currently refuses text drops altogether
   (`draggingEntered` returns no operation, before and after this change), so nothing is lost today; the drop

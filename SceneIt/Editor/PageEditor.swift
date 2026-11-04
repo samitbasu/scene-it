@@ -21,7 +21,6 @@ final class PageEditor: NSObject {
     private var sync = Sync.inStep
     /// Comments a paste is adding, handed to the model with the text that carries them.
     private var pastedComments: [Comment] = []
-    private var keyboardFocus = KeyboardFocus.elsewhere
 
     /// Our own type first; then rich text, so pasted bold and italic survive; then plain.
     static let readableTypes: [NSPasteboard.PasteboardType] = [.pageClip, .rtf, .rtfd, .html, .string]
@@ -164,8 +163,7 @@ final class PageEditor: NSObject {
 
     // MARK: Formatting (PLAN §6.2)
 
-    func keyboardFocusChanged(_ focus: KeyboardFocus) {
-        keyboardFocus = focus
+    func keyboardFocusChanged() {
         showFormatting()
     }
 
@@ -203,7 +201,8 @@ final class PageEditor: NSObject {
 
     /// The selection's formats, while the page can be formatted.
     private var formattingSelection: SelectionFormatting? {
-        guard let view = textView, let storage = view.textStorage, keyboardFocus == .page, view.isEditable
+        guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .page,
+            view.isEditable
         else { return nil }
         let ranges = view.selectedRanges.map(\.rangeValue)
         return ranges.contains(where: { $0.length > 0 })
