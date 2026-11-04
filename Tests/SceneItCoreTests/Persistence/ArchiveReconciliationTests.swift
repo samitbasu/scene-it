@@ -88,6 +88,22 @@ import Testing
         #expect(Self.reconcile(Self.files(2), reread).rewrite == .unneeded, "kept once")
     }
 
+    /// A parse that repaired something (a missing filed date) reads as what would be written,
+    /// but its notice is new: the index is still rewritten, keeping the original, so the notice
+    /// is new only once.
+    @Test func aRepairedIndexIsRewrittenEvenWhenItReadsTheSame() throws {
+        let missingDate = "---\nformat: 2\n---\n\n## save0001.md\nscenes: 3\nwords: 120\ncomments: 2\n"
+        let parsed = Self.parse(missingDate)
+        #expect(!parsed.newEntries.isEmpty, "precondition: the parse made a notice")
+        let reconciled = Self.reconcile(Self.files(1), parsed)
+        #expect(reconciled.index == parsed.index, "precondition: it reads as what would be written")
+        #expect(reconciled.rewrite == .neededKeepingOriginal)
+        let rewritten = ArchiveIndexFormat.parse(
+            try ArchiveIndexFormat.verifiedSerialization(of: reconciled.index), filed: { _ in Self.fileDay })
+        #expect(rewritten.newEntries.isEmpty, "once written, the notice is kept, not new")
+        #expect(Self.reconcile(Self.files(1), rewritten).rewrite == .unneeded)
+    }
+
     @Test func aPendingRecordGivesACopyWithNoEntryItsTagsNoteAndDate() throws {
         let record = FilingRecord(
             filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["draft 5"], note: "Kept")

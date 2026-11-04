@@ -229,6 +229,14 @@ struct TagTextField: NSViewRepresentable {
         if field.stringValue != draft.pendingTag { field.stringValue = draft.pendingTag }
     }
 
+    /// The dialog closed: the field and its editor let go of the coordinator, so nothing they
+    /// do later reaches the draft.
+    static func dismantleNSView(_ field: AdmittingTextField, coordinator: Coordinator) {
+        field.delegate = nil
+        field.editor?.history = nil
+        coordinator.field = nil
+    }
+
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var draft: Binding<FilingDraft>
         let history = UndoManager()
@@ -244,7 +252,9 @@ struct TagTextField: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
+            guard let field, notification.object as? NSTextField === field,
+                let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView
+            else { return }
             draft.wrappedValue.pendingTag = editor.string
         }
 
@@ -274,6 +284,8 @@ struct TagTextField: NSViewRepresentable {
 
 /// The note, in an `AdmittingTextView`: no input method, and the character policy applied as
 /// the writer types or pastes (ADR 0028). It grows with its text and scrolls past its frame.
+/// Its changes reach the draft through the view's own `onChange`, cleared when the dialog
+/// closes, never through the notification center.
 struct NoteTextView: NSViewRepresentable {
     @Binding var draft: FilingDraft
 
@@ -282,26 +294,25 @@ struct NoteTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        Self.scrollView(draft.note, context.coordinator)
+    }
+
+    /// The scroll view and editor `makeNSView` makes, wired to `coordinator`.
+    static func scrollView(_ text: String, _ coordinator: Coordinator) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
-        let view = Self.editor(context.coordinator)
-        view.string = draft.note
-        scroll.holdGrowingText(view)
-        return scroll
-    }
-
-    /// The text view `makeNSView` makes, wired to `coordinator`.
-    static func editor(_ coordinator: Coordinator) -> AdmittingTextView {
         let view = AdmittingTextView(admitting: CharacterPolicy.admittedInput)
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false
         view.font = .systemFont(ofSize: NSFont.systemFontSize)
         view.setAccessibilityLabel(ArchiveWording.noteLabel)
-        view.delegate = coordinator
-        return view
+        view.string = text
+        view.onChange = { [weak coordinator] in coordinator?.draft.wrappedValue.note = $0 }
+        scroll.holdGrowingText(view)
+        return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -310,16 +321,16 @@ struct NoteTextView: NSViewRepresentable {
         if view.string != draft.note { view.string = draft.note }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    /// The dialog closed: the editor tells no one of its changes from here on.
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        (scroll.documentView as? AdmittingTextView)?.onChange = nil
+    }
+
+    final class Coordinator {
         var draft: Binding<FilingDraft>
 
         init(draft: Binding<FilingDraft>) {
             self.draft = draft
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView else { return }
-            draft.wrappedValue.note = view.string
         }
     }
 }

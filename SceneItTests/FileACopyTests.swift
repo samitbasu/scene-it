@@ -22,7 +22,9 @@ struct FileACopyTests {
         TagTextField.Coordinator, AdmittingTextField, AdmittingTextView
     ) {
         let coordinator = TagTextField.Coordinator(
-            draft: Binding(get: { flow.draft! }, set: { flow.draft = $0 }))
+            draft: Binding(
+                get: { flow.draft ?? FilingDraft(today: .init(.now, in: .current)) }, set: { flow.draft = $0 }
+            ))
         let field = TagTextField.field("", coordinator)
         return (coordinator, field, try #require(field.editor))
     }
@@ -56,13 +58,16 @@ struct FileACopyTests {
             editor.string = ""
             flow.draft?.pendingTag = ""
             let notes = NoteTextView.Coordinator(
-                draft: Binding(get: { flow.draft! }, set: { flow.draft = $0 }))
-            withExtendedLifetime(notes) {
-                NoteTextView.editor(notes).insertText(
-                    "Before the ending rewrite", replacementRange: NSRange(location: 0, length: 0))
-            }
+                draft: Binding(
+                    get: { flow.draft ?? FilingDraft(today: .init(.now, in: .current)) },
+                    set: { flow.draft = $0 }))
+            let noteScroll = NoteTextView.scrollView("", notes)
+            let note = try #require(noteScroll.documentView as? AdmittingTextView)
+            note.insertText("Before the ending rewrite", replacementRange: NSRange(location: 0, length: 0))
             #expect(flow.draft?.note == "Before the ending rewrite", "the note reaches the draft")
-            withExtendedLifetime(tags) {}
+            // As the dialog closing does, so nothing here outlives this test.
+            NoteTextView.dismantleNSView(noteScroll, coordinator: notes)
+            TagTextField.dismantleNSView(field, coordinator: tags)
 
             let result = await flow.confirm(in: store)
 
@@ -110,7 +115,7 @@ struct FileACopyTests {
             #expect(flow.draft?.pendingTag == "", "undo reaches the draft")
             history.redo()
             #expect(flow.draft?.pendingTag == "draft", "and so does redo")
-            withExtendedLifetime(tags) {}
+            TagTextField.dismantleNSView(field, coordinator: tags)
             flow.cancel()
             #expect(await books.store.closeBook() == .left)
         }
@@ -144,7 +149,8 @@ struct FileACopyTests {
         }
     }
 
-    /// `view` in an offscreen window of its own, laid out, for `body`; the window is closed after.
+    /// `view` (File a Copy's dialog) in an offscreen window of its own, once its fields are
+    /// there, for `body`; the window is closed after.
     @MainActor
     private static func inWindow<T>(_ view: some View, _ body: (NSWindow) async throws -> T) async throws -> T
     {
@@ -158,7 +164,11 @@ struct FileACopyTests {
             window.orderOut(nil)
             window.close()
         }
-        try await Task.sleep(for: .milliseconds(500))
+        // SwiftUI lays the view out on later run-loop turns, later still on a busy machine.
+        await eventually {
+            window.contentView?.layoutSubtreeIfNeeded()
+            return subviewTree(of: window.contentView).contains { $0 is AdmittingTextField }
+        }
         return try await body(window)
     }
 
@@ -273,6 +283,47 @@ struct FileACopyTests {
             #expect(tags.cell?.isScrollable == true)
             #expect(await store.closeBook() == .left)
         }
+    }
+
+    /// Once the dialog closes (SwiftUI dismantles its views), nothing it made acts on the
+    /// draft: its editors tell no one of later changes, a stray change notification is
+    /// ignored, and its coordinators are freed. A note coordinator that outlived its test once
+    /// took another test's page typing through the notification center.
+    @Test func nothingTheDialogMadeOutlivesItOrActsAfterItCloses() throws {
+        let box = DraftBox(FilingDraft(today: try #require(CalendarDay(year: 2026, month: 11, day: 3))))
+        let binding = Binding(get: { box.draft }, set: { box.draft = $0 })
+        weak var goneNotes: NoteTextView.Coordinator?
+        weak var goneTags: TagTextField.Coordinator?
+        var leftovers: (NSScrollView, AdmittingTextField)?
+        // AppKit autoreleases what it hands out; draining the pool is what closing a window does.
+        try autoreleasepool {
+            let notes = NoteTextView.Coordinator(draft: binding)
+            let tags = TagTextField.Coordinator(draft: binding)
+            goneNotes = notes
+            goneTags = tags
+            let scroll = NoteTextView.scrollView("", notes)
+            let field = TagTextField.field("", tags)
+            let note = try #require(scroll.documentView as? AdmittingTextView)
+            note.insertText("Mine", replacementRange: NSRange(location: 0, length: 0))
+            #expect(box.draft.note == "Mine", "precondition: the note reaches the draft while open")
+            let other = NSTextView()
+            other.string = "Typed on the page."
+            tags.controlTextDidChange(
+                Notification(
+                    name: NSControl.textDidChangeNotification, object: NSTextField(),
+                    userInfo: ["NSFieldEditor": other]))
+            #expect(box.draft.pendingTag.isEmpty, "another field's change is ignored")
+            NoteTextView.dismantleNSView(scroll, coordinator: notes)
+            TagTextField.dismantleNSView(field, coordinator: tags)
+            leftovers = (scroll, field)
+        }
+        #expect(goneNotes == nil, "the note's coordinator is freed")
+        #expect(goneTags == nil, "the tag field's coordinator is freed")
+        let (scroll, field) = try #require(leftovers)
+        let note = try #require(scroll.documentView as? AdmittingTextView)
+        note.insertText(" and later", replacementRange: NSRange(location: 4, length: 0))
+        #expect(box.draft.note == "Mine", "a closed dialog's editor changes nothing")
+        #expect(field.delegate == nil)
     }
 
     /// File a Copy on a book that opened read-only: nothing is filed, and the writer is told.

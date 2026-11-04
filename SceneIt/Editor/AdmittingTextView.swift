@@ -10,6 +10,10 @@ class AdmittingTextView: KeyboardTextView {
     /// Undo and Redo act on this when it's set (a scene's title history, the tag field's own),
     /// and otherwise on the window's.
     var history: UndoManager?
+    /// Called with the text after every change it makes (typing, a paste, an undo): its own,
+    /// and nothing else's. Unlike a delegate's `textDidChange`, which comes through the
+    /// notification center keyed on the view's address, it can't reach anyone once cleared.
+    var onChange: ((String) -> Void)?
     private let content: NSTextContentStorage
 
     /// A TextKit 2 view whose container tracks its width.
@@ -31,6 +35,11 @@ class AdmittingTextView: KeyboardTextView {
 
     override var undoManager: UndoManager? {
         history ?? super.undoManager
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        onChange?(string)
     }
 
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)

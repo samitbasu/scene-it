@@ -56,10 +56,12 @@ public enum ArchiveReconciliation {
         let rewrite: IndexRewrite =
             if parsed.isNewerThanSupported, let format = parsed.declaredFormat {
                 .refused(newerFormat: format)
-            } else if index == parsed.index {
-                .unneeded
+            } else if changesWhatWasWritten {
+                // Even when the index reads as it'll be written: until it's rewritten, the
+                // repair's entries would be new again at every reconciliation.
+                .neededKeepingOriginal
             } else {
-                changesWhatWasWritten ? .neededKeepingOriginal : .needed
+                index == parsed.index ? .unneeded : .needed
             }
         return ReconciledArchive(index: index, notices: notices, next: next(after: onDisk), rewrite: rewrite)
     }
@@ -112,8 +114,9 @@ public enum IndexRewrite: Hashable, Sendable {
     /// The index already says what `ReconciledArchive.index` says.
     case unneeded
     case needed
-    /// As `.needed`, but the rewrite changes what the writer or another program wrote (the
-    /// parse made new error entries, or a section's file is gone), so the original is kept first.
+    /// The rewrite changes what the writer or another program wrote (the parse made new error
+    /// entries, or a section's file is gone), so the original is kept first. New entries always
+    /// need it, so the repair is made once and the entries aren't new at the next reconciliation.
     case neededKeepingOriginal
     /// A newer Scene It wrote the index: replacing it here could lose what that version added
     /// (as ADR 0024's rule for books), so it's never rewritten.

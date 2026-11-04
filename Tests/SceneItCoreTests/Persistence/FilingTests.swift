@@ -440,6 +440,47 @@ struct FileFingerprint: Equatable {
         }
     }
 
+    /// Opening twice: the first open repairs the index (a character it can't keep) and keeps
+    /// its original; the second finds nothing new and writes nothing.
+    @Test func aRepairedIndexIsRepairedOnceAcrossOpens() throws {
+        try withTemporaryDirectory { directory in
+            let url: URL
+            do {
+                let fixture = try FilingFixture(directory)
+                try fixture.file()
+                url = fixture.url
+                let damaged =
+                    "---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-11-01\ntags: caf\u{E9}\n"
+                    + "scenes: 3\nwords: 120\ncomments: 2\n"
+                try Data(damaged.utf8).write(to: fixture.layout.archiveIndex)
+                #expect(
+                    !ArchiveIndexFormat.parse(Data(damaged.utf8), filed: { _ in FilingFixture.day })
+                        .newEntries
+                        .isEmpty, "precondition: the index needs a repair")
+            }
+            let layout = PackageLayout(root: url)
+            func originals() throws -> [String] {
+                try FileManager.default.contentsOfDirectory(
+                    atPath: layout.archive.path(percentEncoded: false)
+                )
+                .filter { $0.hasPrefix("index.md.original-") }
+            }
+            func index() throws -> ParsedArchiveIndex {
+                ArchiveIndexFormat.parse(
+                    try Data(contentsOf: layout.archiveIndex), filed: { _ in FilingFixture.day })
+            }
+            for open in 1...2 {
+                let editable = try #require(try BookPackage.open(at: url).editable, "open \(open)")
+                let reconciled = editable.package.reconcileArchive()
+                #expect(
+                    reconciled.rewrite == (open == 1 ? .neededKeepingOriginal : .unneeded), "open \(open)")
+                #expect(try index().newEntries.isEmpty, "the repair's notice is kept, not new: open \(open)")
+                #expect(try originals().count == 1, "the original is kept once: open \(open)")
+            }
+            #expect(try index().index.copies.first?.tags == ["cafe"], "the repair is kept")
+        }
+    }
+
     @Test func aReadOnlyReconciliationWritesNothing() throws {
         try withTemporaryDirectory { directory in
             let fixture = try FilingFixture(directory)
