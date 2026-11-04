@@ -33,7 +33,7 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     }
 
     /// Between the notes' paragraphs, which are otherwise single-spaced (the owner's pick, #19).
-    public static let notesParagraphGap: CGFloat = 6
+    private static let notesParagraphGap: CGFloat = 6
 
     public func font(_ styles: Set<TextStyle>) -> NSFont {
         let traits = styles.reduce(into: baseTraits) { traits, style in

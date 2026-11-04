@@ -38,8 +38,6 @@ enum WindowMetrics {
         static let highlightTile: CGFloat = 18
         static let swatchSize: CGFloat = 18
     }
-    /// The Notes tab, as the owner picked it (#19): the compact bar is the page's glyph row
-    /// without ▶.
     enum Notes {
         /// Between the panel's edges and the notes' text.
         static let padding = CGSize(width: 14, height: 12)

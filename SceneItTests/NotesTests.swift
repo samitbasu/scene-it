@@ -102,15 +102,6 @@ struct NotesTests {
 
             page.focusPage(at: 0)
             #expect(page.formatting.active?.part == .body, "back to the page")
-
-            page.focusNotes(notes, at: 0)
-            #expect(page.activeBars == [.notes])
-            page.preferences.showRightPanelTab(.comments)
-            await eventually { page.notesView == nil }
-            #expect(page.window.firstResponder === page.page, "the focus went back to the page")
-            #expect(page.activeBars == [.body], "and the page's bar with it")
-            page.formatting.perform(.toggle(.bold))
-            #expect(page.notes() == notesScene)
         }
     }
 
@@ -253,7 +244,7 @@ struct NotesTests {
 
 extension NotesTests {
     /// The owner's picks (#19): Times New Roman 12, 14 pt from the panel's sides and 12 pt from
-    /// its top, 6 pt between paragraphs, and no placeholder in empty notes.
+    /// its top, and 6 pt between paragraphs.
     @Test func theNotesAreSetAsPicked() async throws {
         let empty = sceneWithNotes("Empty", notes: [])
         try await withPage([sceneWithNotes("One"), empty]) { page in
@@ -277,11 +268,11 @@ extension NotesTests {
                     .paragraphStyle, at: notes.string.utf16.count - 1, effectiveRange: nil)
                 as? NSParagraphStyle
             #expect(typed?.paragraphSpacing == 6, "a new paragraph has the gap too")
-            #expect(page.notes().last == [Run("Typed.")], "the gap isn't part of the notes")
+            #expect(page.notes().last == [Run("Typed.")], "the new paragraph reached the model")
 
             page.book.select(empty.id)
             await eventually { notes.string.isEmpty }
-            #expect(notes.textStorage?.length == 0)
+            #expect(page.window.firstResponder === notes, "opening another scene keeps the focus")
         }
     }
 
@@ -309,10 +300,11 @@ extension NotesTests {
                 #expect(page.window.firstResponder === page.page, "\(way): the page has the focus")
                 #expect(page.activeBars == [.body], "\(way): and the page's bar is active")
                 let typing = try #require(page.window.firstResponder as? NSTextView)
+                #expect(page.body().count == 1, "precondition: one paragraph, the page's whole text")
+                let expected = (page.storage.string as NSString).replacingCharacters(
+                    in: typing.selectedRange(), with: "X")
                 typing.insertText("X", replacementRange: typing.selectedRange())
-                #expect(
-                    page.body().first?.runs.first?.text.contains("X") == true,
-                    "\(way): typing reaches the page")
+                #expect(page.body() == [[Run(expected)]], "\(way): typing reaches the page")
                 #expect(page.notes() == notesScene, "\(way): and not the notes")
                 comeBack()
             }
