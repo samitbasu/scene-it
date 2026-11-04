@@ -30,8 +30,8 @@ public enum CharacterPolicy {
         return AdmittedText(text: ASCII.string(scanned.bytes[...]), changes: scanned.changes)
     }
 
-    /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
-    /// comment text, the book's title. Each line break (`Character.isLineBreak`) becomes
+    /// `text` admitted, for a field that may hold line breaks (written `\n`): comment text,
+    /// the book's title. Each line break (`Character.isLineBreak`) becomes
     /// `\n` first.
     public static func admitted(_ text: String) -> String {
         guard !text.unicodeScalars.allSatisfy(isAdmitted) else { return text }
@@ -49,6 +49,12 @@ public enum CharacterPolicy {
     public static func admittedLine(_ text: String) -> String {
         guard !text.unicodeScalars.allSatisfy(isAllowed) else { return text }
         return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
+    }
+
+    /// `tags` each admitted as one line (a line break becomes a space, as in a title), without
+    /// the empty ones. Search joins a scene's tags with `\n`, so that stays an exact separator.
+    public static func admittedTags(_ tags: [String]) -> [String] {
+        tags.map(admittedLine).filter { !$0.isEmpty }
     }
 
     /// A whole file with §1.2's steps 3–5 applied, as UTF-8: the change step 7 will
@@ -274,6 +280,13 @@ public enum RepairNotice: Hashable, Sendable {
     case missingModified(setTo: Timestamp)
     /// A filed copy's section in `Archive/index.md` (book format §8).
     case missingFiledDate(setTo: CalendarDay)
+    /// A tag held a line break (an escaped `\n`), which became a space (ADR 0033).
+    case lineBreaksInTags(TagOwner)
+
+    public enum TagOwner: Hashable, Sendable {
+        case scene
+        case filedCopy
+    }
 
     public var entry: ErrorEntry {
         ErrorEntry(.notice, payload)
@@ -300,6 +313,9 @@ public enum RepairNotice: Hashable, Sendable {
             "This scene had no modified date, so it was set to \(timestamp)."
         case .missingFiledDate(let day):
             "This filed copy had no filed date, so it was set to \(day)."
+        case .lineBreaksInTags(.scene): "This scene's tags had line breaks, so they were changed to spaces."
+        case .lineBreaksInTags(.filedCopy):
+            "This filed copy's tags had line breaks, so they were changed to spaces."
         }
     }
 
@@ -314,6 +330,12 @@ extension RepairNotice {
     static func characters(transliterated: [Unicode.Scalar], replaced: [Unicode.Scalar]) -> [RepairNotice] {
         (transliterated.isEmpty ? [] : [.transliteratedCharacters(transliterated)])
             + (replaced.isEmpty ? [] : [.replacedCharacters(replaced)])
+    }
+
+    /// The notice for `tags` as the file spelled them, if storing them changes them. The
+    /// file's characters are already admitted, so only a line break can.
+    static func lineBreaks(in tags: [String], of owner: TagOwner) -> [RepairNotice] {
+        CharacterPolicy.admittedTags(tags) != tags ? [.lineBreaksInTags(owner)] : []
     }
 
     /// The notices for the characters one part of the file had changed, if any.

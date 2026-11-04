@@ -148,6 +148,34 @@ struct EntryRepairTests {
         #expect(scene.body == book.scenes[0].body)
     }
 
+    /// A repair is the writer's edit, so a line break in a tag becomes a space without a notice,
+    /// as typing does (ADR 0028, 0033).
+    @Test func aTagsEntryWithALineBreakReadsNowAsSpaces() throws {
+        let text =
+            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: \(Self.created)\ntags: old\n"
+            + "tags: red\\ndoor, b\n\nText.\n"
+        let (book, ref) = try onlyEntry(text)
+        #expect(ref.entry == ErrorEntry(.metadata, "tags: red\\ndoor, b"), "precondition: a repeated key")
+        #expect(book.scenes[0].tags == ["old"])
+        #expect(BookFormat.reason(for: ref, in: book) == .readsNow)
+        let scene = try scene(try repaired(BookFormat.repair(ref, as: ref.entry.payload, in: book)))
+        #expect(scene.tags == ["red door", "b"])
+        #expect(scene.errors.isEmpty, "no notice for the writer's own edit")
+    }
+
+    @Test func aTagLineBreakNoticeAlreadyHeldIsKept() throws {
+        let notice = RepairNotice.lineBreaksInTags(.scene).entry
+        let text =
+            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: \(Self.created)\ntags: old\n"
+            + "tags: a\\nb\n\nText.\n\n### Unparsed\n- [notice] \(notice.payload)\n"
+        let book = parse(text).book
+        let ref = try #require(book.errorGroups.flatMap(\.refs).first { $0.entry.tag == .metadata })
+        #expect(book.scenes[0].errors.contains(notice), "precondition: the file held the notice")
+        let scene = try scene(try repaired(BookFormat.repair(ref, as: ref.entry.payload, in: book)))
+        #expect(scene.tags == ["a b"])
+        #expect(scene.errors == [notice])
+    }
+
     @Test func aRepairedIDMustBeUnusedInTheWholeBook() throws {
         let text =
             "---\ntitle: T\nformat: 2\n---\n\n## One\nid: one\nmodified: \(Self.created)\n\n"

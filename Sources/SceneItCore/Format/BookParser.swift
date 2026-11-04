@@ -369,7 +369,8 @@ private final class Reader {
             if draft.modified == nil {
                 notices.append(.missingModified(setTo: opened))
             }
-            notices += RepairNotice.characters(draft.changed)
+            notices +=
+                RepairNotice.lineBreaks(in: draft.tags, of: .scene) + RepairNotice.characters(draft.changed)
             let entries = Positioned.inFileOrder(draft.entries)
             newInScenes += Positioned.new(entries) + notices.map(\.entry)
             firstReasonInScenes =
