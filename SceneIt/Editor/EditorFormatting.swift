@@ -30,6 +30,20 @@ final class EditorFormatting {
         active?.selection
     }
 
+    /// Whose selection a control shows: the Format menu's, the focused editor's; a bar's, its
+    /// own editor's.
+    enum Target: Hashable {
+        case focusedEditor
+        case editor(TextPart)
+    }
+
+    func selection(for target: Target) -> SelectionFormatting? {
+        switch target {
+        case .focusedEditor: selection
+        case .editor(let part): selection(in: part)
+        }
+    }
+
     /// The selection a bar beside `part`'s editor shows; `nil` while that bar is inactive.
     func selection(in part: TextPart) -> SelectionFormatting? {
         active?.part == part ? active?.selection : nil

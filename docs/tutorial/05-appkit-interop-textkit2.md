@@ -15,6 +15,7 @@ attributed strings are new to you.
 | [`SceneIt/Editor/ManuscriptTextView.swift`](../../SceneIt/Editor/ManuscriptTextView.swift) | its page subclass: the page on the desk, Shift-Tab to the title |
 | [`SceneIt/Editor/SceneTextEditor.swift`](../../SceneIt/Editor/SceneTextEditor.swift) | the coordinator, for the page and the notes alike: delegates, model sync, paste, undo managers |
 | [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
+| [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
@@ -44,32 +45,41 @@ view. SwiftUI calls three methods on it:
 | `makeNSView(context:)` | once: build the `NSView` | `fn new() -> Widget` |
 | `updateNSView(_:context:)` | every time the representable's inputs change | a `fn update(&mut self, props)` that diffs |
 
+In the textbook form, `makeNSView` builds the view and its coordinator is its delegate:
+
 ```swift
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(WindowMetrics.deskColor)
-        scrollView.findBarPosition = .aboveContent
         let page = ManuscriptTextView.page()
-        page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         context.coordinator.attach(page)
         return scrollView
     }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        let editable = book.isEditable && context.environment.isEnabled
-        context.coordinator.show(scene, editable ? .editable : .readOnly)
-    }
 ```
 
 The struct itself is thrown away and rebuilt on every SwiftUI update, like any SwiftUI view
-(chapter 04). The **coordinator** is what survives: SwiftUI keeps the object `makeCoordinator`
-returned for as long as the view stays in the hierarchy, and hands it back in `context`. It's
-the natural delegate for the AppKit view, because delegates must be objects that live as long
-as the view does. Ours is `SceneTextEditor`.
+(chapter 04). The coordinator is what survives, but only for as long as the view stays in the
+hierarchy: when SwiftUI takes the view away (a branch of an `if` stops being taken), it calls
+`dismantleNSView` and drops both. The page and the notes have state that must survive that (their
+undo histories point into their text storage, section 11), so Scene It goes one step further:
+the window owns the views, in `SceneEditors`, and the representable only mounts them:
+
+```swift
+    func makeNSView(context: Context) -> HostingSlot {
+        let slot = HostingSlot()
+        editors.page.mount(in: slot)
+        return slot
+    }
+
+    func updateNSView(_ slot: HostingSlot, context: Context) {
+        let page = editors.page
+        page.mount(in: slot)
+        page.editor.show(scene, .init(book, in: context.environment))
+        page.scrollView.show(preferences.zoom)
+    }
+```
+
+The text view's delegate is its `SceneTextEditor`, made with it and kept with it.
 
 `context.environment.isEnabled` is how SwiftUI's `.disabled(true)` reaches AppKit. When a rail
 sheet covers the page, `BookWindow` disables everything under it, and the coordinator turns
@@ -553,8 +563,8 @@ The view splits the same way. `SceneTextView` holds what every editor of scene t
 configuration, the focus callbacks, Tab moving on, the pasteboard overrides and `replace`);
 `ManuscriptTextView` subclasses it for what only the page has: drawing the sheet on the desk
 and Shift-Tab back to the title. The notes are a plain `SceneTextView` in an `NSScrollView`.
-`NotesView` and `PageView` are two small `NSViewRepresentable`s that differ only in that
-layout; both make their coordinator with `SceneTextEditor(book:part:formatting:)`.
+Both are built by `SceneEditors` (below), each with a `SceneTextEditor(book:part:formatting:)`;
+the factories differ only in that layout.
 
 **Two bars, one target.** Each editor reports its selection's formats to the window's one
 `EditorFormatting`, and only one editor can have the focus, so at most one is *active*:
@@ -569,8 +579,33 @@ focus or after doesn't matter. Each bar asks `selection(in: part)` and dims itse
 `nil`; the Format menu asks for the active selection and sends its commands to the active
 editor. Same `FormattingCommand`, same state function, everywhere.
 
-**When SwiftUI takes the view away.** Switching the panel to another tab removes the notes view.
-AppKit doesn't always ask a removed first responder to resign, so the editor would still think
-it had the focus (and its bar would stay active). `NSViewRepresentable` has a hook for exactly
-this, `static func dismantleNSView(_:coordinator:)`; both representables call the editor's
-`detach()`, which gives up the focus and tells `EditorFormatting`.
+**Views that outlive SwiftUI's.** Switching the panel to another tab makes SwiftUI dismantle
+the Notes tab's views, and showing it again makes new ones; the page goes the same way while no
+scene is open. A first version let each `NSViewRepresentable` build its own text view, and the
+review found the flaw: the notes' undo history outlives the view. `NSTextView` records typing as
+`NSUndoTyping` actions against *its own text storage*, so after a rebuild, Undo either did
+nothing (the old storage was gone) or, when the old view had last shown an empty scene, read
+past the end of its text and raised `NSRangeException`, which ADR 0026 turns into a crash.
+
+The fix follows from the invariant the page already relied on: one text view per window, whose
+storage always shows the open scene's text, so each scene's history replays on the text it was
+recorded against. `SceneEditors` (one per `BookWindow`, held in `@State`, and so one per book)
+builds the page and the notes once, each a `SceneTextHost`: the scroll view, the text view and
+its `SceneTextEditor`. The representables no longer make views; `makeNSView` returns an empty
+`HostingSlot` and mounts the host's scroll view in it, and `dismantleNSView` takes it out
+again:
+
+```swift
+    static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
+        editors.notes.unmount(handingFocusTo: editors.page.textView)
+    }
+```
+
+`unmount` also deals with the focus. AppKit doesn't always ask a removed first responder to
+resign, so the editor would still think it had the focus (its bar would stay active) and the
+window would be left with nothing to type into. The notes hand the focus back to the page; the
+page, leaving because no scene is open, gives it up.
+
+Rust has the same shape when a UI framework owns the widget tree: keep the long-lived state
+(the document, its undo log) in a struct you own, and give the framework a thin handle to mount
+each frame, rather than letting the framework's throwaway widget own it.

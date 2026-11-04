@@ -8,6 +8,7 @@ struct RightPanel: View {
     let book: AppOpenBook
     let preferences: AppPreferences
     let formatting: EditorFormatting
+    let editors: SceneEditors
 
     var body: some View {
         let errorCount = book.book.errorCount
@@ -44,7 +45,7 @@ struct RightPanel: View {
                 Divider()
                 switch selected {
                 case .errors: ErrorsTab(book: book)
-                case .notes: NotesTab(book: book, formatting: formatting)
+                case .notes: NotesTab(book: book, formatting: formatting, editors: editors)
                 case .comments, .tags: Spacer()
                 }
             }
@@ -110,18 +111,20 @@ private struct PanelTabs: View {
 private struct NotesTab: View {
     let book: AppOpenBook
     let formatting: EditorFormatting
+    let editors: SceneEditors
+    @Environment(\.notesLook) private var look
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                FormattingBar(formatting: formatting, part: .notes)
+                FormattingBar(formatting: formatting, part: .notes, compactLayout: look.barLayout)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .frame(height: WindowMetrics.barHeight)
             Divider()
             if let scene = book.location.scene {
-                NotesView(book: book, scene: scene.id, notes: scene.notes, formatting: formatting)
+                NotesView(book: book, editors: editors, scene: scene.id, notes: scene.notes, look: look)
             } else {
                 Spacer()
             }

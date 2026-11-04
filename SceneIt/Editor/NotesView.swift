@@ -2,50 +2,40 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// The open scene's notes (PLAN §8.2), in the Notes tab: a `SceneTextView` the panel's width,
-/// single-spaced, scrolling once the notes outgrow the panel. The same `SceneTextEditor` as the
-/// page's keeps it in step with the model, for `scene.notes`.
+/// The open scene's notes (PLAN §8.2), in the Notes tab: the window's notes `SceneTextView`,
+/// the panel's width, single-spaced, scrolling once the notes outgrow the panel. A
+/// `SceneTextEditor` like the page's keeps it in step with the model, for `scene.notes`.
 struct NotesView: NSViewRepresentable {
     let book: AppOpenBook
+    let editors: SceneEditors
     let scene: SceneID
     /// The scene's notes. The view reads the model itself; this is here so that SwiftUI updates
     /// the view whenever the notes change.
     let notes: [Paragraph]
-    let formatting: EditorFormatting
+    let look: WindowMetrics.Notes.Look
 
-    func makeCoordinator() -> SceneTextEditor {
-        SceneTextEditor(book: book, part: .notes, formatting: formatting)
+    func makeCoordinator() -> SceneEditors {
+        editors
     }
 
-    func makeNSView(context: Context) -> NotesScrollView {
-        let scrollView = NotesScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.findBarPosition = .aboveContent
-        let notes = SceneTextView(usingTextLayoutManager: true)
-        notes.configure(.notes)
-        notes.drawsBackground = false
-        notes.textContainerInset = NSSize(
-            width: WindowMetrics.Notes.padding.width, height: WindowMetrics.Notes.padding.height)
-        notes.textContainer?.widthTracksTextView = true
-        notes.isVerticallyResizable = true
-        notes.isHorizontallyResizable = false
-        notes.autoresizingMask = [.width]
-        notes.frame = NSRect(origin: .zero, size: scrollView.contentSize)
-        notes.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        notes.setAccessibilityLabel(WindowWording.tab(.notes))
-        scrollView.documentView = notes
-        context.coordinator.attach(notes)
-        return scrollView
+    func makeNSView(context: Context) -> HostingSlot {
+        let slot = HostingSlot()
+        editors.notes.mount(in: slot)
+        return slot
     }
 
-    func updateNSView(_ scrollView: NotesScrollView, context: Context) {
-        context.coordinator.show(scene, .init(book, in: context.environment))
+    func updateNSView(_ slot: HostingSlot, context: Context) {
+        let notes = editors.notes
+        notes.mount(in: slot)
+        let inset = NSSize(width: look.padding.width, height: look.padding.height)
+        if notes.textView.textContainerInset != inset { notes.textView.textContainerInset = inset }
+        notes.editor.show(scene, .init(book, in: context.environment))
     }
 
-    static func dismantleNSView(_ view: NotesScrollView, coordinator: SceneTextEditor) {
-        coordinator.detach()
+    /// The focus goes back to the page, where the writer can go on typing, when the notes leave
+    /// with their tab.
+    static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
+        editors.notes.unmount(handingFocusTo: editors.page.textView)
     }
 }
 
@@ -61,4 +51,9 @@ final class NotesScrollView: NSScrollView {
             notes.sizeToFit()
         }
     }
+}
+
+extension EnvironmentValues {
+    /// How the Notes tab looks: the provisional pick, or a candidate being rendered (#19).
+    @Entry var notesLook = WindowMetrics.Notes.provisional
 }

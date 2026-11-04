@@ -10,7 +10,7 @@ struct FormattingBar: View {
     let formatting: EditorFormatting
     /// Whose bar it is: the page's, or the notes' compact copy.
     let part: TextPart
-    var compactLayout = WindowMetrics.Notes.barLayout
+    var compactLayout = WindowMetrics.Notes.provisional.barLayout
 
     var body: some View {
         HStack(spacing: WindowMetrics.Bar.groupSpacing) {
@@ -259,12 +259,12 @@ private struct PaletteMenu: View {
         Menu {
             Menu(WindowWording.textColor) {
                 ForEach(FormattingCommand.textColors, id: \.self) {
-                    PaletteMenuItem(formatting: formatting, command: $0)
+                    PaletteMenuItem(formatting: formatting, target: .editor(part), command: $0)
                 }
             }
             Menu(WindowWording.highlight) {
                 ForEach(FormattingCommand.highlights, id: \.self) {
-                    PaletteMenuItem(formatting: formatting, command: $0)
+                    PaletteMenuItem(formatting: formatting, target: .editor(part), command: $0)
                 }
             }
         } label: {
@@ -282,20 +282,22 @@ private struct PaletteMenu: View {
     }
 }
 
-/// A color or highlight in a menu, checked when the active editor's whole selection has it.
-/// Choosing it applies it even when it's already checked: colors never toggle.
+/// A color or highlight in a menu, checked when its target's whole selection has it. Choosing
+/// it applies it even when it's already checked: colors never toggle.
 struct PaletteMenuItem: View {
     let formatting: EditorFormatting
+    let target: EditorFormatting.Target
     let command: FormattingCommand
 
     var body: some View {
+        let selection = formatting.selection(for: target)
         Toggle(
             WindowWording.menuItem(command),
             isOn: Binding(
-                get: { formatting.state(of: command) == .on },
+                get: { selection?.state(of: command) == .on },
                 set: { _ in formatting.perform(command) })
         )
-        .disabled(formatting.selection == nil)
+        .disabled(selection == nil)
     }
 }
 

@@ -26,7 +26,7 @@ struct FormatCommands: Commands {
     }
 
     private func checkedItem(_ command: FormattingCommand) -> some View {
-        PaletteMenuItem(formatting: formatting, command: command)
+        PaletteMenuItem(formatting: formatting, target: .focusedEditor, command: command)
             .keyboardShortcut(command.shortcut)
     }
 }

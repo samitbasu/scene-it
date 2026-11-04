@@ -60,25 +60,28 @@ extension WindowRenders {
     @Test func notesTab() async throws {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let provisional = (WindowMetrics.Notes.padding, WindowMetrics.Notes.barLayout)
-        defer { (WindowMetrics.Notes.padding, WindowMetrics.Notes.barLayout) = provisional }
         try await withSampleBook { store, book, preferences in
             let scene = try #require(book.openScene)
             book.replaceNotes(of: scene, with: Self.sampleNotes)
             preferences.showRightPanelTab(.notes)
             defer { preferences.showRightPanelTab(.comments) }
             for look in Self.notesLooks {
-                WindowMetrics.Notes.padding = look.padding
-                WindowMetrics.Notes.barLayout = look.barLayout
                 let formatting = EditorFormatting(preferences: preferences)
+                let factor = look.pointSize / 12
+                // At a scaled size the view's own units shrink, so the padding is given in them.
+                let candidate = WindowMetrics.Notes.Look(
+                    padding: CGSize(width: look.padding.width / factor, height: look.padding.height / factor),
+                    barLayout: look.barLayout)
                 let window = BookWindow(
                     book: book, store: store, preferences: preferences, formatting: formatting,
-                    mode: .constant(.page))
+                    mode: .constant(.page)
+                )
+                .environment(\.notesLook, candidate)
                 let renders = try await Self.render(window) { window in
                     let notes = try #require(
                         subviewTree(of: window.contentView).compactMap { $0 as? SceneTextView }
                             .first { !($0 is ManuscriptTextView) })
-                    Self.scale(notes, to: look.pointSize, padding: look.padding)
+                    Self.scale(notes, by: factor)
                     Self.space(notes, by: look.paragraphSpacing)
                     #expect(window.makeFirstResponder(notes))
                     notes.setSelectedRange(NSRange(location: 0, length: 0))
@@ -92,11 +95,10 @@ extension WindowRenders {
         }
     }
 
-    /// Shows the notes as if set at `pointSize`, with `padding` around them at that size.
-    private static func scale(_ notes: NSTextView, to pointSize: CGFloat, padding: CGSize) {
-        let factor = pointSize / 12
+    /// Shows the 12 pt notes magnified by `factor`, as if set at another size.
+    private static func scale(_ notes: NSTextView, by factor: CGFloat) {
+        guard factor != 1 else { return }
         notes.scaleUnitSquare(to: NSSize(width: factor, height: factor))
-        notes.textContainerInset = NSSize(width: padding.width / factor, height: padding.height / factor)
         notes.needsLayout = true
         notes.needsDisplay = true
     }

@@ -107,8 +107,8 @@ struct NotesTests {
             #expect(page.activeBars == [.notes])
             page.preferences.showRightPanelTab(.comments)
             await eventually { page.notesView == nil }
-            #expect(page.activeBars == [], "the notes left with their tab")
-            #expect(page.window.firstResponder !== notes, "and took the focus with them")
+            #expect(page.window.firstResponder === page.page, "the focus went back to the page")
+            #expect(page.activeBars == [.body], "and the page's bar with it")
             page.formatting.perform(.toggle(.bold))
             #expect(page.notes() == notesScene)
         }

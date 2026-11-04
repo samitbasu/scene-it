@@ -53,15 +53,6 @@ final class SceneTextEditor: NSObject {
             self, selector: #selector(sceneWillSwitch), name: .openBookWillSwitchScene, object: book)
     }
 
-    /// When SwiftUI takes the view away, as the panel does the notes when it shows another tab:
-    /// AppKit would leave it the focus, typing into text no one sees, and its bar active.
-    func detach() {
-        if let view = textView, let window = view.window, window.firstResponder === view {
-            window.makeFirstResponder(nil)
-        }
-        keyboardFocusChanged(.elsewhere)
-    }
-
     /// Before another scene opens: what's being typed stays in this one.
     @objc private func sceneWillSwitch(_ notification: Notification) {
         textView?.breakUndoCoalescing()
