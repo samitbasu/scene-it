@@ -60,6 +60,7 @@ final class ManuscriptTextView: SceneTextView {
         NSColor.white.setFill()
         pageRect.fill()
         NSGraphicsContext.restoreGraphicsState()
+        drawSelectionBands(in: rect)
     }
 
     // MARK: Keys

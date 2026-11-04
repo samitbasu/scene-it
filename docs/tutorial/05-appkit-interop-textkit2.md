@@ -197,6 +197,25 @@ same edit, and the page still mirrors the model exactly.
 In Rust terms: the style is a pure function of the paragraph's content, and every writer of the
 text storage calls it rather than storing a style of its own.
 
+### The selection, drawn as bands
+
+With the spacing below, the system's selection of several lines is one block: TextKit's
+selection segments for every line after the first reach up over the gap above. The owner wanted
+a band per line, text height, so both editors switch the system's highlight off
+(`selectedTextAttributes = [:]`, which leaves its views with no colour) and draw the bands
+themselves, behind the text, in `drawBackground(in:)`.
+
+`SelectionBands.bands(of:in:lineEnd:)` (in the core) is the rule: it enumerates the selection's
+text segments and trims each to its bottom `ParagraphRole.textLineHeight`, which is exactly the
+cursor's height and position. `SceneTextView` recomputes the bands when the selection changes or
+a layout pass ends, and marks only the bands that changed as needing display
+(`setNeedsDisplay(_:)` with a rect, not the whole view), so a drag redraws little. The colour is
+the system's pair: `selectedTextBackgroundColor` while the view has the focus in the key window,
+`unemphasizedSelectedTextBackgroundColor` otherwise.
+
+The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
+the accent colour, as in TextEdit.
+
 ## 4. The text storage is a mirror; the model is the truth
 
 `OpenBook` holds the book, and every edit goes through it so autosave hears in the same

@@ -210,3 +210,140 @@ struct CaretTests {
         }
     }
 }
+
+/// Each line of `view`'s text: its characters and its baseline, in the view's coordinates.
+@MainActor
+private func laidOutLines(of view: NSTextView) throws -> [(range: NSRange, baseline: CGFloat)] {
+    let layout = try #require(view.textLayoutManager)
+    let content = try #require(layout.textContentManager)
+    let origin = view.textContainerOrigin
+    var lines: [(range: NSRange, baseline: CGFloat)] = []
+    layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) {
+        fragment in
+        let start = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
+        for line in fragment.textLineFragments where line.characterRange.length > 0 {
+            let top = origin.y + fragment.layoutFragmentFrame.minY + line.typographicBounds.minY
+            lines.append(
+                (
+                    NSRange(
+                        location: start + line.characterRange.location, length: line.characterRange.length),
+                    top + line.glyphOrigin.y
+                ))
+        }
+        return true
+    }
+    return lines
+}
+
+/// Selecting `range` in `view` draws one band per line it touches, each text height on its line's
+/// baseline, as the cursor is.
+@MainActor
+private func expectBands(
+    _ view: SceneTextView, selecting range: NSRange, lines expected: Int,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws {
+    view.setSelectedRange(range)
+    let touched = try laidOutLines(of: view).filter { NSIntersectionRange($0.range, range).length > 0 }
+    try #require(
+        touched.count == expected, "precondition: \(expected) lines selected", sourceLocation: sourceLocation)
+    let bands = view.selectionBands
+    #expect(bands.count == expected, "a band per line: \(bands)", sourceLocation: sourceLocation)
+    for line in touched {
+        let band = try #require(
+            bands.first { abs($0.maxY - line.baseline) < 6 }, "a band on \(line.range)",
+            sourceLocation: sourceLocation)
+        try expectTextHeight(band, onBaseline: line.baseline, sourceLocation: sourceLocation)
+    }
+}
+
+/// Four paragraphs: one line, two lines, an empty one, three lines.
+private let selectionBody: [Paragraph] = [
+    [Run("The ferry left at dawn.")],
+    [Run(long)],
+    [],
+    [Run(long + " And then the boat came back for her, much later, when the tide had turned at last.")],
+]
+
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct SelectionTests {
+    @Test func theSystemHighlightIsOffAndTheCursorKeepsTheSystemColor() async throws {
+        var withNotes = scene("One", selectionBody)
+        withNotes.notes = [[Run("Check the tides.")]]
+        try await withPage([withNotes], in: KeyWindow.self) { page in
+            let notes = try await page.showNotes()
+            for view in [page.page, notes] as [SceneTextView] {
+                #expect(view.selectedTextAttributes[.backgroundColor] == nil, "no system highlight")
+                #expect(
+                    view.insertionPointColor == NSColor.textInsertionPointColor, "the system's cursor colour")
+            }
+        }
+    }
+
+    @Test func aBandPerLineWithinAndAcrossParagraphs() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            let view = page.page
+            let string = page.storage.string as NSString
+            let second = string.range(of: "The ferry left before").location
+            let fourth = string.range(of: "The ferry left before", options: .backwards).location
+            try expectBands(view, selecting: NSRange(location: 4, length: 10), lines: 1)
+            try expectBands(view, selecting: NSRange(location: second + 10, length: 100), lines: 2)
+            try expectBands(view, selecting: NSRange(location: fourth + 10, length: 200), lines: 3)
+            try expectBands(view, selecting: NSRange(location: 10, length: second + 10 - 10), lines: 2)
+            try expectBands(
+                view, selecting: NSRange(location: fourth - 30, length: 40), lines: 3)
+        }
+    }
+
+    @Test(arguments: zooms)
+    func bandsScaleWithTheZoom(zoom: Zoom) async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            try await settle(page, at: zoom)
+            let string = page.storage.string as NSString
+            let second = string.range(of: "The ferry left before").location
+            try expectBands(page.page, selecting: NSRange(location: second + 10, length: 100), lines: 2)
+            let band = try #require(page.page.selectionBands.first)
+            let single = try singleSpacedLine()
+            #expect(abs(page.page.convert(band, to: nil).height - single.height * Double(zoom)) < 0.01)
+        }
+    }
+
+    @Test func theNotesHaveBandsToo() async throws {
+        var withNotes = scene("One", selectionBody)
+        withNotes.notes = [[Run("Check the tides before the crossing.")], [Run("Dawn in March?")]]
+        try await withPage([withNotes], in: KeyWindow.self) { page in
+            let notes = try await page.showNotes()
+            let length = (notes.string as NSString).length
+            try #require(notes.string.contains("\n"), "precondition: two paragraphs of notes")
+            try expectBands(notes, selecting: NSRange(location: 2, length: length - 4), lines: 2)
+        }
+    }
+
+    @Test func theAccentColourOnlyWithTheFocusInTheKeyWindow() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            page.focusPage(at: 0)
+            page.page.setSelectedRange(NSRange(location: 0, length: 5))
+            #expect(page.page.selectionColor == .selectedTextBackgroundColor)
+            page.window.makeFirstResponder(page.title)
+            #expect(
+                page.page.selectionColor == .unemphasizedSelectedTextBackgroundColor,
+                "the title has the focus")
+            page.focusPage(at: 0)
+            KeyWindow.isKey = false
+            defer { KeyWindow.isKey = true }
+            #expect(
+                page.page.selectionColor == .unemphasizedSelectedTextBackgroundColor, "another window is key")
+        }
+    }
+
+    /// What Find does with a match: selects it and points at it. The selection shows as its band.
+    @Test func aFoundMatchShowsAsItsBand() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            page.focusPage(at: 0)
+            let match = (page.storage.string as NSString).range(of: "dawn")
+            try #require(match.location != NSNotFound, "precondition: a match")
+            page.page.setSelectedRange(match)
+            page.page.showFindIndicator(for: match)
+            try expectBands(page.page, selecting: match, lines: 1)
+        }
+    }
+}

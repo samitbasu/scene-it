@@ -38,7 +38,8 @@ class SceneTextView: KeyboardTextView {
         usesFontPanel = false
         usesRuler = false
         usesInspectorBar = false
-        insertionPointColor = .black
+        // The selection is drawn as bands (ADR 0034), so the system's highlight has no colour.
+        selectedTextAttributes = [:]
         textContainer?.lineFragmentPadding = 0
         typingAttributes = role.typingAttributes
     }
@@ -69,6 +70,90 @@ class SceneTextView: KeyboardTextView {
         }
     }
 
+    // MARK: The selection (ADR 0034)
+
+    /// Where the selection's bands are drawn, in this view's coordinates.
+    private(set) var selectionBands: [NSRect] = []
+    /// Where a band ends when the selection goes on past its line.
+    var selectionLineEnd = SelectionBands.LineEnd.trailingEdge {
+        didSet { refreshSelectionBands() }
+    }
+    private var windowObservers: [NSObjectProtocol] = []
+
+    isolated deinit {
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    /// The colour the system highlights a selection with: the accent colour while this view has
+    /// the keyboard focus in the key window, grey otherwise.
+    var selectionColor: NSColor {
+        keyboardFocus == .here && window?.isKeyWindow == true
+            ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor
+    }
+
+    override func setSelectedRanges(
+        _ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool
+    ) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        refreshSelectionBands()
+    }
+
+    /// TextKit lays out lazily, so a selected line can move with the selection unmoved.
+    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
+        super.textViewportLayoutControllerDidLayout(controller)
+        refreshSelectionBands()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
+        guard let window else { return }
+        windowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {
+            NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated { self?.redrawSelectionBands() }
+            }
+        }
+    }
+
+    /// Redraws only where the bands were and are, so dragging a selection out never redraws the
+    /// whole text.
+    func refreshSelectionBands() {
+        let bands = currentSelectionBands()
+        guard bands != selectionBands else { return }
+        let previous = selectionBands
+        selectionBands = bands
+        for band in previous where !bands.contains(band) { setNeedsDisplay(band) }
+        for band in bands where !previous.contains(band) { setNeedsDisplay(band) }
+    }
+
+    private func redrawSelectionBands() {
+        for band in selectionBands { setNeedsDisplay(band) }
+    }
+
+    private func currentSelectionBands() -> [NSRect] {
+        guard let layout = textLayoutManager else { return [] }
+        let ranges = layout.textSelections.flatMap(\.textRanges)
+        let origin = textContainerOrigin
+        return SelectionBands.bands(of: ranges, in: layout, lineEnd: selectionLineEnd).map {
+            $0.offsetBy(dx: origin.x, dy: origin.y)
+        }
+    }
+
+    /// Draws the selection's bands behind the text.
+    func drawSelectionBands(in rect: NSRect) {
+        let visible = selectionBands.filter { $0.intersects(rect) }
+        guard !visible.isEmpty else { return }
+        selectionColor.setFill()
+        for band in visible { band.fill() }
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawSelectionBands(in: rect)
+    }
+
     // MARK: Focus
 
     enum KeyboardFocus {
@@ -96,6 +181,7 @@ class SceneTextView: KeyboardTextView {
 
     func keyboardFocusDidChange() {
         editor?.showFormatting()
+        redrawSelectionBands()
     }
 
     // MARK: Keys

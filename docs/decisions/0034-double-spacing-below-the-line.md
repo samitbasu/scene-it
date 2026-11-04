@@ -25,7 +25,23 @@ height. The owner chose instead to put the spacing below each line, so that the 
   codec applies it as it renders text, the editor re-applies it to the paragraphs an edit touches
   (`styleParagraphs(of:around:)`), and `SceneTextView` gives the typing attributes the style of the caret's paragraph,
   laying the end line out again when that style changes.
-- `CaretIndicator` is gone; the page uses the system's caret and selection.
+- `CaretIndicator` is gone; the page uses the system's caret, **in the system's colour** (the accent colour, as
+  TextEdit's): neither editor sets `insertionPointColor` any more.
+- **The selection is a band per line, text height** (the owner's pick over the system's block, below). Both editors
+  switch the system's highlight off (`selectedTextAttributes` with no background colour) and draw the bands behind
+  the text in `drawBackground(in:)`. `SelectionBands` is the one rule: the selection's text segments, each trimmed to
+  its bottom `ParagraphRole.textLineHeight` (14.51 pt, the cursor's height and the line's letters; the double spacing
+  sits above a line within its segment), and at least a space wide, so a selected empty paragraph shows.
+  - **Colour:** the accent selection colour while the view has the keyboard focus in the key window, the unemphasized
+    one otherwise, as the system does; the bands are redrawn when the focus or the window's key state changes.
+  - **Where a band ends** when the selection goes on past its line: at the line's trailing edge, as the system does
+    at a wrap (`.selection` segments), or at its last selected letter (`.standard` segments). Both are rendered on #95;
+    the trailing edge is the default until the owner picks, and the other option is then removed.
+  - **The notes get bands too**, for one look across both editors: single-spaced, their lines' bands meet, but the
+    6 pt between paragraphs stays clear, as it does on the page.
+  - Only the bands that changed are redrawn, so dragging a selection out never redraws the whole text; they follow
+    a layout pass (`textViewportLayoutControllerDidLayout(_:)`) as well as the selection, and scale with the zoom.
+    Find's indicator is the system's own overlay, unchanged; a match it selects shows as its band.
 
 ## Measurements (macOS 27, 12 pt Times New Roman)
 | | Before (multiple) | Now |
@@ -34,17 +50,15 @@ height. The owner chose instead to put the spacing below each line, so that the 
 | Where the text ends, so the page's height | — | identical (tested) |
 | Caret on a text line, a wrapped line, the upstream end of a wrapped line, at 100% and 200% | 28.51 pt | 14.51 pt |
 | Caret in an empty paragraph, at the end after Return, in an empty scene | 28.51 pt | 14.51 pt |
-| Selection, one line | 28.51 pt | 14.51 pt |
-| Selection, each line after the first | 28.51 pt | 28.51 pt, reaching up over the gap |
+| Selection, one line | 28.51 pt | 14.51 pt band |
+| Selection, each line after the first | 28.51 pt | 14.51 pt band (the system's own: 28.51 pt, reaching up over the gap) |
 | Highlight colour (`.backgroundColor`) | ≈ 12 pt | ≈ 12 pt, unchanged |
 | Spelling underline | below the baseline | unchanged (drawn from the baseline) |
 
-A selection of two or more lines is therefore still one continuous block, the way TextKit's selection segments join
-lines: its first line is text height and every later line reaches up to the one above. A public alternative exists:
-hide the system's highlight (`selectedTextAttributes` without a background colour) and draw a rendering-attribute
-background on the selected range, which gives a text-height band per line (≈ 12 pt, and not reaching the line's end
-at a wrap). It would be ours to keep right (active and inactive colours, every selection change), so this ADR keeps
-the system's look; the renders for the owner's choice are on #95.
+With the spacing below, the system's own selection of two or more lines is still one continuous block, the way
+TextKit's selection segments join lines: its first line is text height and every later line reaches up to the one
+above. The owner chose bands instead (above). A rendering-attribute background, the other public way to draw them,
+was rejected: it's the glyphs' height (≈ 12 pt, not the cursor's) and never reaches the line's end.
 
 ## Rejected
 - **Keeping the multiple with our own caret (ADR 0030).** The owner's verdict: it looked wrong, and the selection

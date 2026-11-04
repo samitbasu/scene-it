@@ -69,11 +69,14 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     /// when it lays a line out twice as tall (`lineHeightMultiple = 2`), which puts the space
     /// above the letters instead, so the cursor and the selection were twice the text's height.
     public static let doubleSpacingGap: CGFloat = {
-        let font = textTypeface[[]]
         let doubled = NSMutableParagraphStyle()
         doubled.lineHeightMultiple = 2
-        return TextKitLine.height(of: font, in: doubled) - TextKitLine.height(of: font, in: .default)
+        return TextKitLine.height(of: textTypeface[[]], in: doubled) - textLineHeight
     }()
+
+    /// How tall TextKit makes a single-spaced line of the body and notes, which is the height of
+    /// the cursor and of each band of a selection (ADR 0034).
+    public static let textLineHeight: CGFloat = TextKitLine.height(of: textTypeface[[]], in: .default)
 
     /// Between the notes' paragraphs, which are otherwise single-spaced (the owner's pick, #19).
     private static let notesParagraphGap: CGFloat = 6
