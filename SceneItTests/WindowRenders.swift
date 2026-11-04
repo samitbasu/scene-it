@@ -290,11 +290,14 @@ struct WindowRenders {
     }
 
     /// The whole window, title bar and toolbar included, at 1× and 2×.
-    static func render(_ view: some View, preparing prepare: (NSWindow) async throws -> Void = { _ in })
+    static func render(
+        _ view: some View, in windowType: NSWindow.Type = NSWindow.self,
+        preparing prepare: (NSWindow) async throws -> Void = { _ in }
+    )
         async throws
         -> Renders
     {
-        try await withWindow(view, preparing: prepare) { window in
+        try await withWindow(view, in: windowType, preparing: prepare) { window in
             let frameView = try #require(window.contentView?.superview)
             return Renders(
                 single: bitmap(of: frameView, scale: 1), double: bitmap(of: frameView, scale: 2),
@@ -304,13 +307,13 @@ struct WindowRenders {
 
     /// `view` in an offscreen window of `windowSize`, laid out and drawn, for `capture`.
     static func withWindow<T>(
-        _ view: some View, preparing prepare: (NSWindow) async throws -> Void = { _ in },
-        capture: (NSWindow) throws -> T
+        _ view: some View, in windowType: NSWindow.Type = NSWindow.self,
+        preparing prepare: (NSWindow) async throws -> Void = { _ in }, capture: (NSWindow) throws -> T
     ) async throws -> T {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
         controller.sceneBridgingOptions = [.toolbars, .title]
-        let window = NSWindow(
+        let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: windowSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

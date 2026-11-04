@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The right panel (PLAN §4.4): one tab per `RightPanelTab`, collapsible to a thin strip. Its
 /// open state and tab are app preferences (ADR 0022), so changing them never edits the book.
-/// The Comments and Tags tabs' contents arrive with #20 and #25.
+/// The Tags tab's contents arrive with #20.
 struct RightPanel: View {
     let book: AppOpenBook
     let preferences: AppPreferences
@@ -46,7 +46,8 @@ struct RightPanel: View {
                 switch selected {
                 case .errors: ErrorsTab(book: book)
                 case .notes: NotesTab(book: book, formatting: formatting, editors: editors)
-                case .comments, .tags: Spacer()
+                case .comments: CommentsTab(book: book, formatting: formatting, editors: editors)
+                case .tags: Spacer()
                 }
             }
             .frame(width: WindowMetrics.panelWidth)

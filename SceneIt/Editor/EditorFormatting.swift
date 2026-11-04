@@ -19,6 +19,12 @@ final class EditorFormatting {
     struct Active: Equatable {
         let part: TextPart
         let selection: SelectionFormatting
+        let extent: SelectionExtent
+    }
+
+    /// Whether a selection holds text or is only a caret.
+    enum SelectionExtent {
+        case caret, text
     }
 
     init(preferences: AppPreferences) {
@@ -30,10 +36,16 @@ final class EditorFormatting {
         active?.selection
     }
 
-    /// The page's editor while it can be formatted, which is when it can take a new comment
-    /// (Edit → New Comment).
+    /// The page's editor while it can be formatted.
     var page: SceneTextEditor? {
         active?.part == .body ? editor : nil
+    }
+
+    /// The page's editor while it can take a new comment: while it can be formatted and has a
+    /// selection (the owner's rule, #25). Edit → New Comment, the comments panel's + button and
+    /// the page's floating button all ask this.
+    var commentablePage: SceneTextEditor? {
+        active?.extent == .text ? page : nil
     }
 
     /// The selection a bar beside `part`'s editor shows; `nil` while that bar is inactive.
@@ -57,11 +69,11 @@ final class EditorFormatting {
     /// Called by an editor whenever its selection, focus or editability changes: `nil` when it
     /// can't be formatted. An editor that can't be formatted leaves another's selection be, so
     /// the order the focus leaves one and reaches the other doesn't matter.
-    func show(_ selection: SelectionFormatting?, from editor: SceneTextEditor) {
+    func show(_ selection: SelectionFormatting?, extent: SelectionExtent, from editor: SceneTextEditor) {
         let new: Active?
         if let selection {
             self.editor = editor
-            new = Active(part: editor.part, selection: selection)
+            new = Active(part: editor.part, selection: selection, extent: extent)
         } else if self.editor === editor || self.editor == nil {
             new = nil
         } else {

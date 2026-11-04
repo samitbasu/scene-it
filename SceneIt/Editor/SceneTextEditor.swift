@@ -223,7 +223,7 @@ final class SceneTextEditor: NSObject {
     /// Returns whether it applied.
     func format(_ command: FormattingCommand) -> Bool {
         guard let view = textView, let selection = formattingSelection else { return false }
-        let edit = command.edit(for: selection)
+        let edit = command.edit(for: selection.formats)
         let ranges = view.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
         if ranges.isEmpty {
             view.typingAttributes = role.typingAttributes(
@@ -308,11 +308,14 @@ final class SceneTextEditor: NSObject {
         defer { undo.endUndoGrouping() }
         // Registered before the text, so undoing takes the text's id away first and no run is
         // ever left naming a comment the scene doesn't have. Under a target of its own, so it can
-        // be withdrawn if the text refuses the change.
+        // be withdrawn if the text refuses the change. The undo manager doesn't retain its
+        // targets, so the action holds this one, or undoing would call a freed object.
         let removal = NSObject()
         if !added.isEmpty {
-            undo.registerUndo(withTarget: removal) { [weak book, scene = commenting.scene] _ in
-                book?.removeComments(Set(added.map(\.id)), from: scene)
+            undo.registerUndo(withTarget: removal) { [weak book, removal, scene = commenting.scene] _ in
+                withExtendedLifetime(removal) {
+                    _ = book?.removeComments(Set(added.map(\.id)), from: scene)
+                }
             }
         }
         guard rewrite(ranges, adding: added, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
@@ -351,12 +354,34 @@ final class SceneTextEditor: NSObject {
         return true
     }
 
-    /// Gives the open scene's comment `id` the text `text`, as one change on the page's undo.
+    /// Gives the open scene's comment `id` the text `text`, as one change on the page's undo
+    /// from `original`, the text it had before its card's drafts (`OpenBook.draftText`).
     @discardableResult
-    func setText(_ text: String, ofComment id: CommentID) -> Bool {
+    func setText(_ text: String, ofComment id: CommentID, since original: String? = nil) -> Bool {
         guard let commenting else { return false }
         commenting.view.breakUndoCoalescing()
-        return book.setText(text, ofComment: id, in: commenting.scene)
+        return book.setText(text, ofComment: id, in: commenting.scene, since: original)
+    }
+
+    /// Selects the text the open scene's comment `id` covers on the page, and scrolls its start
+    /// into view, leaving the focus where it is (PLAN §8.1: clicking a card).
+    func selectText(ofComment id: CommentID) {
+        guard part == .body, let view = textView, let storage = view.textStorage else { return }
+        let ranges = storage.ranges(commentedBy: id)
+        guard let first = ranges.first else { return }
+        view.selectedRanges = ranges.map(NSValue.init(range:))
+        view.scrollRangeToVisible(first)
+    }
+
+    /// New Comment from the panel's + button, the page's floating button or the Edit menu: the
+    /// comment (`newComment()`), with its card open in the Comments tab and the cursor in it
+    /// (PLAN §8.1).
+    @discardableResult
+    func newCommentInItsCard() -> CommentID? {
+        guard let scene, let id = newComment() else { return nil }
+        comments.open(id, in: scene)
+        preferences.reveal(.comments)
+        return id
     }
 
     /// Recolors the open scene's comment `id`, as one change on the page's undo; the color
@@ -381,19 +406,22 @@ final class SceneTextEditor: NSObject {
     }
 
     /// The selection's formats, while the text can be formatted.
-    private var formattingSelection: SelectionFormatting? {
+    private var formattingSelection: (formats: SelectionFormatting, extent: EditorFormatting.SelectionExtent)?
+    {
         guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here,
             view.isEditable
         else { return nil }
         let ranges = view.selectedRanges.map(\.rangeValue)
         return ranges.contains(where: { $0.length > 0 })
-            ? SelectionFormatting(selecting: ranges, in: storage)
-            : SelectionFormatting(typing: view.typingAttributes)
+            ? (SelectionFormatting(selecting: ranges, in: storage), .text)
+            : (SelectionFormatting(typing: view.typingAttributes), .caret)
     }
 
     /// Shows the formats of the selection, or none while the text view can't be formatted.
     func showFormatting() {
-        formatting.show(formattingSelection, from: self)
+        let selection = formattingSelection
+        formatting.show(selection?.formats, extent: selection?.extent ?? .caret, from: self)
+        (textView as? ManuscriptTextView)?.placeCommentButton()
     }
 
     // MARK: Pasteboard (decision 0017)

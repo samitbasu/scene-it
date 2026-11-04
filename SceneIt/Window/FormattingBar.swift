@@ -216,7 +216,7 @@ struct PaletteView: View {
 }
 
 /// One palette color; "None" is a white circle with a red slash.
-private struct Swatch: View {
+struct Swatch: View {
     let ink: Ink
     let ringed: Bool
 

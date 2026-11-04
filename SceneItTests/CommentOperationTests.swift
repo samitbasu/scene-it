@@ -420,7 +420,10 @@ extension BookStoreIntegrationTests {
         try await withPage([commented], books: .shared) { harness in
             let tab = harness.preferences.rightPanelTab
             defer { harness.preferences.showRightPanelTab(tab) }
-            harness.window.makeFirstResponder(harness.page)
+            harness.focusPage(at: 5)
+            await eventually { harness.formatting.page != nil }
+            await eventually { newCommentItem()?.isEnabled == false }
+            #expect(newCommentItem()?.isEnabled == false, "a caret isn't a selection (#25)")
             harness.page.setSelectedRange(NSRange(location: 4, length: 6))
             await eventually { newCommentItem()?.isEnabled == true }
             try perform(try #require(newCommentItem()))

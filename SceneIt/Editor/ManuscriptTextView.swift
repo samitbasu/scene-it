@@ -47,6 +47,49 @@ final class ManuscriptTextView: SceneTextView {
         }
     }
 
+    // MARK: The floating Comment button (PLAN §8.1)
+
+    /// At the end of the selection while the page can take a new comment
+    /// (`EditorFormatting.commentablePage`), and not while a selection is being dragged out.
+    private(set) lazy var commentButton: NSView = {
+        let button = NSHostingView(
+            rootView: FloatingCommentButton { [weak self] in
+                self?.editor?.formatting.commentablePage?.newCommentInItsCard()
+            })
+        button.isHidden = true
+        addSubview(button)
+        return button
+    }()
+    private var isStillSelecting = false
+
+    override func setSelectedRanges(
+        _ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool
+    ) {
+        isStillSelecting = stillSelectingFlag
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+    }
+
+    override func refreshSelectionBands() {
+        super.refreshSelectionBands()
+        placeCommentButton()
+    }
+
+    /// Shows the button below the end of the selection's last visible line, or hides it.
+    func placeCommentButton() {
+        guard let editor, editor.formatting.commentablePage === editor, !isStillSelecting,
+            let end = selectionBands.last
+        else {
+            if !commentButton.isHidden { commentButton.isHidden = true }
+            return
+        }
+        let size = commentButton.fittingSize
+        let page = pageRect
+        let x = min(max(end.maxX + 4, page.minX), page.maxX - size.width)
+        let frame = NSRect(origin: NSPoint(x: x, y: end.maxY + 2), size: size)
+        if commentButton.frame != frame { commentButton.frame = frame }
+        commentButton.isHidden = false
+    }
+
     // MARK: The page on the desk
 
     /// The white sheet, centred on the desk, as tall as the text needs and never shorter
@@ -116,5 +159,27 @@ enum CommentPress {
     /// comment.
     static func selectsComment(leaving selection: NSRange) -> Bool {
         selection.length == 0
+    }
+}
+
+/// The 💬 Comment pill the page shows at the end of a selection (mockup 02).
+private struct FloatingCommentButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(CommentWording.commentButton)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(.white))
+                .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.7)))
+                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                .padding(3)
+        }
+        .buttonStyle(.plain)
+        .help(CommentWording.commentButtonHelp)
+        .accessibilityLabel(CommentWording.newComment)
     }
 }

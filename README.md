@@ -294,6 +294,13 @@ render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)
 `commentUnderlines` renders comment underlines (#24, ADR 0032) on the page (`underlines`) and in
 the Notes tab (`underlines-notes`), each as `@1x.png`, `@2x.png` and `-vs-mockup.png`.
 
+`commentsPanel` renders the Comments tab (#25, `CommentsPanelRenders.swift`) into a `comments/`
+subfolder: cards with one selected, the ⋯ menu (the popover's content where it stands, on a
+drawn stand-in for its chrome, which a material draws wrongly offscreen), `#red` filtering, an
+unknown color, the Detached group, a card being edited, the floating Comment button and the
+empty state, each beside mockup 02, 03 or 04, with a `-panel@2x.png` close-up of the panel. To
+render only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

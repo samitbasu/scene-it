@@ -217,10 +217,26 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Gives `scene`'s comment `id` the text `text` (as `CharacterPolicy` admits it), as one
-    /// change. `false`, changing nothing, if the book is read-only or there's no such comment.
+    /// change from `original`, the text it had before any `draftText` since; from its text now
+    /// when that's `nil`. `false`, changing nothing, if the book is read-only or there's no such
+    /// comment.
     @discardableResult
-    public func setText(_ text: String, ofComment id: CommentID, in scene: SceneID) -> Bool {
-        change(id, in: scene, named: CommentWording.editUndoName) { $0.text = text }
+    public func setText(
+        _ text: String, ofComment id: CommentID, in scene: SceneID, since original: String? = nil
+    ) -> Bool {
+        change(id, in: scene, named: CommentWording.editUndoName, from: original.map { o in { $0.text = o } })
+        {
+            $0.text = text
+        }
+    }
+
+    /// Gives `scene`'s comment `id` the text being typed into its card, so autosave keeps it,
+    /// with no undo step: `setText(_:ofComment:in:since:)` registers one for the whole edit
+    /// when the card is done. `false`, changing nothing, if the book is read-only or there's no
+    /// such comment.
+    @discardableResult
+    public func draftText(_ text: String, ofComment id: CommentID, in scene: SceneID) -> Bool {
+        change(id, in: scene, named: nil) { $0.text = text }
     }
 
     /// Gives `scene`'s comment `id` the color `color`, as one change. `false`, changing
@@ -281,23 +297,31 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         driver.send(.edited)
     }
 
-    /// Changes `scene`'s comment `id` by `change`, registering the change back.
+    /// Changes `scene`'s comment `id` by `change`, registering the change back to the comment
+    /// as it is, or as `undone` makes it, under `name`; with no `name`, registering nothing.
     private func change(
-        _ id: CommentID, in scene: SceneID, named name: String, _ change: (inout Comment) -> Void
+        _ id: CommentID, in scene: SceneID, named name: String?,
+        from undone: ((inout Comment) -> Void)? = nil,
+        _ change: (inout Comment) -> Void
     ) -> Bool {
         guard let driver = editingDriver, let place = place(of: scene),
             let index = book[keyPath: place.list][place.index].comments.firstIndex(where: { $0.id == id })
         else { return false }
-        let old = book[keyPath: place.list][place.index].comments[index]
-        var new = old
+        let current = book[keyPath: place.list][place.index].comments[index]
+        var old = current
+        undone?(&old)
+        var new = current
         change(&new)
-        guard new != old else { return true }
-        book[keyPath: place.list][place.index].comments[index] = new
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
-            _ = $0.change(id, in: scene, named: name) { $0 = old }
+        if new != current {
+            book[keyPath: place.list][place.index].comments[index] = new
+            book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+            driver.send(.edited)
         }
-        driver.send(.edited)
+        if let name, new != old {
+            registerCommentUndo(in: scene, named: name) {
+                _ = $0.change(id, in: scene, named: name) { $0 = old }
+            }
+        }
         return true
     }
 
