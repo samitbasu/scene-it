@@ -994,7 +994,10 @@ process. That's what makes the in-process tests meaningful.
 ```swift
 public struct ExclusiveFileLock: ~Copyable, Sendable {
     let descriptor: Int32
-    deinit { close(descriptor) }
+    deinit {
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+    }
     public static func acquire(_ file: URL) -> LockAttempt
     public consuming func release() {}
 }
@@ -1014,12 +1017,18 @@ you called `fs2::FileExt::try_lock_exclusive` on: drop it and the lock is gone.
 but every copy of a reference keeps it alive, so the lock's lifetime would be whatever the
 last reference happens to be.
 
-Two details from Rust carry over directly:
+Three details from Rust carry over directly:
 
 - **`O_CLOEXEC`.** Without it, a child process started while the lock is held (a helper,
   `ditto` for a report) inherits the descriptor, and with it the lock, which then outlives
   the app. Rust's standard library sets `O_CLOEXEC` on every file it opens, so you never
   had to think about it; in Swift calling `open(2)` directly, you do.
+- **`LOCK_UN` before `close`.** `O_CLOEXEC` closes the child's copy at `exec`, not at
+  spawn: while another thread is spawning a process, that child briefly holds a copy of
+  every descriptor. A `flock` belongs to the open file, and `close` releases it only when
+  the last copy goes, so a lock dropped mid-spawn lingers until the child's `exec`.
+  `LOCK_UN` releases it at once, whoever else holds a copy. Rust's `fd_lock` guard does
+  the same in its `Drop`.
 - **Never delete the lock file.** Process A opens `.lock` and is about to `flock` it.
   Process B, finishing, unlinks it. Process C creates a *new* `.lock` and locks it. A's
   `flock` succeeds too, on the old, now nameless file. Both believe they hold the lock.
