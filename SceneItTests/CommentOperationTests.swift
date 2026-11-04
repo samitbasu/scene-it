@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import Testing
 
 @testable import SceneIt
@@ -99,6 +100,9 @@ struct CommentOperationTests {
         try await withPage([scene("One", letterScene, .withTooEarly)]) { harness in
             try #require(harness.storage.ranges(commentedBy: noted) == [Self.letter], "precondition")
             try await PageHarness.withPasteboard { pasteboard in
+                // A page clip brings its own runs, so it would extend the comment only if the paste
+                // took the typing attributes instead; the plain text below takes them, which is
+                // what stripping `.comments` from them guards.
                 harness.window.makeFirstResponder(harness.page)
                 harness.page.setSelectedRange(NSRange(location: 10, length: 7))
                 #expect(
@@ -310,14 +314,159 @@ private final class ResultBox<T> {
     var value: T?
 }
 
+extension CommentOperationTests {
+    /// Each comment action ends the page's typing, so typing either side of it undoes as a step
+    /// of its own, in order.
+    @Test func typingBetweenCommentActionsUndoesInStepsOfItsOwn() async throws {
+        var commented = scene("One", letterScene, .withTooEarly)
+        let loose = Comment(
+            id: CommentID(rawValue: "01JC4K0000000000000000LOSE"), color: .pink, text: "Cut?",
+            created: tooEarly.created)
+        commented.comments.append(loose)
+        try await withPage([commented]) { harness in
+            let editor = try #require(harness.page.editor)
+            let undo = try #require(harness.page.undoManager)
+            let scene = commented.id
+            @MainActor func state() -> Step {
+                let now = harness.book.book.scene(scene)
+                return Step(
+                    text: harness.body().first?.text, color: now?.comments.first?.color,
+                    note: now?.comments.first?.text, comments: now?.comments.map(\.id))
+            }
+            @MainActor func type(_ text: String) async {
+                await inAnEvent(undo) {
+                    harness.page.insertText(text, replacementRange: harness.page.selectedRange())
+                }
+            }
+            harness.focusPage(at: 18)
+            await type("A")
+            #expect(await asAnEvent(undo) { editor.recolor(noted, to: .green) })
+            await type("B")
+            #expect(await asAnEvent(undo) { editor.setText("Why?", ofComment: noted) })
+            await type("C")
+            #expect(await asAnEvent(undo) { editor.dismiss(loose.id) })
+            #expect(state().comments == [noted], "precondition: dismissed")
+            let both = [noted, loose.id]
+            let steps = [
+                Step(text: "The letter waited.ABC", color: .green, note: "Why?", comments: both),
+                Step(text: "The letter waited.AB", color: .green, note: "Why?", comments: both),
+                Step(text: "The letter waited.AB", color: .green, note: "Too early?", comments: both),
+                Step(text: "The letter waited.A", color: .green, note: "Too early?", comments: both),
+                Step(text: "The letter waited.A", color: .purple, note: "Too early?", comments: both),
+                Step(text: "The letter waited.", color: .purple, note: "Too early?", comments: both),
+            ]
+            for (index, expected) in steps.enumerated() {
+                try #require(undo.canUndo, "undo \(index + 1)")
+                undo.undo()
+                #expect(state() == expected, "after undo \(index + 1)")
+            }
+            #expect(harness.body() == letterScene)
+            #expect(harness.pageMirrorsModel)
+        }
+    }
+
+    private struct Step: Equatable {
+        let text: String?
+        let color: PaletteColor?
+        let note: String?
+        let comments: [CommentID]?
+    }
+}
+
+/// Edit → New Comment, after asking its menu to update as AppKit does when the writer opens it
+/// or presses a shortcut.
+@MainActor
+private func newCommentItem() -> NSMenuItem? {
+    if let menu = menuItem(titled: CommentWording.newComment, in: NSApp.mainMenu)?.menu {
+        menu.delegate?.menuNeedsUpdate?(menu)
+        menu.update()
+    }
+    return menuItem(titled: CommentWording.newComment, in: NSApp.mainMenu)
+}
+
+/// Cmd+Shift+M, made in this process for our own menu, as a key press would reach it.
+@MainActor
+private func commandShiftM(in window: NSWindow) throws -> NSEvent {
+    try #require(
+        NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "M",
+            charactersIgnoringModifiers: "m",
+            isARepeat: false, keyCode: 46))
+}
+
 extension BookStoreIntegrationTests {
-    /// PLAN §11: Edit → New Comment, Cmd+Option+M.
-    @Test func theEditMenuHasNewComment() throws {
-        let item = try #require(menuItem(titled: CommentWording.newComment, in: NSApp.mainMenu))
-        #expect(item.keyEquivalent == "m")
-        #expect(
-            item.keyEquivalentModifierMask.intersection([.command, .option, .shift, .control]) == [
-                .command, .option,
-            ])
+    /// PLAN §11's New Comment, on ADR 0037's Cmd+Shift+M, which no other item has.
+    @Test func theEditMenuHasNewCommentOnCommandShiftMAlone() throws {
+        let item = try #require(newCommentItem())
+        let modifiers: NSEvent.ModifierFlags = [.command, .option, .shift, .control]
+        #expect(item.keyEquivalent.lowercased() == "m")
+        #expect(item.keyEquivalentModifierMask.intersection(modifiers) == [.command, .shift])
+        @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {
+            (menu?.items ?? []).flatMap { [$0] + items($0.submenu) }
+        }
+        let sharing = items(NSApp.mainMenu).filter {
+            $0.keyEquivalent.lowercased() == "m"
+                && $0.keyEquivalentModifierMask.intersection(modifiers) == [.command, .shift]
+        }
+        #expect(sharing.map(\.title) == [CommentWording.newComment])
+    }
+
+    /// Enabled with the page focused and editable; disabled in the notes, the title field and
+    /// under a sheet, where Cmd+Shift+M reaches no other item and changes nothing.
+    @Test func newCommentIsEnabledOnlyOnAnEditablePageWithTheFocus() async throws {
+        var commented = scene("One", [[Run("The letter waited.")]])
+        commented.notes = [[Run("Notes.")]]
+        try await withPage([commented], books: .shared) { harness in
+            let tab = harness.preferences.rightPanelTab
+            defer { harness.preferences.showRightPanelTab(tab) }
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(NSRange(location: 4, length: 6))
+            await eventually { newCommentItem()?.isEnabled == true }
+            try perform(try #require(newCommentItem()))
+            let made = try #require(harness.book.book.scene(commented.id)?.comments.first)
+            #expect(harness.body().first?.runs[1] == Run("letter", comments: [made.id]), "the menu commented")
+
+            @MainActor func pressingItChangesNothing() throws {
+                let before = harness.book.book
+                _ = NSApp.mainMenu?.performKeyEquivalent(with: try commandShiftM(in: harness.window))
+                #expect(harness.book.book == before)
+            }
+            let notes = try await harness.showNotes()
+            harness.focusNotes(notes, at: 0)
+            notes.setSelectedRange(NSRange(location: 0, length: 5))
+            await eventually { newCommentItem()?.isEnabled == false }
+            try pressingItChangesNothing()
+
+            harness.window.makeFirstResponder(harness.title)
+            await eventually { newCommentItem()?.isEnabled == false }
+            try pressingItChangesNothing()
+
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(NSRange(location: 0, length: 3))
+            await eventually { newCommentItem()?.isEnabled == true }
+            harness.modes.mode = .scenes
+            await eventually { newCommentItem()?.isEnabled == false }
+            try pressingItChangesNothing()
+            harness.modes.mode = .page
+            await eventually { harness.book.status == .saved }
+        }
+    }
+
+    @Test func newCommentIsDisabledInAReadOnlyBook() async throws {
+        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true, books: .shared) {
+            harness in
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(NSRange(location: 0, length: 4))
+            try #require(
+                harness.window.firstResponder === harness.page, "precondition: the page has the focus")
+            try #require(!harness.page.isEditable, "precondition: read-only")
+            await eventually { newCommentItem()?.isEnabled == false }
+            let before = harness.book.book
+            _ = NSApp.mainMenu?.performKeyEquivalent(with: try commandShiftM(in: harness.window))
+            #expect(harness.book.book == before)
+        }
+        let headless = try #require(BookController.shared.prompts as? HeadlessPrompts)
+        #expect(headless.takeTitles() == [ReadOnlyWording.readOnlyTitle], "the only question: read-only")
     }
 }

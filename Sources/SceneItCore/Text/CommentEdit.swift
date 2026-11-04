@@ -33,18 +33,21 @@ extension NSAttributedString {
         }
     }
 
-    /// The word the caret at `caret` is in or just after, as a double click selects it.
+    /// The word the caret at `caret` is in, or else the one it follows, past any punctuation
+    /// that closes it ("end.", "dogs'", a closing quote): the word as a double click selects it.
     private func word(at caret: Int) -> NSRange? {
         let string = string as NSString
-        for index in [caret, caret - 1] where (0..<length).contains(index) {
-            let word = doubleClick(at: index)
-            if string.substring(with: word).unicodeScalars.contains(
-                where: CharacterSet.alphanumerics.contains)
-            {
-                return word
-            }
+        func isWordCharacter(_ index: Int) -> Bool {
+            Unicode.Scalar(string.character(at: index)).map(CharacterSet.alphanumerics.contains) ?? false
         }
-        return nil
+        func isSpace(_ index: Int) -> Bool {
+            Unicode.Scalar(string.character(at: index)).map(CharacterSet.whitespacesAndNewlines.contains)
+                ?? true
+        }
+        if caret < length, isWordCharacter(caret) { return doubleClick(at: caret) }
+        var index = min(caret, length) - 1
+        while index >= 0, !isWordCharacter(index), !isSpace(index) { index -= 1 }
+        return index >= 0 && isWordCharacter(index) ? doubleClick(at: index) : nil
     }
 
     /// The stretches of the text `comment` covers, in order.

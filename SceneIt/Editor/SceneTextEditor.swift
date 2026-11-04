@@ -267,69 +267,85 @@ final class SceneTextEditor: NSObject {
 
     /// Comments the page's selection, or with none the word at the caret, with a new comment in
     /// the color last chosen for one, which becomes the selected comment: one change on the
-    /// page's undo. Returns the comment; `nil`, changing nothing, in the notes, while the page
-    /// can't be edited, or with nothing to comment.
+    /// page's undo. Returns the comment; `nil`, changing nothing, in the notes or while the page
+    /// can't be edited, and with a beep when there's nothing to comment.
     @discardableResult
     func newComment() -> CommentID? {
-        guard let commenting else { return nil }
-        let ranges = commenting.storage.commentRanges(
-            selecting: commenting.view.selectedRanges.map(\.rangeValue))
-        guard !ranges.isEmpty,
-            let comment = book.newComment(in: commenting.scene, colored: preferences.lastCommentColor)
+        guard let commenting,
+            let comment = book.newComment(in: commenting.scene, colored: preferences.lastCommentColor),
+            anchor(comment.id, adding: [comment], on: commenting, named: CommentWording.newComment)
         else { return nil }
-        let undo = book.pageUndo(for: commenting.scene)
-        undo.beginUndoGrouping()
-        defer { undo.endUndoGrouping() }
-        // Registered before the text, so undoing takes the text's id away first and no run is
-        // ever left naming a comment the scene doesn't have.
-        undo.registerUndo(withTarget: book) { [scene = commenting.scene] in
-            $0.removeComments([comment.id], from: scene)
-        }
-        guard
-            rewrite(ranges, adding: [comment], by: { CommentEdit.add(comment.id).applied(to: $0, in: role) })
-        else { return nil }
-        undo.setActionName(CommentWording.newComment)
-        commenting.view.typingAttributes = role.typingAttributes(continuing: commenting.view.typingAttributes)
-        comments.select(comment.id, in: commenting.scene)
         return comment.id
     }
 
     /// Anchors the detached comment `id` to the page's selection, or with none the word at the
     /// caret (PLAN §8.1), and selects it: one change on the page's undo. Returns whether it
-    /// did; never for a comment that still has text on the page.
+    /// did; never for a comment that still has text on the page, and with a beep when there's
+    /// nothing to anchor it to.
     @discardableResult
     func reanchor(_ id: CommentID) -> Bool {
         guard let commenting, let scene = book.book.scene(commenting.scene),
             scene.comments.contains(where: { $0.id == id }), scene.isDetached(id)
         else { return false }
+        return anchor(id, adding: [], on: commenting, named: CommentWording.reanchorUndoName)
+    }
+
+    /// Puts the comment `id` on the selection, or the word at the caret, and selects it, as one
+    /// change named `name` that adds `added` to the scene.
+    private func anchor(
+        _ id: CommentID, adding added: [Comment], on commenting: Commenting, named name: String
+    )
+        -> Bool
+    {
         let ranges = commenting.storage.commentRanges(
             selecting: commenting.view.selectedRanges.map(\.rangeValue))
-        guard !ranges.isEmpty, rewrite(ranges, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
+        guard !ranges.isEmpty else {
+            NSSound.beep()
             return false
         }
-        commenting.view.undoManager?.setActionName(CommentWording.reanchorUndoName)
+        let undo = book.pageUndo(for: commenting.scene)
+        undo.beginUndoGrouping()
+        defer { undo.endUndoGrouping() }
+        // Registered before the text, so undoing takes the text's id away first and no run is
+        // ever left naming a comment the scene doesn't have. Under a target of its own, so it can
+        // be withdrawn if the text refuses the change.
+        let removal = NSObject()
+        if !added.isEmpty {
+            undo.registerUndo(withTarget: removal) { [weak book, scene = commenting.scene] _ in
+                book?.removeComments(Set(added.map(\.id)), from: scene)
+            }
+        }
+        guard rewrite(ranges, adding: added, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
+            undo.removeAllActions(withTarget: removal)
+            return false
+        }
+        undo.setActionName(name)
         commenting.view.typingAttributes = role.typingAttributes(continuing: commenting.view.typingAttributes)
         comments.select(id, in: commenting.scene)
         return true
     }
 
     /// Dismisses the comment `id` (PLAN §8.1): it's taken off its text and out of the scene, as
-    /// one change on the page's undo, whose undo restores both. Returns whether it did.
+    /// one change on the page's undo, whose undo restores both. Returns whether it did; if it
+    /// didn't, nothing changed.
     @discardableResult
     func dismiss(_ id: CommentID) -> Bool {
         guard let commenting,
             book.book.scene(commenting.scene)?.comments.contains(where: { $0.id == id }) == true
         else { return false }
+        commenting.view.breakUndoCoalescing()
         let undo = book.pageUndo(for: commenting.scene)
         undo.beginUndoGrouping()
         defer { undo.endUndoGrouping() }
         let ranges = commenting.storage.ranges(commentedBy: id)
-        if !ranges.isEmpty {
-            guard rewrite(ranges, by: { CommentEdit.remove(id).applied(to: $0, in: role) }) else {
-                return false
-            }
+        guard ranges.isEmpty || rewrite(ranges, by: { CommentEdit.remove(id).applied(to: $0, in: role) })
+        else {
+            return false
         }
-        guard book.dismiss(id, in: commenting.scene) else { return false }
+        guard book.dismiss(id, in: commenting.scene) else {
+            if !ranges.isEmpty { _ = rewrite(ranges, by: { CommentEdit.add(id).applied(to: $0, in: role) }) }
+            return false
+        }
         undo.setActionName(CommentWording.dismissUndoName)
         if comments.comment(in: commenting.scene) == id { comments.deselect() }
         return true
@@ -339,6 +355,7 @@ final class SceneTextEditor: NSObject {
     @discardableResult
     func setText(_ text: String, ofComment id: CommentID) -> Bool {
         guard let commenting else { return false }
+        commenting.view.breakUndoCoalescing()
         return book.setText(text, ofComment: id, in: commenting.scene)
     }
 
@@ -346,13 +363,17 @@ final class SceneTextEditor: NSObject {
     /// becomes the next new comment's.
     @discardableResult
     func recolor(_ id: CommentID, to color: PaletteColor) -> Bool {
-        guard let commenting, book.recolor(id, in: commenting.scene, to: color) else { return false }
+        guard let commenting else { return false }
+        commenting.view.breakUndoCoalescing()
+        guard book.recolor(id, in: commenting.scene, to: color) else { return false }
         preferences.rememberCommentColor(color)
         return true
     }
 
+    private typealias Commenting = (scene: SceneID, view: SceneTextView, storage: NSTextStorage)
+
     /// The page, while its comments can change.
-    private var commenting: (scene: SceneID, view: SceneTextView, storage: NSTextStorage)? {
+    private var commenting: Commenting? {
         guard part == .body, let scene, let view = textView, view.isEditable, let storage = view.textStorage,
             sync == .inStep
         else { return nil }

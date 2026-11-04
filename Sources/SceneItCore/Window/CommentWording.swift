@@ -1,5 +1,5 @@
-/// What comment actions (PLAN §8.1) are called in the Edit menu and in Undo and Redo. "New
-/// Comment" is PLAN §11's; the undo names are proposals awaiting the owner (#23).
+/// What comment actions (PLAN §8.1) are called in the Edit menu and in Undo and Redo: the
+/// owner's (#23).
 public enum CommentWording {
     /// Edit → New Comment (PLAN §11), and its undo: "Undo New Comment".
     public static let newComment = "New Comment"

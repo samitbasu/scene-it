@@ -1,20 +1,17 @@
 import SceneItCore
 import SwiftUI
 
-/// Edit → New Comment (PLAN §11), on the focused window's page while the page has the focus
-/// and can be edited.
+/// Edit → New Comment, Cmd+Shift+M (PLAN §11, with ADR 0037's shortcut), on the page while it
+/// has the focus and can be edited: exactly when the page can be formatted, so the menu finds it
+/// through `EditorFormatting`, as the Format menu does.
 struct CommentCommands: Commands {
-    @FocusedValue(\.sceneEditors) private var editors
+    let formatting: EditorFormatting
 
     var body: some Commands {
         CommandGroup(after: .textEditing) {
-            Button(CommentWording.newComment) { editors?.page.editor.newComment() }
-                .keyboardShortcut("m", modifiers: [.command, .option])
-                .disabled(editors?.canComment != true)
+            Button(CommentWording.newComment) { formatting.page?.newComment() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(formatting.page == nil)
         }
     }
-}
-
-extension FocusedValues {
-    @Entry var sceneEditors: SceneEditors?
 }

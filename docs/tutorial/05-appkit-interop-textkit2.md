@@ -577,9 +577,7 @@ order of registration, so the comment removal is registered *first*, to run *las
             // Registered before the text, so undoing the paste takes the text away first and no
             // run is ever left naming a comment the scene doesn't have.
             let ids = Set(comments.map(\.id))
-            undo.registerUndo(withTarget: book) { [part] in
-                $0.removeComments(ids, from: scene, pastedInto: part)
-            }
+            undo.registerUndo(withTarget: book) { $0.removeComments(ids, from: scene) }
         }
 ```
 

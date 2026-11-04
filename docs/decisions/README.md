@@ -43,3 +43,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0034](0034-double-spacing-below-the-line.md) | Double spacing below the line (`lineSpacing`, the text a gap lower), so the system caret and selection are text height | Accepted — supersedes 0030; deviates from PLAN §6.1 |
 | [0035](0035-comments-on-the-manuscript-only.md) | Comments are on the manuscript only: the notes draw none, and paste into them drops comments | Accepted — narrows 0017; deviates from PLAN §8.6 |
 | [0036](0036-no-drag-and-drop-of-text.md) | No drag and drop of text: the manuscript editors and fields refuse drops and never start a drag | Accepted — amends 0016 and 0028 on drops |
+| [0037](0037-comment-operations.md) | Comment operations: the page changes the text, the store changes the list; New Comment is Cmd+Shift+M | Accepted — deviates from PLAN §8.1 and §11 |

@@ -63,11 +63,6 @@ final class SceneEditors {
             ), notes,
             in: scrollView)
     }()
-
-    /// Whether Edit → New Comment applies: the page has the focus and can be edited.
-    var canComment: Bool {
-        formatting.selection(in: .body) != nil
-    }
 }
 
 /// One editor of scene text with its views, which a `HostingSlot` shows while SwiftUI shows it.

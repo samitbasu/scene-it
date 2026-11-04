@@ -51,6 +51,31 @@ struct CommentRangesTests {
                 .isEmpty)
     }
 
+    /// After closing punctuation, the word it closes; inside a contraction or after a leading
+    /// apostrophe, the word as a double click selects it, which splits at a hyphen.
+    @Test func theWordAtTheCaretIsFoundPastClosingPunctuation() {
+        let cases: [(String, Int, String?)] = [
+            ("the end.", 8, "end"), ("the dogs'", 9, "dogs"), ("\"no\"", 4, "no"), ("\"no.\" ", 5, "no"),
+            ("don't", 5, "don't"), ("don't", 3, "don't"), ("well-known", 10, "known"),
+            ("well-known", 2, "well"),
+            ("well-known", 4, "well"), ("'tis", 4, "tis"), ("the end. ", 9, nil), ("...", 3, nil),
+        ]
+        for (string, caret, expected) in cases {
+            let ranges = NSAttributedString(string: string).commentRanges(
+                selecting: [NSRange(location: caret, length: 0)])
+            #expect(
+                ranges.map { (string as NSString).substring(with: $0) } == expected.map { [$0] } ?? [],
+                "\(string) at \(caret)")
+        }
+    }
+
+    @Test func aSelectionOfOnlySpacesIsCommented() {
+        #expect(
+            text.commentRanges(selecting: [NSRange(location: 3, length: 1)]) == [
+                NSRange(location: 3, length: 1)
+            ])
+    }
+
     @Test func aCommentsRangesAreItsStretchesJoinedWhereTheyMeet() {
         #expect(
             text.ranges(commentedBy: noted) == [
