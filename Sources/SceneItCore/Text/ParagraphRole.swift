@@ -39,7 +39,7 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
             style.paragraphSpacingBefore = Self.doubleSpacingGap
             style.firstLineHeadIndent = 36
         case (.body, .emptyEnd):
-            // The line above already has its spacing below it.
+            // The text line above already has its spacing below it.
             style.firstLineHeadIndent = 36
         }
         return style
@@ -51,9 +51,9 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         string.enumerateSubstrings(
             in: string.paragraphRange(for: range), options: [.byParagraphs, .substringNotRequired]
         ) {
-            _, content, paragraph, _ in
+            _, _, paragraph, _ in
             guard paragraph.length > 0 else { return }
-            let style = paragraphStyle(for: content.length == 0 ? .empty : .text)
+            let style = paragraphStyle(for: ParagraphContent(ofParagraphAt: paragraph.location, in: string))
             var styled = true
             text.enumerateAttribute(.paragraphStyle, in: paragraph) { value, _, stop in
                 if (value as? NSParagraphStyle) != style {
@@ -130,21 +130,22 @@ public enum ParagraphContent: Sendable {
     case text
     /// An empty paragraph: only its paragraph break.
     case empty
-    /// The empty paragraph at the very end, after the final break or in empty text, which has
-    /// no character of its own: TextKit lays it out in the typing attributes.
+    /// The empty paragraph at the very end, after a final break that ends text, or in empty
+    /// text. It has no character of its own: TextKit lays it out in the typing attributes.
+    /// After an empty paragraph, whose gap is above it, it's spaced as an empty paragraph.
     case emptyEnd
 
     /// What the paragraph holding `location` holds.
     public init(ofParagraphAt location: Int, in string: NSString) {
         let paragraph = string.paragraphRange(for: NSRange(location: min(location, string.length), length: 0))
         if paragraph.length == 0 {
-            self = .emptyEnd
+            let afterAnEmptyParagraph =
+                string.length > 0 && Self(ofParagraphAt: string.length - 1, in: string) == .empty
+            self = afterAnEmptyParagraph ? .empty : .emptyEnd
             return
         }
         var end = paragraph.upperBound
-        while end > paragraph.location,
-            Character(String(utf16CodeUnits: [string.character(at: end - 1)], count: 1)).isLineBreak
-        {
+        while end > paragraph.location, string.isLineBreak(at: end - 1) {
             end -= 1
         }
         self = end == paragraph.location ? .empty : .text

@@ -77,3 +77,12 @@ was rejected: it's the glyphs' height (≈ 12 pt, not the cursor's) and never re
   (print, export), a page break falls after a line's gap, not before its letters.
 - An edit that empties a paragraph, or types into an empty one, restyles that paragraph in the same edit; the page
   fuzz's check that the page mirrors the model covers it.
+- **Known issue: text ending in an empty paragraph** (Return pressed twice at the end). The empty line after it is
+  laid out by TextKit in the typing attributes, and how TextKit lays it out depends on how that layout came about
+  (the text view moving the caret, or an invalidation), not only on the style: it can sit 14 pt higher than the
+  multiple put it, which moves the caret there and makes the page end 15 pt short. No paragraph style found puts it
+  right in every case; `EndLineTests.afterAFinalEmptyParagraph` records it as a known issue (#98).
+- **RTF copied to other apps** carries the new paragraph styles: `lineSpacing` on text, and `paragraphSpacingBefore`
+  on blank lines, instead of `lineHeightMultiple` 2.
+- If TextKit lays out no line to measure, the gap and the line height fall back to the font's own metrics, logged
+  once.

@@ -44,9 +44,9 @@ class SceneTextView: KeyboardTextView {
         typingAttributes = role.typingAttributes
     }
 
-    /// What's typed takes the style of the paragraph it's typed into. TextKit also lays out the
-    /// empty line after a final paragraph break in the typing attributes, so when their style
-    /// changes that line is laid out again.
+    /// TextKit lays out the empty line after a final paragraph break in the typing attributes, so
+    /// their paragraph style is always that line's, wherever the caret is, and the line is laid
+    /// out again when it changes. (What's typed is restyled for its own paragraph as it's typed.)
     override var typingAttributes: [NSAttributedString.Key: Any] {
         get { super.typingAttributes }
         set {
@@ -118,19 +118,38 @@ class SceneTextView: KeyboardTextView {
     func refreshSelectionBands() {
         let bands = currentSelectionBands()
         guard bands != selectionBands else { return }
-        let previous = selectionBands
+        let previous = Set(selectionBands.map(Band.init))
+        let current = Set(bands.map(Band.init))
         selectionBands = bands
-        for band in previous where !bands.contains(band) { setNeedsDisplay(band) }
-        for band in bands where !previous.contains(band) { setNeedsDisplay(band) }
+        for band in previous.symmetricDifference(current) { setNeedsDisplay(band.rect) }
+    }
+
+    /// A band as a set member: `NSRect` isn't `Hashable`.
+    private struct Band: Hashable {
+        let x, y, width, height: CGFloat
+
+        init(_ rect: NSRect) {
+            (x, y, width, height) = (rect.minX, rect.minY, rect.width, rect.height)
+        }
+
+        var rect: NSRect { NSRect(x: x, y: y, width: width, height: height) }
+    }
+
+    /// The page re-centres its text as the window's width changes.
+    override var textContainerInset: NSSize {
+        didSet { refreshSelectionBands() }
     }
 
     private func redrawSelectionBands() {
         for band in selectionBands { setNeedsDisplay(band) }
     }
 
+    /// The bands of what's selected within the viewport, the only part that can be drawn, so a
+    /// long selection costs no more than a short one.
     private func currentSelectionBands() -> [NSRect] {
-        guard let layout = textLayoutManager else { return [] }
-        let ranges = layout.textSelections.flatMap(\.textRanges)
+        guard let layout = textLayoutManager, let viewport = layout.textViewportLayoutController.viewportRange
+        else { return [] }
+        let ranges = layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
         let origin = textContainerOrigin
         return SelectionBands.bands(of: ranges, in: layout).map {
             $0.offsetBy(dx: origin.x, dy: origin.y)
@@ -148,6 +167,12 @@ class SceneTextView: KeyboardTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawSelectionBands(in: rect)
+    }
+
+    /// Without a background of its own (the notes), the view never calls `drawBackground(in:)`.
+    override func draw(_ dirtyRect: NSRect) {
+        if !drawsBackground { drawSelectionBands(in: dirtyRect) }
+        super.draw(dirtyRect)
     }
 
     // MARK: Focus

@@ -243,7 +243,18 @@ private func expectBands(
     sourceLocation: SourceLocation = #_sourceLocation
 ) throws {
     view.setSelectedRange(range)
-    let touched = try laidOutLines(of: view).filter { NSIntersectionRange($0.range, range).length > 0 }
+    try expectBands(view, cover: [range], lines: expected, sourceLocation: sourceLocation)
+}
+
+/// The view's bands are one per line that `ranges` touch, each text height on its line's baseline.
+@MainActor
+private func expectBands(
+    _ view: SceneTextView, cover ranges: [NSRange], lines expected: Int,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws {
+    let touched = try laidOutLines(of: view).filter { line in
+        ranges.contains { NSIntersectionRange(line.range, $0).length > 0 }
+    }
     try #require(
         touched.count == expected, "precondition: \(expected) lines selected", sourceLocation: sourceLocation)
     let bands = view.selectionBands
@@ -336,7 +347,9 @@ struct SelectionTests {
     }
 
     /// What Find does with a match: selects it and points at it. The selection shows as its band.
-    @Test func aFoundMatchShowsAsItsBand() async throws {
+    /// What Find does with a match, through the text view's own calls: it selects it and points
+    /// at it. (Find itself reads the system's find pasteboard, which tests leave alone.)
+    @Test func aSelectedMatchShowsAsItsBand() async throws {
         try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
             page.focusPage(at: 0)
             let match = (page.storage.string as NSString).range(of: "dawn")
@@ -344,6 +357,229 @@ struct SelectionTests {
             page.page.setSelectedRange(match)
             page.page.showFindIndicator(for: match)
             try expectBands(page.page, selecting: match, lines: 1)
+        }
+    }
+
+    @Test func aBandEndsAtTheLastSelectedLetter() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            let view = page.page
+            let string = page.storage.string as NSString
+            let firstLine = string.range(of: "The ferry left at dawn.")
+            let end = string.range(of: "nobody").location
+            try expectBands(view, selecting: NSRange(location: 4, length: end - 4), lines: 2)
+            let bands = view.selectionBands.sorted { $0.minY < $1.minY }
+            let period = try glyphLine(at: NSMaxRange(firstLine) - 1, in: view)
+            #expect(bands[0].maxX > period.x, "past the period")
+            #expect(bands[0].maxX < period.x + 10, "and no further than the break: \(bands[0])")
+            let next = try glyphLine(at: end, in: view)
+            #expect(abs(bands[1].maxX - next.x) < 0.01, "up to the next letter, unselected")
+        }
+    }
+
+    @Test func discontiguousSelectionsEachGetTheirBands() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            let string = page.storage.string as NSString
+            let ranges = [
+                NSRange(location: 4, length: 5),
+                NSRange(location: string.range(of: "nobody").location, length: 6),
+            ]
+            page.page.selectedRanges = ranges.map(NSValue.init(range:))
+            try expectBands(page.page, cover: ranges, lines: 2)
+        }
+    }
+
+    @Test func bandsAreClearedAsTheSelectionShrinksAndFollowTheWindowsWidth() async throws {
+        try await withPage([scene("One", selectionBody)], in: KeyWindow.self) { page in
+            let view = page.page
+            page.focusPage(at: 0)
+            let string = page.storage.string as NSString
+            let second = string.range(of: "The ferry left before").location
+            try expectBands(view, selecting: NSRange(location: second + 10, length: 100), lines: 2)
+            let gone = try #require(view.selectionBands.max { $0.minY < $1.minY })
+            try expectBands(view, selecting: NSRange(location: second + 10, length: 20), lines: 1)
+            let color = try rendered(view, in: gone.insetBy(dx: 4, dy: 3), matching: view.selectionColor)
+            #expect(color < 0.05, "the band no longer drawn is gone: \(color)")
+
+            let range = view.selectedRange()
+            var frame = page.window.frame
+            frame.size.width += 300
+            page.window.setFrame(frame, display: true)
+            await eventually {
+                (try? laidOutLines(of: view).first?.baseline) != nil
+                    && view.selectionBands.first.map { $0.minX } != nil
+            }
+            try expectBands(view, cover: [range], lines: 1)
+            let line = try glyphLine(at: range.location, in: view)
+            #expect(abs((view.selectionBands.first?.minX ?? 0) - line.x) < 0.01, "moved with the text")
+        }
+    }
+
+    @Test func bandsArePaintedOnThePageAndInTheNotesInTheFocusColour() async throws {
+        var withNotes = scene("One", selectionBody)
+        withNotes.notes = [[Run("Check the tides before the crossing.")], [Run("Dawn in March?")]]
+        try await withPage([withNotes], in: KeyWindow.self) { page in
+            page.focusPage(at: 0)
+            let view = page.page
+            try expectBands(view, selecting: NSRange(location: 4, length: 15), lines: 1)
+            let band = try #require(view.selectionBands.first)
+            let active = try rendered(view, in: band, matching: .selectedTextBackgroundColor)
+            #expect(active > 0.3, "the band is painted in the accent colour: \(active)")
+            page.window.makeFirstResponder(page.title)
+            let inactive = try rendered(view, in: band, matching: .unemphasizedSelectedTextBackgroundColor)
+            #expect(inactive > 0.3, "and redrawn grey without the focus: \(inactive)")
+
+            let notes = try await page.showNotes()
+            page.window.makeFirstResponder(notes)
+            try expectBands(notes, selecting: NSRange(location: 2, length: 10), lines: 1)
+            let notesBand = try #require(notes.selectionBands.first)
+            let inNotes = try rendered(notes, in: notesBand, matching: .selectedTextBackgroundColor)
+            #expect(inNotes > 0.3, "the notes paint theirs too: \(inNotes)")
+        }
+    }
+
+    @Test func selectingAllOfALongSceneDrawsOnlyWhatShows() async throws {
+        let paragraphs: [Paragraph] = Array(repeating: [Run(long + " " + long)], count: 460)
+        try await withPage([scene("Long", paragraphs)], in: KeyWindow.self) { page in
+            let view = page.page
+            try #require(try laidOutLines(of: view).count > 40 * 23, "precondition: over 40 pages of lines")
+            page.focusPage(at: 0)
+            let clock = ContinuousClock()
+            let selecting = clock.measure { view.selectAll(nil) }
+            let visibleLines = Int(view.visibleRect.height / 14) + 1
+            try #require(!view.selectionBands.isEmpty, "precondition: bands where the text shows")
+            #expect(
+                view.selectionBands.count <= visibleLines * 2,
+                "only the viewport's: \(view.selectionBands.count)")
+            let scrolling = clock.measure {
+                for step in 1...20 {
+                    view.scroll(NSPoint(x: 0, y: CGFloat(step) * 400))
+                    view.textLayoutManager?.textViewportLayoutController.layoutViewport()
+                    view.refreshSelectionBands()
+                }
+            }
+            #expect(
+                view.selectionBands.allSatisfy { $0.intersects(view.visibleRect.insetBy(dx: 0, dy: -2000)) })
+            #expect(selecting < .milliseconds(500), "selecting all: \(selecting)")
+            #expect(scrolling < .seconds(2), "scrolling a selection: \(scrolling)")
+        }
+    }
+}
+
+/// The share of `rect`'s pixels in `color`, as `view` draws itself into a bitmap (nothing reads
+/// the screen). The page's layers are tiled, which a layer render misses, so this is the view's own
+/// drawing, where the bands are.
+@MainActor
+private func rendered(_ view: NSView, in rect: NSRect, matching color: NSColor) throws -> Double {
+    view.displayIfNeeded()
+    let rep = try #require(view.bitmapImageRepForCachingDisplay(in: rect))
+    view.cacheDisplay(in: rect, to: rep)
+    var target: NSColor?
+    view.effectiveAppearance.performAsCurrentDrawingAppearance { target = color.usingColorSpace(.deviceRGB) }
+    let wanted = try #require(target)
+    var matches = 0
+    for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            guard let pixel = rep.colorAt(x: x, y: y) else { continue }
+            if abs(pixel.redComponent - wanted.redComponent) < 0.04,
+                abs(pixel.greenComponent - wanted.greenComponent) < 0.04,
+                abs(pixel.blueComponent - wanted.blueComponent) < 0.04
+            {
+                matches += 1
+            }
+        }
+    }
+    return Double(matches) / Double(max(1, rep.pixelsWide * rep.pixelsHigh))
+}
+
+/// Where the empty line after the end of the text sits (it's laid out in the typing attributes),
+/// for text ending in a break, in two, and empty text.
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct EndLineTests {
+    @Test(arguments: [[[Run("Hello")], []], [] as [Paragraph]] as [[Paragraph]])
+    func theEndLineKeepsItsPlaceWhereverTheCaretIs(body: [Paragraph]) async throws {
+        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
+            let view = page.page
+            let string = page.storage.string as NSString
+            let reference = try multipleSpaced(view)
+            let expected = try endLine(of: reference)
+            var places = [0, string.length]
+            if let empty = (0..<string.length).first(where: {
+                ParagraphContent(ofParagraphAt: $0, in: string) == .empty
+            }) {
+                places.insert(empty, at: 1)
+            }
+            for place in places {
+                page.focusPage(at: place)
+                let now = try endLine(of: view)
+                #expect(
+                    abs(now.baseline - expected.baseline) < 0.01, "the end line's baseline, caret at \(place)"
+                )
+                #expect(abs(now.bottom - expected.bottom) < 0.01, "the page's height, caret at \(place)")
+            }
+        }
+    }
+
+    /// The page's text as `lineHeightMultiple = 2` laid it out, in a view of its own.
+    @MainActor
+    private func multipleSpaced(_ page: ManuscriptTextView) throws -> NSTextView {
+        let view = NSTextView(usingTextLayoutManager: true)
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.size = try #require(page.textContainer?.size)
+        view.frame = page.frame
+        view.textContainerInset = NSSize(
+            width: page.textContainerInset.width,
+            height: page.textContainerInset.height - ParagraphRole.doubleSpacingGap)
+        let doubled = NSMutableParagraphStyle()
+        doubled.lineHeightMultiple = 2
+        doubled.firstLineHeadIndent = 36
+        let text = NSMutableAttributedString(attributedString: try #require(page.textStorage))
+        text.addAttribute(.paragraphStyle, value: doubled, range: NSRange(location: 0, length: text.length))
+        view.textStorage?.setAttributedString(text)
+        var typing = ParagraphRole.body.typingAttributes
+        typing[.paragraphStyle] = doubled
+        view.typingAttributes = typing
+        return view
+    }
+
+    /// The last line, the empty one after the end included: its baseline and bottom.
+    @MainActor
+    private func endLine(of view: NSTextView) throws -> (baseline: CGFloat, bottom: CGFloat) {
+        let layout = try #require(view.textLayoutManager)
+        layout.ensureLayout(for: layout.documentRange)
+        var last: (CGFloat, CGFloat)?
+        let origin = view.textContainerOrigin
+        layout.enumerateTextLayoutFragments(
+            from: layout.documentRange.location, options: [.ensuresLayout, .ensuresExtraLineFragment]
+        ) { fragment in
+            if let line = fragment.textLineFragments.last {
+                let top = origin.y + fragment.layoutFragmentFrame.minY + line.typographicBounds.minY
+                last = (top + line.glyphOrigin.y, top + line.typographicBounds.height)
+            }
+            return true
+        }
+        let found = try #require(last)
+        return (found.0, found.1)
+    }
+
+    /// Text ending in an empty paragraph (#98's review): TextKit lays the empty line after it out
+    /// differently depending on how it came to be laid out (which typing attributes, whether the
+    /// text view or an invalidation did it), so it can sit 14 pt higher than the multiple put it,
+    /// and the page end 15 pt shorter. No paragraph style found puts it right in every case.
+    @Test func afterAFinalEmptyParagraph() async throws {
+        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
+            let view = page.page
+            let expected = try endLine(of: try multipleSpaced(view))
+            page.focusPage(at: page.storage.length)
+            let atTheEnd = try endLine(of: view)
+            withKnownIssue("TextKit lays the end line out 14 pt high on a fresh page") {
+                #expect(abs(atTheEnd.baseline - expected.baseline) < 0.01, "the caret's line, at the end")
+            }
+            page.focusPage(at: 0)
+            let elsewhere = try endLine(of: view)
+            withKnownIssue("TextKit lays the end line out higher with the caret elsewhere") {
+                #expect(abs(elsewhere.bottom - expected.bottom) < 0.01, "the page's height, caret elsewhere")
+            }
         }
     }
 }

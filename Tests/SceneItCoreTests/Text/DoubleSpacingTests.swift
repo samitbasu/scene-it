@@ -16,14 +16,16 @@ struct DoubleSpacingTests {
         #expect(ParagraphRole.body.paragraphStyle.lineHeightMultiple == 0)
     }
 
-    /// Several pages of wrapped, bold and italic paragraphs with empty ones among them: every line,
+    /// Several pages of wrapped, bold and italic paragraphs, starting with an empty one, with empty
+    /// ones among them, two in a row, and ending in "Hello" and an empty paragraph: every line,
     /// empty ones included, has the baseline it had with the multiple, once the text starts a gap
-    /// lower.
+    /// lower. (The empty line after the final break is laid out in the editor's typing attributes,
+    /// so the page's tests check it.)
     @Test func everyLineKeepsItsBaseline() throws {
         let long =
             "The ferry left before dawn, and nobody on the quay said a word about the letter that had "
             + "come for her in the night, though everyone had seen the boy run down the hill with it."
-        let body: [Paragraph] = (0..<16).flatMap { round -> [Paragraph] in
+        let rounds: [Paragraph] = (0..<16).flatMap { round -> [Paragraph] in
             [
                 [Run(long + " " + long)],
                 [
@@ -33,8 +35,11 @@ struct DoubleSpacingTests {
                 ],
                 [],
                 [Run("Short.")],
+                [],
+                [],
             ]
         }
+        let body: [Paragraph] = [[]] + rounds + [[Run("Hello")], [], []]
         let shown = RunCodec.attributedString(forBody: body)
         let multiple = NSMutableAttributedString(attributedString: shown)
         let doubled = NSMutableParagraphStyle()
@@ -50,15 +55,19 @@ struct DoubleSpacingTests {
         try #require(now.count > 100, "precondition: several pages of lines")
         try #require(now.contains { $0.isWrapped }, "precondition: wrapped lines")
         try #require(now.contains { !$0.hasText && $0.range.length > 0 }, "precondition: empty paragraphs")
+        try #require(now.first?.hasText == false, "precondition: an empty paragraph first")
+        try #require(
+            shown.string.hasSuffix("Hello\n\n"), "precondition: the text ends in Hello and an empty paragraph"
+        )
         for (line, old) in zip(now, before) where line.range.length > 0 {
             #expect(
                 line.baseline + ParagraphRole.doubleSpacingGap == old.baseline, "line \(line.range)")
         }
-        let last = try #require(now.last)
-        let oldLast = try #require(before.last)
+        let last = try #require(now.last { $0.range.length > 0 })
+        let oldLast = try #require(before.last { $0.range.length > 0 })
         #expect(
             last.bottom + ParagraphRole.doubleSpacingGap == oldLast.bottom,
-            "the text ends where it did, so the page is as tall")
+            "the last paragraph ends where it did")
     }
 
     private struct LaidOutLine {
@@ -110,6 +119,9 @@ struct DoubleSpacingTests {
         #expect(
             ParagraphContent(ofParagraphAt: string.length, in: string) == .emptyEnd, "after the final break")
         #expect(ParagraphContent(ofParagraphAt: 0, in: "") == .emptyEnd)
+        #expect(
+            ParagraphContent(ofParagraphAt: 7, in: "Hello\n\n" as NSString) == .empty,
+            "after an empty paragraph, whose gap is above it")
         #expect(ParagraphContent(ofParagraphAt: 3, in: "Text" as NSString) == .text)
         #expect(ParagraphContent(ofParagraphAt: 4, in: "Text" as NSString) == .text, "at the end of text")
     }

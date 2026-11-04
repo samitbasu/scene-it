@@ -185,7 +185,8 @@ line spacing *inside* it, which put the caret back at double height:
 - **An empty paragraph** gets its gap as `paragraphSpacingBefore`, which puts its line exactly
   where typed text will go.
 - **The empty paragraph at the very end** (after a final Return) has no character to hold a
-  style: TextKit lays it out in the typing attributes. `SceneTextView` overrides
+  style: TextKit lays it out in the typing attributes. After an empty paragraph it's spaced as
+  one; TextKit doesn't always lay it out the same way there (see ADR 0034's consequences). `SceneTextView` overrides
   `typingAttributes` so they always take the style of the caret's paragraph, and lays the end
   line out again when that style changes.
 
@@ -209,11 +210,16 @@ themselves, behind the text, in `drawBackground(in:)`.
 *standard* text segments, which cover the selected text alone (the *selection* segments the
 system draws also reach the right edge of every line the selection goes on past), and trims each
 to its bottom `ParagraphRole.textLineHeight`, which is exactly the cursor's height and position.
-A band is never narrower than a space, so a selected empty paragraph shows as a sliver. `SceneTextView` recomputes the bands when the selection changes or
-a layout pass ends, and marks only the bands that changed as needing display
-(`setNeedsDisplay(_:)` with a rect, not the whole view), so a drag redraws little. The colour is
-the system's pair: `selectedTextBackgroundColor` while the view has the focus in the key window,
-`unemphasizedSelectedTextBackgroundColor` otherwise.
+A band is never narrower than a space, so a selected empty paragraph shows as a sliver.
+
+`SceneTextView` recomputes the bands when the selection changes, a layout pass ends or the text
+container's inset moves, only for what's selected within the viewport (TextKit's
+`viewportRange`), so selecting all of a long scene costs no more than a line. It marks only the
+bands that appeared or went (a set difference) as needing display, `setNeedsDisplay(_:)` with a
+rect rather than the whole view, so a drag redraws little. The colour is the system's pair:
+`selectedTextBackgroundColor` while the view has the focus in the key window,
+`unemphasizedSelectedTextBackgroundColor` otherwise. The notes draw no background, and then
+`NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
 
 The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
 the accent colour, as in TextEdit.
