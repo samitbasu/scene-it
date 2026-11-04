@@ -12,8 +12,10 @@ class SceneTextView: KeyboardTextView {
     weak var editor: SceneTextEditor?
     /// Whether this view has the keyboard focus, as it last became or resigned first responder:
     /// inside `resignFirstResponder` the window's `firstResponder` is still this view.
-    private(set) var keyboardFocus = SceneTextEditor.KeyboardFocus.elsewhere {
-        didSet { keyboardFocusDidChange() }
+    private(set) var keyboardFocus = KeyboardFocus.elsewhere {
+        didSet {
+            if keyboardFocus != oldValue { keyboardFocusDidChange() }
+        }
     }
     /// How the text is displayed, which every replaced string takes.
     private(set) var role = ParagraphRole.body
@@ -43,6 +45,12 @@ class SceneTextView: KeyboardTextView {
 
     // MARK: Focus
 
+    enum KeyboardFocus {
+        /// This view has it.
+        case here
+        case elsewhere
+    }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { keyboardFocus = .here }
@@ -61,7 +69,7 @@ class SceneTextView: KeyboardTextView {
     }
 
     func keyboardFocusDidChange() {
-        editor?.keyboardFocusChanged()
+        editor?.showFormatting()
     }
 
     // MARK: Keys

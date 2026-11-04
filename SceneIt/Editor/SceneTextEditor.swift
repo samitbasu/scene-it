@@ -84,12 +84,6 @@ final class SceneTextEditor: NSObject {
         }
     }
 
-    enum KeyboardFocus {
-        /// The editor's text view has it.
-        case here
-        case elsewhere
-    }
-
     /// How the text view stands with the model.
     private enum Sync {
         /// Every edit in the view has reached the model.
@@ -180,10 +174,6 @@ final class SceneTextEditor: NSObject {
 
     // MARK: Formatting (PLAN §6.2)
 
-    func keyboardFocusChanged() {
-        showFormatting()
-    }
-
     /// Applies `command` to the selection as one undoable change, through the text view so the
     /// model hears of it as of any edit; with nothing selected, to what the writer types next.
     /// Returns whether it applied.
@@ -227,7 +217,8 @@ final class SceneTextEditor: NSObject {
             : SelectionFormatting(typing: view.typingAttributes)
     }
 
-    private func showFormatting() {
+    /// Shows the formats of the selection, or none while the text view can't be formatted.
+    func showFormatting() {
         formatting.show(formattingSelection, from: self)
     }
 

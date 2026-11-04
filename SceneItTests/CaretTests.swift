@@ -93,6 +93,7 @@ private func expectCaretFitsTypedText(
     _ page: PageHarness, at location: Int, sourceLocation: SourceLocation = #_sourceLocation
 ) async throws {
     let caret = try await keyAndFocused(page, at: location)
+    try expectCaretMatchesTheSystemCaret(page, sourceLocation: sourceLocation)
     page.page.insertText("x", replacementRange: NSRange(location: location, length: 0))
     let typed = try glyphLine(at: location, in: page.page)
     let single = try singleSpacedLine()
@@ -218,16 +219,6 @@ struct CaretTests {
         }
     }
 
-    @Test func hiddenWhenThePageIsReadOnly() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true, in: KeyWindow.self) {
-            page in
-            page.focusPage(at: 2)
-            try #require(!page.page.isEditable, "precondition: read-only")
-            try #require(page.window.firstResponder === page.page, "precondition: the page has the focus")
-            #expect(!(try caret(of: page).isShown))
-        }
-    }
-
     @Test func atTheEndOfAWrappedLine() async throws {
         try await withPage([scene("One", body)], in: KeyWindow.self) { page in
             let layout = try #require(page.page.textLayoutManager)
@@ -279,13 +270,14 @@ struct CaretTests {
         }
     }
 
-    @Test func appearsWhenTheFocusedPageBecomesEditable() async throws {
+    @Test func hiddenWhileReadOnlyAndShownOnceEditable() async throws {
         try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true, in: KeyWindow.self) {
             page in
+            try #require(page.window.isKeyWindow, "precondition: a key window")
             page.focusPage(at: 2)
             try #require(!page.page.isEditable, "precondition: read-only")
             try #require(page.window.firstResponder === page.page, "precondition: the page has the focus")
-            try #require(!(try caret(of: page).isShown), "precondition: no caret while read-only")
+            #expect(!(try caret(of: page).isShown), "no caret while read-only")
             let editor = try #require(page.page.editor)
             editor.show(try #require(page.book.openScene), .editable)
             #expect(try caret(of: page).isShown)
@@ -326,7 +318,8 @@ struct CaretTests {
         }
     }
 
-    @Test func theFontsOwnMetricsAreAFallbackOfAboutTheSameSize() throws {
+    /// The metrics the caret falls back on when TextKit lays out no line are about the right size.
+    @Test func theFallbackMetricsAreAboutTheRightSize() throws {
         let font = ParagraphRole.body.font([])
         let laidOut = SingleSpacedLine(font)
         let fallback = SingleSpacedLine(metricsOf: font)

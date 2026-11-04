@@ -30,13 +30,12 @@ height of the text. Measured (Times New Roman 12 pt: ascender 10.69, descender â
    `ManuscriptTextView` rather than the shared `SceneTextView`, so the clear caret's costs (below) stay on the page.
 
 One policy, in `CaretIndicator`: it shows only for a single empty selection in an editable page that has the
-keyboard focus in the key window (the focus as `SceneTextView` records it, which the editor reads too), and moves whenever the text view moves its own caret
-(`updateInsertionPointStateAndRestartTimer(_:)`), the viewport finishes a layout pass
-(`textViewportLayoutControllerDidLayout(_:)`: TextKit 2 lays out lazily, so a line can move without the selection
-moving), the typing attributes change (the editor sets them after the
-selection moves), the focus or key state changes, editability changes, or the page is resized. If TextKit lays out
-no line to measure, the caret falls back to the font's own metrics and logs it; a failed measurement is never
-cached.
+keyboard focus (as `SceneTextView` records it; the editor reads the same value) in the key window. It moves
+whenever the text view moves its own caret (`updateInsertionPointStateAndRestartTimer(_:)`), the viewport finishes
+a layout pass (`textViewportLayoutControllerDidLayout(_:)`: TextKit 2 lays out lazily, so a line can move without
+the selection moving), the typing attributes change (the editor sets them after the selection moves), the focus or
+key state changes, editability changes, or the page is resized. If TextKit lays out no line to measure, the caret
+falls back to the font's own metrics and logs it once per font; a failed measurement is never cached.
 
 ## Rejected
 - **`lineSpacing` instead of the multiple** (with the text container moved down 14 pt to keep the first line): every

@@ -93,7 +93,9 @@ struct SingleSpacedLine {
             Self.measured[font] = laidOut
             self = laidOut
         } else {
-            Log.editor.error("Couldn't lay out a line for the caret; using the font's metrics")
+            if Self.reported.insert(font).inserted {
+                Log.editor.error("Couldn't lay out a line for the caret; using the font's metrics")
+            }
             self.init(metricsOf: font)
         }
     }
@@ -125,4 +127,6 @@ struct SingleSpacedLine {
     }
 
     private static var measured: [NSFont: SingleSpacedLine] = [:]
+    /// The fonts whose failure is logged, so a caret that moves doesn't log it on every move.
+    private static var reported: Set<NSFont> = []
 }

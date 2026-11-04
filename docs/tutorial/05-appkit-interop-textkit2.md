@@ -173,21 +173,23 @@ as tall and puts the extra space above the letters. Since macOS 14 `NSTextView` 
 as a subview, an `NSTextInsertionIndicator`, as tall as the line fragment, so on the page it was
 twice the height of the text. Nothing public sizes that subview: set its frame and AppKit puts it
 back on the next turn of the run loop. So the page makes its own caret clear
-(`insertionPointColor = .clear`) and shows a second `NSTextInsertionIndicator` of its own, which
-the class is public for. `CaretIndicator` places it:
+(`insertionPointColor = .clear`) and shows a second `NSTextInsertionIndicator` of its own: the
+class is public so that custom text views can draw a standard caret. `CaretIndicator` places it:
 
 - **Where:** the selection segment of the caret's empty range, from
   `NSTextLayoutManager.enumerateTextSegments`, gives the x and the line's baseline (the
-  *standard* segment would leave out a first line's indent); a single-spaced line in the typing font, laid out once by
-  a throwaway `NSTextLayoutManager`, gives the height and how far the top is above the
-  baseline. Using TextKit's own layout matters: it rounds the font's ascent and descent up
-  (11 + 3 + 0.51 = 14.51 pt for 12 pt Times, where the font says 10.69 + 2.60 + 0.51).
+  *standard* segment would leave out a first line's indent). A single-spaced line in the typing
+  font, laid out once by a throwaway `NSTextLayoutManager`, gives the height and how far the top
+  is above the baseline. Using TextKit's own layout matters: it rounds the font's ascent and
+  descent up (11 + 3 + 0.51 = 14.51 pt for 12 pt Times, where the font says
+  10.69 + 2.60 + 0.51).
 - **When:** `ManuscriptTextView` calls `update()` from the hooks AppKit already calls:
-  `updateInsertionPointStateAndRestartTimer(_:)` (every caret move and edit), `textViewportLayoutControllerDidLayout(_:)`
-  (TextKit 2 lays out lazily, so a line's position can change with the selection unmoved), `typingAttributes`, becoming and resigning first responder, `isEditable`,
-  `setFrameSize`, and the window's key notifications. The view records its own keyboard focus,
-  which the indicator and the editor both read, because inside `resignFirstResponder` the
-  window's `firstResponder` is still the page.
+  `updateInsertionPointStateAndRestartTimer(_:)` (every caret move and edit),
+  `textViewportLayoutControllerDidLayout(_:)` (TextKit 2 lays out lazily, so a line's position
+  can change with the selection unmoved), `typingAttributes`, becoming and resigning first
+  responder, `isEditable`, `setFrameSize`, and the window's key notifications. `SceneTextView`
+  records its own keyboard focus, which the indicator and the editor both read, because inside
+  `resignFirstResponder` the window's `firstResponder` is still the view.
 
 The selection highlight stays the full line height, by the owner's choice (ADR 0030).
 
