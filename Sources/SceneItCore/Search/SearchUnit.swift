@@ -10,6 +10,15 @@ public enum ScenePlacement: Hashable, Sendable {
     /// Numbered from 1.
     case story(number: Int)
     case boneyard
+
+    /// The placement of a part's scene at `index`; `nil` for a deleted scene, which has none.
+    init?(_ part: FilePart, at index: Int) {
+        switch part {
+        case .story: self = .story(number: index + 1)
+        case .boneyard: self = .boneyard
+        case .deleted: return nil
+        }
+    }
 }
 
 /// The part of a scene a unit's text is.
@@ -53,10 +62,12 @@ public struct SearchUnit: Hashable, Sendable {
     /// in each, the title, the body, the notes, the comments, then the tags. A filed copy's
     /// units are its decoded book's, with `version: .filed(number)`.
     public static func units(of book: Book, version: SearchVersion) -> [SearchUnit] {
-        let story = book.scenes.enumerated().flatMap { index, scene in
-            units(of: scene, placement: .story(number: index + 1), version: version)
+        FilePart.visible.flatMap { part in
+            book[keyPath: part.scenes].enumerated().flatMap { index, scene in
+                ScenePlacement(part, at: index).map { units(of: scene, placement: $0, version: version) }
+                    ?? []
+            }
         }
-        return story + book.boneyard.flatMap { units(of: $0, placement: .boneyard, version: version) }
     }
 
     private static func units(of scene: BookScene, placement: ScenePlacement, version: SearchVersion)
