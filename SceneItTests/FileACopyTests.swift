@@ -183,6 +183,7 @@ struct FileACopyTests {
             let views = subviewTree(of: window.contentView)
             let field = try #require(views.compactMap { $0 as? AdmittingTextField }.first)
             let note = try #require(views.compactMap { $0 as? AdmittingTextView }.first, "the note's editor")
+            try await field.expectRefusesDropsWhileNotEditing()
             #expect(window.makeFirstResponder(field))
             let tagEditor = try #require(
                 field.currentEditor() as? AdmittingTextView, "the field's own editor")
@@ -198,6 +199,7 @@ struct FileACopyTests {
                     #expect(history === window.undoManager, "the note undoes as the window does")
                 }
                 history.removeAllActions()
+                try await editor.expectRefusesEveryDrop()
                 for paste in [false, true] {
                     if paste {
                         try await PageHarness.withPasteboard { pasteboard in

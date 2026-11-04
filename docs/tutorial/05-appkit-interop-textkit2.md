@@ -491,7 +491,7 @@ Copy and paste in an `NSTextView` go through four overridable members:
 | --- | --- |
 | `writablePasteboardTypes` | copy, cut, drag: which types to offer |
 | `writeSelection(to:type:)` | writing one of those types |
-| `readablePasteboardTypes` | paste, drop: which types to accept, in order of preference |
+| `readablePasteboardTypes` | paste: which types to accept, in order of preference |
 | `readSelection(from:type:)` | reading the chosen type into the text |
 
 The page offers its own type first, then whatever `NSTextView` already writes (RTF and plain
@@ -518,6 +518,31 @@ That reuses the format's exact encoding and its save verification, and the readi
 the parser that never fails. On paste, `OpenBook.resolve(_:into:)` decides the ids: pasting
 into the same scene while the comment still exists keeps the id, so cut and paste is lossless;
 anything else gets a copy of the comment with a fresh id.
+
+### No drag and drop
+
+`NSTextView` also takes drops and drags its selection out, through the same pasteboard
+machinery: as a drag destination (`acceptableDragTypes`, then `draggingEntered`,
+`draggingUpdated` and `performDragOperation`) and as a drag source (a press on the selection
+followed by a drag). Scene It's text needs neither ([ADR 0036](../decisions/0036-no-drag-and-drop-of-text.md)):
+text arrives typed or pasted, and pasting is the one path through the policy. So
+`KeyboardTextView`, which every manuscript editor is, turns both off. It has no acceptable
+drag types and registers none, so a window never routes a drag to it; its destination
+methods answer "no operation"; and it refuses to start a drag of the selection, at
+`dragSelection(with:offset:slideBack:)`, which `mouseDown` reaches, and at
+`selectionManager(_:makeDraggingSession:)`. From macOS 27 a TK2 text view selects through an
+`NSTextSelectionManager` whose delegate is the view itself, *unless* the view overrides
+`mouseDown`: then it has no manager and tracks presses in `mouseDown` as before. The page
+overrides `mouseDown` for comment clicks, so it takes the first route and the notes take the
+second; `DropTests` asserts which route each view takes before checking it. `NSTextView` doesn't declare that one in its
+header, so the override is an `@objc(selectionManager:makeDraggingSessionWithGesture:)`
+method that replaces it by its selector, with no `super` to call.
+
+How this came about is a lesson in names. The page used to refuse drops by accident (#92):
+`NSTextView` accepts a drag only in a type that's in both `acceptableDragTypes` and
+`readablePasteboardTypes`, and the page's readable types were UTIs (`public.utf8-plain-text`)
+while the inherited drag types used the legacy names of the same types
+(`NSStringPboardType`), so no type was in both.
 
 ## 8. Undo managers
 
