@@ -4,6 +4,11 @@
 an option other than A, record the choice as an ADR: it reverses PLAN §2's "Swift, Apple SDKs
 only" and README rule 3, "No third-party dependencies without asking first".
 
+> **Note (2026-11-03):** ADR 0028 (strict ASCII, #74) has since removed NFC and the Latin-1 repertoire:
+> the character policy is a versioned transliteration table, data with no Foundation dependency,
+> and search folds case only. The NFC, `unicode-normalization` and diacritic-folding points below
+> describe the code as it was when this was written.
+
 **The question.** "We seem to have quite a bit of business logic in Swift. I'm curious about a
 language split: the business logic and backend in Rust, the UI in Swift/SwiftUI."
 

@@ -89,6 +89,9 @@ public enum ErrorsWording {
     public static let copy = "Copy"
     public static let delete = "Delete"
     public static let fix = "Fix"
+    /// What Undo and Redo name these operations: "Undo Delete Entry".
+    public static let deleteUndoName = "Delete Entry"
+    public static let fixUndoName = "Fix Entry"
     public static let apply = "Apply"
     public static let cancel = "Cancel"
 

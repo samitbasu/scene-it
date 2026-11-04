@@ -4,7 +4,7 @@ import Testing
 @testable import SceneItCore
 
 /// The Errors tab's operations through the open book (book format §5.4): each tells autosave
-/// in the same turn, is undoable on `structureUndo`, and is refused while the book is read-only.
+/// in the same turn, is undoable on `errorsUndo`, and is refused while the book is read-only.
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct ErrorEntryEditTests {
@@ -60,15 +60,32 @@ struct ErrorEntryEditTests {
             #expect(book.book.scenes == before.scenes)
             #expect(!book.deleteError(line), "a row that's gone can't be deleted twice")
 
-            book.structureUndo.undo()
+            #expect(!book.structureUndo.canUndo, "the Errors tab has a history of its own")
+            #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
+            book.errorsUndo.undo()
             #expect(book.book == before)
-            book.structureUndo.redo()
+            book.errorsUndo.redo()
             #expect(book.book.errors.isEmpty)
 
             store.saveNow()
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
             #expect(try bookOnDisk(url).errorCount == 2)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    /// A Fix that changes nothing registers nothing, so it leaves the name of the operation
+    /// before it alone (review of PR #75, P9).
+    @Test func aFixThatChangesNothingDoesntRenameTheUndoBeforeIt() async throws {
+        try await withTemporaryFolder { folder in
+            let (store, book, _) = try await openBook(in: folder)
+            #expect(book.deleteError(try ref(.line, in: book)))
+            #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
+            let comment = try ref(.comments, in: book)
+            #expect(book.repairError(comment, as: comment.entry.payload) == .kept(.comment(.quoteMismatch)))
+            #expect(book.book.errorCount == 2, "precondition: the fix changed nothing")
+            #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
             #expect(await store.closeBook() == .left)
         }
     }
@@ -94,7 +111,7 @@ struct ErrorEntryEditTests {
             #expect(
                 saved.scenes[0].body[0].runs.contains(Run("letter", comments: [CommentID(rawValue: "c1")])))
 
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             #expect(book.book == before)
             #expect(book.status == .unsaved)
             #expect(await store.closeBook() == .left)
@@ -130,7 +147,7 @@ struct ErrorEntryEditTests {
             #expect(book.repairError(id, as: "id: ferry") == .repaired)
             #expect(book.openScene == SceneID(rawValue: "ferry"))
             #expect(book.book.scenes[0].id == SceneID(rawValue: "ferry"))
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             #expect(book.openScene == old)
             #expect(book.book.scenes[0].id == old)
             #expect(await store.closeBook() == .left)
@@ -164,7 +181,7 @@ struct ErrorEntryEditTests {
 
             book.replaceNotes(of: scene, with: [[Run("Typed after the repair.")]])
             book.setTitle(of: scene, to: "Retitled")
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             let undone = try #require(book.book.scenes.first)
             #expect(undone.notes == [[Run("Typed after the repair.")]], "later notes kept")
             #expect(undone.title == "Retitled", "later title kept")
@@ -172,7 +189,7 @@ struct ErrorEntryEditTests {
             #expect(undone.errors == before.errors, "the entry is back where it was")
             expectRoundTrip(book.book)
 
-            book.structureUndo.redo()
+            book.errorsUndo.redo()
             let redone = try #require(book.book.scenes.first)
             #expect(redone.body == repaired.body && redone.comments == repaired.comments)
             #expect(redone.errors == repaired.errors)
@@ -191,13 +208,13 @@ struct ErrorEntryEditTests {
             #expect(book.deleteError(entry))
             book.replaceNotes(of: scene, with: [[Run("Typed after.")]])
             book.setTitle(of: scene, to: "Retitled")
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             #expect(book.book.scenes[0].errors == errors)
             #expect(
                 book.book.scenes[0].notes == [[Run("Typed after.")]]
                     && book.book.scenes[0].title == "Retitled")
             expectRoundTrip(book.book)
-            book.structureUndo.redo()
+            book.errorsUndo.redo()
             #expect(book.book.scenes[0].errors == errors.filter { $0 != entry.entry })
             #expect(book.book.scenes[0].title == "Retitled")
             expectRoundTrip(book.book)
@@ -212,7 +229,7 @@ struct ErrorEntryEditTests {
             #expect(book.repairError(mood, as: "tags: grim") == .repaired)
             #expect(book.book.scenes[0].tags == ["grim"])
             book.setTitle(of: book.book.scenes[0].id, to: "Retitled")
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             #expect(book.book.scenes[0].tags.isEmpty)
             #expect(book.book.scenes[0].title == "Retitled")
             #expect(book.book.scenes[0].errors.contains(ErrorEntry(.metadata, "mood: grim")))
@@ -232,7 +249,7 @@ struct ErrorEntryEditTests {
             #expect(!book.deleteError(comment))
             #expect(book.repairError(comment, as: Self.fixed) == .refused)
             #expect(book.book == before)
-            #expect(!book.structureUndo.canUndo)
+            #expect(!book.errorsUndo.canUndo)
 
             #expect(await store.makeEditable() == .editable)
             #expect(book.repairError(comment, as: Self.fixed) == .repaired)

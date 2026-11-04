@@ -32,7 +32,7 @@ public struct ErrorEntry: Hashable, Sendable, CustomStringConvertible {
     }
 
     private static func normalized(_ payload: String) -> String {
-        let line = Latin1.bytes(CharacterPolicy.admittedLine(payload))
-        return Latin1.string(Lexical.trim(line[...])[...])
+        let line = ASCII.bytes(CharacterPolicy.admittedLine(payload))
+        return ASCII.string(Lexical.trim(line[...])[...])
     }
 }

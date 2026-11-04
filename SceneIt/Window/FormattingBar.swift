@@ -1,38 +1,44 @@
 import SceneItCore
 import SwiftUI
 
-/// The editor control bar (PLAN §6.2): B, I, S, the text color and highlight with their
-/// palettes, and Read aloud (#39). Each control shows its state for the page's selection; the
-/// whole bar is dimmed while the page can't be formatted. Its look is the owner's pick (#18,
-/// `WindowMetrics.Bar`).
+/// An editor control bar (PLAN §6.2): B, I, S, the text color and highlight with their
+/// palettes, and, above the page only, Read aloud (#39). The Notes tab has its compact copy.
+/// Each control shows its state for its editor's selection; the whole bar is dimmed while its
+/// editor can't be formatted, which is always so for one of the two. Its look is the owner's
+/// pick (#18, `WindowMetrics.Bar`).
 struct FormattingBar: View {
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
+    /// Whose bar it is: the page's, or the notes' compact copy.
+    let part: TextPart
 
     var body: some View {
         HStack(spacing: WindowMetrics.Bar.groupSpacing) {
             HStack(spacing: WindowMetrics.Bar.buttonSpacing) {
                 ForEach(TextStyle.allCases, id: \.self) { style in
                     BarButton(
-                        formatting: formatting, command: .toggle(style), help: WindowWording.style(style)
+                        formatting: formatting, part: part, command: .toggle(style),
+                        help: WindowWording.style(style)
                     ) {
                         Image(systemName: Self.symbol(style))
                     }
                 }
             }
             BarDivider()
-            ColorControl(formatting: formatting, kind: .textColor)
-            ColorControl(formatting: formatting, kind: .highlight)
-            BarDivider()
-            Button {
-            } label: {
-                Image(systemName: "play.fill")
+            ColorControl(formatting: formatting, part: part, kind: .textColor)
+            ColorControl(formatting: formatting, part: part, kind: .highlight)
+            if part == .body {
+                BarDivider()
+                Button {
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .buttonStyle(BarButtonStyle(state: .off))
+                .disabled(true)
+                .help(WindowWording.readAloud)
+                .accessibilityLabel(WindowWording.readAloud)
             }
-            .buttonStyle(BarButtonStyle(state: .off))
-            .disabled(true)
-            .help(WindowWording.readAloud)
-            .accessibilityLabel(WindowWording.readAloud)
         }
-        .disabled(formatting.selection == nil)
+        .disabled(formatting.selection(in: part) == nil)
     }
 
     private static func symbol(_ style: TextStyle) -> String {
@@ -44,22 +50,23 @@ struct FormattingBar: View {
     }
 }
 
-/// A button that performs `command` and shows its state for the selection.
+/// A button that performs `command` and shows its state for its editor's selection.
 private struct BarButton<Label: View>: View {
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
+    let part: TextPart
     let command: FormattingCommand
     let help: String
     @ViewBuilder let label: Label
 
     var body: some View {
-        let state = formatting.state(of: command)
+        let state = formatting.state(of: command, in: part)
         Button {
             formatting.perform(command)
         } label: {
             label
         }
         .buttonStyle(BarButtonStyle(state: state ?? .off))
-        .help(state == nil ? WindowWording.clickInThePageToFormat : help)
+        .help(state == nil ? WindowWording.clickToFormat(part) : help)
         .accessibilityLabel(help)
         .accessibilityValue(state.map(Self.accessibilityValue) ?? "")
     }
@@ -124,14 +131,15 @@ enum Ink: Hashable {
 /// The text color or highlight: a button applying the last color chosen, and a separate ▾ for
 /// the palette.
 private struct ColorControl: View {
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
+    let part: TextPart
     let kind: PaletteKind
     @State private var showsPalette = false
 
     var body: some View {
         let ink = kind.lastUsed(formatting.preferences)
         HStack(spacing: 0) {
-            BarButton(formatting: formatting, command: ink.command, help: kind.name) {
+            BarButton(formatting: formatting, part: part, command: ink.command, help: kind.name) {
                 ColorGlyph(ink: ink)
             }
             Button {
@@ -142,11 +150,12 @@ private struct ColorControl: View {
             }
             .buttonStyle(BarButtonStyle(state: .off, width: .narrow))
             .help(
-                formatting.selection == nil ? WindowWording.clickInThePageToFormat : WindowWording.showPalette
+                formatting.selection(in: part) == nil
+                    ? WindowWording.clickToFormat(part) : WindowWording.showPalette
             )
             .accessibilityLabel("\(kind.name): \(WindowWording.showPalette)")
             .popover(isPresented: $showsPalette, arrowEdge: .bottom) {
-                PaletteView(formatting: formatting, kind: kind) {
+                PaletteView(formatting: formatting, part: part, kind: kind) {
                     showsPalette = false
                 }
             }
@@ -180,7 +189,8 @@ private struct ColorGlyph: View {
 
 /// A palette: a row of swatches, named in their tooltips, the selection's own ringed.
 struct PaletteView: View {
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
+    let part: TextPart
     let kind: PaletteKind
     let chosen: () -> Void
 
@@ -192,7 +202,7 @@ struct PaletteView: View {
                     formatting.perform(ink.command)
                     chosen()
                 } label: {
-                    Swatch(ink: ink, ringed: formatting.state(of: ink.command) == .on)
+                    Swatch(ink: ink, ringed: formatting.state(of: ink.command, in: part) == .on)
                         .frame(minWidth: WindowMetrics.Bar.buttonSize.width)
                         .contentShape(Rectangle())
                 }

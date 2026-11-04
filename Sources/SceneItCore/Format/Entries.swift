@@ -56,7 +56,7 @@ enum Entries {
             let rangeField = fields.next(), ![id, color, created, rangeField].contains(where: \.isEmpty)
         else { return .failure(.fields) }
         let commentID = CommentID(rawValue: Lexical.string(id))
-        guard Lexical.isValidID(id), !context.commentIDs.contains(commentID) else {
+        guard Lexical.isValidID(commentID.rawValue.utf8), !context.commentIDs.contains(commentID) else {
             return .failure(.commentID)
         }
         guard let palette = paletteColor(color) else { return .failure(.paletteName) }
@@ -230,7 +230,7 @@ private struct FieldReader {
                 end += bytes[end] == Lexical.backslash ? 2 : 1
             }
             guard end < bytes.endIndex else { return .failure(.quoteSyntax) }
-            quotes.append(Lexical.quoteUnescaped(bytes[start..<end]))
+            quotes.append(CharacterPolicy.transliterated(Lexical.quoteUnescaped(bytes[start..<end])))
             position = end + 1
             skipSpaces()
         } while consume(Lexical.comma)

@@ -2,38 +2,36 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// The page on its desk (PLAN §4.3): an `NSScrollView` whose document is the scene's
-/// `ManuscriptTextView`. The scroll view holds the find bar (Cmd+F) above the desk.
+/// The page on its desk (PLAN §4.3): the window's `DeskView`, whose document is its
+/// `ManuscriptTextView`, at the writer's zoom. The desk holds the find bar (Cmd+F) above it.
 struct PageView: NSViewRepresentable {
     let book: AppOpenBook
+    let preferences: AppPreferences
+    let editors: SceneEditors
     let scene: SceneID
     /// The scene's body. The page reads the model itself; this is here so that SwiftUI updates
     /// the page whenever the body changes.
     let paragraphs: [Paragraph]
-    let focus: PageFocus
-    let formatting: PageFormatting
 
-    func makeCoordinator() -> PageEditor {
-        PageEditor(book: book, focus: focus, formatting: formatting)
+    func makeCoordinator() -> SceneEditors {
+        editors
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(WindowMetrics.deskColor)
-        scrollView.findBarPosition = .aboveContent
-        let page = ManuscriptTextView.page()
-        page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
-        scrollView.documentView = page
-        context.coordinator.attach(page)
-        return scrollView
+    func makeNSView(context: Context) -> HostingSlot {
+        let slot = HostingSlot()
+        editors.page.mount(in: slot)
+        return slot
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        let editable = book.isEditable && context.environment.isEnabled
-        context.coordinator.show(scene, editable ? .editable : .readOnly)
+    func updateNSView(_ slot: HostingSlot, context: Context) {
+        let page = editors.page
+        page.mount(in: slot)
+        page.editor.show(scene, .init(book, in: context.environment))
+        page.scrollView.show(preferences.zoom)
+    }
+
+    static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
+        editors.page.unmount(from: slot, handingFocusTo: nil)
     }
 }
 
@@ -41,6 +39,16 @@ struct PageView: NSViewRepresentable {
 final class PageFocus {
     weak var title: NSTextField?
     weak var body: NSTextView?
+
+    var desk: DeskView? {
+        body?.enclosingScrollView as? DeskView
+    }
+
+    /// Gives the body the focus, with its selection as it was.
+    func focusBody() {
+        guard let body, let window = body.window else { return }
+        window.makeFirstResponder(body)
+    }
 
     /// Puts the caret at the start of the body.
     func focusBodyStart() {

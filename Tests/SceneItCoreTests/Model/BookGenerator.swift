@@ -17,7 +17,7 @@ struct BookGenerator {
             random: SplitMix64(seed: seed &* 31))
     }
 
-    /// Characters that need escaping or look like structure, plus Latin-1 beyond ASCII.
+    /// Characters that need escaping or look like structure, plus some the model transliterates.
     static let lineAlphabet = Array("abc XYZ  \u{E9}\u{FF}\u{A0}\"\\/<>&{}[]:,*_~#-|!`.")
     private static let anyAlphabet = lineAlphabet + ["\n"]
     private static let words = [

@@ -1,27 +1,19 @@
 import Foundation
 
 /// The characters manuscript text may hold, and how any other text is made to fit
-/// (ADR 0022, book format §1.2). The parser applies it to a whole file; the editor applies
-/// the same `admit` to typing and pasting.
+/// (ADR 0028, book format §1.2). The parser applies it to a whole file; the editors apply
+/// the same `admit` to what's typed and pasted.
 ///
-/// Admitted text holds only printable Latin-1 (U+0020–U+007E, U+00A0–U+00FF) and `\n`, so
-/// every character is one Unicode scalar, one `Character` and one byte of Latin-1.
+/// Admitted text holds only printable ASCII (U+0020–U+007E) and `\n`, so every character is
+/// one byte, one UTF-16 unit and one `Character`.
 public enum CharacterPolicy {
-    /// What stands in for a character Scene It can't store.
+    /// What stands in for a character that has no entry in the transliteration table.
     public static let placeholder = "[?]"
-
-    /// Typographic punctuation that's straightened rather than stored.
-    public static let straightened: [Unicode.Scalar: String] = [
-        "\u{201C}": "\"", "\u{201D}": "\"",
-        "\u{2018}": "'", "\u{2019}": "'",
-        "\u{2014}": "--", "\u{2013}": "-",
-        "\u{2026}": "...",
-    ]
 
     /// Whether text may hold `scalar`. `\n` separates lines and paragraphs, so it's
     /// admitted, but it isn't allowed inside a line.
     public static func isAllowed(_ scalar: Unicode.Scalar) -> Bool {
-        (0x20...0x7E).contains(scalar.value) || (0xA0...0xFF).contains(scalar.value)
+        (0x20...0x7E).contains(scalar.value)
     }
 
     /// Whether admitted text may hold `scalar`: an allowed character, or the `\n` between
@@ -30,14 +22,12 @@ public enum CharacterPolicy {
         scalar == "\n" || isAllowed(scalar)
     }
 
-    /// `text` with §1.2's steps 3–7 applied: `\r\n` and `\r` become `\n`, then NFC, then the
-    /// punctuation table, then a tab becomes a space, then every other disallowed character
-    /// becomes `[?]`.
+    /// `text` with §1.2's steps 3, 4 and 7 applied: `\r\n` and `\r` become `\n`, a tab becomes a
+    /// space, a character in the transliteration table becomes its ASCII, and every other
+    /// disallowed character becomes `[?]`.
     public static func admit(_ text: String) -> AdmittedText {
-        let admitted = admitLatin1(text)
-        return AdmittedText(
-            text: Latin1.string(admitted.bytes[...]),
-            replaced: distinct(admitted.replacements.map(\.scalar)))
+        let scanned = scan(text, .inPlace)
+        return AdmittedText(text: ASCII.string(scanned.bytes[...]), changes: scanned.changes)
     }
 
     /// `text` admitted, for a field that may hold line breaks (written `\n`): tags,
@@ -61,37 +51,66 @@ public enum CharacterPolicy {
         return admit(String(text.map { $0.isLineBreak ? " " : $0 })).text
     }
 
-    /// `admit`, as Latin-1 bytes, recording the line each replaced character was on.
-    static func admitLatin1(_ text: String) -> Latin1Text {
-        let normalized =
-            text.utf8.allSatisfy { $0 < 0xCC } ? text : text.precomposedStringWithCanonicalMapping
+    /// A whole file with §1.2's steps 3–5 applied, as UTF-8: the change step 7 will
+    /// make to each other disallowed character is recorded with its line. Step 7 itself waits
+    /// for `transliterated`, token by token once the lines are read, so what the table writes
+    /// is always literal text and never markup.
+    static func fileText(_ text: String) -> ScannedText {
+        scan(text, .perToken)
+    }
+
+    /// §1.2 step 7 on one token of a file (`fileText`), whose `\n`s are kept.
+    static func transliterated(_ bytes: some Collection<UInt8>) -> [UInt8] {
+        if bytes.allSatisfy({ $0 == ASCII.newline || (0x20...0x7E).contains($0) }) { return Array(bytes) }
+        return ASCII.bytes(admit(String(decoding: bytes, as: UTF8.self)).text)
+    }
+
+    private enum Transliterating {
+        case inPlace
+        /// Each character the table changes is left as its UTF-8.
+        case perToken
+    }
+
+    /// Reads scalar by scalar, so a decomposed `é` is an `e` and a combining accent, and the
+    /// table removes the accent.
+    private static func scan(_ text: String, _ transliterating: Transliterating) -> ScannedText {
         var bytes: [UInt8] = []
-        bytes.reserveCapacity(normalized.utf8.count)
-        var replacements: [Replacement] = []
+        bytes.reserveCapacity(text.utf8.count)
+        var changes: [CharacterChange] = []
         var line = 0
         var afterCarriageReturn = false
-        for scalar in normalized.unicodeScalars {
+        for scalar in text.unicodeScalars {
             if afterCarriageReturn {
                 afterCarriageReturn = false
                 if scalar == "\n" { continue }
             }
             switch scalar {
             case "\r", "\n":
-                bytes.append(Latin1.newline)
+                bytes.append(ASCII.newline)
                 line += 1
                 afterCarriageReturn = scalar == "\r"
             case "\t":
-                bytes.append(Latin1.space)
+                bytes.append(ASCII.space)
             case _ where isAllowed(scalar):
                 bytes.append(UInt8(scalar.value))
-            case _ where straightened[scalar] != nil:
-                bytes += straightened[scalar, default: ""].utf8
             default:
-                bytes += placeholder.utf8
-                replacements.append(Replacement(line: line, scalar: scalar))
+                let (spelling, kind) = change(of: scalar)
+                switch transliterating {
+                case .inPlace: bytes += spelling.utf8
+                case .perToken: bytes += scalar.utf8
+                }
+                changes.append(CharacterChange(line: line, scalar: scalar, kind: kind))
             }
         }
-        return Latin1Text(bytes: bytes, replacements: replacements)
+        return ScannedText(bytes: bytes, changes: changes)
+    }
+
+    private static func change(of scalar: Unicode.Scalar) -> (String, CharacterChange.Kind) {
+        switch Transliteration.table[scalar] {
+        case .silent(let ascii): (ascii, .straightened)
+        case .noticed(let ascii): (ascii, .transliterated)
+        case nil: (placeholder, .replaced)
+        }
     }
 
     /// `scalars` without repeats, in order of first appearance.
@@ -104,26 +123,54 @@ public enum CharacterPolicy {
 /// Text as `CharacterPolicy.admit` leaves it.
 public struct AdmittedText: Hashable, Sendable {
     public let text: String
-    /// The characters that became `[?]`, each once, in order of first appearance.
+    /// The characters the transliteration table spelled in ASCII silently (typographic
+    /// punctuation), each once, in order of first appearance.
+    public let straightened: [Unicode.Scalar]
+    /// The characters the table spelled in ASCII with a notice, likewise.
+    public let transliterated: [Unicode.Scalar]
+    /// The characters that became `[?]`, likewise.
     public let replaced: [Unicode.Scalar]
 
-    /// The notice the parser records for these replacements; `nil` when there were none.
-    public var notice: RepairNotice? {
-        replaced.isEmpty ? nil : .replacedCharacters(replaced)
+    init(text: String, changes: [CharacterChange]) {
+        self.text = text
+        straightened = CharacterChange.distinct(changes, .straightened)
+        transliterated = CharacterChange.distinct(changes, .transliterated)
+        replaced = CharacterChange.distinct(changes, .replaced)
+    }
+
+    /// The notices the parser records for these changes: one per noticed kind.
+    public var notices: [RepairNotice] {
+        RepairNotice.characters(transliterated: transliterated, replaced: replaced)
     }
 }
 
-/// Admitted text as Latin-1 code units, which is how the parser reads it.
-struct Latin1Text {
+/// A file's text as `CharacterPolicy.fileText` leaves it, as UTF-8, which is how the parser
+/// reads it.
+struct ScannedText {
     var bytes: [UInt8]
     /// In text order.
-    var replacements: [Replacement]
+    var changes: [CharacterChange]
 }
 
-/// A character `CharacterPolicy` replaced with `[?]`, and the line (counted from 0) it was on.
-struct Replacement: Hashable {
+/// A character `CharacterPolicy` changed, how, and the line (counted from 0) it was on.
+struct CharacterChange: Hashable {
+    enum Kind: Hashable {
+        /// Spelled in ASCII by the transliteration table, silently.
+        case straightened
+        /// Spelled in ASCII by the table, with a notice.
+        case transliterated
+        /// Replaced with `[?]`.
+        case replaced
+    }
+
     let line: Int
     let scalar: Unicode.Scalar
+    let kind: Kind
+
+    /// The characters of `changes` changed as `kind`, each once, in order of first appearance.
+    static func distinct(_ changes: [CharacterChange], _ kind: Kind) -> [Unicode.Scalar] {
+        CharacterPolicy.distinct(changes.filter { $0.kind == kind }.map(\.scalar))
+    }
 }
 
 /// Bytes to text, before `CharacterPolicy` (book format §1.2, steps 1 and 2).
@@ -215,6 +262,9 @@ public struct DecodedText: Hashable, Sendable {
 /// stored as a `[notice]` error entry until the writer dismisses it.
 public enum RepairNotice: Hashable, Sendable {
     case invalidUTF8(byteCount: Int)
+    /// Characters the transliteration table spelled in ASCII.
+    case transliteratedCharacters([Unicode.Scalar])
+    /// Characters with no entry in the table, which became `[?]`.
     case replacedCharacters([Unicode.Scalar])
     case missingTitle
     case missingFormat
@@ -233,8 +283,11 @@ public enum RepairNotice: Hashable, Sendable {
         switch self {
         case .invalidUTF8(let count):
             "Some of this file wasn't valid UTF-8: \(count) byte(s) were read as Windows-1252 characters."
+        case .transliteratedCharacters(let scalars):
+            "Characters outside plain ASCII were changed to their nearest ASCII: "
+                + scalars.map(Self.codePoint).joined(separator: ", ") + "."
         case .replacedCharacters(let scalars):
-            "Characters Scene It can't store were replaced with [?]: "
+            "Characters with no ASCII form were replaced with [?]: "
                 + scalars.map(Self.codePoint).joined(separator: ", ") + "."
         case .missingTitle: "The book had no title, so it was called \"\(BookFormat.untitled)\"."
         case .missingFormat: "The file had no format line; it was read as format 2."
@@ -256,25 +309,33 @@ public enum RepairNotice: Hashable, Sendable {
     }
 }
 
-/// Latin-1 code units: what admitted text is made of.
-enum Latin1 {
+extension RepairNotice {
+    /// One notice per kind of change `CharacterPolicy` made, if it made any.
+    static func characters(transliterated: [Unicode.Scalar], replaced: [Unicode.Scalar]) -> [RepairNotice] {
+        (transliterated.isEmpty ? [] : [.transliteratedCharacters(transliterated)])
+            + (replaced.isEmpty ? [] : [.replacedCharacters(replaced)])
+    }
+
+    /// The notices for the characters one part of the file had changed, if any.
+    static func characters(_ changes: [CharacterChange]) -> [RepairNotice] {
+        characters(
+            transliterated: CharacterChange.distinct(changes, .transliterated),
+            replaced: CharacterChange.distinct(changes, .replaced))
+    }
+}
+
+/// ASCII code units: what admitted text is made of.
+enum ASCII {
     static let newline = UInt8(ascii: "\n")
     static let space = UInt8(ascii: " ")
     static let backslash = UInt8(ascii: "\\")
 
-    /// The code units of text `CharacterPolicy` admitted, every scalar of which is Latin-1.
+    /// The code units of text `CharacterPolicy` admitted.
     static func bytes(_ admitted: String) -> [UInt8] {
-        admitted.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }
+        Array(admitted.utf8)
     }
 
     static func string(_ bytes: ArraySlice<UInt8>) -> String {
-        if bytes.allSatisfy({ $0 < 0x80 }) {
-            return String(decoding: bytes, as: UTF8.self)
-        }
-        var scalars = String.UnicodeScalarView()
-        for byte in bytes {
-            scalars.append(Unicode.Scalar(byte))
-        }
-        return String(scalars)
+        String(decoding: bytes, as: UTF8.self)
     }
 }

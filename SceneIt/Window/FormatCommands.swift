@@ -2,10 +2,11 @@ import SceneItCore
 import SwiftUI
 
 /// The Format menu (PLAN §11): Bold, Italic, Strikethrough, Text Color ▸ and Highlight ▸,
-/// performing the same `FormattingCommand`s as the control bar. The selection's color and
+/// performing the same `FormattingCommand`s as the control bars, on the editor that has the
+/// focus, the page or the notes. The selection's color and
 /// highlight are checked in their submenus; a selection of several has no check.
 struct FormatCommands: Commands {
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
 
     var body: some Commands {
         CommandMenu(WindowWording.formatMenu) {

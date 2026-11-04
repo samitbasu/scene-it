@@ -183,11 +183,80 @@ struct ErrorsTabTests {
             #expect(actions.allSatisfy { $0.isEnabled })
             let deleteLine = try #require(actions.dropFirst().first)
             deleteLine.performClick(nil)
+            #expect(
+                (window.firstResponder as? UndoFocusView)?.focus == .errorsTab,
+                "Delete gives the tab the focus, so Undo then undoes the deletion")
             #expect(book.book.errors.isEmpty, "the book-level line went")
             #expect(book.book.errorCount == 1)
             #expect(book.status == .unsaved, "the deletion reached autosave")
-            book.structureUndo.undo()
+            book.errorsUndo.undo()
             #expect(book.book.errorCount == 2)
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
+    /// After a deletion the tab keeps the focus, ringed, and Undo undoes the deletion from
+    /// the tab's own history; the Scenes sheet and the page never reach it, and Esc goes back
+    /// to the page.
+    @Test func afterDeletingAnEntryTheTabKeepsTheFocusAndUndoesItsOwnHistory() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            _ = await store.open(try package(damaged, in: folder))
+            let book = try #require(store.current)
+            #expect(await store.makeEditable() == .editable)
+            books.preferences.showRightPanelTab(.errors)
+            let modes = ModeBox()
+            let window = try await host(
+                BookWindowWithMode(book: book, store: store, preferences: books.preferences, box: modes))
+            defer { window.close() }
+            let routers = views(in: window.contentView).compactMap {
+                ($0 as? UndoRouterWindow.WindowView)?.router
+            }
+            let router = try #require(routers.first)
+            let page = try #require(
+                views(in: window.contentView).compactMap { $0 as? ManuscriptTextView }.first)
+            let scene = try #require(book.openScene)
+            #expect(window.makeFirstResponder(page))
+            window.update()
+            #expect(router.manager === book.pageUndo(for: scene))
+
+            // What the tab's Delete does (deleteActsOnTheBookOnlyOnceItsEditable clicks it).
+            let tabs = views(in: window.contentView).compactMap { $0 as? UndoFocusView }
+            let tab = try #require(tabs.first { $0.focus == .errorsTab })
+            tab.takeFocus()
+            #expect(book.deleteError(try #require(book.book.errorGroups.first?.refs.first)))
+            #expect(book.book.errorCount == 1)
+            window.update()
+            #expect(tab.hasFocus && tab.showsFocusRing, "the tab keeps the focus, and shows it")
+            #expect(router.stack == .errors)
+            #expect(router.state.undo == "Undo \(ErrorsWording.deleteUndoName)")
+            #expect(!book.structureUndo.canUndo, "the Errors tab's history is its own")
+
+            router.undo()
+            #expect(book.book.errorCount == 2, "the entry is back")
+            #expect(
+                router.state.redo == "Redo \(ErrorsWording.deleteUndoName)", "at once, without another event")
+            router.redo()
+            #expect(book.book.errorCount == 1)
+
+            modes.mode = .scenes
+            await eventually { window.firstResponder is UndoFocusView && router.mode == .scenes }
+            window.update()
+            #expect(router.manager === book.structureUndo)
+            #expect(router.state == .nothing, "the Scenes sheet doesn't undo a deletion it doesn't show")
+            router.undo()
+            #expect(book.book.errorCount == 1)
+            modes.mode = .page
+            await eventually { router.mode == .page }
+
+            tab.takeFocus()
+            window.update()
+            #expect(router.stack == .errors)
+            tab.cancelOperation(nil)
+            #expect(window.firstResponder === page, "Esc goes back to the page")
+            window.update()
+            #expect(router.manager === book.pageUndo(for: scene), "and Undo to the page's history")
             #expect(await store.closeBook() == .left)
         }
     }

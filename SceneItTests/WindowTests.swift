@@ -55,6 +55,35 @@ struct SceneTitleFieldTests {
         }
     }
 
+    /// ADR 0028: the title has no input method, and what reaches it is spelled in ASCII.
+    @Test func theTitleFieldTakesOnlyWhatThePolicyAdmits() async throws {
+        try await withTemporaryFolder { folder in
+            let store = BookController(role: .testHost).store
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+
+            let window = try await hostOffscreen(SceneTitleField(book: book, scene: scene))
+            defer { window.close() }
+            let fields = textFields(in: window.contentView).filter(\.isEditable)
+            try #require(fields.count == 1, "one editable field, the title")
+            #expect(window.makeFirstResponder(fields[0]))
+            let editor = try #require(fields[0].currentEditor() as? NSTextView)
+            #expect(editor.inputContext == nil)
+            editor.insertText(
+                "Caf\u{E9} \u{201C}Ren\u{E9}e\u{201D}", replacementRange: editor.selectedRange())
+            #expect(book.book.scene(scene)?.title == "Cafe \"Renee\"")
+            #expect(editor.string == "Cafe \"Renee\"")
+            editor.setMarkedText(
+                " \u{65E5}", selectedRange: NSRange(location: 2, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(!editor.hasMarkedText())
+            #expect(book.book.scene(scene)?.title == "Cafe \"Renee\" [?]")
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     /// ADR 0024 through the app's store: a book repaired as it opened is read-only (the test
     /// host's alerts answer Keep Read-Only), and Make Editable makes the page editable.
     @Test func aDamagedBookOpensReadOnlyAndMakeEditableLetsTheWriterType() async throws {

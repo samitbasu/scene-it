@@ -33,9 +33,35 @@ import Testing
         let body = ParagraphRole.body.paragraphStyle
         #expect(body.lineHeightMultiple == 2)
         #expect(body.firstLineHeadIndent == 36)
-        for role in [ParagraphRole.title, .notes] {
-            #expect(role.paragraphStyle == NSParagraphStyle.default)
+        #expect(ParagraphRole.title.paragraphStyle == NSParagraphStyle.default)
+        let notes = ParagraphRole.notes.paragraphStyle
+        #expect(notes.paragraphSpacing == 6, "6 pt between the notes' paragraphs (#19)")
+        let single = NSMutableParagraphStyle()
+        single.paragraphSpacing = 6
+        #expect(notes == single, "and otherwise single-spaced, with no indent")
+    }
+
+    /// The notes as shown, gap included, save exactly as the same text shown without it.
+    @Test func theNotesParagraphGapLeavesWhatIsSavedUnchanged() throws {
+        let notes: [Paragraph] = [[Run("One", styles: [.bold])], [Run("Two", color: .red)]]
+        let shown = RunCodec.attributedString(forNotes: notes)
+        let ungapped = NSMutableAttributedString(attributedString: shown)
+        ungapped.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: ungapped.length))
+        func gap(_ text: NSAttributedString) -> CGFloat? {
+            (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+                .paragraphSpacing
         }
+        #expect(gap(shown) == 6, "precondition: the notes show the gap")
+        #expect(gap(ungapped) == nil, "precondition: the other has none")
+        var ids = IDGenerator<SystemRandomNumberGenerator>.system
+        let id = ids.sceneID()
+        func saved(_ text: NSAttributedString) throws -> Data {
+            let scene = BookScene(
+                id: id, modified: Timestamp(secondsSince1970: 1_700_000_000, offset: .zero), title: "One",
+                notes: RunCodec.notes(from: text))
+            return try BookFormat.verifiedSerialization(of: Book(title: "Novel", scenes: [scene]))
+        }
+        #expect(try saved(shown) == saved(ungapped))
     }
 
     @Test(arguments: [(Editor.body, ParagraphRole.body), (.notes, .notes)])

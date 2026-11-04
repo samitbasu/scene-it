@@ -23,7 +23,7 @@ The ferry left at dawn, and Mara watched the harbor lights go out one by one beh
 ### Unparsed
 - [comments] - c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | "harbor lights" | Too pretty?
 - [comments] - c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | "ferry left" | Wrong range.
-- [notice] Characters Scene It can't store were replaced with [?]: U+1F30A.
+- [notice] Characters with no ASCII form were replaced with [?]: U+1F30A.
 
 ## Arrival
 id: id-A0

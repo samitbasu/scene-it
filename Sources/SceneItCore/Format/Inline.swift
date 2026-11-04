@@ -40,6 +40,22 @@ struct StyleBits: OptionSet, Hashable {
 struct StyledText: Equatable {
     var text: [UInt8] = []
     var styles: [StyleBits] = []
+
+    /// Book format §1.2 step 7, once the markup is read: each character outside printable
+    /// ASCII spelled by the table in the styles it was read with, so what it becomes (`*`
+    /// for a bullet, `~` for a small tilde) is text, never markup.
+    func transliterated() -> StyledText {
+        guard !text.allSatisfy({ (0x20...0x7E).contains($0) }) else { return self }
+        var result = StyledText()
+        var offset = 0
+        for scalar in String(decoding: text, as: UTF8.self).unicodeScalars {
+            let ascii = CharacterPolicy.transliterated(Array(scalar.utf8))
+            result.text += ascii
+            result.styles += repeatElement(styles[min(offset, styles.count - 1)], count: ascii.count)
+            offset += scalar.utf8.count
+        }
+        return result
+    }
 }
 
 /// Book format §3: paragraphs and inline markup, read and written.
@@ -49,7 +65,7 @@ enum Inline {
     static func read(_ lines: [[UInt8]]) -> StyledText {
         if !lines.contains(where: hasMarkup) {
             let text = Array(lines.joined(separator: [Lexical.space]))
-            return StyledText(text: text, styles: Array(repeating: [], count: text.count))
+            return StyledText(text: text, styles: Array(repeating: [], count: text.count)).transliterated()
         }
         var characters: [UInt8] = []
         var escaped: [Bool] = []
@@ -74,7 +90,7 @@ enum Inline {
                 }
             }
         }
-        return styled(characters, escaped)
+        return styled(characters, escaped).transliterated()
     }
 
     /// Whether a line holds anything §3.3–§3.4 treat specially; most prose doesn't.

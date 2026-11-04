@@ -12,6 +12,7 @@ enum WindowMetrics {
     /// wide, never shorter than this, growing as the text does.
     static let pageSize = CGSize(width: 612, height: 792)
     static let pageMargin: CGFloat = 72
+    static let textColumnWidth = pageSize.width - 2 * pageMargin
     static let deskPadding: CGFloat = 28
     /// The page's shadow on the desk: its opacity, blur radius and downward offset.
     static let pageShadow = (opacity: 0.12, radius: CGFloat(3), drop: CGFloat(1))
@@ -37,12 +38,19 @@ enum WindowMetrics {
         static let highlightTile: CGFloat = 18
         static let swatchSize: CGFloat = 18
     }
+    enum Notes {
+        /// Between the panel's edges and the notes' text.
+        static let padding = CGSize(width: 14, height: 12)
+    }
     static let statusBarHeight: CGFloat = 26
     static let titleStripPadding: CGFloat = 10
     /// Between the title's label and its field.
     static let titleLabelGap: CGFloat = 10
     static let deskColor = Color(red: 0.89, green: 0.89, blue: 0.87)
     static let bannerHeight: CGFloat = 44
+    /// The ring around the Errors tab while it has the keyboard focus.
+    static let focusRingWidth: CGFloat = 3
+    static let focusRingRadius: CGFloat = 6
     /// The mockup's read-only banner (13-read-only-filed-copy.png).
     static let bannerColor = Color(red: 0.99, green: 0.95, blue: 0.84)
 

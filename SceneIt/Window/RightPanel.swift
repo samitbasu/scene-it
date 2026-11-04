@@ -3,10 +3,12 @@ import SwiftUI
 
 /// The right panel (PLAN §4.4): one tab per `RightPanelTab`, collapsible to a thin strip. Its
 /// open state and tab are app preferences (ADR 0022), so changing them never edits the book.
-/// The Comments, Notes and Tags tabs' contents arrive with #19, #20 and #25.
+/// The Comments and Tags tabs' contents arrive with #20 and #25.
 struct RightPanel: View {
     let book: AppOpenBook
     let preferences: AppPreferences
+    let formatting: EditorFormatting
+    let editors: SceneEditors
 
     var body: some View {
         let errorCount = book.book.errorCount
@@ -41,10 +43,10 @@ struct RightPanel: View {
                 .padding(.horizontal, 12)
                 .frame(height: WindowMetrics.barHeight)
                 Divider()
-                if selected == .errors {
-                    ErrorsTab(book: book)
-                } else {
-                    Spacer()
+                switch selected {
+                case .errors: ErrorsTab(book: book)
+                case .notes: NotesTab(book: book, formatting: formatting, editors: editors)
+                case .comments, .tags: Spacer()
                 }
             }
             .frame(width: WindowMetrics.panelWidth)
@@ -100,6 +102,30 @@ private struct PanelTabs: View {
                     }
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// The open scene's notes under their compact formatting bar (PLAN §8.2).
+private struct NotesTab: View {
+    let book: AppOpenBook
+    let formatting: EditorFormatting
+    let editors: SceneEditors
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                FormattingBar(formatting: formatting, part: .notes)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: WindowMetrics.barHeight)
+            Divider()
+            if let scene = book.location.scene {
+                NotesView(book: book, editors: editors, scene: scene.id, notes: scene.notes)
+            } else {
+                Spacer()
             }
         }
     }
