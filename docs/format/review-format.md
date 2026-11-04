@@ -1,6 +1,6 @@
 # Scene It review formats: the review copy, `<name>.review.md`, and Copy/Save Review
 
-**Status:** Draft for the owner's review (issue #78). Implements [ADR 0029](../decisions/0029-review-round-trip.md),
+**Status:** Draft (issue #78), revised with the owner's decisions on its questions (2026-11-03, §9). Implements [ADR 0029](../decisions/0029-review-round-trip.md),
 which is binding. It builds on the [book format](book-format.md), whose lexical rules, entries, Unparsed sections,
 never-fail rule and canonical form it **reuses by reference**. Where this document doesn't restate a rule, the book
 format's rule applies unchanged.
@@ -13,10 +13,10 @@ It covers four things:
 3. **Copy Review** (§5–§6): the HTML and plain text put on the clipboard.
 4. **Save Review…** (§7): the standalone `.html` file with working checkboxes.
 
-§8 is a complete worked example, §9 the open questions, and the appendix holds corpus-style test cases.
+§8 is a complete worked example, §9 the owner's decisions, and the appendix holds corpus-style test cases.
 
 **Conventions.** Those of the book format (its "Conventions" box): **†** marks a rule this document adds, and every †
-rule here is a **proposal awaiting the owner** (§9). `␠` is a space, `⏎` the end of a line. "Book format §n" refers
+rule here was decided by the owner (§9). `␠` is a space, `⏎` the end of a line. "Book format §n" refers
 to [book-format.md](book-format.md). Text is **strict ASCII** ([ADR 0028](../decisions/0028-strict-ascii-no-input-methods.md)):
 both files are read through the book format's §1.2 pipeline as ADR 0028 amends it (issue #74), so after reading, one
 character is one byte and offsets count bytes. The outputs of §5–§7 are the only place non-ASCII characters appear
@@ -30,11 +30,11 @@ character is one byte and offsets count bytes. The outputs of §5–§7 are the 
 2. [The review copy](#2-the-review-copy)
 3. [The review file (`<name>.review.md`)](#3-the-review-file-namereviewmd)
 4. [How a review finds its copy](#4-how-a-review-finds-its-copy)
-5. [Copy Review: content, context windows and typography](#5-copy-review-content-context-windows-and-typography)
+5. [Copy Review: content, quoted paragraphs and typography](#5-copy-review-content-quoted-paragraphs-and-typography)
 6. [Copy Review: the HTML and plain-text layouts](#6-copy-review-the-html-and-plain-text-layouts)
 7. [Save Review…: the standalone `.html`](#7-save-review-the-standalone-html)
 8. [Worked example](#8-worked-example)
-9. [Open questions for the owner](#9-open-questions-for-the-owner)
+9. [Decisions](#9-decisions)
 - [Appendix: corpus-style cases](#appendix-corpus-style-cases)
 
 ---
@@ -45,7 +45,7 @@ character is one byte and offsets count bytes. The outputs of §5–§7 are the 
 | --- | --- | --- | --- |
 | `My Novel.md`, the **review copy** | The author's Scene It (Export as SceneIt…) | The chosen scenes' titles, ids and text, with bold, italic and strikethrough | **Never** after export. The reviewer's Scene It only reads it. |
 | `My Novel.review.md`, the **review file** | The reviewer's Scene It (autosave) | The reviewer's comments (anchored to the copy's text) and notes | On every autosave, with the book's safe-save rules |
-| Clipboard HTML + plain text | Copy Review | Per scene: ☐ comment items with their passage in context, then notes | — |
+| Clipboard HTML + plain text | Copy Review | Per scene: ☐ comment items, each quoting the passage's paragraph with the passage marked, then notes | — |
 | `My Novel review.html` | Save Review… | The same content, with real checkboxes | — |
 
 The copy and the review file are both tolerant Markdown in the book format's dialect. The copy **is** a book-format
@@ -144,7 +144,6 @@ title: My Novel
 format: 1
 copy: 01JDB2C7Q9X4M8T6V3N5R1K0PZ
 id: 01JDD8WQ4K7M2N9P3R5S6T8V0X
-reviewer: Jo Park
 ---
 
 ### Notes
@@ -185,10 +184,12 @@ wins, unknown or duplicate keys are `[front matter]` entries).
 | `format` | A decimal integer, read as book format §1.5 reads it; the current review format is **1** | Missing: read as 1, plus a notice. Not 1: read as 1, plus a notice; **newer than 1 opens read-only** with no way to make it editable, as ADR 0024 does for books. Not an integer: a `[front matter]` entry, then missing. |
 | `copy` † | An id (book format §2.2's character set): the **export id** of the copy this reviews | A notice; the review is taken to be the review of the copy it was opened with (§4.1 step 3), and the next save writes that copy's export id. Bad: a `[front matter]` entry, then the same. |
 | `id` † | An id: the **review id**, a ULID made when the review file is created. It keys the standalone page's ticks (§7.3), so two reviewers of one copy never share them. | A fresh ULID, plus a notice. |
-| `reviewer` † | Free text, field-unescaped (book format §4.1); the reviewer's name (§9 Q10) | No name, silently. Omitted when empty. |
 
-**Written as:** `---⏎title: <title>⏎format: 1⏎copy: <export id>⏎id: <review id>⏎reviewer: <name>⏎---⏎`, with the
-`reviewer` line left out when there's no name. Title and name are field-escaped as book format §1.5 escapes the title.
+Reviews are **anonymous** (§9 Q10): there's no key for the reviewer's name, so a `reviewer:` line typed by hand is an
+unknown key, a `[front matter]` entry, like any other.
+
+**Written as:** `---⏎title: <title>⏎format: 1⏎copy: <export id>⏎id: <review id>⏎---⏎`. The title is field-escaped as
+book format §1.5 escapes it.
 
 ### 3.3 The preamble: general notes †
 
@@ -329,7 +330,7 @@ A scene with nothing in it isn't written; one with only notes has no Comments bl
 | --- | --- |
 | A section title that differs from the copy's | The copy's title |
 | Sections in any order; two sections for one scene; a section with nothing in it | Story order; one; omitted |
-| Front-matter keys in another order; a `title` that differs from the copy's | `title`, `format`, `copy`, `id`, `reviewer`; the copy's title |
+| Front-matter keys in another order; a `title` that differs from the copy's | `title`, `format`, `copy`, `id`; the copy's title |
 
 **Save verification** is book format §7.2 with the copy as context: let `b = serialize(review, copy)` and
 `p = parse(b, copy)`. The save may proceed only if `p`'s error entries are exactly the review's, `p` is the review
@@ -355,8 +356,7 @@ lock rules are the book's (ADR 0005, 0020, 0029); their placement for a file out
    their comments, and nothing is lost by guessing wrong: Make Editable keeps the original.
 4. **Otherwise** this is a new review. Nothing is written until the reviewer's first comment or note; then the review
    file is created as `X.review.md`, or, if that name is taken (by the review of a different copy, §4.3), as
-   `X-2.review.md`, `X-3.review.md`, …: the first free name. Its review id is made then, and its `reviewer` is the
-   reviewer's name (§9 Q10).
+   `X-2.review.md`, `X-3.review.md`, …: the first free name. Its review id is made then.
 
 Reopening the copy finds the same review file by step 2, so the review resumes.
 
@@ -389,78 +389,59 @@ another match. If not, an alert says the copy it belongs to must be in the same 
 
 ---
 
-## 5. Copy Review: content, context windows and typography
+## 5. Copy Review: content, quoted paragraphs and typography
 
 Copy Review, Save Review… and the plain text all render one **report**, built once from the review and its copy,
 and then written three ways (§6, §7). That keeps them from disagreeing.
 
 ### 5.1 What the report contains, in order
 
-1. **The header:** the copy's book title, the reviewer's name (if any) and the date Copy Review was chosen, in the
-   local time zone.
+1. **The header:** the copy's book title and the date Copy Review was chosen, in the local time zone. Reviews are
+   anonymous: the report never names the reviewer (§9 Q10).
 2. **General notes**, if any (§3.3).
 3. **Each scene**, in the copy's story order, that has at least one comment or a note. Scenes with neither are left
    out. For each:
    1. its **title** (an empty title is shown as `(untitled scene)`);
    2. its **comments as ☐ items**: anchored comments ordered by the start of their first range, then by the end of
-      their last, then model order; then detached comments in model order. An anchored item is the passage in its
-      context window (§5.2), then the comment's text. A detached item is the comment's text alone. A comment with
+      their last, then model order; then detached comments in model order. An anchored item is its quoted
+      paragraph with the passage marked (§5.2), then the comment's text. A detached item is the comment's text alone. A comment with
       empty text shows only its passage;
    3. its **notes**, if any.
 
-Error entries are never included. The report holds no manuscript text beyond each comment's window, which §5.2
-bounds. Copy Review is disabled when the report would have no general notes and no scene.
+Error entries are never included. The report holds no manuscript text beyond the paragraphs its comments quote
+(§5.2). Copy Review is disabled when the report would have no general notes and no scene.
 
-### 5.2 The context window †
+### 5.2 The quoted paragraph
+
+An anchored item quotes **the whole paragraph** the passage is in, with the passage marked (§9 Q11). There's no sentence rule, no character cap and no ellipsis.
 
 For an anchored comment, let `T` be the copy scene's body plain text (book format §3.6) and `[s, e)` the **hull** of
 the comment's ranges: `s` the smallest start, `e` the largest end. (A review's comments normally have one range; the
-text between ranges of a hand-made list is shown as passage too.)
+text between ranges of a hand-made list is marked as passage too.)
 
-**Constants** (§9 Q11): `CONTEXT_MAX = 60`, `PASSAGE_MAX = 160`, `PASSAGE_HEAD = 80`, `PASSAGE_TAIL = 60`.
+- **The quoted text** is `T[ps ..< pe]`: `ps` is the index just after the last `\n` before `s` (or 0), and `pe` is the
+  index of the first `\n` at or after `e` (or the length of `T`). So it's the paragraph holding the passage, or, for a
+  passage that spans paragraphs, every paragraph from the first it touches to the last.
+- It's shown in three pieces: **before** `T[ps ..< s]`, the **passage** `T[s ..< e]`, and **after** `T[e ..< pe]`.
+  Either outer piece may be empty.
+- **How the passage is marked:** in HTML, the passage is in a span with a yellow background and the before and after
+  pieces in gray spans (§6.2); in plain text, the passage is enclosed in square brackets, `[` and `]` (§6.3).
+- A `\n` inside the quoted text (a passage spanning paragraphs) is shown as ` ¶ ` (space, U+00B6, space).
+- Styles (bold, italic, strikethrough) are the copy's, character by character, in all three pieces.
+- **Several comments on one paragraph each quote it in full**, each with its own passage marked: every item stands on
+  its own, so the author can tick them off one by one.
 
-**Paragraph bounds.** `ps` is the index just after the last `\n` before `s` (or 0). `pe` is the index of the first
-`\n` at or after `e` (or the length of `T`). Context never crosses a paragraph break; a passage may.
-
-**Sentence ends.** An index `j` with `ps < j ≤ pe` is a *sentence end* if `j = pe`, or if all of these hold:
-
-1. `T[j]` is a space;
-2. going back from `T[j−1]` over closers (`"` `'` `)` `]`), the first other character is `.`, `!` or `?`;
-3. that character isn't a `.` ending one of the words `Mr` `Mrs` `Ms` `Dr` `St` `Jr` `Sr` (case-sensitive, the word
-   being the maximal run of ASCII letters before the `.`, with no `.` directly before the `.`);
-4. the first non-space character after `j` isn't a lowercase ASCII letter (so `the house... it had` and `"Come in!"
-   she said` aren't ends).
-
-**Long passages.** If `e − s > PASSAGE_MAX`, there's no context. The passage is shown as its head and tail: the head
-is `T[s ..< a]`, where `a` starts at `s + PASSAGE_HEAD` and moves left until `T[a]` is a space (or reaches `s`); the
-tail is `T[b ..< e]`, where `b` starts at `e − PASSAGE_TAIL` and moves right until `T[b−1]` is a space (or reaches
-`e`). They're joined by ` … ` (space, U+2026, space).
-
-**Otherwise:**
-
-1. **Left context** is `T[L ..< s]`. `L` is the largest sentence end `j ≤ s` with `j < pe`, or `ps` if there's none;
-   then `L` moves right past spaces, but not beyond `s`.
-2. **Right context** is `T[e ..< R]`. `R` is the smallest sentence end `j ≥ e` (`pe` always is one).
-3. **Left cap.** If `s − L > CONTEXT_MAX`: `L` becomes `s − CONTEXT_MAX`, and if `T[L−1]` isn't a space (the cut is
-   inside a word), `L` moves just past the next space before `s` (or to `s` if there's none). The left context is then
-   prefixed with `…`.
-4. **Right cap.** If `R − e > CONTEXT_MAX`: `R` becomes `e + CONTEXT_MAX`, and if `T[R]` isn't a space, `R` moves back
-   to the last space after `e` (or to `e`); then back over spaces, not before `e`. The right context is then followed
-   by `…`.
-
-A `\n` inside the passage (it spans paragraphs) is shown as ` ¶ ` (space, U+00B6, space). Styles (bold, italic,
-strikethrough) are the copy's, character by character, in the context and the passage alike.
-
-Worked windows are in the appendix (C2).
+The output therefore holds no manuscript text outside the paragraphs that have comments. Examples are in the appendix
+(C2).
 
 ### 5.3 Typographic smartening †
 
 ADR 0029: the output's typography is smartened. Everything stored is ASCII (ADR 0028), so this runs on output only,
-over each **unit**: the book title, the reviewer's name, a scene title, a body paragraph (before its window is cut), a
-comment's text, a notes paragraph.
+over each **unit**: the book title, a scene title, a body paragraph (before it's split into pieces), a comment's
+text, a notes paragraph.
 
-**Quotes are decided on the whole unit**, left to right, so a quote's direction doesn't depend on where a window cut
-it. For the character at `i`, `prev` is `T[i−1]` (none at the start) and `next` is `T[i+1]` (none at the end); a `\n`
+**Quotes are decided on the whole unit**, left to right, so a quote's direction doesn't depend on where the passage
+starts or ends. For the character at `i`, `prev` is `T[i−1]` (none at the start) and `next` is `T[i+1]` (none at the end); a `\n`
 counts as a space. Call `i` an **opening position** if `prev` is none, a space, `(`, `[`, `{`, `-` or `/`, or a quote
 already made opening (`“` or `‘`), **and** `next` exists and isn't a space.
 
@@ -472,8 +453,8 @@ already made opening (`“` or `‘`), **and** `next` exists and isn't a space.
 | `'` at any other opening position | `‘` (U+2018) |
 | `'` anywhere else | `’` |
 
-**Dashes and ellipses are replaced within each piece** of the output (a left context, a passage, a right context, or
-a whole unit when nothing is cut), and within each run of one style in it:
+**Dashes and ellipses are replaced within each piece** of the output (the before, passage and after pieces of a
+quoted paragraph, §5.2, or a whole unit when it isn't split), and within each run of one style in it:
 
 | Run of characters | Becomes |
 | --- | --- |
@@ -507,12 +488,12 @@ Where `GRAY` is `#666666` and `MARK` is `#FFF2A8`:
 ```html
 <div style="font-family:Georgia,serif;font-size:16px;line-height:1.5;color:#222222;">
 <p style="margin:0 0 4px 0;font-size:22px;font-weight:bold;">Review of BOOK TITLE</p>
-<p style="margin:0 0 24px 0;color:GRAY;">REVIEWER &#x00B7; DATE</p>
+<p style="margin:0 0 24px 0;color:GRAY;">DATE</p>
 <p style="margin:0 0 8px 0;font-size:18px;font-weight:bold;">General notes</p>
 <p style="margin:0 0 8px 0;">GENERAL NOTES PARAGRAPH</p>
 <p style="margin:24px 0 8px 0;font-size:18px;font-weight:bold;">SCENE TITLE</p>
 <div style="margin:0 0 16px 0;">
-<p style="margin:0;">&#x2610; <span style="color:GRAY;">LEFT</span><span style="background-color:MARK;">PASSAGE</span><span style="color:GRAY;">RIGHT</span></p>
+<p style="margin:0;">&#x2610; <span style="color:GRAY;">BEFORE</span><span style="background-color:MARK;">PASSAGE</span><span style="color:GRAY;">AFTER</span></p>
 <p style="margin:4px 0 0 28px;">COMMENT</p>
 </div>
 <div style="margin:0 0 16px 0;">
@@ -525,10 +506,10 @@ Where `GRAY` is `#666666` and `MARK` is `#FFF2A8`:
 
 | Part | Rule |
 | --- | --- |
-| Header | `Review of ` + the book title. The second line is the reviewer's name, ` &#x00B7; ` (a middle dot) and the date; with no name, just the date. The date is `MMMM d, yyyy` in English: `November 4, 2026` (§9 Q12). |
+| Header | `Review of ` + the book title. The second line is the date, `MMMM d, yyyy` in English: `November 4, 2026` (§9 Q12). No reviewer name (§9 Q10). |
 | General notes | The `General notes` line and one `p` per paragraph; left out when there are none. An empty paragraph is `<p style="margin:0 0 8px 0;"><br></p>`. |
 | Scene | The title line, then one `div` per item, then (if the scene has notes) the `Notes` line and one `p` per notes paragraph. |
-| Anchored item | `&#x2610; ` (☐, U+2610, and a space), then the left context in a `GRAY` span, the passage in a `MARK` span and the right context in a `GRAY` span. An empty context has no span. The `…` that marks a cut context is inside its span. The comment `p` is left out when the comment text is empty. |
+| Anchored item | `&#x2610; ` (☐, U+2610, and a space), then the quoted paragraph (§5.2): its before piece in a `GRAY` span, the passage in a `MARK` span and its after piece in a `GRAY` span. An empty piece has no span. The comment `p` is left out when the comment text is empty. |
 | Detached item | One `p`: `&#x2610; ` and the comment text. |
 | Styled text | Within a span or paragraph, each maximal run of one style is wrapped, outermost first, in `<b>`, `<i>` and `<span style="text-decoration:line-through;">`. |
 | Comment text | A newline in it (`\n` in the file) is `<br>`. |
@@ -536,12 +517,12 @@ Where `GRAY` is `#666666` and `MARK` is `#FFF2A8`:
 
 ### 6.3 The plain-text layout
 
-The same report as UTF-8 text, `\n` line endings, a final `\n`, no hard wrapping. Styles are dropped, and the passage
-is marked by square brackets (§9 Q12).
+The same report as UTF-8 text, `\n` line endings, a final `\n`, no hard wrapping. Styles are dropped, and in each quoted
+paragraph the passage is marked by square brackets (§5.2).
 
 ```
 Review of BOOK TITLE
-REVIEWER · DATE
+DATE
 
 General notes
 -------------
@@ -551,7 +532,7 @@ GENERAL NOTES PARAGRAPH
 SCENE TITLE
 -----------
 
-☐ LEFT[PASSAGE]RIGHT
+☐ BEFORE[PASSAGE]AFTER
     COMMENT
 
 ☐ DETACHED COMMENT
@@ -697,7 +678,7 @@ characters (78, `\n`, 154); `the house` is `c195-204`.
 
 ### 8.2 The review file, `My Novel.review.md`
 
-Jo Park reviewed it: three comments (one detached, a comment on the scene as a whole), general notes, and notes on
+The reviewer wrote three comments (one detached, a comment on the scene as a whole), general notes, and notes on
 *Arrival*.
 
 ```markdown
@@ -706,7 +687,6 @@ title: My Novel
 format: 1
 copy: 01JDB2C7Q9X4M8T6V3N5R1K0PZ
 id: 01JDD8WQ4K7M2N9P3R5S6T8V0X
-reviewer: Jo Park
 ---
 
 ### Notes
@@ -732,15 +712,8 @@ The arrival is *strong*. I'd keep the suitcase.
 It's canonical: parsing it against §8.1 and serializing gives the same bytes, with no error entries. Note that both
 scenes have a `c1`: comment ids are per scene.
 
-The windows:
-
-- *The ferry* `c1`: the sentence starts at the paragraph start (45 characters before the passage) and ends at the
-  paragraph end (30 after), both within `CONTEXT_MAX`, so the whole sentence shows, with no `…`.
-- *Arrival* `c1`: there's no sentence end in the paragraph before the passage, so the sentence starts at the
-  paragraph start, offset 79: 116 characters before `s` = 195, more than `CONTEXT_MAX`. So `L` becomes
-  `195 − 60 = 135`; `T[134]` is the `s` of `suitcase`, inside a word, so `L` moves past the next space (offset 136)
-  to 137, the start of `that`, and the context gets a `…`. On the right, `house... it` isn't a sentence end (the next
-  word is lowercase), so `R` is the paragraph end, 233, 29 characters on, uncut.
+The quoted paragraphs: *The ferry* `c1` quotes its scene's first paragraph (offsets 0–88), and *Arrival* `c1` its
+scene's second (79–233), each in full, with the passage marked.
 
 The outputs below are the rules' exact result, computed by a reference sketch of §5.2–§5.3.
 
@@ -751,7 +724,7 @@ Copied on November 4, 2026:
 ```html
 <div style="font-family:Georgia,serif;font-size:16px;line-height:1.5;color:#222222;">
 <p style="margin:0 0 4px 0;font-size:22px;font-weight:bold;">Review of My Novel</p>
-<p style="margin:0 0 24px 0;color:#666666;">Jo Park &#x00B7; November 4, 2026</p>
+<p style="margin:0 0 24px 0;color:#666666;">November 4, 2026</p>
 <p style="margin:0 0 8px 0;font-size:18px;font-weight:bold;">General notes</p>
 <p style="margin:0 0 8px 0;">Overall: I couldn&#x2019;t put it down. The <i>last line</i> of &#x201C;Arrival&#x201D; is the best thing here.</p>
 <p style="margin:24px 0 8px 0;font-size:18px;font-weight:bold;">The ferry</p>
@@ -764,7 +737,7 @@ Copied on November 4, 2026:
 </div>
 <p style="margin:24px 0 8px 0;font-size:18px;font-weight:bold;">Arrival</p>
 <div style="margin:0 0 16px 0;">
-<p style="margin:0;">&#x2610; <span style="color:#666666;">&#x2026;that had been her mother&#x2019;s, and looked for a long time at </span><span style="background-color:#FFF2A8;">the house</span><span style="color:#666666;">&#x2026; it had been painted <b>blue</b>.</span></p>
+<p style="margin:0;">&#x2610; <span style="color:#666666;">At the top of the hill she stopped, set down the suitcase that had been her mother&#x2019;s, and looked for a long time at </span><span style="background-color:#FFF2A8;">the house</span><span style="color:#666666;">&#x2026; it had been painted <b>blue</b>.</span></p>
 <p style="margin:4px 0 0 28px;">Which house? Remind us it&#x2019;s her mother&#x2019;s.</p>
 </div>
 <p style="margin:16px 0 4px 0;font-weight:bold;">Notes</p>
@@ -772,14 +745,13 @@ Copied on November 4, 2026:
 </div>
 ```
 
-The `&#x2026;` after `the house` is the manuscript's own `...` smartened, not a cut: the right context reaches the
-paragraph's end uncut.
+The `&#x2026;` after `the house` is the manuscript's own `...`, smartened.
 
 ### 8.4 Copy Review's plain text
 
 ```
 Review of My Novel
-Jo Park · November 4, 2026
+November 4, 2026
 
 General notes
 -------------
@@ -797,7 +769,7 @@ The ferry
 Arrival
 -------
 
-☐ …that had been her mother’s, and looked for a long time at [the house]… it had been painted blue.
+☐ At the top of the hill she stopped, set down the suitcase that had been her mother’s, and looked for a long time at [the house]… it had been painted blue.
     Which house? Remind us it’s her mother’s.
 
 Notes:
@@ -821,28 +793,29 @@ Ticking *Arrival*'s item stores `{"01JC3E28JT97KB6CQ643DZVMXX/c1":true}` under
 
 ---
 
-## 9. Open questions for the owner
+## 9. Decisions
 
-Each † rule above is one of these proposals. The recommendation is what this draft specifies.
+The owner decided every question on 2026-11-03 (PR #83). The recommendation was taken except for **Q10 and Q11,
+which changed**; this document follows every decision.
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 | --- | --- | --- |
-| Q1 | **The marker.** How does a copy mark itself, and how does a review bind to it? | `export: <ULID>` (fresh per export) and `exported: <timestamp>` in the copy's front matter; `copy: <export id>` and `id: <review id>` in the review's. Distinct keys, so neither file can be mistaken for the other, whatever it's named (§2.3). |
-| Q2 | **`modified` in the copy.** It's the author's edit time, which the reviewer doesn't need. | Keep it. The book grammar requires it, so dropping it would mean a second, optional-`modified` rule for copies; it reveals little. |
-| Q3 | **A `.md` that isn't a review copy** (a book's `book.md`, a stray Markdown file). Review it anyway? | Refuse with an alert. A book's `book.md` carries comments, notes and colors that aren't meant for a reviewer, and nothing would bind the review to it. |
-| Q4 | **A copy from a newer Scene It** (`format: 3`). | Refuse, asking for an update. Anchors made against a best-effort parse could break when the reviewer updates. |
-| Q5 | **General notes** for the review as a whole (not in ADR 0029, which has notes per scene). | Yes, as the review's preamble `### Notes`, shown first in Copy Review. Reviewers always have an overall view, and without a place for it, it gets squeezed into the first scene's notes. |
-| Q6 | **Comments on a scene as a whole.** The text a review points at never changes, so a detached comment can only be made deliberately. | Offer **Comment on Scene** in Review mode, stored as a detached comment and copied as a ☐ item without a passage. Notes stay prose, without checkboxes. |
-| Q7 | **Comment colors in the output.** | Leave them out. They're for the reviewer's own sorting, and colored bars add Gmail risk and an aesthetic choice. |
-| Q8 | **Orphan sections** (an id the copy doesn't have, which only hand-editing or damage can cause). | Keep their lines as review-level `[line]` entries with one notice, rather than as live but un-anchorable notes and comments: no new model concept, and nothing is lost. |
-| Q9 | **Where a review's backups and kept originals go.** The review file sits in the reviewer's folder (often Downloads); rotation files and ADR 0024's originals beside it would clutter it. | The review file stays beside the copy; its rotation backups, snapshots and Make Editable originals go in `~/Library/Application Support/Scene It/Reviews/<review id>/`, listed in the recovery guide. (#80 implements it.) |
-| Q10 | **The reviewer's name.** | Ask once, the first time Review Book… is used, prefilled with the macOS account's full name (transliterated to ASCII, ADR 0028), and remember it in preferences; write it into each new review's `reviewer`. A Reviewer Name… item changes it for the open review. Leaving it empty is allowed: the header then shows only the date. |
-| Q11 | **The context window.** | The containing sentence (with the small abbreviation list), capped at 60 characters each side at a word boundary with `…`; passages over 160 characters shown as head `…` tail with no context. Numbers and lists live in one table, so they're easy to tune. |
-| Q12 | **The look and the wording** (aesthetic gate, issue #81): Georgia 16px; gray `#666666` context; yellow `#FFF2A8` passage; ☐ and a 28px comment indent; heading sizes; `Review of …`, `General notes`, `Notes`, `Notes:`, `(untitled scene)`; the date as `November 4, 2026`; `[passage]` brackets and ` ¶ ` in plain text; dimming ticked items; the `noscript` and storage notes; the notice texts (§3.4, §3.7); the alerts (§2.3, §4.3, §4.4); the default name `<copy name> review.html`. | Treat this draft's choices as the first candidate; #81 renders alternatives (rendered at size, in Gmail and Mail) for the pick. |
-| Q13 | **Smartening edge cases.** The elision list (`'em 'tis 'twas 'til 'cause 'n`), digits after `'`, runs of three or more hyphens left alone. | As specified. Like ADR 0028's table, the lists are data in one place and can grow. |
-| Q14 | **A second review beside the same copy name** (§4.3). | `X-2.review.md`, `X-3.review.md`, …; only files ending in `.review.md` are searched, and Scene It never renames or overwrites a review. |
-| Q15 | **Order and omissions in the output.** | Comments by position in the text, detached ones last; scenes with no comments or notes left out; no scene numbers (the copy's numbering wouldn't match the author's book). |
-| Q16 | **The export date in the output's header.** It would tell the author which copy a review refers to. | Leave it out of the header (it's in both files, and the author knows what they sent). Easy to add at the aesthetic gate if wanted. |
+| Q1 | **The marker.** How does a copy mark itself, and how does a review bind to it? | Approved: `export: <ULID>` (fresh per export) and `exported: <timestamp>` in the copy's front matter; `copy: <export id>` and `id: <review id>` in the review's. Distinct keys, so neither file can be mistaken for the other, whatever it's named (§2.3). |
+| Q2 | **`modified` in the copy.** | Approved: keep it. The book grammar requires it. |
+| Q3 | **A `.md` that isn't a review copy.** | Refuse it, with an alert (§2.3). |
+| Q4 | **A copy from a newer Scene It** (`format: 3`). | Refuse it, and ask the reviewer to update (§2.3). |
+| Q5 | **General notes** for the review as a whole. | Yes: the review's preamble `### Notes`, shown first in Copy Review (§3.3, §5.1). |
+| Q6 | **Comments on a scene as a whole.** | Add **Comment on Scene**: a detached comment, shown as a ☐ item with no passage (§3.5). Notes get no checkboxes. |
+| Q7 | **Comment colors in the output.** | Left out (§3.5). |
+| Q8 | **Orphan sections.** | Kept as review-level `[line]` entries plus a notice (§3.4). |
+| Q9 | **Where a review's backups and kept originals go.** | `~/Library/Application Support/Scene It/Reviews/<review id>/`; only the review file sits beside the copy. #80 implements it. |
+| Q10 | **The reviewer's name.** | **Changed: no reviewer name.** Reviews are anonymous: no prompt, no preference, no name in the review file (§3.2) or the output (§5.1). |
+| Q11 | **How much text a comment quotes.** | **Changed: the whole paragraph**, with the passage marked, instead of the drafted sentence with 60/160-character limits. Comments on the same paragraph each quote it in full. The passage is a yellow-background span in HTML and in square brackets in plain text (§5.2). |
+| Q12 | **The look and the wording**: fonts, colors, indents, heading sizes, labels (`Review of …`, `General notes`, `Notes`, `Notes:`, `(untitled scene)`), the date format, `[passage]` and ` ¶ ` in plain text, dimming ticked items, the `noscript` and storage notes, notices, alerts, the default name `<copy name> review.html`. | Deferred to the renders in #81, with this draft as the first candidate. |
+| Q13 | **Smartening edge cases.** | Approved as specified (§5.3), with the lists kept as data in one place. |
+| Q14 | **A second review beside the same copy name.** | `X-2.review.md`, …; Scene It never renames or overwrites a review (§4.1, §4.3). |
+| Q15 | **Order and omissions in the output.** | Comments in text order, detached ones last; scenes with nothing are left out; no scene numbers (§5.1). |
+| Q16 | **The export date in the output's header.** | Not shown (§5.1). |
 
 ---
 
@@ -1086,20 +1059,19 @@ mark line is a body line too. `expected.review.md`: `FM`, then `## Dawn⏎id: s1
 
 For every row, ADR 0028's table applied to the output gives the input back.
 
-**C2. Context windows** (§5.2), as plain text with the passage in brackets:
+**C2. Quoted paragraphs** (§5.2), as plain text with the passage in brackets:
 
 | `T` | Range | Shown |
 | --- | --- | --- |
-| `He stopped. Mr. Grant waved. "Come in!" she said. Nobody moved.` | `c22-27` (`waved`) | `Mr. Grant [waved].` |
-| same | `c40-48` (`she said`) | `“Come in!” [she said].` |
-| same | `c30-37` (`Come in`) | `“[Come in]!” she said.` |
-| `It rained.⏎She left at once.` | `c3-14` | `It [rained. ¶ She] left at once.` |
-| `The ferry left at dawn and Mara watched the harbor lights go out one by one behind her while the gulls wheeled overhead and the engine coughed.` | `c27-31` (`Mara`) | `The ferry left at dawn and [Mara] watched the harbor lights go out one by one behind her…` |
-| `She had packed in the dark, by feel, the way she used to as a girl when the house was asleep and leaving still seemed like a game, and she had not once thought of the letter until the ferry was halfway across.` | `c0-209` (all of it) | `[She had packed in the dark, by feel, the way she used to as a girl when the … thought of the letter until the ferry was halfway across.]` |
-| `Wait -- what?` | `c5-6` (the first `-`) | `Wait [-]- what?` (the `--` straddles the cut, so neither piece holds a pair) |
+| `He stopped. Mr. Grant waved. "Come in!" she said. Nobody moved.` | `c22-27` (`waved`) | `He stopped. Mr. Grant [waved]. “Come in!” she said. Nobody moved.` |
+| same, a second comment on the same paragraph | `c40-48` (`she said`) | `He stopped. Mr. Grant waved. “Come in!” [she said]. Nobody moved.` (each item quotes the paragraph in full) |
+| same | `c30-37` (`Come in`) | `He stopped. Mr. Grant waved. “[Come in]!” she said. Nobody moved.` (the `“` is in the before piece, and still opens) |
+| `First paragraph.⏎Second one here.` | `c24-27` (`one`) | `Second [one] here.` (only the paragraph the passage is in) |
+| `It rained.⏎She left at once.` | `c3-14` | `It [rained. ¶ She] left at once.` (a passage spanning paragraphs quotes both) |
+| `Wait -- what?` | `c5-6` (the first `-`) | `Wait [-]- what?` (the `--` straddles a piece boundary, so neither piece holds a pair) |
 
 **C3. `review-output/s8-worked-example`**: `copy.md` is §8.1, `review.md` is §8.2, `copied-at.txt` is
 `2026-11-04T10:00:00-08:00`; `expected.html` is §8.3, `expected.txt` is §8.4, and `expected-standalone.html` is §8.5.
 Also checked on it: `expected.html` is ASCII and contains no `<style`, `class=` or `id=`; and every character of
-manuscript text in the output lies inside some comment's window (§5.2), so the output never holds more of the
-manuscript than its windows.
+manuscript text in the output lies in a paragraph that some comment quotes (§5.2), so the output never holds more of
+the manuscript than those paragraphs.
