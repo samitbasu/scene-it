@@ -85,11 +85,17 @@ was rejected: it's the glyphs' height (≈ 12 pt, not the cursor's) and never re
   (print, export), a page break falls after a line's gap, not before its letters.
 - An edit that empties a paragraph, or types into an empty one, restyles that paragraph in the same edit; the page
   fuzz's check that the page mirrors the model covers it.
-- **Known issue: text ending in an empty paragraph** (Return pressed twice at the end). The empty line after it is
-  laid out by TextKit in the typing attributes, and how TextKit lays it out depends on how that layout came about
-  (the text view moving the caret, or an invalidation), not only on the style: it can sit 14 pt higher than the
-  multiple put it, which moves the caret there and makes the page end 15 pt short. No paragraph style found puts it
-  right in every case; `EndLineTests.afterAFinalEmptyParagraph` records it as a known issue (#98).
+- **Known issue, accepted (#102): text ending in an empty paragraph** (Return pressed twice at the end). TextKit puts
+  the empty line after it straight under the empty one, whatever the typing attributes or the last paragraph's style
+  ask for (spacing before, paragraph spacing and line spacing were all tried, #102), so the caret there is text height
+  but sits 14 pt higher than the multiple put it (at 157 pt instead of 171 pt below the view's top, for "Hello" and
+  two Returns), and the page's text ends 14–15 pt short. Every other ending is where the multiple put it, with the
+  caret anywhere: after text, after a mid-text empty paragraph, and in an empty scene. `EndLineTests` measures what
+  the writer sees (the system caret and where the page ends, without forcing a layout) and records this case as a
+  steady known issue, so a fix makes it fail. To be revisited when pagination lands, which has to decide where a
+  page's last line ends anyway.
+- When the typing attributes' style changes, the end line is laid out again at once, not later: until then the page
+  measured short (a scene with an empty paragraph in it ended 57 pt short while the caret was in that paragraph).
 - **RTF copied to other apps** carries the new paragraph styles: `lineSpacing` on text, and `paragraphSpacingBefore`
   on blank lines, instead of `lineHeightMultiple` 2.
 - If TextKit lays out no line to measure, the gap and the line height fall back to the font's own metrics, logged

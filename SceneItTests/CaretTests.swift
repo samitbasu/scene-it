@@ -531,41 +531,62 @@ private func share(of color: NSColor, in rep: NSBitmapImageRep, as view: NSView)
     return Double(matches) / Double(max(1, rep.pixelsWide * rep.pixelsHigh))
 }
 
-/// Where the empty line after the end of the text sits (it's laid out in the typing attributes),
-/// for text ending in a break, in two, and empty text.
+/// The empty line after the end of the text, as the writer sees it: the caret there, and where
+/// the page ends, with the caret anywhere. Nothing here lays the page out: TextKit lays that line
+/// out in the typing attributes, and a forced layout can put it somewhere the screen doesn't.
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct EndLineTests {
     @Test(
         arguments: [[[Run("Hello")], []], [[Run("A")], [], [Run("B")], []], [] as [Paragraph]]
             as [[Paragraph]])
-    func theEndLineKeepsItsPlaceWhereverTheCaretIs(body: [Paragraph]) async throws {
+    func theEndLineIsWhereTheMultiplePutItWhereverTheCaretIs(body: [Paragraph]) async throws {
         try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            let view = page.page
-            let string = page.storage.string as NSString
-            let reference = try multipleSpaced(view)
-            let expected = try endLine(of: reference)
-            if body.count == 4 {
-                try #require(
-                    (0..<string.length).contains {
-                        ParagraphContent(ofParagraphAt: $0, in: string) == .empty
-                    },
-                    "precondition: an empty paragraph in the text")
-            }
-            var places = [0, string.length]
-            if let empty = (0..<string.length).first(where: {
-                ParagraphContent(ofParagraphAt: $0, in: string) == .empty
-            }) {
-                places.insert(empty, at: 1)
-            }
-            for place in places {
-                page.focusPage(at: place)
-                let now = try endLine(of: view)
-                #expect(
-                    abs(now.baseline - expected.baseline) < 0.01, "the end line's baseline, caret at \(place)"
-                )
-                #expect(abs(now.bottom - expected.bottom) < 0.01, "the page's height, caret at \(place)")
+            let expected = try endLine(of: try multipleSpaced(page.page))
+            let seen = try await whatTheWriterSees(page)
+            #expect(
+                seen.caretsAtTheEnd.allSatisfy { abs($0 - expected.caretTop) < 0.01 },
+                "\(seen) vs \(expected)")
+            #expect(seen.pageEnds.allSatisfy { abs($0 - expected.bottom) < 0.01 }, "\(seen) vs \(expected)")
+        }
+    }
+
+    /// Text ending in an empty paragraph (Return twice at the end; #102): TextKit puts the end line
+    /// straight under the empty one, 14 pt higher than the multiple did, whatever paragraph style or
+    /// typing attributes ask for, so the caret there sits high and the page ends short. Accepted
+    /// for now (ADR 0034); a fix makes this fail.
+    @Test func afterAFinalEmptyParagraph() async throws {
+        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
+            let expected = try endLine(of: try multipleSpaced(page.page))
+            let seen = try await whatTheWriterSees(page)
+            withKnownIssue("#102: the end line after a final empty paragraph sits 14 pt high") {
+                #expect(seen.caretsAtTheEnd.allSatisfy { abs($0 - expected.caretTop) < 0.01 }, "\(seen)")
+                #expect(seen.pageEnds.allSatisfy { abs($0 - expected.bottom) < 0.01 }, "\(seen)")
             }
         }
+    }
+
+    /// The caret's top each time it's at the end, and where the page's text ends, as the caret goes
+    /// from the end to the start, an empty paragraph if there is one, and back.
+    @MainActor
+    private func whatTheWriterSees(_ page: PageHarness) async throws -> (
+        caretsAtTheEnd: [CGFloat], pageEnds: [CGFloat]
+    ) {
+        let string = page.storage.string as NSString
+        let end = string.length
+        var places = [end, 0, end]
+        if let empty = (0..<end).first(where: { ParagraphContent(ofParagraphAt: $0, in: string) == .empty }) {
+            places += [empty, end, empty]
+        }
+        var carets: [CGFloat] = []
+        var ends: [CGFloat] = []
+        let layout = try #require(page.page.textLayoutManager)
+        for place in places {
+            let caret = try await keyAndFocused(page, at: place)
+            page.window.displayIfNeeded()
+            if place == end { carets.append(caret.minY) }
+            ends.append(page.page.textContainerOrigin.y + layout.usageBoundsForTextContainer.maxY)
+        }
+        return (carets, ends)
     }
 
     /// The page's text as `lineHeightMultiple = 2` laid it out, in a view of its own.
@@ -591,11 +612,10 @@ struct EndLineTests {
         return view
     }
 
-    /// The last line, the empty one after the end included: its baseline and bottom.
+    /// Where the multiple put the end line: where a text-height caret on it starts, and its bottom.
     @MainActor
-    private func endLine(of view: NSTextView) throws -> (baseline: CGFloat, bottom: CGFloat) {
+    private func endLine(of view: NSTextView) throws -> (caretTop: CGFloat, bottom: CGFloat) {
         let layout = try #require(view.textLayoutManager)
-        layout.ensureLayout(for: layout.documentRange)
         var last: (CGFloat, CGFloat)?
         let origin = view.textContainerOrigin
         layout.enumerateTextLayoutFragments(
@@ -608,30 +628,7 @@ struct EndLineTests {
             return true
         }
         let found = try #require(last)
-        return (found.0, found.1)
-    }
-
-    /// Text ending in an empty paragraph (#98's review): TextKit lays the empty line after it out
-    /// differently depending on how it came to be laid out (which typing attributes, whether the
-    /// text view or an invalidation did it), so it can sit 14 pt higher than the multiple put it,
-    /// and the page end 15 pt shorter. No paragraph style found puts it right in every case.
-    @Test func afterAFinalEmptyParagraph() async throws {
-        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
-            let view = page.page
-            let expected = try endLine(of: try multipleSpaced(view))
-            page.focusPage(at: page.storage.length)
-            let atTheEnd = try endLine(of: view)
-            withKnownIssue("TextKit lays the end line out 14 pt high on a fresh page", isIntermittent: true) {
-                #expect(abs(atTheEnd.baseline - expected.baseline) < 0.01, "the caret's line, at the end")
-            }
-            page.focusPage(at: 0)
-            let elsewhere = try endLine(of: view)
-            withKnownIssue(
-                "TextKit lays the end line out higher with the caret elsewhere", isIntermittent: true
-            ) {
-                #expect(abs(elsewhere.bottom - expected.bottom) < 0.01, "the page's height, caret elsewhere")
-            }
-        }
+        return (found.0 - (try singleSpacedLine()).baselineOffset, found.1)
     }
 }
 

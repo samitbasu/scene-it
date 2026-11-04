@@ -186,7 +186,8 @@ line spacing *inside* it, which put the caret back at double height:
   where typed text will go.
 - **The empty paragraph at the very end** (after a final Return) has no character to hold a
   style: TextKit lays it out in the typing attributes. After an empty paragraph it's spaced as
-  one; TextKit doesn't always lay it out the same way there (see ADR 0034's consequences). `SceneTextView` overrides
+  one, but TextKit ignores that spacing there, so after Return twice at the end the caret sits
+  14 pt high: an accepted known issue (#102, ADR 0034). `SceneTextView` overrides
   `typingAttributes` so they always take the style of the caret's paragraph, and lays the end
   line out again when that style changes.
 
