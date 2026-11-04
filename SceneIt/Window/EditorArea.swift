@@ -7,14 +7,15 @@ import SwiftUI
 struct EditorArea: View {
     let book: AppOpenBook
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     let focus: PageFocus
+    let editors: SceneEditors
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                FormattingBar(formatting: formatting)
+                FormattingBar(formatting: formatting, part: .body)
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -27,8 +28,8 @@ struct EditorArea: View {
                     .padding(.vertical, WindowMetrics.titleStripPadding)
                 Divider()
                 PageView(
-                    book: book, preferences: preferences, scene: scene.id, paragraphs: scene.body,
-                    focus: focus, formatting: formatting)
+                    book: book, preferences: preferences, editors: editors, scene: scene.id,
+                    paragraphs: scene.body)
             } else {
                 ScrollView(.vertical) {
                     Page {

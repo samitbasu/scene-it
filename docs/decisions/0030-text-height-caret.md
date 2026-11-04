@@ -24,11 +24,13 @@ height of the text. Measured (Times New Roman 12 pt: ascender 10.69, descender â
 3. **The caret is as tall as a single-spaced line of the typing font** (ascent + descent + leading as TextKit lays
    them out: 14.51 pt at 12 pt Times), so it matches the single-spaced notes. It sits on the line's baseline, from
    the selection segment the system caret itself uses (the standard segment of an empty range leaves out a first
-line's indent), so empty paragraphs, the end of the scene and an empty scene get it too. It's a
-   subview of the page, so it scales with the zoom.
+   line's indent), so empty paragraphs, the end of the scene and an empty scene get it too. It's a subview of the
+   page, so it scales with the zoom.
+4. **The notes keep the system caret.** They're single spaced, so it's already this height; `CaretIndicator` stays on
+   `ManuscriptTextView` rather than the shared `SceneTextView`, so the clear caret's costs (below) stay on the page.
 
 One policy, in `CaretIndicator`: it shows only for a single empty selection in an editable page that has the
-keyboard focus in the key window, and moves whenever the text view moves its own caret
+keyboard focus in the key window (the focus as `SceneTextView` records it, which the editor reads too), and moves whenever the text view moves its own caret
 (`updateInsertionPointStateAndRestartTimer(_:)`), the viewport finishes a layout pass
 (`textViewportLayoutControllerDidLayout(_:)`: TextKit 2 lays out lazily, so a line can move without the selection
 moving), the typing attributes change (the editor sets them after the

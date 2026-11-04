@@ -11,13 +11,16 @@ attributed strings are new to you.
 | File | What it holds |
 | --- | --- |
 | [`SceneIt/Editor/PageView.swift`](../../SceneIt/Editor/PageView.swift) | the `NSViewRepresentable` that puts the page in SwiftUI, and `PageFocus` |
-| [`SceneIt/Editor/ManuscriptTextView.swift`](../../SceneIt/Editor/ManuscriptTextView.swift) | the `NSTextView` subclass: TextKit 2, the page on the desk, keys, the pasteboard |
+| [`SceneIt/Editor/SceneTextView.swift`](../../SceneIt/Editor/SceneTextView.swift) | the `NSTextView` subclass every scene-text editor shares: TextKit 2 set-up, focus, Tab, the pasteboard, `replace` |
+| [`SceneIt/Editor/ManuscriptTextView.swift`](../../SceneIt/Editor/ManuscriptTextView.swift) | its page subclass: the page on the desk, Shift-Tab to the title |
 | [`SceneIt/Editor/CaretIndicator.swift`](../../SceneIt/Editor/CaretIndicator.swift) | the page's text-height caret (ADR 0030) |
-| [`SceneIt/Editor/PageEditor.swift`](../../SceneIt/Editor/PageEditor.swift) | the coordinator: delegates, model sync, paste, undo managers |
+| [`SceneIt/Editor/SceneTextEditor.swift`](../../SceneIt/Editor/SceneTextEditor.swift) | the coordinator, for the page and the notes alike: delegates, model sync, paste, undo managers |
+| [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
+| [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
-| [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `apply(_:to:adding:)`, `pageUndo(for:)`, `resolve(_:into:)` |
+| [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `apply(_:to:in:adding:)`, `undo(for:_:)`, `resolve(_:into:)` |
 
 The tests: [`SceneItTests/PageTests.swift`](../../SceneItTests/PageTests.swift) drives the real
 page in an offscreen window; [`Tests/SceneItCoreTests/Text/BodyChangeTests.swift`](../../Tests/SceneItCoreTests/Text/BodyChangeTests.swift)
@@ -43,32 +46,41 @@ view. SwiftUI calls three methods on it:
 | `makeNSView(context:)` | once: build the `NSView` | `fn new() -> Widget` |
 | `updateNSView(_:context:)` | every time the representable's inputs change | a `fn update(&mut self, props)` that diffs |
 
+In the textbook form, `makeNSView` builds the view and its coordinator is its delegate:
+
 ```swift
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(WindowMetrics.deskColor)
-        scrollView.findBarPosition = .aboveContent
         let page = ManuscriptTextView.page()
-        page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         context.coordinator.attach(page)
         return scrollView
     }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        let editable = book.isEditable && context.environment.isEnabled
-        context.coordinator.show(scene, editable ? .editable : .readOnly)
-    }
 ```
 
 The struct itself is thrown away and rebuilt on every SwiftUI update, like any SwiftUI view
-(chapter 04). The **coordinator** is what survives: SwiftUI keeps the object `makeCoordinator`
-returned for as long as the view stays in the hierarchy, and hands it back in `context`. It's
-the natural delegate for the AppKit view, because delegates must be objects that live as long
-as the view does. Ours is `PageEditor`.
+(chapter 04). The coordinator is what survives, but only for as long as the view stays in the
+hierarchy: when SwiftUI takes the view away (a branch of an `if` stops being taken), it calls
+`dismantleNSView` and drops both. The page and the notes have state that must survive that (their
+undo histories point into their text storage, section 11), so Scene It goes one step further:
+the window owns the views, in `SceneEditors`, and the representable only mounts them:
+
+```swift
+    func makeNSView(context: Context) -> HostingSlot {
+        let slot = HostingSlot()
+        editors.page.mount(in: slot)
+        return slot
+    }
+
+    func updateNSView(_ slot: HostingSlot, context: Context) {
+        let page = editors.page
+        page.mount(in: slot)
+        page.editor.show(scene, .init(book, in: context.environment))
+        page.scrollView.show(preferences.zoom)
+    }
+```
+
+The text view's delegate is its `SceneTextEditor`, made with it and kept with it.
 
 `context.environment.isEnabled` is how SwiftUI's `.disabled(true)` reaches AppKit. When a rail
 sheet covers the page, `BookWindow` disables everything under it, and the coordinator turns
@@ -205,7 +217,7 @@ edited range and how much the length changed to the delegate. That's the one pla
 get past, so it's where the page tells the model:
 
 ```swift
-extension PageEditor: @MainActor NSTextStorageDelegate {
+extension SceneTextEditor: @MainActor NSTextStorageDelegate {
     func textStorage(
         _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
         range editedRange: NSRange,
@@ -312,7 +324,7 @@ everything that changes characters through the view. The page uses it to apply A
 character policy, so the page never holds a character the model can't:
 
 ```swift
-        guard let strings = replacementStrings, let view = textView as? ManuscriptTextView else { return true }
+        guard let strings = replacementStrings, let view = textView as? SceneTextView else { return true }
         guard let admitted = KeyboardTextView.corrected(strings, by: CharacterPolicy.admittedInput) else {
             return true
         }
@@ -365,7 +377,7 @@ Two subtleties:
   With no input context, `interpretKeyEvents` hands keys straight to the key bindings, which
   type them with `insertText`, so there's never any marked text, and the `setMarkedText`
   override makes sure of it should anything call that directly. The page, the title field's
-  own field editor and (when it lands) the notes editor all inherit it. What the writer loses:
+  own field editor and the notes editor all inherit it. What the writer loses:
   **accents can't be typed at all.** Option-E then E, press-and-hold on `e`, and every IME are
   gone on the page and in the title. Accented text pasted in arrives as its plain letters
   (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
@@ -437,11 +449,11 @@ the scene's own manager, which `OpenBook` keeps:
 
 ```swift
     func undoManager(for view: NSTextView) -> UndoManager? {
-        scene.map(book.pageUndo(for:))
+        scene.map { book.undo(for: $0, part) }
     }
 ```
 
-Switching scenes swaps the text in the same view, so the next keystroke registers on the new
+(`part` is `.body` for the page and `.notes` for the notes, section 11.) Switching scenes swaps the text in the same view, so the next keystroke registers on the new
 scene's manager, and coming back to a scene finds its history where it was left. An undo is
 an ordinary edit as far as the storage is concerned, so it reaches the model through the same
 `didProcessEditing` sync, and autosave hears of it in the same turn.
@@ -462,7 +474,9 @@ order of registration, so the comment removal is registered *first*, to run *las
             // Registered before the text, so undoing the paste takes the text away first and no
             // run is ever left naming a comment the scene doesn't have.
             let ids = Set(comments.map(\.id))
-            undo.registerUndo(withTarget: book) { $0.removeComments(ids, from: scene) }
+            undo.registerUndo(withTarget: book) { [part] in
+                $0.removeComments(ids, from: scene, pastedInto: part)
+            }
         }
 ```
 
@@ -544,3 +558,91 @@ whatever had since been written there. The test now compares code units, and run
 from `RunLoop.main.perform`, as an event's handling runs, so an exception there behaves as it
 would in the app. Since [ADR 0026](../decisions/0026-crash-on-exceptions.md) the app
 itself stops at once on such an exception instead of carrying on.
+
+## 11. The notes: one editor, two texts
+
+The Notes tab (PLAN §8.2) is a second formatted text per scene: single-spaced (with 6 pt
+between paragraphs, `ParagraphRole.notes`'s paragraph style, which like every paragraph style
+is display only and never saved), 14 pt in from the panel's sides, with the same
+bold, italic, strike, color and highlight, comments included (book format §4.2 lets a comment
+cover notes text, `notes c10-21`). Everything that makes the page safe — the character veto,
+the backstops, the codec's rules for pastes, the app's own pasteboard clip, per-keystroke
+ranged sync, per-scene undo — applies to it unchanged. Writing a `NotesEditor` beside the page's
+editor would have been two copies of that, which drift. So the page's machinery was
+generalized instead, along one axis: **which part of the scene**.
+
+```swift
+public enum TextPart: Hashable, Comparable, Sendable, CaseIterable {
+    case body, notes
+
+    public var paragraphs: WritableKeyPath<BookScene, [Paragraph]> { … }
+}
+```
+
+The enum already existed inside the format code, for ranges that address "the body's plain
+text or the notes'". Making it public gave the app the same word. Each layer takes a part
+rather than growing a notes twin:
+
+| Layer | Body only, before | For either part, now |
+| --- | --- | --- |
+| `OpenBook` | `apply(_:to:adding:)`, `pageUndo(for:)` | `apply(_:to:in:adding:)`, `undo(for:_:)` (`pageUndo`, `notesUndo` are its two spellings) |
+| `RunCodec` | `attributedString(forBody:)` | `attributedString(_:in:)`; `part.role` gives the `ParagraphRole` |
+| App | `PageEditor`, `ManuscriptTextView` | `SceneTextEditor(part:)`, `SceneTextView` |
+
+A `WritableKeyPath` is Swift's typed field accessor: `scene[keyPath: part.paragraphs]` reads or
+writes `scene.body` or `scene.notes`, much as a Rust closure pair `(fn(&S) -> &T, fn(&mut S) ->
+&mut T)` would, but as one value that can be stored and compared. `OpenBook.apply` uses it to
+edit either list with the same code. The one difference between the parts that is policy, not
+plumbing, sits in one `if`: only the body's words are counted (`part == .body` before
+`wordCounts.adjust`).
+
+The view splits the same way. `SceneTextView` holds what every editor of scene text needs (its
+configuration, the focus callbacks, Tab moving on, the pasteboard overrides and `replace`);
+`ManuscriptTextView` subclasses it for what only the page has: drawing the sheet on the desk
+and Shift-Tab back to the title. The notes are a plain `SceneTextView` in an `NSScrollView`.
+Both are built by `SceneEditors` (below), each with a `SceneTextEditor(book:part:formatting:)`;
+the factories differ only in that layout.
+
+**Two bars, one target.** Each editor reports its selection's formats to the window's one
+`EditorFormatting`, and only one editor can have the focus, so at most one is *active*:
+
+```swift
+    func show(_ selection: SelectionFormatting?, from editor: SceneTextEditor) {
+```
+
+A non-`nil` selection makes that editor the active one; a `nil` from the active editor clears
+it; a `nil` from the other is ignored, so whether the page resigns before the notes take the
+focus or after doesn't matter. Each bar asks `selection(in: part)` and dims itself when it gets
+`nil`; the Format menu asks for the active selection and sends its commands to the active
+editor. Same `FormattingCommand`, same state function, everywhere.
+
+**Views that outlive SwiftUI's.** Switching the panel to another tab makes SwiftUI dismantle
+the Notes tab's views, and showing it again makes new ones; the page goes the same way while no
+scene is open. A first version let each `NSViewRepresentable` build its own text view, and the
+review found the flaw: the notes' undo history outlives the view. `NSTextView` records typing as
+`NSUndoTyping` actions against *its own text storage*, so after a rebuild, Undo either did
+nothing (the old storage was gone) or, when the old view had last shown an empty scene, read
+past the end of its text and raised `NSRangeException`, which ADR 0026 turns into a crash.
+
+The fix follows from the invariant the page already relied on: one text view per window, whose
+storage always shows the open scene's text, so each scene's history replays on the text it was
+recorded against. `SceneEditors` (one per `BookWindow`, held in `@State`, and so one per book)
+builds the page and the notes once, each a `SceneTextHost`: the scroll view, the text view and
+its `SceneTextEditor`. The representables no longer make views; `makeNSView` returns an empty
+`HostingSlot` and mounts the host's scroll view in it, and `dismantleNSView` takes it out
+again:
+
+```swift
+    static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
+        editors.notes.unmount(from: slot, handingFocusTo: editors.page.textView)
+    }
+```
+
+`unmount` also deals with the focus. AppKit doesn't always ask a removed first responder to
+resign, so the editor would still think it had the focus (its bar would stay active) and the
+window would be left with nothing to type into. The notes hand the focus back to the page; the
+page, leaving because no scene is open, gives it up.
+
+Rust has the same shape when a UI framework owns the widget tree: keep the long-lived state
+(the document, its undo log) in a struct you own, and give the framework a thin handle to mount
+each frame, rather than letting the framework's throwaway widget own it.

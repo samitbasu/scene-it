@@ -101,8 +101,13 @@ public enum WindowWording {
     public static let noHighlight = "None"
     public static let showPalette = "Show the palette"
     public static let readAloud = "Read aloud"
-    /// The bar's tooltip while the page doesn't have the focus.
-    public static let clickInThePageToFormat = "Click in the page to format"
+    /// A bar's tooltip while its editor doesn't have the focus (PLAN §6.2; approved, #18, #19).
+    public static func clickToFormat(_ part: TextPart) -> String {
+        switch part {
+        case .body: "Click in the page to format"
+        case .notes: "Click in the notes to format"
+        }
+    }
 
     public static func style(_ style: TextStyle) -> String {
         switch style {

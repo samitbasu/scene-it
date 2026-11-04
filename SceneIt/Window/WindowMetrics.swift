@@ -38,6 +38,10 @@ enum WindowMetrics {
         static let highlightTile: CGFloat = 18
         static let swatchSize: CGFloat = 18
     }
+    enum Notes {
+        /// Between the panel's edges and the notes' text.
+        static let padding = CGSize(width: 14, height: 12)
+    }
     static let statusBarHeight: CGFloat = 26
     static let titleStripPadding: CGFloat = 10
     /// Between the title's label and its field.

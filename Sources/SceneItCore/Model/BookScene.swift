@@ -63,3 +63,17 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         !Paragraph.commentIDs(in: body + notes).contains(comment)
     }
 }
+
+/// A scene's two texts of formatted paragraphs: its body, on the page, and its notes, in the
+/// Notes tab (PLAN §8.2). Each has its plain text (book format §3.6), which a comment's or a
+/// mark's range addresses.
+public enum TextPart: Hashable, Comparable, Sendable, CaseIterable {
+    case body, notes
+
+    public var paragraphs: WritableKeyPath<BookScene, [Paragraph]> {
+        switch self {
+        case .body: \.body
+        case .notes: \.notes
+        }
+    }
+}

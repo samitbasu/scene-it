@@ -26,13 +26,13 @@ struct BookWindowWithMode: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
-    var formatting: PageFormatting?
+    var formatting: EditorFormatting?
     @Bindable var box: ModeBox
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
-            formatting: formatting ?? PageFormatting(preferences: preferences), mode: $box.mode)
+            formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode)
     }
 }
 
@@ -46,7 +46,7 @@ struct PageHarness {
     let window: NSWindow
     let page: ManuscriptTextView
     let title: NSTextField
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     let preferences: AppPreferences
     let modes: ModeBox
 

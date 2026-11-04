@@ -54,7 +54,7 @@ final class CaretIndicator {
     /// Where the caret is shown, or `nil` where there should be none: the selection is a single
     /// caret in an editable view that has the keyboard focus.
     private var shownFrame: NSRect? {
-        guard view.isEditable, view.keyboardFocus == .page, view.window?.isKeyWindow == true,
+        guard view.isEditable, view.keyboardFocus == .here, view.window?.isKeyWindow == true,
             let layout = view.textLayoutManager, layout.textSelections.count == 1,
             let selection = layout.textSelections.first, selection.textRanges.count == 1,
             let caret = selection.textRanges.first, caret.isEmpty,

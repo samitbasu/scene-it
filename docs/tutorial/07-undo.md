@@ -11,8 +11,8 @@ which one the toolbar's buttons and Edit → Undo act on. Read it after
 | --- | --- |
 | [`Sources/SceneItCore/Window/UndoRouting.swift`](../../Sources/SceneItCore/Window/UndoRouting.swift) | `UndoFocus` and `UndoStack`: the routing rule, as data |
 | [`SceneIt/Window/UndoRouter.swift`](../../SceneIt/Window/UndoRouter.swift) | `UndoRouter`, which applies the rule to a window; `UndoFocusView` |
-| [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `pageUndo(for:)`, `titleUndo(for:)`, `structureUndo`, `errorsUndo`, `select(_:)` |
-| [`SceneIt/Editor/PageEditor.swift`](../../SceneIt/Editor/PageEditor.swift) | hands the page its scene's manager |
+| [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `undo(for:_:)` (`pageUndo`, `notesUndo`), `titleUndo(for:)`, `structureUndo`, `errorsUndo`, `select(_:)` |
+| [`SceneIt/Editor/SceneTextEditor.swift`](../../SceneIt/Editor/SceneTextEditor.swift) | hands the page, or the notes, its scene's manager |
 | [`SceneIt/Window/WindowToolbar.swift`](../../SceneIt/Window/WindowToolbar.swift) | the Undo and Redo buttons |
 
 The tests: [`SceneItTests/UndoRouterTests.swift`](../../SceneItTests/UndoRouterTests.swift),
@@ -88,18 +88,33 @@ PLAN §8.6, and the owner's decision for the Errors tab:
 | --- | --- | --- |
 | A scene's page text (and comments, which register there) | `OpenBook.pageUndo(for:)`, one per scene | for the session |
 | A scene's title | `OpenBook.titleUndo(for:)`, one per scene | for the session |
-| A scene's notes (#19) | one per scene, the same way | for the session |
+| A scene's notes (and comments pasted into them) | `OpenBook.notesUndo(for:)`, one per scene | for the session |
 | The book's structure: scenes added, moved, cut (#28) | `OpenBook.structureUndo` | for the session |
 | The Errors tab's Delete and Fix | `OpenBook.errorsUndo` | for the session |
 
 The page's text view asks its delegate for a manager, and the delegate answers with the open
-scene's:
+scene's. The notes' text view has a delegate of the same class (`SceneTextEditor`, chapter 05
+§11), made for the other part of the scene, so the same line answers with the notes' history:
 
 ```swift
     func undoManager(for view: NSTextView) -> UndoManager? {
-        scene.map(book.pageUndo(for:))
+        scene.map { book.undo(for: $0, part) }
     }
 ```
+
+`OpenBook` keeps one dictionary of text histories, keyed by part and then by scene, so "the
+page's" and "the notes'" are the same code with a different key. Typing in the notes never
+lands on the page's history, and an undo on the page never takes back a note. Each part's
+history is cleared on its own when that part is replaced from elsewhere (`replaceBody`,
+`replaceNotes`, an Errors-tab fix that changed it), since a history only fits the text it was
+recorded against.
+
+**The notes need nothing from the router.** `UndoRouter` already sends Undo to "the focused
+text view's own manager" (section 5), and asks AppKit for it: `firstResponder.undoManager`,
+which for a text view is whatever its delegate returns. So once the notes' view existed with
+the right delegate, Cmd+Z and the toolbar's buttons went to the notes' history whenever the
+notes had the focus, without a new case in `UndoStack`. That's the payoff of encoding the rule
+as "whatever is focused" rather than as a list of editors.
 
 The title's field editor is a small `NSTextView` subclass whose `undoManager` is the open
 scene's title history (`TitleField.Editor` in `EditorArea.swift`).
@@ -111,9 +126,10 @@ can't live there. And they aren't structure either: an undo from the Scenes shee
 ever take back something the sheet shows.
 
 **Leaving a scene.** Every way of opening a scene goes through `OpenBook.select(_:)`, which
-posts `openBookWillSwitchScene` *before* the open scene changes. The page and the title field
-both listen: the title ends its editing, so what was typed stays in the scene it was typed
-in, and the page ends its typing group. Without that step, the title's field editor kept the
+posts `openBookWillSwitchScene` *before* the open scene changes. The page, the notes and the
+title field all listen: the title ends its editing, so what was typed stays in the scene it was typed
+in, and the page and the notes end their typing groups. (Their text has already reached the
+model: every keystroke is synced in the turn it's typed.) Without that step, the title's field editor kept the
 old scene's text while the field moved on to the next scene, and the next keystroke wrote the
 old title into the new scene.
 

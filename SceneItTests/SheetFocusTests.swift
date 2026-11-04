@@ -23,19 +23,21 @@ private func takesTyping(_ view: NSView) -> Bool {
 
 @Suite(.timeLimit(.minutes(1)))
 struct SheetFocusTests {
-    @Test func aSheetTakesTheFocusFromThePageAndDisablesWhatItCovers() async throws {
+    @Test func aSheetTakesTheFocusFromThePageOrNotesAndDisablesWhatItCovers() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
             let book = try #require(books.store.current)
             try #require(book.addScene(after: nil) != nil)
+            books.preferences.showRightPanelTab(.notes)
 
             let box = ModeBox()
             let size = WindowMetrics.defaultSize
             let controller = NSHostingController(
                 rootView: BookWindowWithMode(
-                    book: book, store: books.store, preferences: books.preferences, box: box))
+                    book: book, store: books.store, preferences: books.preferences,
+                    formatting: books.formatting, box: box))
             controller.sizingOptions = []
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -47,16 +49,22 @@ struct SheetFocusTests {
             defer { window.close() }
 
             @MainActor func editors() -> [NSView] { views(in: window.contentView).filter(takesTyping) }
+            @MainActor func notesEditors() -> [NSTextView] {
+                editors().compactMap { $0 as? SceneTextView }.filter { !($0 is ManuscriptTextView) }
+            }
             await eventually {
-                editors().contains { $0 is NSTextField } && editors().contains { $0 is NSTextView }
+                editors().contains { $0 is NSTextField } && editors().contains { $0 is ManuscriptTextView }
+                    && !notesEditors().isEmpty
             }
             let editors = editors()
             let title = try #require(editors.compactMap { $0 as? NSTextField }.first)
             let body = try #require(editors.compactMap { $0 as? ManuscriptTextView }.first)
-            #expect(editors.count == 2, "precondition: the page's only editors are its title and body")
+            let notes = try #require(notesEditors().first)
+            #expect(
+                editors.count == 3, "precondition: the window's only editors are the title, body and notes")
 
-            // A sheet takes the focus from either editor, and gives both back when it closes.
-            for focused in [title, body] as [NSView] {
+            // A sheet takes the focus from any editor, and gives each back when it closes.
+            for focused in [title, body, notes] as [NSView] {
                 #expect(window.makeFirstResponder(focused))
                 #expect(window.firstResponder is NSText, "precondition: an editor has the focus")
 
@@ -69,16 +77,20 @@ struct SheetFocusTests {
                 #expect(
                     title.window === window, "precondition: the title field is still there, under the sheet")
                 #expect(body.window === window, "precondition: the page is still there, under the sheet")
+                #expect(notes.window === window, "precondition: the notes are still there, under the sheet")
                 #expect(!title.isEnabled, "the title field is disabled under the sheet")
                 #expect(!body.isEditable, "the page can't be typed in under the sheet")
+                #expect(!notes.isEditable, "the notes can't be typed in under the sheet")
+                #expect(books.formatting.active == nil, "neither bar is active under the sheet")
                 #expect(
                     !views(in: window.contentView).contains(where: takesTyping),
                     "nothing in the window takes typing")
 
                 box.mode = .page
-                await eventually { title.isEnabled && takesTyping(body) }
+                await eventually { title.isEnabled && takesTyping(body) && takesTyping(notes) }
                 #expect(title.isEnabled, "the title field is usable again once the sheet closes")
                 #expect(takesTyping(body), "the body is usable again once the sheet closes")
+                #expect(takesTyping(notes), "the notes are usable again once the sheet closes")
             }
             #expect(await books.store.closeBook() == .left)
         }

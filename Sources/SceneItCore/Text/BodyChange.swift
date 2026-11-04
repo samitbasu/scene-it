@@ -1,7 +1,7 @@
 import AppKit
 
-/// An edit to a body, as a replacement of whole paragraphs: what the page sends the model
-/// for each change to its text, so a keystroke converts one paragraph rather than the scene.
+/// An edit to a body or notes, as a replacement of whole paragraphs: what an editor sends the
+/// model for each change to its text, so a keystroke converts one paragraph rather than all.
 ///
 /// Paragraphs are counted as the text's *lines*: an empty body is one empty line, which
 /// is how `RunCodec` reads an empty page.

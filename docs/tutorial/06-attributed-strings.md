@@ -89,7 +89,10 @@ through the codec:
 ```
 
 The notes pair, `attributedString(forNotes:)` and `notes(from:)`, is the same with
-`.notes`. The two editors differ only in how their text looks.
+`.notes`. The two editors differ only in how their text looks: the notes are single-spaced,
+with no indent and 6 pt between paragraphs. That gap is a paragraph style, so it's display
+only, like the body's double spacing: `RunFormat` never reads a paragraph style, so nothing of
+it reaches the model or `book.md` (`DisplayAttributesTests` checks this).
 
 ## 4. Custom attributes, `AttributeScope` and dynamic member lookup
 
