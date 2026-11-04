@@ -12,6 +12,7 @@ attributed strings are new to you.
 | --- | --- |
 | [`SceneIt/Editor/PageView.swift`](../../SceneIt/Editor/PageView.swift) | the `NSViewRepresentable` that puts the page in SwiftUI, and `PageFocus` |
 | [`SceneIt/Editor/ManuscriptTextView.swift`](../../SceneIt/Editor/ManuscriptTextView.swift) | the `NSTextView` subclass: TextKit 2, the page on the desk, keys, the pasteboard |
+| [`SceneIt/Editor/CaretIndicator.swift`](../../SceneIt/Editor/CaretIndicator.swift) | the page's text-height caret (ADR 0030) |
 | [`SceneIt/Editor/PageEditor.swift`](../../SceneIt/Editor/PageEditor.swift) | the coordinator: delegates, model sync, paste, undo managers |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
@@ -152,6 +153,33 @@ PLAN's `NSScrollView` magnification. And because the text view's enclosing scrol
 desk, `usesFindBar = true` puts the standard find bar above the desk with no further code;
 Cmd+F reaches it through `TextEditingCommands()`, the standard Find menu, added in
 `SceneItApp`.
+
+### The caret
+
+The body is double spaced with `lineHeightMultiple = 2`, which makes every line fragment twice
+as tall and puts the extra space above the letters. Since macOS 14 `NSTextView` draws its caret
+as a subview, an `NSTextInsertionIndicator`, as tall as the line fragment, so on the page it was
+twice the height of the text. Nothing public sizes that subview: set its frame and AppKit puts it
+back on the next turn of the run loop. So the page makes its own caret clear
+(`insertionPointColor = .clear`) and shows a second `NSTextInsertionIndicator` of its own, which
+the class is public for. `CaretIndicator` places it:
+
+- **Where:** the system's caret segment, from `NSTextLayoutManager.enumerateTextSegments`,
+  gives the x and the line's baseline; a single-spaced line in the typing font, laid out once by
+  a throwaway `NSTextLayoutManager`, gives the height and how far the top is above the
+  baseline. Using TextKit's own layout matters: it rounds the font's ascent and descent up
+  (11 + 3 + 0.51 = 14.51 pt for 12 pt Times, where the font says 10.69 + 2.60 + 0.51).
+- **When:** `ManuscriptTextView` calls `update()` from the hooks AppKit already calls:
+  `updateInsertionPointStateAndRestartTimer(_:)` (every caret move and edit), becoming and
+  resigning first responder, `isEditable`, `setFrameSize`, and the window's key notifications.
+  The view tells the indicator about focus explicitly, because inside `resignFirstResponder` the
+  window's `firstResponder` is still the page.
+
+The selection highlight stays the full line height, by the owner's choice (ADR 0030).
+
+In Rust terms: the system caret is a field you can't write, so rather than fighting it you set
+the one knob you have (its color) to hide it, and draw a replacement from a single function of
+the layout state.
 
 ## 4. The text storage is a mirror; the model is the truth
 
@@ -486,7 +514,12 @@ of our own and call the same methods the system would:
 | presses Return in the title | the field editor's `doCommand(by:)` |
 
 A private pasteboard (`NSPasteboard(name:)` with a unique name, released afterwards) keeps the
-writer's clipboard untouched. Each test then checks the model, the page (`pageMirrorsModel`:
+writer's clipboard untouched. Some things only show in the key window, the caret among them,
+and making the test window key would mean activating the app, which takes the keyboard from
+whatever the owner is typing in. So `withPage(_:in: KeyWindow.self)` hosts the page in a window
+subclass whose `isKeyWindow` says yes. (Changing an existing window's class with
+`object_setClass` instead crashes when the window is freed: it undoes the class AppKit's
+key-value observing installed.) Each test then checks the model, the page (`pageMirrorsModel`:
 the storage equals the codec's rendering of the model) and, where it matters, the `book.md`
 autosave wrote.
 

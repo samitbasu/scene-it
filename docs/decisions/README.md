@@ -36,3 +36,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0027](0027-color-shortcuts.md) | Text color shortcuts are Ctrl+Cmd+1…7; Cmd+1 stays Scenes | Accepted — resolves PLAN Q4 |
 | [0028](0028-strict-ascii-no-input-methods.md) | Strict ASCII text with input methods disabled; a transliteration table for everything else | Accepted — supersedes 0022 §Characters |
 | [0029](0029-review-round-trip.md) | Review round trip: Export as SceneIt, Review Book, Copy/Save Review | Accepted — new feature |
+| [0030](0030-text-height-caret.md) | A text-height caret on the double-spaced page: our own `NSTextInsertionIndicator`, the system caret clear | Accepted |
