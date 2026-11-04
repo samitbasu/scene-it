@@ -284,10 +284,13 @@ The same enum maps each part to its list (`part.scenes` is a `WritableKeyPath<Bo
 [BookScene]>`, roughly a typed lens), so the serializer and the parser walk
 `FilePart.allCases` and can't disagree about the order.
 
-The exclusion from the rest of the app is structural: `Book` keeps `scenes`, `boneyard` and
-`deleted` as separate arrays, and search, word counts, filed-copy counts and navigation only
-ever read the first two. What must see every scene (unique ids, error entries, the format
-itself) reads `everyScene`, a name chosen to stand out in review.
+The exclusion from the rest of the app is encoded once: `FilePart.visible` lists the parts
+the writer sees, and `Book.visibleScenes` and `Book.visiblePlace(of:)` resolve scenes through
+it. `Book.scene(_:)`, the open book's edits, word counts, search units and `SceneLocation`
+all go through those two. `deleted` and `everyScene` are `internal`, Swift's default access
+level (visible inside the `SceneItCore` module, like `pub(crate)`), so the app target can't
+reach a deleted scene at all. What must see every scene (unique ids, error entries, the
+format itself) reads `everyScene`.
 
 ## 5. Inline markup: toggles
 

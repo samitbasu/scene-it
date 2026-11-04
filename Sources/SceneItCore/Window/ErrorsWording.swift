@@ -12,7 +12,7 @@ public enum ErrorsWording {
     }
 
     public static let bookGroup = "Book"
-    /// Proposed, not yet approved (book format §10 Q17): the only place a deleted scene is named.
+    /// The only place a deleted scene is named (book format §10 Q17; approved 2026-11-04).
     public static let deletedGroup = "Deleted"
 
     /// A group's heading: the book, or the scene the entries belong to.

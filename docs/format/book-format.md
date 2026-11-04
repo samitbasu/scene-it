@@ -16,8 +16,7 @@ It's written for two readers:
 
 **Conventions**
 
-- **†** marks a rule this document added (not settled by ADR 0022); all † rules were accepted by the owner (§10), except
-  the Deleted section's (§1.9), which are proposed and wait on §10 Q16–Q18. Everything unmarked follows
+- **†** marks a rule this document added (not settled by ADR 0022); all † rules were accepted by the owner (§10). Everything unmarked follows
   ADR 0022 directly, or follows from it with no real choice. §10 collects the proposals that most need a decision.
 - `␠` stands for a space (U+0020) where it matters. `⏎` is the end of a line.
 - "Character" means one Unicode scalar value. After §1.2's filtering every character is printable ASCII, so a
@@ -379,6 +378,11 @@ Mara dreamed of the harbor again.
     (§6). The entry is new, so the book opens as repaired (ADR 0024) and the writer is told. See §10 Q16.
   - A second `# Deleted` is a `[line]` entry and changes nothing.
   - Lines between `# Deleted` and the first deleted scene are book-level, as in the preamble (§1.6).
+  - **A misplaced `# Deleted` is reported only when a later structural heading reveals it** (a `# Boneyard` or a
+    second `# Deleted` after it). A lone `# Deleted` typed by hand into the story or the preamble, with no such
+    heading after it, is indistinguishable from a real one: every scene after it is deleted, with no entry and no
+    notice, and the book opens normally. The scenes' text stays in the file (docs/user/recovery.md). The owner accepted
+    this risk (§10 Q16): only a hand edit can cause it.
 - **Deleted scenes are ordinary scenes in the file.** Every rule of §2–§5 applies to them, unchanged: they keep their
   ids, metadata, body, notes, comments, marks and error entries, and they round-trip byte for byte. A scene that a hand
   edit damages follows §5 and §6 like any other: what can't be read becomes its error entries, and the parse never fails.
@@ -776,7 +780,7 @@ deterministic.
 ### 5.4 The Errors tab
 
 - **One row per entry**, in the order book, story scenes, Boneyard scenes, deleted scenes †, and within each in model
-  order. A deleted scene's rows are named `Deleted › <title>` (proposed, §10 Q17). A row shows
+  order. A deleted scene's rows are named `Deleted › <title>` (§10 Q17). A row shows
   the scene title, the payload, and a **reason**.
 - **The reason is derived, never stored †.** For `front matter`, `metadata`, `comments` and `marks` entries, the app
   re-parses the payload in its context (that scene's current plain text and comment ids) and names the first rule it
@@ -807,8 +811,10 @@ Three rules reach further, and they're the only exceptions:
    heading, a `[line]` entry, and the Boneyard scenes after it are read as story scenes.
 4. **An early `# Deleted` deletes scenes, and a broken one brings them back** †. A `# Deleted` typed before the real one
    starts the Deleted section there, like rule 2: the scenes after it are deleted, and the real `# Deleted` (or a
-   `# Boneyard` after it) becomes a `[line]` entry (§1.9). A damaged real `# Deleted` is a `[line]` entry, and the
-   deleted scenes after it are read as Boneyard scenes (or story scenes, with no `# Boneyard`): visible again.
+   `# Boneyard` after it) becomes a `[line]` entry (§1.9). With no such heading after it (a book with no Deleted
+   section and an empty Boneyard), there's no entry at all: the scenes after it are hidden silently (§10 Q16). A
+   damaged real `# Deleted` is a `[line]` entry, and the deleted scenes after it are read as Boneyard scenes (or story
+   scenes, with no `# Boneyard`): visible again.
 
 In every case the scenes' text, notes, comments and marks are read exactly as before.
 
@@ -1208,13 +1214,12 @@ v2 as written. This spec only adds forms the demo doesn't use: range and quote *
 | Q14 | **Formatting in a hand-written title** (`## The *ferry*`). | Drop it silently, keeping the text, as ADR 0015 does for formatted titles. |
 | Q15 | **More typographic substitutions?** ADR 0022's table omits „ ‚ (low quotes), ′ ″ (primes), − (minus) and the non-breaking hyphen, which become `[?]`. | Keep the ADR's table for now; extend it later, in the one table shared by the editor and the parser. |
 
-### Open: the Deleted section (ADR 0031, #94)
+### The Deleted section (ADR 0031, #94)
 
-These came up while specifying §1.9. Scene It implements each recommendation, so it can be tried; none is decided until
-the owner picks.
+These came up while specifying §1.9. **The owner decided them on 2026-11-04**, taking each recommendation.
 
-| # | Question | Recommendation | Alternatives |
-| --- | --- | --- | --- |
-| Q16 | **Heading order.** What does a `# Boneyard` after `# Deleted` mean? | The parts come in one order (story, Boneyard, Deleted): it's a `[line]` entry, and the scenes after it stay deleted. The book's model order is then always its file order, and a misplaced heading is reported (the book opens as repaired) rather than accepted silently. | **Either order:** each of the two headings starts its part the first time it appears, wherever it is, and the next save writes them in canonical order. More forgiving (a scene typed under a `# Boneyard` at the end of the file lands in the Boneyard, visibly), but a `# Deleted` typed early in the story then hides scenes with no entry at all. |
-| Q17 | **Errors in deleted scenes.** A hand edit can damage a deleted scene, which makes the book open as repaired (ADR 0024). Should the Errors tab list that scene's entries? | Yes, after the Boneyard's, under `Deleted › <title>`. Otherwise the banner says "1 repair" over an empty tab. It's the only place a deleted scene's title appears. Delete and Fix work on them as on any entry. The group name is on-screen wording, so it's the owner's call. | **Hide them too:** the Errors tab leaves deleted scenes out, so the count and the rows disagree with the banner. |
-| Q18 | **The heading's name and the section's order.** ADR 0031 proposed `# Deleted`, most recently deleted first. | `# Deleted`, newest first, like the Boneyard: a writer looking for what they just deleted finds it at the top of the section. | Another name (`# Trash`, `# Deleted scenes`); oldest first, so the file only ever grows at its end. |
+| # | Question | Decision |
+| --- | --- | --- |
+| Q16 | **Heading order.** What does a `# Boneyard` after `# Deleted` mean? | The parts come in one order (story, Boneyard, Deleted): it's a `[line]` entry, the scenes after it stay deleted, and the book's model order is always its file order. A misplaced heading is reported only when a later structural heading reveals it: a lone `# Deleted` typed by hand, with no `# Boneyard` or second `# Deleted` after it, hides every scene after it **without any entry**, and the book opens normally. The owner accepted that risk: only a hand edit can cause it, and the text stays in the file. Rejected: either order, where each heading starts its part the first time it appears (an early `# Deleted` would then hide scenes with no entry even when a `# Boneyard` follows). |
+| Q17 | **Errors in deleted scenes.** A hand edit can damage a deleted scene, which makes the book open as repaired (ADR 0024). Should the Errors tab list that scene's entries? | Yes, last, under `Deleted › <title>` (wording approved). Otherwise the banner would say "1 repair" over an empty tab. It's the only place a deleted scene's title appears; Delete and Fix work on them as on any entry. |
+| Q18 | **The heading's name and the section's order.** | `# Deleted`, newest first, like the Boneyard. |

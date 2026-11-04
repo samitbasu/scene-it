@@ -185,6 +185,9 @@ struct UnusedSceneIDs: SceneIDSource {
 enum FilePart: Comparable, CaseIterable, Sendable {
     case story, boneyard, deleted
 
+    /// The parts whose scenes the writer is shown (ADR 0031).
+    static let visible: [FilePart] = [.story, .boneyard]
+
     /// The `# ` heading that starts the part; the story starts with the file.
     var heading: String? {
         switch self {

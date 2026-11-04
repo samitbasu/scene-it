@@ -101,9 +101,14 @@ import Testing
         try #require(book.deleted.contains { $0.id == Self.dream }, "precondition: the scene is in the book")
         #expect(book.scene(Self.dream) == nil)
         #expect(SceneLocation(of: Self.dream, in: book) == .noScene)
-        #expect(book.scene(.previous, from: Self.dream) == nil)
-        #expect(
-            book.scene(.next, from: book.scenes.last?.id) == nil, "the story ends before the Deleted section")
+        #expect(book.visiblePlace(of: Self.dream) == nil)
+        #expect(!book.visibleScenes.contains { $0.id == Self.dream })
+
+        var restored = book
+        _ = restored.undelete(Self.dream, toBoneyardAt: 0)
+        let dream = try #require(restored.scene(Self.dream), "back in the Boneyard, it's reachable again")
+        #expect(SceneLocation(of: Self.dream, in: restored) == .boneyard(dream))
+        #expect(restored.visibleScenes.map(\.id.rawValue) == ["ferry", "dream", "brother"])
     }
 
     @Test func aDeletedScenesErrorsAreListedLastUnderItsName() throws {
@@ -164,5 +169,16 @@ import Testing
         #expect(book == original)
         let twice = book.undelete(brother.id, toBoneyardAt: 0)
         #expect(!twice)
+    }
+
+    /// The owner's approved wording (#94), with Cancel first so Return keeps the scene.
+    @Test func theDeleteConfirmationNamesTheSceneAndSaysItsKept() throws {
+        let alert = BoneyardWording.confirmDelete(try book().boneyard[0])
+        #expect(alert.title == "Delete “The brother” from the Boneyard?")
+        #expect(
+            alert.message
+                == "It's kept at the end of the book file, where you can recover it with a text editor.")
+        #expect(alert.buttons.map(\.label) == ["Cancel", "Delete"])
+        #expect(alert.choices == [.cancel, .delete])
     }
 }
