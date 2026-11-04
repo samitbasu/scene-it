@@ -92,7 +92,7 @@ private final class SectionDraft {
         let day = filed ?? defaultDay(number)
         let notices =
             (keys.contains("filed") ? [] : [RepairNotice.missingFiledDate(setTo: day)])
-            + RepairNotice.characters(changed)
+            + RepairNotice.lineBreaks(in: tags, of: .filedCopy) + RepairNotice.characters(changed)
         let ordered = Positioned.inFileOrder(entries)
         var cached: FiledCopyCounts?
         if let scenes = counts["scenes"], let words = counts["words"], let comments = counts["comments"] {

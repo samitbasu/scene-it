@@ -1,7 +1,7 @@
 /// In-memory keyword search over an immutable snapshot of search units (PLAN §9.2).
 ///
-/// Building it splits every unit into words once and interns each distinct spelling's four
-/// comparison keys, so a query compares integers. Build it off the main actor with `indexing`.
+/// Building it splits every unit into words once and interns each distinct spelling's key under
+/// every `Comparison`, so a query compares integers. Build it off the main actor with `indexing`.
 public struct KeywordSearch: SearchIndex {
     let units: [IndexedUnit]
     let forms: [FormKeys]
@@ -88,8 +88,10 @@ struct IndexedUnit: Sendable {
 
 /// How a query compares two words.
 struct Comparison: Hashable {
-    enum Endings: Hashable {
+    enum Endings: Int, CaseIterable {
         case significant
+        /// Words compare without a possessive `'s`, so "bear" is "bear's" but not "bears".
+        case possessiveIgnored
         /// Words compare by `SearchText.stem`.
         case ignored
     }
@@ -97,33 +99,33 @@ struct Comparison: Hashable {
     let sensitivity: SearchText.CaseSensitivity
     let endings: Endings
 
+    static let all = SearchText.CaseSensitivity.allCases.flatMap { sensitivity in
+        Endings.allCases.map { Comparison(sensitivity: sensitivity, endings: $0) }
+    }
+
+    /// This comparison's index in `all`.
+    var ordinal: Int { sensitivity.rawValue * Endings.allCases.count + endings.rawValue }
+
     /// `spelling` as this comparison sees it.
     func key(_ spelling: [UInt16]) -> [UInt16] {
         let folded = SearchText.folded(spelling, sensitivity)
-        return endings == .ignored ? SearchText.stem(folded) : folded
+        return switch endings {
+        case .significant: folded
+        case .possessiveIgnored: SearchText.withoutPossessive(folded)
+        case .ignored: SearchText.stem(folded)
+        }
     }
 }
 
 /// One spelling's interned key for each `Comparison`.
 struct FormKeys: Sendable {
-    private let exactInsensitive, exactSensitive, stemInsensitive, stemSensitive: Int32
+    private let keys: [Int32]
 
     init(_ spelling: [UInt16], intern: ([UInt16]) -> Int32) {
-        func id(_ sensitivity: SearchText.CaseSensitivity, _ endings: Comparison.Endings) -> Int32 {
-            intern(Comparison(sensitivity: sensitivity, endings: endings).key(spelling))
-        }
-        exactInsensitive = id(.insensitive, .significant)
-        exactSensitive = id(.sensitive, .significant)
-        stemInsensitive = id(.insensitive, .ignored)
-        stemSensitive = id(.sensitive, .ignored)
+        keys = Comparison.all.map { intern($0.key(spelling)) }
     }
 
     subscript(_ comparison: Comparison) -> Int32 {
-        switch (comparison.sensitivity, comparison.endings) {
-        case (.insensitive, .significant): exactInsensitive
-        case (.sensitive, .significant): exactSensitive
-        case (.insensitive, .ignored): stemInsensitive
-        case (.sensitive, .ignored): stemSensitive
-        }
+        keys[comparison.ordinal]
     }
 }

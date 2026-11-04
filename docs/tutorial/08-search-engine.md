@@ -45,6 +45,16 @@ Boneyard's, each marked with its `ScenePlacement` (`.story(number:)` or `.boneya
 `version` is `.working` today. When the File Cabinet lands (#34), each decoded filed copy becomes
 units the same way with `version: .filed(number)`, and the arrays are simply concatenated.
 
+A scene's tags become one unit, joined by a line break (`SearchUnit.tagSeparator`). A line break
+ends a sentence (§5), so a phrase can't run from one tag into the next: `"red door"` finds the
+tag `red door` but not the tags `red` and `door` side by side, while the words `red door`
+without quotes still find both, in different sentences. Tags are single-line in the model
+(`CharacterPolicy.admittedTags` turns a line break into a space, as in a title), so `\n` in a
+tag unit is always a separator. A line break read from a file's `tags:` line is a repair with
+a notice: in `book.md` the book opens as repaired (ADR 0024), and in `Archive/index.md` the
+index keeps its original before it's rewritten
+([ADR 0033](../decisions/0033-search-matching-rules.md)).
+
 Every field is a `let`, and every type inside is a value type, so the snapshot can't change
 while a search reads it. That is what lets the whole thing be `Sendable` without a lock. In Rust
 you'd get the same guarantee from `Arc<[SearchUnit]>` with no interior mutability: the compiler
@@ -227,8 +237,8 @@ searched as `cafe`, and finds it.
 
 | Rule | Examples |
 | --- | --- |
-| 1. "news" and "does" are kept whole | news, does |
-| 2. A possessive `'s` is removed and the rest is stemmed again | bear's → bear, it's → it, James's → James → Jame (as James) |
+| 1. "news", "does" and the contractions are kept whole | news, does, it's, what's |
+| 2. A possessive `'s` is removed and the rest is stemmed again | bear's → bear, James's → James → Jame (as James) |
 | 3a. Only when at least 3 characters remain: `es` is removed after `ss`, `x`, `zz`, `ch`, `sh` or `o` | kisses → kiss, boxes → box, buzzes → buzz, churches → church, heroes → hero, echoes → echo |
 | 3b. Otherwise, with the same minimum, `s` is removed unless it follows another `s` | bears → bear, sizes → size, horses → horse, menus → menu, taxis → taxi, skis → ski; glass, his and bus are kept |
 | 4. A final `ie` becomes `y` | movie, movies → movy; lady, ladies → lady; tie, ties → ty |
@@ -237,16 +247,29 @@ searched as `cafe`, and finds it.
 A stem doesn't have to be a word ("Jame", "movy"): it only has to be the same for the forms
 that should match. The rule accepts some false positives (Hans, Carlos and Mars lose their `s`,
 so "Han" finds "Hans"; Whole word is the escape hatch) and doesn't know irregular plurals
-(mice, children).
+(mice, children), or an `-es` plural of a word ending in `s` (James and Jameses, bus and buses
+don't match; horse and horses do).
 
-**Whole word** turns the endings off. **Match case** makes case significant (an accent in the
-query is still read as its plain letter). A `"quoted phrase"` always compares words exactly,
-adjacent and within one sentence.
+**Contractions aren't possessives.** `SearchText.contractions` lists the `'s` contractions (it's,
+he's, she's, that's, let's, what's, ...) once, as data. The stemmer and Whole word both read a
+possessive through one private `possessor` function, which checks that list, so `it` never finds
+`it's` in either mode, and `it's` finds only `it's`.
+
+**Whole word** turns the endings off but keeps the possessive (`SearchText.withoutPossessive`):
+"bear" finds "bear's" but not "bears", and "James" finds "James's" but not "Jameses". There's no
+substring mode. **Match case** makes case significant (an accent in the query is still read as
+its plain letter). A `"quoted phrase"` always compares words exactly, adjacent and within one
+sentence.
+
+The Search window is word-based, so it can't find punctuation: `"` delimits a phrase, and
+anything that isn't a letter, digit or inner apostrophe separates words. Literal text such as a
+stray straight quote, `--` or `...` is found with the scene's find bar (Cmd+F, PLAN §8).
 
 ### Interning: comparing integers
 
-`KeywordSearch.init` reads every unit once. For each distinct spelling it computes four keys,
-one per combination of case sensitivity and endings, and interns each key as an `Int32`. A
+`KeywordSearch.init` reads every unit once. For each distinct spelling it computes six keys,
+one per `Comparison` (case sensitive or not, times endings significant, possessive ignored or
+all ignored), and interns each key as an `Int32`. A
 query then maps each distinct spelling to the word keyword it matches, if any
 (`CompiledQuery.wordKeywordOfForm`), so scanning 120,000 tokens is 120,000 array lookups. It's
 the same trick as a Rust `string_interner`, built from a `[[UInt16]: Int32]` dictionary.
