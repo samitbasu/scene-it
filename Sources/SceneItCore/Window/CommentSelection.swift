@@ -27,6 +27,11 @@ public final class CommentSelection {
         selected = nil
     }
 
+    /// Deselects `scene`'s selected comment if the scene no longer has it (an undo took it away).
+    public func forget(allBut comments: Set<CommentID>, in scene: SceneID) {
+        if let comment = comment(in: scene), !comments.contains(comment) { deselect() }
+    }
+
     /// A click on text that `covering`, newest first, cover: selects the newest of them; or, when
     /// one of them is already selected, the next older one, and after the oldest the newest
     /// again, so clicking the same spot again cycles through them. Covered by none, it changes

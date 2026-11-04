@@ -7,8 +7,9 @@ import Testing
 
 /// Comment underlines (#24, ADR 0032) as the owner chose them, on the page at 100%: the
 /// mockup's demo text with one comment, two and three overlapping, one across a line wrap, one
-/// over highlighted text and one inside a selection, then all seven palette colors and a stack
-/// deeper than fits; and in the notes, where overlapping comments have the fallback.
+/// over highlighted text and one inside a selection, all seven palette colors, a stack deeper
+/// than fits, a misspelled commented word, and a comment in two pieces; and in the notes, each
+/// candidate for what they show where no line fits below the letters.
 extension WindowRenders {
     @Test func commentUnderlines() async throws {
         let output = try #require(renderFolder)
@@ -21,28 +22,78 @@ extension WindowRenders {
                     book: book, store: store, preferences: preferences,
                     formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
             }
+            let page = try await Self.render(window()) { window in
+                let page = try #require(Self.page(in: window))
+                try #require(
+                    page.commentPalette != .empty, "precondition: the scene's comments reached the page")
+                page.setSelectedRange(selection)
+            }
             try Self.write(
-                try await Self.render(window()) { window in
-                    let page = try #require(Self.page(in: window))
-                    try #require(
-                        page.commentPalette != .empty, "precondition: the scene's comments reached the page")
-                    page.setSelectedRange(selection)
-                },
-                name: "underlines",
+                page, name: "underlines",
                 caption: "Comment underlines: 1 pt, 1.5 pt apart, 3 pt below the baseline",
                 to: output)
+            try Self.png(Self.closeUp(page.double, CGRect(x: 360, y: 240, width: 500, height: 330)))
+                .write(to: output.appending(path: "underlines-close-up@2x.png"))
             preferences.showRightPanelTab(.notes)
             defer { preferences.showRightPanelTab(.comments) }
-            try Self.write(
-                try await Self.render(window()) { window in
+            for (name, caption, option) in Self.notesCandidates {
+                let renders = try await Self.render(window()) { window in
                     let notes = try #require(
                         subviewTree(of: window.contentView).compactMap { $0 as? SceneTextView }
                             .first { !($0 is ManuscriptTextView) })
                     try #require(!notes.string.isEmpty, "precondition: the notes are shown")
-                },
-                name: "underlines-notes",
-                caption: "In the notes, overlapping comments get one line in the newest color", to: output)
+                    switch option {
+                    case .room(let room): notes.tightRoom = room
+                    case .spaced: Self.spaceLines(of: notes)
+                    }
+                }
+                try Self.write(renders, name: "underlines-notes-\(name)", caption: caption, to: output)
+                try Self.png(Self.closeUp(renders.double, CGRect(x: 1150, y: 140, width: 290, height: 90)))
+                    .write(to: output.appending(path: "underlines-notes-\(name)-close-up@2x.png"))
+            }
         }
+    }
+
+    enum NotesOption {
+        case room(TightRoom)
+        /// A line 3 pt down as on the page, with 2 pt between the notes' lines to hold it.
+        case spaced
+    }
+
+    static let notesCandidates: [(String, String, NotesOption)] = [
+        ("A-line-into-next", "Notes A: one line 3 pt down, into the next line", .room(.lineIntoTheNextLine)),
+        ("B-raised", "Notes B: one line 1 pt below the baseline, through the descenders", .room(.raisedLine)),
+        ("C-tint", "Notes C: a tint of the comment's color instead of a line", .room(.tint)),
+        ("D-spaced", "Notes D: one line 3 pt down, with 2 pt between the notes' lines", .spaced),
+    ]
+
+    /// Candidate D, drawn by giving the notes' paragraphs 2 pt of line spacing in the view alone,
+    /// out of the editor's hearing.
+    private static func spaceLines(of notes: SceneTextView) {
+        guard let storage = notes.textStorage else { return }
+        let editor = storage.delegate
+        storage.delegate = nil
+        defer { storage.delegate = editor }
+        var spaced: [(NSParagraphStyle, NSRange)] = []
+        storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: storage.length)) {
+            value, range, _ in
+            guard let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle else {
+                return
+            }
+            style.lineSpacing = 2
+            spaced.append((style, range))
+        }
+        storage.beginEditing()
+        for (style, range) in spaced { storage.addAttribute(.paragraphStyle, value: style, range: range) }
+        storage.endEditing()
+    }
+
+    /// `rect`, in the window's top-left points, cut from a 2x render.
+    static func closeUp(_ rep: NSBitmapImageRep, _ rect: CGRect) throws -> NSBitmapImageRep {
+        let image = try #require(rep.cgImage)
+        let pixels = CGRect(
+            x: rect.minX * 2, y: rect.minY * 2, width: rect.width * 2, height: rect.height * 2)
+        return NSBitmapImageRep(cgImage: try #require(image.cropping(to: pixels)))
     }
 
     /// The sample book with the mockup's first scene commented, and the range to select in it.
@@ -70,6 +121,9 @@ extension WindowRenders {
         let notesOlder = comment(.green)
         let notesNewer = comment(.pink)
         let notesLetter = comment(.blue)
+        let misspelled = comment(.blue)
+        let pieces = comment(.red)
+        let between = comment(.green)
 
         let selected = "He found the letter under the bench"
         let body: [Paragraph] = [
@@ -101,6 +155,16 @@ extension WindowRenders {
                     + ["one", "two", "three", "four", "five", "six"].enumerated().map { index, word in
                         Run(word + (index < 5 ? " " : ""), comments: Set(deep.prefix(index + 1)))
                     } + [Run(".")]),
+            [
+                Run("Pieter had "), Run("paintd", comments: [misspelled]),
+                Run(" the boat the same blue as the house."),
+            ],
+            [
+                Run("Nobody", comments: [pieces]), Run(" met her at the "),
+                Run("landing", comments: [between]),
+                Run(", which she had half expected and wholly "), Run("dreaded", comments: [pieces]),
+                Run("."),
+            ],
         ]
         book.scenes[0].body = body
         book.scenes[0].notes = [

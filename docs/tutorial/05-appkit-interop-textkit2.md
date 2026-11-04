@@ -247,22 +247,26 @@ Three things about fragments are worth knowing:
   again; it doesn't ask the delegate for new ones. So a fragment must not copy anything that can
   change (the comments' colours): it holds its `CommentUnderliner` and reads the palette, behind
   a `Mutex`, each time it draws. (A first version copied it, and kept drawing the old style.)
-- **They may draw outside their frame.** A paragraph's frame ends at its last line's letters,
-  since the double spacing is above each line (ADR 0034); stacked lines go below that, into the
-  next paragraph's frame. `renderingSurfaceBounds` says how far the drawing reaches.
-- **They draw in points, but pixels decide what's crisp.** `draw(at:in:)` converts each line to
-  device space (`CGContext.convertToDeviceSpace`), rounds it to whole pixels from the baseline's
-  pixel, and converts back, so a 1 pt line is one pixel at 1x and two at 2x, evenly stacked.
+- **They may draw outside their frame.** TextKit lays a line's spacing out above the next line,
+  so the double spacing below a paragraph's last line (ADR 0034) is at the top of the next
+  paragraph's frame, and stacked lines reach into it. `renderingSurfaceBounds` says how far a
+  commented paragraph's drawing reaches.
+- **They draw in points, but pixels decide what's crisp.** `draw(at:in:)` measures how many
+  device pixels a point covers there (the display's scale times the page's zoom), rounds each line
+  to whole pixels from the baseline's pixel, and stacks only as deep as fits at that step, so a
+  1 pt line is one pixel at 1x and two at 2x, evenly stacked, at any zoom.
 
 Each comment keeps one level across its paragraph (`CommentPalette.underlines(of:depth:)`, a
 pure function of the paragraph's attributed string), and past the depth that fits below a line
 the stretch gets one line in the newest comment's colour.
 
-Clicking commented text selects its comment. `SceneTextView.mouseDown(with:)` asks
-`CommentUnderlineFragment.character(at:in:)` which character is under the click, or above the
-underline it's on, using TextKit 2's `NSTextLineFragment.characterIndex(for:)`, then hands it to
-the editor, which picks among the comments covering it (`CommentSelection.click`) and lets the
-click go on to place the caret. The tests click the real view with `NSEvent`s made in the test
+A plain click on commented text selects its comment. `SceneTextView.mouseDown(with:)` asks
+`CommentUnderlineFragment.character(at:in:)` which character is under the press, or above the
+underline it's on, using TextKit 2's `NSTextLineFragment.characterIndex(for:)`. It lets
+`super` place the caret (or drag out a selection: `NSTextView` runs its own tracking loop inside
+`mouseDown`, and returns when the button comes up), and only then, if the press was a plain click
+(`CommentPress`), hands the character to the editor, which picks among the comments covering it
+(`CommentSelection.click`). The tests click the real view with `NSEvent`s made in the test
 process: a mouse-up posted to the window's queue first, so that `NSTextView`'s mouse-tracking
 loop, which waits for it, returns.
 

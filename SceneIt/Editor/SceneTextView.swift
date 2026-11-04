@@ -53,19 +53,23 @@ class SceneTextView: KeyboardTextView {
         set { underliner.show(newValue, laidOutBy: textLayoutManager) }
     }
 
-    /// A click on commented text, or on its underlines, selects its comment (PLAN §8.1). The
-    /// click goes on to place the caret as any click does.
-    override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 1, let layout = textLayoutManager {
-            let point = convert(event.locationInWindow, from: nil)
-            let origin = textContainerOrigin
-            if let index = CommentUnderlineFragment.character(
-                at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), in: layout)
-            {
-                editor?.clickedComments(at: index)
-            }
+    /// What the notes show where a line doesn't fit below the letters (candidates for #24).
+    var tightRoom: TightRoom {
+        get { underliner.tightRoom }
+        set {
+            underliner.tightRoom = newValue
+            if let layout = textLayoutManager { layout.invalidateLayout(for: layout.documentRange) }
         }
+    }
+
+    /// A click on commented text, or on its underlines, selects its comment (PLAN §8.1), once
+    /// it has placed the caret as any click does.
+    override func mouseDown(with event: NSEvent) {
+        let pressed = CommentPress.character(pressedBy: event, in: self)
         super.mouseDown(with: event)
+        if let pressed, CommentPress.selectsComment(leaving: selectedRange()) {
+            editor?.clickedComments(at: pressed)
+        }
     }
 
     /// The typing attributes take the style of the caret's paragraph. TextKit also lays out the
@@ -336,5 +340,27 @@ class SceneTextView: KeyboardTextView {
         didChangeText()
         let edits = zip(ranges, strings).map { Edit(range: $0, length: $1.utf16.count) }
         selectedRanges = Self.selection(selection, after: edits).map(NSValue.init(range:))
+    }
+}
+
+/// Which presses on the text select a comment: plain clicks only (the owner's call, #24).
+enum CommentPress {
+    /// The character an unmodified single press is on, or above the underline it's on; `nil` for
+    /// a press with Shift, Command, Option or Control, a double press, or a press off the text.
+    static func character(pressedBy event: NSEvent, in view: NSTextView) -> Int? {
+        let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        guard event.clickCount == 1, modifiers.isEmpty, let layout = view.textLayoutManager else {
+            return nil
+        }
+        let point = view.convert(event.locationInWindow, from: nil)
+        let origin = view.textContainerOrigin
+        return CommentUnderlineFragment.character(
+            at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), in: layout)
+    }
+
+    /// Whether the press, done, was a click: a press that dragged out a selection selects no
+    /// comment.
+    static func selectsComment(leaving selection: NSRange) -> Bool {
+        selection.length == 0
     }
 }

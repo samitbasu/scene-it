@@ -35,6 +35,17 @@ struct CommentSelectionTests {
         #expect(selection.comment(in: scene) == middle)
     }
 
+    @Test func aCommentTheSceneNoLongerHasIsForgotten() {
+        let selection = CommentSelection()
+        selection.select(middle, in: scene)
+        selection.forget(allBut: [newest, middle], in: scene)
+        #expect(selection.comment(in: scene) == middle)
+        selection.forget(allBut: [newest], in: other)
+        #expect(selection.comment(in: scene) == middle, "another scene's comments don't count")
+        selection.forget(allBut: [newest], in: scene)
+        #expect(selection.selected == nil)
+    }
+
     /// Another scene's selection is no comment of this one's, so a click here starts afresh.
     @Test func aSelectionBelongsToItsScene() {
         let selection = CommentSelection()

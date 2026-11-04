@@ -5,7 +5,7 @@ import Testing
 @testable import SceneIt
 
 /// Clicking commented text selects its comment (PLAN §8.1), through the page's own `mouseDown`
-/// with events made in this process; and the underlines follow a recolor.
+/// with events made in this process; and the underlines and the selection follow the model.
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct CommentClickTests {
     static let older = Comment(
@@ -15,7 +15,10 @@ struct CommentClickTests {
         id: CommentID(rawValue: "01JC4K0000000000000000NEW1"), color: .blue, text: "Newer",
         created: Timestamp(Date(timeIntervalSince1970: 1_700_000_100), in: .gmt))
 
-    /// "The letter waited.": "letter" under both comments, "waited" under the older alone.
+    static let long = Array(repeating: "harbor lights", count: 30).joined(separator: " ")
+
+    /// "The letter waited.": "letter" under both comments, "waited" under the older alone; then
+    /// a long paragraph, with letters below the underlines.
     static func commentedScene() -> BookScene {
         var ids = IDGenerator.system
         return BookScene(
@@ -25,7 +28,7 @@ struct CommentClickTests {
                     Run("The "), Run("letter", comments: [older.id, newer.id]),
                     Run(" waited", comments: [older.id]), Run("."),
                 ],
-                [Run("Dawn.")],
+                [Run(long)],
             ],
             comments: [older, newer])
     }
@@ -40,36 +43,103 @@ struct CommentClickTests {
                 picks.append(selection.comment(in: scene))
             }
             #expect(picks == [Self.newer.id, Self.older.id, Self.newer.id])
+            #expect(harness.page.selectedRange().length == 0, "the click placed the caret")
+            #expect((6...7).contains(harness.page.selectedRange().location), "where it clicked")
             try Self.click(harness, onCharacter: 1)
             #expect(selection.comment(in: scene) == Self.newer.id, "uncommented text changes nothing")
             try Self.click(harness, onCharacter: 13)
             #expect(selection.comment(in: scene) == Self.older.id, "the only comment on \"waited\"")
-            #expect(harness.page.selectedRange().length == 0, "the click placed the caret as usual")
         }
     }
 
-    /// The underlines are in the spacing below the line; clicking one is clicking its text.
+    /// The underlines are in the spacing below the line, above the next paragraph's letters;
+    /// clicking one is clicking its text.
     @Test func clickingAnUnderlineSelectsItsComment() async throws {
         try await withPage([Self.commentedScene()]) { harness in
             let selection = try #require(harness.page.editor?.comments)
             let scene = try #require(harness.book.openScene)
             let letter = try Self.frame(of: 6, in: harness.page)
+            let below = try Self.frame(of: 19 + 6, in: harness.page)
+            try #require(below.minX <= letter.midX + 40, "precondition: the next paragraph has letters there")
             let underBlue = CGPoint(x: letter.midX, y: Self.baseline(of: letter) + 6.5)
             try Self.click(harness, at: underBlue)
             #expect(selection.comment(in: scene) == Self.newer.id)
         }
     }
 
-    /// Recoloring a comment redraws the underlines already on the page in its new color.
-    @Test func aRecolorRedrawsTheUnderlines() async throws {
+    /// Only plain clicks: not a Shift- or Command-click, nor a press that drags out a selection
+    /// (the owner's call, #24).
+    @Test func onlyAPlainClickSelectsAComment() async throws {
         try await withPage([Self.commentedScene()]) { harness in
+            let selection = try #require(harness.page.editor?.comments)
+            let scene = try #require(harness.book.openScene)
+            let letter = try Self.frame(of: 6, in: harness.page)
+            let point = CGPoint(x: letter.midX, y: Self.baseline(of: letter) - 4)
+            for modifiers: NSEvent.ModifierFlags in [.shift, .command] {
+                try Self.click(harness, at: point, modifiers: modifiers)
+                #expect(selection.comment(in: scene) == nil, "\(modifiers)")
+            }
+            harness.page.setSelectedRange(NSRange(location: 0, length: 0))
+            try Self.click(harness, at: point, draggingTo: try Self.frame(of: 15, in: harness.page).center)
+            #expect(
+                harness.page.selectedRange().length > 0, "precondition: the press dragged out a selection")
+            #expect(selection.comment(in: scene) == nil)
+        }
+    }
+
+    /// Undoing a paste takes its comment away, and the selection with it; redoing it brings the
+    /// comment back to the page, its underline drawn.
+    @Test func theSelectionAndTheUnderlinesFollowTheModel() async throws {
+        let source = scene("One", letterScene, .withTooEarly)
+        let destination = scene("Two", [[Run("Elsewhere.")]])
+        try await withPage([source, destination]) { harness in
+            let selection = try #require(harness.page.editor?.comments)
+            try await PageHarness.withPasteboard { pasteboard in
+                harness.window.makeFirstResponder(harness.page)
+                harness.page.setSelectedRange(NSRange(location: 4, length: 6))
+                #expect(
+                    harness.page.writeSelection(to: pasteboard, types: harness.page.writablePasteboardTypes))
+                harness.book.select(destination.id)
+                await eventually { harness.storage.string == "Elsewhere." }
+                harness.focusPage(at: 0)
+                #expect(harness.page.readSelection(from: pasteboard))
+                let copy = try #require(harness.book.book.scene(destination.id)?.comments.first?.id)
+                await eventually { harness.page.commentPalette.covers(copy) }
+                try Self.click(harness, onCharacter: 2)
+                #expect(selection.comment(in: destination.id) == copy)
+
+                let undo = try #require(harness.page.undoManager)
+                undo.undo()
+                await eventually { selection.selected == nil }
+                #expect(!harness.page.commentPalette.covers(copy))
+                undo.redo()
+                await eventually { harness.page.commentPalette.covers(copy) }
+                let letter = try Self.frame(of: 2, in: harness.page)
+                await eventually {
+                    (try? Self.colors(below: letter, in: harness.page).contains(.purple)) == true
+                }
+            }
+        }
+    }
+
+    /// Recoloring a comment redraws the underlines already on the page in its new color, and a
+    /// scene scrolled far down stays where it was.
+    @Test func aRecolorRedrawsTheUnderlinesAndKeepsTheScroll() async throws {
+        var longScene = Self.commentedScene()
+        longScene.body = Array(repeating: Paragraph([Run(Self.long)]), count: 120) + longScene.body
+        try await withPage([longScene]) { harness in
             let page = harness.page
-            let waited = try Self.frame(of: 13, in: page)
-            #expect(try Self.colors(below: waited, in: page).contains(.red))
+            page.scrollToEndOfDocument(nil)
+            await eventually { page.visibleRect.maxY >= page.bounds.maxY - 1 }
+            let start = 120 * (Self.long.count + 1)
+            let waited = try Self.frame(of: start + 13, in: page)
+            await eventually { (try? Self.colors(below: waited, in: page).contains(.red)) == true }
+            let scrolled = page.visibleRect.origin
             let pink = Comment(id: Self.older.id, color: .pink, text: "Older", created: Self.older.created)
             page.commentPalette = CommentPalette([pink, Self.newer])
             await eventually { (try? Self.colors(below: waited, in: page).contains(.pink)) == true }
             #expect(try !Self.colors(below: waited, in: page).contains(.red))
+            #expect(abs(page.visibleRect.origin.y - scrolled.y) < 0.5, "the scroll didn't move")
         }
     }
 
@@ -102,20 +172,26 @@ struct CommentClickTests {
         try click(harness, at: CGPoint(x: frame.midX, y: baseline(of: frame) - 4))
     }
 
-    /// A single click at `point` in the page: a mouse-up queued for the page's tracking loop, then
-    /// the mouse-down handed to the page.
-    static func click(_ harness: PageHarness, at point: CGPoint) throws {
-        let location = harness.page.convert(point, to: nil)
-        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+    /// A single press at `point` in the page, released there or at `end` after dragging to it:
+    /// the drag and the release queued for the page's tracking loop, then the press handed to the
+    /// page.
+    static func click(
+        _ harness: PageHarness, at point: CGPoint, modifiers: NSEvent.ModifierFlags = [],
+        draggingTo end: CGPoint? = nil
+    ) throws {
+        func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
             try #require(
                 NSEvent.mouseEvent(
-                    with: type, location: location, modifierFlags: [],
+                    with: type, location: harness.page.convert(point, to: nil), modifierFlags: modifiers,
                     timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: harness.window.windowNumber,
                     context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         }
-        harness.window.postEvent(try event(.leftMouseUp), atStart: false)
-        harness.page.mouseDown(with: try event(.leftMouseDown))
+        if let end {
+            harness.window.postEvent(try event(.leftMouseDragged, at: end), atStart: false)
+        }
+        harness.window.postEvent(try event(.leftMouseUp, at: end ?? point), atStart: false)
+        harness.page.mouseDown(with: try event(.leftMouseDown, at: point))
     }
 
     /// The palette colors drawn in the room below `segment`, in the column at its middle, at 2×.
@@ -141,4 +217,8 @@ struct CommentClickTests {
         }
         return found
     }
+}
+
+extension CGRect {
+    fileprivate var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

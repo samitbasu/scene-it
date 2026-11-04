@@ -1,6 +1,26 @@
 import AppKit
 import Synchronization
 
+/// How many device pixels a point of the text covers where it's drawn: the display's backing
+/// scale times the page's zoom.
+struct DeviceStep: Hashable, Sendable {
+    let pixelsPerPoint: CGFloat
+
+    init(pixelsPerPoint: CGFloat) {
+        self.pixelsPerPoint = pixelsPerPoint.isFinite ? max(pixelsPerPoint, 0.01) : 1
+    }
+
+    /// The step `context` draws at, measured down from `y`.
+    init(of context: CGContext, at y: CGFloat) {
+        let here = context.convertToDeviceSpace(CGPoint(x: 0, y: y))
+        let below = context.convertToDeviceSpace(CGPoint(x: 0, y: y + 1))
+        self.init(pixelsPerPoint: abs(below.y - here.y))
+    }
+
+    /// 100% at 1x and at 2x: a stack is never deeper than fits at both.
+    static let reference = [Self(pixelsPerPoint: 1), Self(pixelsPerPoint: 2)]
+}
+
 /// How commented text is underlined (ADR 0032, the owner's pick on #24): a 1 pt line per
 /// comment in its color, 3 pt below the baseline, the lines of overlapping comments stacked
 /// downward 1.5 pt apart into the double spacing.
@@ -15,19 +35,15 @@ enum UnderlineStyle {
     /// selection band).
     static let clearance: CGFloat = 1
 
-    /// The scales a depth must fit at: the same text is laid out the same on every display.
-    static let scales = [1, 2]
-
     /// The top of the line at `level`, below the baseline, before it meets the pixels.
     static func top(of level: Int) -> CGFloat {
         offset + CGFloat(level) * (thickness + spacing)
     }
 
-    /// The line at `level` in device pixels below the baseline's pixel, at `scale` pixels a
-    /// point: its thickness and its distance from the line above rounded to whole pixels, so
-    /// a stack is even.
-    static func pixels(of level: Int, scale: Int) -> (top: Int, height: Int) {
-        let perPoint = CGFloat(scale)
+    /// The line at `level` in device pixels below the baseline's pixel: its thickness and its
+    /// distance from the line above are each rounded to whole pixels, so a stack is even.
+    static func pixels(of level: Int, at step: DeviceStep) -> (top: Int, height: Int) {
+        let perPoint = step.pixelsPerPoint
         let height = max(1, Int((thickness * perPoint).rounded()))
         let pitch = max(height + 1, Int(((thickness + spacing) * perPoint).rounded()))
         return (Int((offset * perPoint).rounded()) + level * pitch, height)
@@ -39,17 +55,36 @@ enum UnderlineStyle {
         line.typographicBounds.height - line.glyphOrigin.y + paragraph.lineSpacing - clearance
     }
 
-    /// How many lines fit below `line` at every scale, at least one.
-    static func depth(below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle) -> Int {
+    /// How many lines fit below `line` at `step` and at the reference steps: none, if not even
+    /// one does. Half a pixel is kept spare, for the baseline's rounding to its pixel.
+    static func depth(
+        below line: NSTextLineFragment, spacedBy paragraph: NSParagraphStyle, at step: DeviceStep?
+    ) -> Int {
         let room = room(below: line, spacedBy: paragraph)
-        let fitting = scales.map { scale in
+        let steps = DeviceStep.reference + (step.map { [$0] } ?? [])
+        return steps.map { step in
             (0...).first { level in
-                let line = pixels(of: level, scale: scale)
-                return CGFloat(line.top + line.height) > room * CGFloat(scale)
+                let line = pixels(of: level, at: step)
+                return CGFloat(line.top + line.height) > room * step.pixelsPerPoint - 0.5
             } ?? 0
-        }
-        return max(1, fitting.min() ?? 1)
+        }.min() ?? 0
     }
+}
+
+/// What a paragraph with no room for a line below its letters shows (the single-spaced notes).
+/// Candidates for the owner's pick (#24).
+public enum TightRoom: Hashable, Sendable {
+    /// One line 3 pt below the baseline anyway, into the next line's slot.
+    case lineIntoTheNextLine
+    /// One line just below the baseline, through the descenders, where it fits.
+    case raisedLine
+    /// A tint of the comment's color behind the letters instead of a line.
+    case tint
+
+    /// From the baseline down to the top of the raised line.
+    static let raisedOffset: CGFloat = 1
+    /// How strong the tint is.
+    static let tintAlpha: CGFloat = 0.18
 }
 
 /// The open scene's comments as the page draws them: each one's color, and which is newer.
@@ -111,10 +146,37 @@ public struct CommentPalette: Hashable, Sendable {
             .sorted { age(of: $0) > age(of: $1) }
     }
 
-    /// The ids of a `.comments` value that this palette has.
+    /// Whether this palette has `comment`.
+    public func covers(_ comment: CommentID) -> Bool {
+        entries[comment] != nil
+    }
+
+    /// Whether a comment this palette has covers any of `text`.
+    func covers(_ text: NSAttributedString) -> Bool {
+        var covered = false
+        text.enumerateAttribute(.comments, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+            if !ids(in: value).isEmpty {
+                covered = true
+                stop.pointee = true
+            }
+        }
+        return covered
+    }
+
+    /// The comments drawn differently with `other`: added, removed or recolored, or older or
+    /// newer than they were.
+    func changes(to other: Self) -> Set<CommentID> {
+        Set(entries.keys).union(other.entries.keys).filter { entries[$0] != other.entries[$0] }
+    }
+
+    /// The ids in a `.comments` value.
+    static func ids(in value: Any?) -> Set<CommentID> {
+        (value as? NSSet).flatMap { try? NovelAttributes.CommentsAttribute.value(for: $0) } ?? []
+    }
+
+    /// The ids in a `.comments` value that this palette has.
     private func ids(in value: Any?) -> [CommentID] {
-        ((value as? NSSet)?.allObjects as? [String] ?? []).map(CommentID.init(rawValue:))
-            .filter { entries[$0] != nil }
+        Self.ids(in: value).filter { entries[$0] != nil }
     }
 
     private func levels(of runs: [(range: NSRange, comments: [CommentID])]) -> [CommentID: Int] {
@@ -186,10 +248,6 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
     /// here each time rather than keeping the one it was made with.
     private let underliner: CommentUnderliner
 
-    private var palette: CommentPalette {
-        underliner.palette
-    }
-
     init(_ element: NSTextElement, range: NSTextRange?, underliner: CommentUnderliner) {
         self.underliner = underliner
         super.init(textElement: element, range: range)
@@ -199,19 +257,17 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         nil
     }
 
-    private var paragraph: NSTextParagraph? {
-        textElement as? NSTextParagraph
+    private var text: NSAttributedString? {
+        (textElement as? NSTextParagraph)?.attributedString
     }
 
-    private func paragraphStyle(of paragraph: NSTextParagraph) -> NSParagraphStyle {
-        let text = paragraph.attributedString
-        let style = text.length > 0 ? text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) : nil
-        return style as? NSParagraphStyle ?? .default
+    private var paragraphStyle: NSParagraphStyle {
+        guard let text, text.length > 0 else { return .default }
+        return text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle ?? .default
     }
 
-    private func depth(of paragraph: NSTextParagraph) -> Int {
-        guard let line = textLineFragments.first else { return 1 }
-        return UnderlineStyle.depth(below: line, spacedBy: paragraphStyle(of: paragraph))
+    private func baseline(of line: NSTextLineFragment) -> CGFloat {
+        line.typographicBounds.minY + line.glyphOrigin.y
     }
 
     /// One underline where it's drawn: `rect` is where it is before it meets the pixels.
@@ -222,20 +278,20 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         let color: PaletteColor
     }
 
-    /// The underlines' rectangles, in this fragment's coordinates. A line that ends a wrapped
-    /// line stops at its last letter, not under the space the line breaks at.
-    func underlineRects() -> [PlacedUnderline] {
-        guard let paragraph else { return [] }
-        let text = paragraph.attributedString
-        let underlines = palette.underlines(of: text, depth: depth(of: paragraph))
+    /// The underlines' rectangles, in this fragment's coordinates, as deep as fits at `step`.
+    /// A line that ends a wrapped line stops at its last letter, not under the space it breaks at.
+    func underlineRects(at step: DeviceStep? = nil) -> [PlacedUnderline] {
+        guard let text, let first = textLineFragments.first else { return [] }
+        let depth = UnderlineStyle.depth(below: first, spacedBy: paragraphStyle, at: step)
+        let underlines = underliner.palette.underlines(of: text, depth: max(depth, 1))
         guard !underlines.isEmpty else { return [] }
         let string = text.string as NSString
         var rects: [PlacedUnderline] = []
         for line in textLineFragments {
-            let lineRange = line.characterRange
-            let baseline = line.typographicBounds.minY + line.glyphOrigin.y
             for underline in underlines {
-                guard var span = underline.range.intersection(lineRange), span.length > 0 else { continue }
+                guard var span = underline.range.intersection(line.characterRange), span.length > 0 else {
+                    continue
+                }
                 while span.length > 0,
                     CharacterSet.whitespacesAndNewlines.contains(
                         Unicode.Scalar(string.character(at: span.upperBound - 1)) ?? "x")
@@ -249,52 +305,56 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
                     PlacedUnderline(
                         rect: CGRect(
                             x: line.typographicBounds.minX + from,
-                            y: baseline + UnderlineStyle.top(of: underline.level),
+                            y: baseline(of: line) + UnderlineStyle.top(of: underline.level),
                             width: to - from, height: UnderlineStyle.thickness),
-                        baseline: baseline, level: underline.level, color: underline.color))
+                        baseline: baseline(of: line), level: underline.level, color: underline.color))
             }
         }
         return rects
     }
 
-    /// The character of this paragraph at `point`, in this fragment's coordinates: under it on
-    /// its line, or above it in the room below the line, where its underlines are. Its offset in
-    /// the paragraph.
-    func character(at point: CGPoint) -> Int? {
-        guard let paragraph else { return nil }
-        let style = paragraphStyle(of: paragraph)
-        for line in textLineFragments {
-            let bounds = line.typographicBounds
-            let bottom = bounds.minY + line.glyphOrigin.y + UnderlineStyle.room(below: line, spacedBy: style)
-            guard point.y >= bounds.minY, point.y < max(bottom, bounds.maxY) else { continue }
-            let x = point.x - bounds.minX
-            let range = line.characterRange
-            let near = line.characterIndex(for: CGPoint(x: x, y: line.glyphOrigin.y))
-            return [near - 1, near, near + 1].first { index in
-                index >= range.location && index < range.upperBound
-                    && x >= line.locationForCharacter(at: index).x
-                    && x < line.locationForCharacter(at: index + 1).x
-            }
-        }
-        return nil
+    private var isCommented: Bool {
+        text.map(underliner.palette.covers) ?? false
     }
 
-    /// The character of `layout`'s text at `point`, in its text container's coordinates, as
-    /// `character(at:)` finds it: its offset in the text. The room below a paragraph's last line
-    /// is in the next paragraph's fragment, so the fragments starting at or above `point` are
-    /// asked, nearest first: the last of them, then the one before. A click is in view, so the
-    /// search starts at the viewport.
+    // MARK: Hit-testing
+
+    /// Where a line answers a click: from the top of its letters' slot down to the end of the
+    /// room below it, where its underlines are.
+    private func band(of line: NSTextLineFragment) -> Range<CGFloat> {
+        let bottom = baseline(of: line) + UnderlineStyle.room(below: line, spacedBy: paragraphStyle)
+        return line.typographicBounds.minY..<max(bottom, line.typographicBounds.maxY)
+    }
+
+    /// The character of this paragraph under `point`, in this fragment's coordinates, on a line
+    /// whose band holds it: its offset in the paragraph.
+    func character(at point: CGPoint) -> Int? {
+        guard let line = textLineFragments.first(where: { band(of: $0).contains(point.y) }) else {
+            return nil
+        }
+        let x = point.x - line.typographicBounds.minX
+        let range = line.characterRange
+        let near = line.characterIndex(for: CGPoint(x: x, y: line.glyphOrigin.y))
+        return [near - 1, near, near + 1].first { index in
+            index >= range.location && index < range.upperBound && x >= line.locationForCharacter(at: index).x
+                && x < line.locationForCharacter(at: index + 1).x
+        }
+    }
+
+    /// The character of `layout`'s text at `point`, in its text container's coordinates: its
+    /// offset in the text. The room below a paragraph's last line lies in the next paragraph's
+    /// frame, so the paragraph above is asked first, then the one whose frame holds `point`.
     public static func character(at point: CGPoint, in layout: NSTextLayoutManager) -> Int? {
         guard let content = layout.textContentManager else { return nil }
         let documentStart = layout.documentRange.location
-        let start = layout.textViewportLayoutController.viewportRange?.location ?? documentStart
-        var nearest: [NSTextLayoutFragment] = []
-        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+        let viewportStart = layout.textViewportLayoutController.viewportRange?.location ?? documentStart
+        var aboveAndAt: [NSTextLayoutFragment] = []
+        layout.enumerateTextLayoutFragments(from: viewportStart, options: [.ensuresLayout]) { fragment in
             guard fragment.layoutFragmentFrame.minY <= point.y else { return false }
-            nearest = [fragment] + nearest.prefix(1)
+            aboveAndAt = Array((aboveAndAt + [fragment]).suffix(2))
             return true
         }
-        for fragment in nearest {
+        for fragment in aboveAndAt {
             let frame = fragment.layoutFragmentFrame
             if let ours = fragment as? CommentUnderlineFragment,
                 let index = ours.character(at: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
@@ -305,70 +365,118 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         return nil
     }
 
-    /// The lines below the last line of text reach into the spacing below it, outside the frame.
+    // MARK: Drawing
+
+    /// A commented paragraph's lines reach below its last line, outside its frame.
     public override var renderingSurfaceBounds: CGRect {
         let bounds = super.renderingSurfaceBounds
-        guard let paragraph, let last = textLineFragments.last else { return bounds }
-        let lowest =
-            last.typographicBounds.minY + last.glyphOrigin.y
-            + UnderlineStyle.room(below: last, spacedBy: paragraphStyle(of: paragraph))
-            + UnderlineStyle.clearance
+        guard let last = textLineFragments.last, isCommented else { return bounds }
+        let room = max(
+            UnderlineStyle.room(below: last, spacedBy: paragraphStyle),
+            UnderlineStyle.top(of: 0) + UnderlineStyle.thickness)
+        let lowest = baseline(of: last) + room + UnderlineStyle.clearance
         return bounds.union(
             CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: lowest - bounds.minY))
     }
 
     public override func draw(at point: CGPoint, in context: CGContext) {
+        guard let first = textLineFragments.first else {
+            super.draw(at: point, in: context)
+            return
+        }
+        let step = DeviceStep(of: context, at: point.y + baseline(of: first))
+        let underlines = underlineRects(at: step)
+        let tight = UnderlineStyle.depth(below: first, spacedBy: paragraphStyle, at: step) == 0
+        let tightRoom = underliner.tightRoom
+        context.saveGState()
+        if tight, tightRoom == .tint {
+            for underline in underlines {
+                context.setFillColor(underline.color.nsColor.withAlphaComponent(TightRoom.tintAlpha).cgColor)
+                context.fill(tint(under: underline, at: point))
+            }
+        }
+        context.restoreGState()
         super.draw(at: point, in: context)
-        let underlines = underlineRects()
-        guard !underlines.isEmpty else { return }
+        guard !(tight && tightRoom == .tint) else { return }
         context.saveGState()
         for underline in underlines {
+            let top =
+                tight && tightRoom == .raisedLine
+                ? Int((TightRoom.raisedOffset * step.pixelsPerPoint).rounded())
+                : UnderlineStyle.pixels(of: underline.level, at: step).top
             context.setFillColor(underline.color.nsColor.cgColor)
-            context.fill(pixelAligned(underline, at: point, in: context))
+            context.fill(pixelAligned(underline, top: top, at: point, step: step, in: context))
         }
         context.restoreGState()
     }
 
-    /// `underline` on whole device pixels, measured from its baseline's pixel, so it's crisp and
-    /// a stack is evenly spaced at every scale.
-    private func pixelAligned(_ underline: PlacedUnderline, at point: CGPoint, in context: CGContext)
-        -> CGRect
-    {
+    /// The letters' slot above `underline`.
+    private func tint(under underline: PlacedUnderline, at point: CGPoint) -> CGRect {
+        let slot = textLineFragments.first { baseline(of: $0) == underline.baseline }?.typographicBounds
+        let top = slot?.minY ?? underline.baseline - ParagraphRole.textLineHeight
+        let height = slot?.height ?? ParagraphRole.textLineHeight
+        return CGRect(x: underline.rect.minX, y: top, width: underline.rect.width, height: height)
+            .offsetBy(dx: point.x, dy: point.y)
+    }
+
+    /// `underline` on whole device pixels, `top` pixels below its baseline's pixel.
+    private func pixelAligned(
+        _ underline: PlacedUnderline, top: Int, at point: CGPoint, step: DeviceStep, in context: CGContext
+    ) -> CGRect {
         let baseline = context.convertToDeviceSpace(CGPoint(x: 0, y: point.y + underline.baseline))
         let below = context.convertToDeviceSpace(CGPoint(x: 0, y: point.y + underline.baseline + 1))
-        let step = below.y - baseline.y
-        let scale = max(1, Int(abs(step).rounded()))
-        let down: CGFloat = step < 0 ? -1 : 1
-        let line = UnderlineStyle.pixels(of: underline.level, scale: scale)
-        let top = baseline.y.rounded() + down * CGFloat(line.top)
-        let bottom = top + down * CGFloat(line.height)
+        let down: CGFloat = below.y < baseline.y ? -1 : 1
+        let height = UnderlineStyle.pixels(of: underline.level, at: step).height
+        let lineTop = baseline.y.rounded() + down * CGFloat(top)
+        let lineBottom = lineTop + down * CGFloat(height)
         let left = context.convertToDeviceSpace(CGPoint(x: point.x + underline.rect.minX, y: 0)).x
         let right = context.convertToDeviceSpace(CGPoint(x: point.x + underline.rect.maxX, y: 0)).x
         return context.convertToUserSpace(
             CGRect(
-                x: min(left, right), y: min(top, bottom), width: abs(right - left),
-                height: CGFloat(line.height)))
+                x: min(left, right), y: min(lineTop, lineBottom), width: abs(right - left),
+                height: CGFloat(height)))
     }
 }
 
 /// Lays out every paragraph of a text as a `CommentUnderlineFragment`, which draws with the
 /// palette this was last given. TextKit asks on whichever thread lays out.
 public final class CommentUnderliner: NSObject, NSTextLayoutManagerDelegate, Sendable {
-    private let state = Mutex(CommentPalette.empty)
+    private let state = Mutex((palette: CommentPalette.empty, tightRoom: TightRoom.lineIntoTheNextLine))
 
-    /// Draws `palette`'s comments from now on, laying `layout`'s text out again, so that it's
-    /// drawn again, if it changed.
+    /// Draws `palette`'s comments from now on. Only the paragraphs whose comments changed are
+    /// laid out again, which draws them again.
     public func show(_ palette: CommentPalette, laidOutBy layout: NSTextLayoutManager?) {
-        let changed = state.withLock { current in
-            guard current != palette else { return false }
-            current = palette
-            return true
+        let changed = state.withLock { state in
+            let changed = state.palette.changes(to: palette)
+            state.palette = palette
+            return changed
         }
-        if changed, let layout { layout.invalidateLayout(for: layout.documentRange) }
+        guard !changed.isEmpty, let layout else { return }
+        invalidate(changed, in: layout)
+    }
+
+    public var tightRoom: TightRoom {
+        get { state.withLock(\.tightRoom) }
+        set { state.withLock { $0.tightRoom = newValue } }
     }
 
     public var palette: CommentPalette {
-        state.withLock(\.self)
+        state.withLock(\.palette)
+    }
+
+    private func invalidate(_ comments: Set<CommentID>, in layout: NSTextLayoutManager) {
+        guard let content = layout.textContentManager as? NSTextContentStorage,
+            let text = content.attributedString
+        else { return }
+        let start = layout.documentRange.location
+        text.enumerateAttribute(.comments, in: NSRange(location: 0, length: text.length)) { value, run, _ in
+            guard !CommentPalette.ids(in: value).isDisjoint(with: comments),
+                let from = content.location(start, offsetBy: run.location),
+                let to = content.location(from, offsetBy: run.length),
+                let range = NSTextRange(location: from, end: to)
+            else { return }
+            layout.invalidateLayout(for: range)
+        }
     }
 
     public func textLayoutManager(
