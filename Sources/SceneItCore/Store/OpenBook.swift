@@ -264,6 +264,27 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return new.id
     }
 
+    /// Deletes a Boneyard scene as far as the writer can tell (ADR 0031): it moves to the
+    /// book's Deleted section, which the app never shows, and stays in the file with its
+    /// id, notes and comments. One change on `structureUndo`. `false`, changing nothing, if
+    /// the book is read-only or the Boneyard has no such scene.
+    @discardableResult
+    public func deleteFromBoneyard(_ scene: SceneID) -> Bool {
+        guard editingDriver != nil, book.boneyard.contains(where: { $0.id == scene }) else { return false }
+        if openScene == scene { select(nil) }
+        // Leaving the scene may have saved what was typed into it, so look it up again.
+        guard let driver = editingDriver, let index = book.delete(fromBoneyard: scene) else { return false }
+        structureUndo.registerUndo(withTarget: self) { $0.undelete(scene, toBoneyardAt: index) }
+        driver.send(.edited)
+        return true
+    }
+
+    private func undelete(_ scene: SceneID, toBoneyardAt index: Int) {
+        guard let driver = editingDriver, book.undelete(scene, toBoneyardAt: index) else { return }
+        structureUndo.registerUndo(withTarget: self) { $0.deleteFromBoneyard(scene) }
+        driver.send(.edited)
+    }
+
     /// Opens `scene`. Every way of opening another scene comes here; it first posts
     /// `openBookWillSwitchScene`, so the window can finish what's being typed into the scene
     /// it's leaving while that scene is still the open one. (An Errors-tab fix that changes

@@ -12,6 +12,8 @@ public enum ErrorsWording {
     }
 
     public static let bookGroup = "Book"
+    /// Proposed, not yet approved (book format §10 Q17): the only place a deleted scene is named.
+    public static let deletedGroup = "Deleted"
 
     /// A group's heading: the book, or the scene the entries belong to.
     public static func group(_ owner: ErrorOwner, in book: Book) -> String {
@@ -22,7 +24,11 @@ public enum ErrorsWording {
             switch SceneLocation(of: id, in: book) {
             case .story(let scene, let number, _): return "\(number). \(WindowWording.sceneName(scene))"
             case .boneyard(let scene): return "\(WindowWording.boneyard) › \(WindowWording.sceneName(scene))"
-            case .noScene: return WindowWording.untitledScene
+            case .noScene:
+                guard let deleted = book.deleted.first(where: { $0.id == id }) else {
+                    return WindowWording.untitledScene
+                }
+                return "\(deletedGroup) › \(WindowWording.sceneName(deleted))"
             }
         }
     }

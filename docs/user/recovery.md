@@ -96,3 +96,37 @@ To see inside a book in Finder, Control-click `My Novel.sceneit` and choose
 
 To restore a version: copy the book somewhere safe first, then replace its `book.md`
 with a copy of the backup, renamed to `book.md`.
+
+## Bringing back a scene you deleted from the Boneyard
+
+Deleting a scene from the Boneyard doesn't remove it from your book. Scene It moves it to
+the end of `book.md`, under a line that says `# Deleted`, and stops showing it anywhere:
+not in the Boneyard, search, word counts, exports or printouts. Its text, notes and
+comments are all still there, so it's also in every backup and filed copy. Scene It has no
+command to bring it back; you do that in a text editor:
+
+1. Quit Scene It.
+2. Copy the book somewhere safe first.
+3. Open `My Novel.sceneit/book.md` in a plain text editor (TextEdit works: choose
+   **Format ▸ Make Plain Text** if it isn't already). Control-click the book in Finder and
+   choose **Show Package Contents** to find it.
+4. Find the `# Deleted` line near the end. Each scene after it starts with a line beginning
+   `## ` (its title), followed by `id:` and `modified:` lines. The most recently deleted
+   scene comes first.
+5. Select the scene's lines: from its `## ` line down to just before the next `## ` line
+   (or the end of the file). Cut them.
+6. Paste them where you want the scene:
+   - **back in the Boneyard:** just after the `# Boneyard` line. If there's no `# Boneyard`
+     line (the Boneyard was empty), type one on its own line just above `# Deleted`, then
+     paste the scene after it;
+   - **back in the story:** just before the `## ` line of the scene it should come before,
+     or just above `# Boneyard` to make it the story's last scene.
+
+   Keep a blank line before the scene's `## ` line and after its last line.
+7. Save the file and open the book in Scene It.
+
+If the `# Deleted` line is now empty (no scenes after it), you can delete it or leave it:
+Scene It drops it the next time it saves. Don't change the `id:` line: it's how Scene It
+knows the scene. If something you pasted doesn't read, Scene It opens the book read-only
+and lists what it couldn't understand in the **Errors** tab, so nothing is lost; your copy
+from step 2 is there too.

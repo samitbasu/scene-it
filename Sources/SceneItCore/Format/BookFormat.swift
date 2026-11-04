@@ -127,7 +127,7 @@ extension Book {
     /// The book as `book.md` holds it: neighbouring runs of the same format merged.
     var withMaximalRuns: Book {
         var book = self
-        for list in [\Book.scenes, \Book.boneyard] {
+        for list in Book.everySceneList {
             for index in book[keyPath: list].indices {
                 book[keyPath: list][index].body = book[keyPath: list][index].body.map(\.withMaximalRuns)
                 book[keyPath: list][index].notes = book[keyPath: list][index].notes.map(\.withMaximalRuns)
@@ -177,5 +177,38 @@ struct UnusedSceneIDs: SceneIDSource {
     mutating func sceneID() -> SceneID {
         count += 1
         return SceneID(rawValue: "verification-\(count)")
+    }
+}
+
+/// The parts of `book.md` that hold scenes, in the one order the file has them (book format
+/// §1.8, §1.9): a part's heading moves the file forward to it, never back.
+enum FilePart: Comparable, CaseIterable, Sendable {
+    case story, boneyard, deleted
+
+    /// The `# ` heading that starts the part; the story starts with the file.
+    var heading: String? {
+        switch self {
+        case .story: nil
+        case .boneyard: "Boneyard"
+        case .deleted: "Deleted"
+        }
+    }
+
+    var scenes: WritableKeyPath<Book, [BookScene]> {
+        switch self {
+        case .story: \.scenes
+        case .boneyard: \.boneyard
+        case .deleted: \.deleted
+        }
+    }
+
+    /// The part a `# <name>` heading starts, if it's one of theirs (case-insensitive).
+    init?(heading name: ArraySlice<UInt8>) {
+        guard
+            let part = Self.allCases.first(where: { part in
+                part.heading.map { Lexical.equalsIgnoringCase(name, $0.lowercased()) } ?? false
+            })
+        else { return nil }
+        self = part
     }
 }

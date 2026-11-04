@@ -42,12 +42,12 @@ public enum BookPart: Hashable, Sendable {
 }
 
 extension Book {
-    /// The Errors tab's groups (book format §5.4): the book's, then each story scene's, then
-    /// each Boneyard scene's, leaving out owners with no entries.
+    /// The Errors tab's groups (book format §5.4): the book's, then each story scene's, each
+    /// Boneyard scene's and each deleted scene's, leaving out owners with no entries.
     public var errorGroups: [ErrorGroup] {
         // TODO(#32): a File Cabinet group for `Archive/index.md`'s entries (book format §10
         // Q12), once the open book carries its archive index.
-        let owners = [ErrorOwner.book] + (scenes + boneyard).map { .scene($0.id) }
+        let owners = [ErrorOwner.book] + everyScene.map { .scene($0.id) }
         return owners.compactMap { owner in
             guard let entries = errors(of: owner), !entries.isEmpty else { return nil }
             return ErrorGroup(
@@ -77,7 +77,7 @@ extension Book {
     public func errors(of owner: ErrorOwner) -> [ErrorEntry]? {
         switch owner {
         case .book: errors
-        case .scene(let id): scene(id)?.errors
+        case .scene(let id): anyScene(id)?.errors
         }
     }
 
@@ -90,12 +90,17 @@ extension Book {
     public func part(_ owner: ErrorOwner) -> BookPart? {
         switch owner {
         case .book: .header(title: title, errors: errors)
-        case .scene(let id): scene(id).map(BookPart.scene)
+        case .scene(let id): anyScene(id).map(BookPart.scene)
         }
     }
 
-    /// Puts `part` in place of `owner`'s; a scene keeps its place in the story or the
-    /// Boneyard, even if `part` gives it a new id. `false` if the book has no such owner.
+    /// An owner of entries may be a deleted scene, unlike `scene(_:)`.
+    func anyScene(_ id: SceneID) -> BookScene? {
+        everyScene.first { $0.id == id }
+    }
+
+    /// Puts `part` in place of `owner`'s; a scene keeps its place in the story, the Boneyard
+    /// or the Deleted section, even if `part` gives it a new id. `false` if the book has no such owner.
     @discardableResult
     public mutating func replace(_ owner: ErrorOwner, with part: BookPart) -> Bool {
         switch (owner, part) {
@@ -104,7 +109,7 @@ extension Book {
             self.errors = errors
             return true
         case (.scene(let id), .scene(let scene)):
-            for list in [\Book.scenes, \Book.boneyard] {
+            for list in Book.everySceneList {
                 if let index = self[keyPath: list].firstIndex(where: { $0.id == id }) {
                     self[keyPath: list][index] = scene
                     return true

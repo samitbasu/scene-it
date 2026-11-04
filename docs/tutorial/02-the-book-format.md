@@ -240,8 +240,8 @@ The design gets that by keeping almost no state across a scene boundary. When a 
 arrives, the reader finishes the current scene and starts a new one from scratch. The only
 facts that cross are:
 
-- whether the Boneyard has started, which changes which list a scene goes in but not what
-  it contains;
+- which part of the file the reader is in: the story, the Boneyard or the Deleted section
+  (`FilePart`, below). It changes which list a scene goes in but not what it contains;
 - the ids already used, because a duplicate scene id gets a fresh one (§2.2). Fresh ids are
   assigned after the whole file is read, avoiding every id that appears anywhere in it.
 
@@ -250,6 +250,44 @@ makes the real one a "second Boneyard heading", which becomes an error entry in 
 it used to end, and a damaged real one sends the Boneyard's scenes back into the story.
 That's the kind of thing a property test is for: the rules were in the spec all along, and
 the test made their reach visible. The spec's §6 now lists all three exceptions.
+
+### The Deleted section: an ordered enum
+
+[ADR 0031](../decisions/0031-boneyard-delete-hides.md) added a third part: deleting a
+Boneyard scene moves it under a `# Deleted` heading at the end of the file, where the app
+never shows it (§1.9). Rather than a second `inDeleted: Bool` beside `inBoneyard: Bool`
+(four states, one of them meaningless), the reader holds one value of an ordered enum:
+
+```swift
+enum FilePart: Comparable, CaseIterable, Sendable {
+    case story, boneyard, deleted
+    ...
+}
+```
+
+A Swift enum with no associated values gets `Comparable` by declaring it, ordered by case
+order, much like `#[derive(PartialOrd, Ord)]` on a fieldless Rust enum. That turns the
+spec's order rule ("a heading moves the file forward to its part, never back") into one
+comparison in the parser:
+
+```swift
+        case .heading(1, let name):
+            guard let next = FilePart(heading: name), next > part else {
+                startsAPart = false
+                break
+            }
+```
+
+A `# Boneyard` after `# Deleted`, or a second of either, fails `next > part` and falls
+through to the "not understood" path, a `[line]` entry, exactly like any unknown heading.
+The same enum maps each part to its list (`part.scenes` is a `WritableKeyPath<Book,
+[BookScene]>`, roughly a typed lens), so the serializer and the parser walk
+`FilePart.allCases` and can't disagree about the order.
+
+The exclusion from the rest of the app is structural: `Book` keeps `scenes`, `boneyard` and
+`deleted` as separate arrays, and search, word counts, filed-copy counts and navigation only
+ever read the first two. What must see every scene (unique ids, error entries, the format
+itself) reads `everyScene`, a name chosen to stand out in review.
 
 ## 5. Inline markup: toggles
 
@@ -406,12 +444,12 @@ The suites:
   stronger than "doesn't crash": anything the writer opens can be saved;
 - several random mutations of valid files (insert, delete or change a byte, truncate,
   duplicate a line, insert a structural line), with the same requirement;
-- **damage locality**: 4,000 single mutations of valid files. The test knows where each
+- **damage locality**: 4,500 single mutations of valid files. The test knows where each
   scene's bytes are, so it knows which scenes a mutation touched. Every scene that wasn't
   touched (and isn't the one before a touched one, since breaking a `##` line merges a scene
   into its predecessor) must parse exactly as before, apart from the two non-local effects
-  the spec defines (§4). Each must also keep its list (story or Boneyard) unless a
-  `# Boneyard` line changed, and the untouched scenes must keep their order. About 16,000
+  the spec defines (§4). Each must also keep its part (story, Boneyard or Deleted) unless a
+  `# Boneyard` or `# Deleted` line changed, and the untouched scenes must keep their order. About 16,000
   untouched scenes are compared per run;
 - **conservation**: unique words scattered through files full of structure and damage must
   all survive parse → serialize: the parser may put a word in an error entry, but never

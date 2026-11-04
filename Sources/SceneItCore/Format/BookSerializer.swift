@@ -5,12 +5,12 @@ enum BookSerializer {
     static func text(of book: Book) -> String {
         var blocks = [frontMatter(book.title)]
         blocks += unparsed(book.errors)
-        for scene in book.scenes {
-            blocks += self.blocks(scene)
-        }
-        if !book.boneyard.isEmpty {
-            blocks.append("# Boneyard")
-            for scene in book.boneyard {
+        for part in FilePart.allCases {
+            let scenes = book[keyPath: part.scenes]
+            if let heading = part.heading, !scenes.isEmpty {
+                blocks.append("# " + heading)
+            }
+            for scene in scenes {
                 blocks += self.blocks(scene)
             }
         }

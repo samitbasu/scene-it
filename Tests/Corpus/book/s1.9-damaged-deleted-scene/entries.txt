@@ -1,0 +1,6 @@
+new unknown-key - [metadata] mood: grim
+new line - [line] ### Note
+new E9 - [comments] - c1 | red | 2026-01-01T00:00:00Z | c0-4 | "Nope" | Wrong quote.
+new notice - [notice] This scene's id a was already used by an earlier scene, so it was given id-A0.
+new notice - [notice] This scene had no modified date, so it was set to 2026-11-02T08:00:00-08:00.
+new notice - [notice] Characters outside plain ASCII were changed to their nearest ASCII: U+00E9.

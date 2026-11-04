@@ -16,7 +16,8 @@ It's written for two readers:
 
 **Conventions**
 
-- **†** marks a rule this document added (not settled by ADR 0022); all † rules were accepted by the owner (§10). Everything unmarked follows
+- **†** marks a rule this document added (not settled by ADR 0022); all † rules were accepted by the owner (§10), except
+  the Deleted section's (§1.9), which are proposed and wait on §10 Q16–Q18. Everything unmarked follows
   ADR 0022 directly, or follows from it with no real choice. §10 collects the proposals that most need a decision.
 - `␠` stands for a space (U+0020) where it matters. `⏎` is the end of a line.
 - "Character" means one Unicode scalar value. After §1.2's filtering every character is printable ASCII, so a
@@ -82,6 +83,8 @@ In order, the file holds:
 | Story scenes, each a `## ` heading (§2) | No | One per scene, in story order |
 | `# Boneyard` heading (§1.8) | No | The Boneyard has at least one scene † |
 | Boneyard scenes | No | Most recently cut first |
+| `# Deleted` heading (§1.9) | No | The Deleted section has at least one scene † |
+| Deleted scenes | No | Most recently deleted first † |
 
 ### 1.2 Bytes to characters
 
@@ -272,10 +275,11 @@ A trimmed line is **heading-shaped** if it is 1–6 `#` characters followed by e
 | Heading | Meaning | Where it's legal |
 | --- | --- | --- |
 | `## <title>` or `##` | Starts a scene (§2.1) | Anywhere |
-| `# Boneyard` (name case-insensitive) | The scenes after it are the Boneyard | Once |
+| `# Boneyard` (name case-insensitive) | The scenes after it are the Boneyard | Once, before any `# Deleted` |
+| `# Deleted` (name case-insensitive) † | The scenes after it are deleted (§1.9) | Once |
 | `### Notes`, `### Comments`, `### Marks` (names case-insensitive) | Starts that subsection of the current scene (§2.4) | Inside a scene |
-| `### Unparsed` | Starts an Unparsed section (§5) | Inside a scene, or before the first scene / between `# Boneyard` and the first Boneyard scene (book-level) |
-| Anything else heading-shaped: another `#` or `###` name, `####`–`######`, a second `# Boneyard`, `### Notes` outside a scene | **Not understood.** The line becomes a `[line]` error entry (§5) of the current scene, or of the book if there's no current scene. **The current section doesn't change** †, so a mistyped `### Note` leaves the text after it where it was (in the body, say) rather than losing it. | — |
+| `### Unparsed` | Starts an Unparsed section (§5) | Inside a scene, or before the first scene / between `# Boneyard` or `# Deleted` and the first scene after it (book-level) |
+| Anything else heading-shaped: another `#` or `###` name, `####`–`######`, a second `# Boneyard` or `# Deleted`, a `# Boneyard` after `# Deleted`, `### Notes` outside a scene | **Not understood.** The line becomes a `[line]` error entry (§5) of the current scene, or of the book if there's no current scene. **The current section doesn't change** †, so a mistyped `### Note` leaves the text after it where it was (in the body, say) rather than losing it. | — |
 
 ### 1.5 Front matter
 
@@ -304,7 +308,8 @@ title is field-escaped (§4.1).
 
 Everything between the front matter and the first `## ` heading is the *preamble*. Its only legal content is a
 book-level `### Unparsed` section (§5). Any other non-blank line there (prose, a stray `### Notes`, a list) becomes a
-book-level `[line]` error entry. The same applies to lines between `# Boneyard` and the first Boneyard scene.
+book-level `[line]` error entry. The same applies to lines between `# Boneyard` and the first Boneyard scene, and
+between `# Deleted` and the first deleted scene.
 
 ### 1.7 Blocks: the canonical layout
 
@@ -315,6 +320,8 @@ The blocks, in order:
 2. The book-level Unparsed block, if any: `### Unparsed` and its entries.
 3. For each story scene, its blocks (§2).
 4. If the Boneyard isn't empty: the line `# Boneyard`, then each Boneyard scene's blocks.
+5. If the Deleted section isn't empty: the line `# Deleted`, then each deleted scene's blocks † (§1.9). With an empty
+   Boneyard, `# Deleted` directly follows the story.
 
 A scene's blocks are:
 
@@ -334,6 +341,52 @@ So `### Notes` is followed directly by the first notes paragraph, with no blank 
 `# Boneyard` (the name matched case-insensitively, then trimmed) ends the story and the current scene. Every scene after
 it is in the Boneyard, in file order, which is most-recently-cut first. A second `# Boneyard` is a `[line]` error
 entry and changes nothing.
+
+### 1.9 The Deleted section †
+
+ADR 0031: deleting a scene from the Boneyard doesn't remove it from the file. It moves to the **Deleted** section, the
+book's last part, which Scene It never shows (below). The writer brings a scene back by moving its lines above
+`# Deleted` in a text editor (docs/user/recovery.md).
+
+```markdown
+# Boneyard
+
+## The brother's boat
+id: 01JCY1JX4WHRDD459GQ8H7QEZZ
+modified: 2026-07-09T13:00:00-07:00
+
+Pieter had painted the boat the same blue as the house.
+
+# Deleted
+
+## The dream sequence
+id: 01JD0Q3V7N2K8R4T6W9Y1B3C5D
+modified: 2026-05-02T10:12:00-07:00
+
+Mara dreamed of the harbor again.
+```
+
+- **The heading.** `# Deleted` is matched like `# Boneyard` (§1.8): the name compared case-insensitively, then trimmed.
+  It ends the story or the Boneyard, and the current scene. Every scene after it is deleted, in file order, which is
+  most-recently-deleted first.
+- **The file's parts come in one order:** story, Boneyard, Deleted. A `# Boneyard` or `# Deleted` heading moves the file
+  forward to its part; one that would move it back, or leave it where it is, is a `[line]` error entry of the current
+  scene (or of the book, before any scene) and changes nothing:
+  - `# Deleted` with no `# Boneyard` before it is fine: it ends the story, and it's how the serializer writes a book
+    whose Boneyard is empty (§1.7).
+  - A `# Boneyard` after `# Deleted` is a `[line]` entry, so the scenes after it stay deleted. A `# Deleted` typed
+    before the real `# Boneyard` therefore deletes the Boneyard's scenes too, and the real heading becomes that entry
+    (§6). The entry is new, so the book opens as repaired (ADR 0024) and the writer is told. See §10 Q16.
+  - A second `# Deleted` is a `[line]` entry and changes nothing.
+  - Lines between `# Deleted` and the first deleted scene are book-level, as in the preamble (§1.6).
+- **Deleted scenes are ordinary scenes in the file.** Every rule of §2–§5 applies to them, unchanged: they keep their
+  ids, metadata, body, notes, comments, marks and error entries, and they round-trip byte for byte. A scene that a hand
+  edit damages follows §5 and §6 like any other: what can't be read becomes its error entries, and the parse never fails.
+  Its ids count towards the book's uniqueness (§2.2), so a scene brought back keeps its id.
+- **What the app does with them** (ADR 0031) isn't part of the format, but it's why the section exists: deleted scenes
+  are left out of the Boneyard, search, counts (including a filed copy's counts, §8), exports, review copies and
+  printing, and there is no Deleted list or Restore in the app. Their error entries are the one exception: they are
+  listed in the Errors tab (§5.4), because they can make the book open as repaired (§10 Q17).
 
 ---
 
@@ -366,7 +419,7 @@ splits that scene in two (see §6).
 
 | Key | Value format | Missing (or bad) |
 | --- | --- | --- |
-| `id` | 1–64 characters from `A–Z a–z 0–9 _ -` †. Case-sensitive, compared byte for byte. New ids are 26-character ULIDs; hand-made ids like `01JC4K` are fine. Unique across the whole book (story and Boneyard). | A fresh ULID, plus a notice. A **duplicate** of an earlier scene's id (in file order) is replaced by a fresh ULID, plus a notice naming the old id. |
+| `id` | 1–64 characters from `A–Z a–z 0–9 _ -` †. Case-sensitive, compared byte for byte. New ids are 26-character ULIDs; hand-made ids like `01JC4K` are fine. Unique across the whole book (story, Boneyard and Deleted section). | A fresh ULID, plus a notice. A **duplicate** of an earlier scene's id (in file order) is replaced by a fresh ULID, plus a notice naming the old id. |
 | `modified` | `YYYY-MM-DDTHH:MM:SS±HH:MM`: whole seconds, numeric offset (the `Timestamp` type's format). Year 0000–9999; the date must exist; offset at most ±23:59. **Accepted, then written in canonical form †:** `Z` for `+00:00`. | The time the book was opened, in the local time zone, plus a notice. |
 | `tags` | Tags separated by `,`. Each tag is trimmed, then field-unescaped (§4.1): a comma inside a tag is `\,` and a backslash is `\\`. An unescaped `#` at the start of a tag is dropped silently (tags are stored without `#`, PLAN §8.3). Empty items (`a,,b`) are dropped silently. Order and duplicates are kept as written. | No tags, silently. The line is **omitted** when there are no tags (as in the demo book), so its absence is normal † (§10 Q9). |
 
@@ -378,7 +431,7 @@ scene gets a notice (§5.3), so the book opens as repaired (ADR 0024). The write
 ### 2.3 The body
 
 The body is every line after the metadata block up to the scene's first subsection heading (or the next `##` /
-`# Boneyard` / end of file). It's a sequence of paragraphs (§3). An empty body is simply no paragraph blocks.
+`# Boneyard` / `# Deleted` / end of file). It's a sequence of paragraphs (§3). An empty body is simply no paragraph blocks.
 
 ### 2.4 Subsections
 
@@ -680,7 +733,8 @@ Every error entry is one line:
   above it; leave a blank line before a stray line to keep it as an entry of its own.
 - Payloads are **never re-parsed** on load: an entry stays an entry, unchanged, across any number of saves, until the
   writer deletes it or repairs it (§5.4). They need no escaping: a payload is a single line of already-filtered text.
-- Entries belong to the scene they were found in, and travel with it to and from the Boneyard. Entries found outside
+- Entries belong to the scene they were found in, and travel with it to and from the Boneyard, and into the Deleted
+  section. Entries found outside
   any scene belong to the book and are written in the book-level Unparsed section after the front matter.
 
 ### 5.2 Order
@@ -721,7 +775,8 @@ deterministic.
 
 ### 5.4 The Errors tab
 
-- **One row per entry**, in the order book, story scenes, Boneyard scenes, and within each in model order. A row shows
+- **One row per entry**, in the order book, story scenes, Boneyard scenes, deleted scenes †, and within each in model
+  order. A deleted scene's rows are named `Deleted › <title>` (proposed, §10 Q17). A row shows
   the scene title, the payload, and a **reason**.
 - **The reason is derived, never stored †.** For `front matter`, `metadata`, `comments` and `marks` entries, the app
   re-parses the payload in its context (that scene's current plain text and comment ids) and names the first rule it
@@ -750,6 +805,10 @@ Three rules reach further, and they're the only exceptions:
    `[line]` entry of the scene it used to end (§1.8).
 3. **A broken `# Boneyard` moves scenes back.** If the real `# Boneyard` line is damaged (`# Boneyrd`), it's an unknown
    heading, a `[line]` entry, and the Boneyard scenes after it are read as story scenes.
+4. **An early `# Deleted` deletes scenes, and a broken one brings them back** †. A `# Deleted` typed before the real one
+   starts the Deleted section there, like rule 2: the scenes after it are deleted, and the real `# Deleted` (or a
+   `# Boneyard` after it) becomes a `[line]` entry (§1.9). A damaged real `# Deleted` is a `[line]` entry, and the
+   deleted scenes after it are read as Boneyard scenes (or story scenes, with no `# Boneyard`): visible again.
 
 In every case the scenes' text, notes, comments and marks are read exactly as before.
 
@@ -781,6 +840,7 @@ In every case the scenes' text, notes, comments and marks are read exactly as be
 | **A wrapped paragraph or entry** | Joined (§3.1, §4.1); silent. |
 | **A malformed Unparsed line** | Kept whole as a `[line]` entry. |
 | **A second `# Boneyard`** | `[line]` entry; ignored. |
+| **A second `# Deleted`, or a `# Boneyard` after `# Deleted`** † | `[line]` entry; ignored (§1.9). |
 | **`format: 3`** (a newer Scene It) | Read as format 2, with a notice; what this version doesn't understand lands in Unparsed (§10 Q7). |
 | **A v1 `book.json` renamed to `book.md`** | No front matter, so defaults and notices; every JSON line is a book-level `[line]` entry. Nothing is lost, though nothing is usable either: there's no migration (ADR 0022). |
 
@@ -902,7 +962,7 @@ comments: 44
 | `tags` | As scene tags (§2.2), including the notice for a line break. Omitted when empty. |
 | Notices | At the end of the section's `### Unparsed`, in the order: missing filed date, line breaks in tags, then the transliterated and replaced characters (§5.2, §5.3). |
 | `note` | Free text, field-escaped (§4.1); a newline is `\n`. Omitted when empty. |
-| `scenes`, `words`, `comments` | Non-negative decimal integers. They're a cache of facts about an immutable file, so if one is missing or bad it's **recomputed from the filed copy, silently** †, and written on the next save of the index. |
+| `scenes`, `words`, `comments` | Non-negative decimal integers, counting the story's scenes only: neither the Boneyard's nor the deleted ones (§1.9). They're a cache of facts about an immutable file, so if one is missing or bad it's **recomputed from the filed copy, silently** †, and written on the next save of the index. |
 | Unknown key, duplicate key | `[metadata]` entry in the section's `### Unparsed`. |
 | Canonical | Front matter, then sections in ascending file number, each: heading, `filed`, `tags` (if any), `note` (if any), `scenes`, `words`, `comments`, then `### Unparsed` (if any). Blocks joined by one blank line; one final newline. |
 | Reconciliation (PLAN §5.5) | A filed copy with no section is listed with no tags, its counts computed, and gets a section on the next index write. A section whose file is missing (or isn't a regular file named exactly so) isn't listed, and its lines are kept as `[line]` entries in the index's own `### Unparsed` on the next index write †. Before a rewrite that changes what was written (new error entries, or such a section), the file is kept as `Archive/index.md.original-<UTC time>.md` †. `NNNN` is one more than the highest existing number up to 999999; higher numbers are ignored. |
@@ -1147,3 +1207,14 @@ v2 as written. This spec only adds forms the demo doesn't use: range and quote *
 | Q13 | **Inline markup rules.** This spec uses simple toggles plus two hand-editing safeguards (free-standing delimiters and unbalanced delimiters are text), not CommonMark's flanking rules. The cost: `2*3*4` typed by hand reads as italic `3`. | Keep the toggles. They're short to specify, make any overlap of styles expressible, and Scene It escapes every literal `*` when it saves. |
 | Q14 | **Formatting in a hand-written title** (`## The *ferry*`). | Drop it silently, keeping the text, as ADR 0015 does for formatted titles. |
 | Q15 | **More typographic substitutions?** ADR 0022's table omits „ ‚ (low quotes), ′ ″ (primes), − (minus) and the non-breaking hyphen, which become `[?]`. | Keep the ADR's table for now; extend it later, in the one table shared by the editor and the parser. |
+
+### Open: the Deleted section (ADR 0031, #94)
+
+These came up while specifying §1.9. Scene It implements each recommendation, so it can be tried; none is decided until
+the owner picks.
+
+| # | Question | Recommendation | Alternatives |
+| --- | --- | --- | --- |
+| Q16 | **Heading order.** What does a `# Boneyard` after `# Deleted` mean? | The parts come in one order (story, Boneyard, Deleted): it's a `[line]` entry, and the scenes after it stay deleted. The book's model order is then always its file order, and a misplaced heading is reported (the book opens as repaired) rather than accepted silently. | **Either order:** each of the two headings starts its part the first time it appears, wherever it is, and the next save writes them in canonical order. More forgiving (a scene typed under a `# Boneyard` at the end of the file lands in the Boneyard, visibly), but a `# Deleted` typed early in the story then hides scenes with no entry at all. |
+| Q17 | **Errors in deleted scenes.** A hand edit can damage a deleted scene, which makes the book open as repaired (ADR 0024). Should the Errors tab list that scene's entries? | Yes, after the Boneyard's, under `Deleted › <title>`. Otherwise the banner says "1 repair" over an empty tab. It's the only place a deleted scene's title appears. Delete and Fix work on them as on any entry. The group name is on-screen wording, so it's the owner's call. | **Hide them too:** the Errors tab leaves deleted scenes out, so the count and the rows disagree with the banner. |
+| Q18 | **The heading's name and the section's order.** ADR 0031 proposed `# Deleted`, most recently deleted first. | `# Deleted`, newest first, like the Boneyard: a writer looking for what they just deleted finds it at the top of the section. | Another name (`# Trash`, `# Deleted scenes`); oldest first, so the file only ever grows at its end. |
