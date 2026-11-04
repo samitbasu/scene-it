@@ -209,15 +209,17 @@ struct WindowRenders {
         return Data(text.utf8)
     }
 
-    func withSampleBook(_ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void) async throws
-    {
+    func withSampleBook(
+        _ sample: Book = sampleBook(),
+        _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
+    ) async throws {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let store = books.store
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
-            try BookFormat.serialize(Self.sampleBook()).write(
+            try BookFormat.serialize(sample).write(
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)

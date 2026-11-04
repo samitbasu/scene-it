@@ -1,8 +1,8 @@
 import SceneItCore
 import SwiftUI
 
-/// A rail sheet, over the page and the right panel (PLAN §4.2). Empty until #28 (Scenes),
-/// #31 (Search) and #33 (File Cabinet) fill them; × or Esc closes it.
+/// A rail sheet, over the page and the right panel (PLAN §4.2). Empty until #28 (Scenes)
+/// and #33 (File Cabinet) fill them; × or Esc closes it. Search is `SearchSheet`.
 struct SheetPlaceholder: View {
     let book: AppOpenBook
     @Binding var mode: WindowMode

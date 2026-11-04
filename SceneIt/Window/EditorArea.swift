@@ -155,6 +155,15 @@ private struct TitleTextField: NSViewRepresentable {
             field.isEnabled = enabled
             field.isEditable = enabled
         }
+        if enabled, let range = focus.takeTitleSelection() {
+            DispatchQueue.main.async { [weak field] in
+                guard let field, field.window?.makeFirstResponder(field) == true else { return }
+                let length = (field.stringValue as NSString).length
+                let location = min(range.location, length)
+                field.currentEditor()?.selectedRange = NSRange(
+                    location: location, length: min(range.length, length - location))
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {

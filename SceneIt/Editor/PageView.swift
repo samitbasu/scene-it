@@ -63,4 +63,18 @@ final class PageFocus {
         guard let title, title.isEnabled else { return }
         title.window?.makeFirstResponder(title)
     }
+
+    private var pendingTitleSelection: NSRange?
+
+    /// Selects `range` of the title, with the focus, the next time the title field is updated
+    /// outside a sheet: a search result being opened (PLAN §9.1).
+    func selectTitle(_ range: NSRange) {
+        pendingTitleSelection = range
+    }
+
+    /// The pending title selection, once.
+    func takeTitleSelection() -> NSRange? {
+        defer { pendingTitleSelection = nil }
+        return pendingTitleSelection
+    }
 }

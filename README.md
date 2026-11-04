@@ -285,6 +285,15 @@ candidates for a future look change, render each candidate the same way with a d
 It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
 `final-errors-tab`, and `final-errors-focus`, the tab with the keyboard focus) and a book saved by a newer version (`final-banner-newer`), the same way.
 
+The Search sheet's renders (`SearchSheetRenders.swift`, #31) go in a `search/` subfolder: each
+state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
+`search-near-end`, `search-near-all`, `search-no-results`, `search-no-words`,
+`search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`, and the
+look candidates stacked one per choice (`candidates-options`, `candidates-rows`,
+`candidates-match`, `candidates-differs`, each `@1x` and `@2x`). To render only these, add
+`-only-testing:SceneItTests/WindowRenders/searchSheet\(\)` and
+`-only-testing:SceneItTests/WindowRenders/searchSheetCandidates\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

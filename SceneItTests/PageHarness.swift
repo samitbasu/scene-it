@@ -28,11 +28,13 @@ struct BookWindowWithMode: View {
     let preferences: AppPreferences
     var formatting: EditorFormatting?
     @Bindable var box: ModeBox
+    var search: SearchSheetModel?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
-            formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode)
+            formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
+            search: search)
     }
 }
 
@@ -49,6 +51,8 @@ struct PageHarness {
     let formatting: EditorFormatting
     let preferences: AppPreferences
     let modes: ModeBox
+    /// The window's Search sheet.
+    let search: SearchSheetModel
 
     /// The window's undo router, as the toolbar uses it.
     var undo: UndoRouter {
@@ -124,10 +128,11 @@ func withPage(
 
         let size = WindowMetrics.defaultSize
         let modes = ModeBox()
+        let search = SearchSheetModel(book: book)
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
-                box: modes))
+                box: modes, search: search))
         controller.sizingOptions = []
         let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -147,7 +152,7 @@ func withPage(
             })
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
-            formatting: books.formatting, preferences: books.preferences, modes: modes)
+            formatting: books.formatting, preferences: books.preferences, modes: modes, search: search)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
         #expect(await store.closeBook() == .left)
