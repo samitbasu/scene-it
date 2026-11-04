@@ -205,9 +205,11 @@ a band per line, text height, so both editors switch the system's highlight off
 (`selectedTextAttributes = [:]`, which leaves its views with no colour) and draw the bands
 themselves, behind the text, in `drawBackground(in:)`.
 
-`SelectionBands.bands(of:in:lineEnd:)` (in the core) is the rule: it enumerates the selection's
-text segments and trims each to its bottom `ParagraphRole.textLineHeight`, which is exactly the
-cursor's height and position. `SceneTextView` recomputes the bands when the selection changes or
+`SelectionBands.bands(of:in:)` (in the core) is the rule: it enumerates the selection's
+*standard* text segments, which cover the selected text alone (the *selection* segments the
+system draws also reach the right edge of every line the selection goes on past), and trims each
+to its bottom `ParagraphRole.textLineHeight`, which is exactly the cursor's height and position.
+A band is never narrower than a space, so a selected empty paragraph shows as a sliver. `SceneTextView` recomputes the bands when the selection changes or
 a layout pass ends, and marks only the bands that changed as needing display
 (`setNeedsDisplay(_:)` with a rect, not the whole view), so a drag redraws little. The colour is
 the system's pair: `selectedTextBackgroundColor` while the view has the focus in the key window,

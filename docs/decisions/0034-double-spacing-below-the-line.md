@@ -34,9 +34,9 @@ height. The owner chose instead to put the spacing below each line, so that the 
   sits above a line within its segment), and at least a space wide, so a selected empty paragraph shows.
   - **Colour:** the accent selection colour while the view has the keyboard focus in the key window, the unemphasized
     one otherwise, as the system does; the bands are redrawn when the focus or the window's key state changes.
-  - **Where a band ends** when the selection goes on past its line: at the line's trailing edge, as the system does
-    at a wrap (`.selection` segments), or at its last selected letter (`.standard` segments). Both are rendered on #95;
-    the trailing edge is the default until the owner picks, and the other option is then removed.
+  - **A band ends at the line's last selected letter** (the owner's pick, over the system's way of reaching the
+    line's trailing edge whenever the selection goes on past it): the bands come from TextKit's standard segments,
+    which cover the selected text alone. A selected empty paragraph is a sliver a space wide at its indent.
   - **The notes get bands too**, for one look across both editors: single-spaced, their lines' bands meet, but the
     6 pt between paragraphs stays clear, as it does on the page.
   - Only the bands that changed are redrawn, so dragging a selection out never redraws the whole text; they follow

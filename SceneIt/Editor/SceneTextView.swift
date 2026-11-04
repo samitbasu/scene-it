@@ -74,10 +74,6 @@ class SceneTextView: KeyboardTextView {
 
     /// Where the selection's bands are drawn, in this view's coordinates.
     private(set) var selectionBands: [NSRect] = []
-    /// Where a band ends when the selection goes on past its line.
-    var selectionLineEnd = SelectionBands.LineEnd.trailingEdge {
-        didSet { refreshSelectionBands() }
-    }
     private var windowObservers: [NSObjectProtocol] = []
 
     isolated deinit {
@@ -136,7 +132,7 @@ class SceneTextView: KeyboardTextView {
         guard let layout = textLayoutManager else { return [] }
         let ranges = layout.textSelections.flatMap(\.textRanges)
         let origin = textContainerOrigin
-        return SelectionBands.bands(of: ranges, in: layout, lineEnd: selectionLineEnd).map {
+        return SelectionBands.bands(of: ranges, in: layout).map {
             $0.offsetBy(dx: origin.x, dy: origin.y)
         }
     }
