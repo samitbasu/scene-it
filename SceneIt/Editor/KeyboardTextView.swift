@@ -39,8 +39,7 @@ class KeyboardTextView: NSTextView {
         false
     }
 
-    /// Before macOS 27, a press on the selection followed by a drag starts a drag here; refused,
-    /// the press selects as any other does.
+    /// Before macOS 27, a press on the selection followed by a drag starts a drag here.
     override func dragSelection(with event: NSEvent, offset mouseOffset: NSSize, slideBack: Bool) -> Bool {
         false
     }

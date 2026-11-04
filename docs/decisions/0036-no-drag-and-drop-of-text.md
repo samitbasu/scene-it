@@ -31,9 +31,12 @@ decided text doesn't need drag and drop at all.
   needed its own move and undo grouping in place of `NSTextView`'s, as more code to keep in step with paste.
 
 ## Consequences
-- Not verified in the app with a real mouse (agents don't synthesize input): what a press and drag on the selection does
-  once the drag is refused. With the drag refused, `NSTextView` should treat it as an ordinary press, which selects.
-  The tests check the overrides at the method level.
+- **Verified (tests, at the method level):** both of `NSTextView`'s starting points for a drag of the selection refuse
+  it, the selection is left as it was, and every drop is refused through the destination entry points.
+- **Not verified:** what a real press and drag on the selection does once the drag is refused. Agents don't
+  synthesize input, so no test can make one. Most likely it does nothing while the pointer moves, on both the macOS 26
+  and the macOS 27 path, and the release may collapse the selection to a caret. It probably won't start a new
+  selection. The owner checks this by hand: select a word, press on it and drag, then release.
 - `NSTextView`'s `_setGroupIdentifier:` drop path can't be reached, since `performDragOperation` never calls `super`.
 
 ## Learning notes

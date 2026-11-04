@@ -183,6 +183,7 @@ struct FileACopyTests {
             let views = subviewTree(of: window.contentView)
             let field = try #require(views.compactMap { $0 as? AdmittingTextField }.first)
             let note = try #require(views.compactMap { $0 as? AdmittingTextView }.first, "the note's editor")
+            try await field.expectRefusesDropsWhileNotEditing()
             #expect(window.makeFirstResponder(field))
             let tagEditor = try #require(
                 field.currentEditor() as? AdmittingTextView, "the field's own editor")
