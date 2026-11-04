@@ -15,10 +15,19 @@ final class EditorFormatting {
     private(set) var active: Active?
     @ObservationIgnored private weak var editor: SceneTextEditor?
 
-    /// The editor that can be formatted, and its selection's formats.
+    /// The editor that can be formatted, its selection's formats, and whether a new comment
+    /// could cover its selection.
     struct Active: Equatable {
         let part: TextPart
         let selection: SelectionFormatting
+        let comments: CommentTarget
+    }
+
+    /// What a new comment on the active editor's selection would cover.
+    enum CommentTarget: Equatable {
+        /// No selection, only line breaks, or the notes (ADR 0035).
+        case nothing
+        case selection
     }
 
     init(preferences: AppPreferences) {
@@ -30,10 +39,10 @@ final class EditorFormatting {
         active?.selection
     }
 
-    /// The page's editor while it can be formatted, which is when it can take a new comment
-    /// (Edit → New Comment).
-    var page: SceneTextEditor? {
-        active?.part == .body ? editor : nil
+    /// The page's editor while it can be formatted and its selection can take a new comment
+    /// (Edit → New Comment, ADR 0037).
+    var commentablePage: SceneTextEditor? {
+        active?.part == .body && active?.comments == .selection ? editor : nil
     }
 
     /// The selection a bar beside `part`'s editor shows; `nil` while that bar is inactive.
@@ -57,11 +66,14 @@ final class EditorFormatting {
     /// Called by an editor whenever its selection, focus or editability changes: `nil` when it
     /// can't be formatted. An editor that can't be formatted leaves another's selection be, so
     /// the order the focus leaves one and reaches the other doesn't matter.
-    func show(_ selection: SelectionFormatting?, from editor: SceneTextEditor) {
+    func show(
+        _ selection: SelectionFormatting?, commenting comments: CommentTarget = .nothing,
+        from editor: SceneTextEditor
+    ) {
         let new: Active?
         if let selection {
             self.editor = editor
-            new = Active(part: editor.part, selection: selection)
+            new = Active(part: editor.part, selection: selection, comments: comments)
         } else if self.editor === editor || self.editor == nil {
             new = nil
         } else {

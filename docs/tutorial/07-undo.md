@@ -48,8 +48,12 @@ Two consequences shape the code:
   `reinsert(entry, at: index, in: owner)`, never "put the scene back as it was", so undoing a
   deletion keeps whatever the writer typed in that scene since (ErrorEntryEditTests,
   `undoingADeleteKeepsWhatWasTypedSince`). A snapshot would silently revert the typing.
-- **The target is held strongly until the action runs or is cleared,** like an `Rc` captured
-  in the closure. `withTarget:` also lets `removeAllActions(withTarget:)` find them.
+- **The target is *not* retained,** unlike an `Rc` captured in the closure: the manager keeps
+  a bare pointer to it, and the closure is handed that pointer when it runs. Register against
+  an object that outlives the history (the book, which owns the managers), never a throwaway
+  one: #118 registered a comment's removal against a fresh `NSObject`, so the action called
+  into freed memory on Undo and crashed (#119). `withTarget:` also lets
+  `removeAllActions(withTarget:)` find a target's actions.
 
 ## 2. Groups
 
@@ -72,6 +76,11 @@ inverse on the same page history. Within one group:
 | Dismiss | the text's id off; restore the comment | the comment comes back, then the id | the same, the other way round |
 
 `removeComments` puts a comment back at its old index, so the panel's order survives an undo.
+
+Edit → New Comment is enabled only when there's a selection a comment can cover (ADR 0037). A
+SwiftUI menu item re-evaluates `.disabled(...)` only when observed state changes, so the page
+computes that on each selection change and hands it to `EditorFormatting` with the selection's
+formats (`Active.comments`), the same observable value the Format menu reads.
 
 With `groupsByEvent` (on by default), the manager opens a group at the first registration in
 an event and closes it when the run loop finishes that event. So one Delete click is one

@@ -265,7 +265,7 @@ final class SceneTextEditor: NSObject {
 
     // MARK: Comments (PLAN §8.1), on the page only (ADR 0035)
 
-    /// Comments the page's selection, or with none the word at the caret, with a new comment in
+    /// Comments the page's selection with a new comment in
     /// the color last chosen for one, which becomes the selected comment: one change on the
     /// page's undo. Returns the comment; `nil`, changing nothing, in the notes or while the page
     /// can't be edited, and with a beep when there's nothing to comment.
@@ -278,8 +278,7 @@ final class SceneTextEditor: NSObject {
         return comment.id
     }
 
-    /// Anchors the detached comment `id` to the page's selection, or with none the word at the
-    /// caret (PLAN §8.1), and selects it: one change on the page's undo. Returns whether it
+    /// Anchors the detached comment `id` to the page's selection (PLAN §8.1), and selects it: one change on the page's undo. Returns whether it
     /// did; never for a comment that still has text on the page, and with a beep when there's
     /// nothing to anchor it to.
     @discardableResult
@@ -290,7 +289,7 @@ final class SceneTextEditor: NSObject {
         return anchor(id, adding: [], on: commenting, named: CommentWording.reanchorUndoName)
     }
 
-    /// Puts the comment `id` on the selection, or the word at the caret, and selects it, as one
+    /// Puts the comment `id` on the selection and selects it, as one
     /// change named `name` that adds `added` to the scene.
     private func anchor(
         _ id: CommentID, adding added: [Comment], on commenting: Commenting, named name: String
@@ -307,16 +306,15 @@ final class SceneTextEditor: NSObject {
         undo.beginUndoGrouping()
         defer { undo.endUndoGrouping() }
         // Registered before the text, so undoing takes the text's id away first and no run is
-        // ever left naming a comment the scene doesn't have. Under a target of its own, so it can
-        // be withdrawn if the text refuses the change.
-        let removal = NSObject()
+        // ever left naming a comment the scene doesn't have. If the text refuses the change, the
+        // comment never reaches the scene and this removes nothing. Its target is the book, which
+        // outlives the history: an undo manager doesn't retain targets.
         if !added.isEmpty {
-            undo.registerUndo(withTarget: removal) { [weak book, scene = commenting.scene] _ in
-                book?.removeComments(Set(added.map(\.id)), from: scene)
+            undo.registerUndo(withTarget: book) { [scene = commenting.scene] in
+                $0.removeComments(Set(added.map(\.id)), from: scene)
             }
         }
         guard rewrite(ranges, adding: added, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
-            undo.removeAllActions(withTarget: removal)
             return false
         }
         undo.setActionName(name)
@@ -370,6 +368,14 @@ final class SceneTextEditor: NSObject {
         return true
     }
 
+    /// Whether a new comment could cover the page's selection, for Edit → New Comment.
+    private var commentTarget: EditorFormatting.CommentTarget {
+        guard part == .body, let view = textView, let storage = view.textStorage,
+            !storage.commentRanges(selecting: view.selectedRanges.map(\.rangeValue)).isEmpty
+        else { return .nothing }
+        return .selection
+    }
+
     private typealias Commenting = (scene: SceneID, view: SceneTextView, storage: NSTextStorage)
 
     /// The page, while its comments can change.
@@ -393,7 +399,7 @@ final class SceneTextEditor: NSObject {
 
     /// Shows the formats of the selection, or none while the text view can't be formatted.
     func showFormatting() {
-        formatting.show(formattingSelection, from: self)
+        formatting.show(formattingSelection, commenting: commentTarget, from: self)
     }
 
     // MARK: Pasteboard (decision 0017)
