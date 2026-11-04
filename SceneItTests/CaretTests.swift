@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import SwiftUI
 import Testing
 
@@ -481,11 +482,9 @@ private func composited(_ view: NSView, in rect: NSRect, matching color: NSColor
     root.wantsLayer = true
     root.layoutSubtreeIfNeeded()
     root.display()
-    // The layers draw their contents on later turns of the run loop: render until the text shows.
-    var rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
-    for _ in 0..<10 {
-        try await Task.sleep(for: .milliseconds(100))
-        rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
+    let layer = try #require(root.layer)
+    func render() throws -> NSBitmapImageRep {
+        let rep = WindowRenders.blankBitmap(width: Int(rect.width), height: Int(rect.height))
         rep.size = rect.size
         let context = try #require(NSGraphicsContext(bitmapImageRep: rep)).cgContext
         let inRoot = view.convert(rect, to: root)
@@ -494,8 +493,18 @@ private func composited(_ view: NSView, in rect: NSRect, matching color: NSColor
             context.scaleBy(x: 1, y: -1)
         }
         context.translateBy(x: -inRoot.minX, y: -inRoot.minY)
-        try #require(root.layer).render(in: context)
-        if try share(of: .black, in: rep, as: view) > 0.01 { break }
+        layer.render(in: context)
+        return rep
+    }
+    // The layers draw their contents on later turns of the run loop: render until the text shows.
+    // Text drawn before the change shows too, and nothing signals that the layers have redrawn,
+    // so the first render waits a turn.
+    try await Task.sleep(for: .milliseconds(100))
+    var rep = try render()
+    await eventually {
+        guard let next = try? render() else { return false }
+        rep = next
+        return ((try? share(of: .black, in: next, as: view)) ?? 0) > 0.01
     }
     return try share(of: color, in: rep, as: view)
 }

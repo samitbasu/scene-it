@@ -2,11 +2,11 @@ import Foundation
 import Testing
 
 /// The best times of one comparison: `work` at a size and at twice that size.
-struct ScalingAttempt: CustomStringConvertible {
-    let size: Duration
-    let doubled: Duration
+public struct ScalingAttempt: CustomStringConvertible {
+    public let size: Duration
+    public let doubled: Duration
 
-    var description: String { "\(size) then \(doubled)" }
+    public var description: String { "\(size) then \(doubled)" }
 }
 
 /// Records an issue unless doubling the input of `work` costs well under four times as much:
@@ -17,7 +17,7 @@ struct ScalingAttempt: CustomStringConvertible {
 /// A comparison gets three attempts: noise passes on a retry, but quadratic work fails every
 /// one. `work(size)` builds its input outside the timing and returns what to time.
 @discardableResult
-func expectLinear(
+public func expectLinear(
     _ what: String, doubling size: Int, sourceLocation: SourceLocation = #_sourceLocation,
     _ work: (Int) -> () -> Void
 ) -> ScalingAttempt {

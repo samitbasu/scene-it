@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import SwiftUI
 import Testing
 
@@ -42,7 +43,6 @@ struct FileACopyTests {
             let (tags, field, editor) = try Self.tagField(flow)
             for tag in ["draft 4", "oops"] {
                 editor.insertText(tag, replacementRange: NSRange(location: 0, length: 0))
-                try await Task.sleep(for: .milliseconds(50))
                 #expect(editor.undoManager?.canUndo == true, "precondition: the typing can be undone")
                 #expect(tags.control(field, textView: editor, doCommandBy: Self.newline))
                 #expect(editor.string.isEmpty, "Return empties the field")
@@ -102,7 +102,6 @@ struct FileACopyTests {
                     name: NSControl.textDidChangeNotification, object: field,
                     userInfo: ["NSFieldEditor": editor]))
             #expect(flow.draft?.pendingTag == "draft")
-            try await Task.sleep(for: .milliseconds(50))
             let history = try #require(editor.undoManager)
             history.undo()
             #expect(editor.string.isEmpty)
@@ -219,7 +218,6 @@ struct FileACopyTests {
                         editor.selectedRange()
                             == NSRange(location: (editor.string as NSString).length, length: 0),
                         "the caret follows the admitted text, \(how)")
-                    try await Task.sleep(for: .milliseconds(50))
                     history.undo()
                     #expect(editor.string.isEmpty, "one undo takes it back, \(how)")
                     #expect(!history.canUndo, "it was one step, \(how)")
@@ -325,7 +323,6 @@ struct FileACopyTests {
         dialog.typeTag("draft")
         #expect(dialog.box.draft.note == "Mine", "precondition: the note reaches the draft while open")
         #expect(dialog.box.draft.pendingTag == "draft", "precondition: so does the tag field")
-        try await Task.sleep(for: .milliseconds(50))
         #expect(dialog.tags.history.canUndo, "precondition: the tag typing can be undone")
 
         NoteTextView.dismantleNSView(dialog.scroll, coordinator: dialog.notes)

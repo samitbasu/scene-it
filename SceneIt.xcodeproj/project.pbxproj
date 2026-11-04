@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		5C1E0000000000000000000C /* SceneItCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5C1E0000000000000000000B /* SceneItCore */; };
+		5C1E0000000000000000003A /* SceneItTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 5C1E00000000000000000039 /* SceneItTestSupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5C1E0000000000000000003A /* SceneItTestSupport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +131,7 @@
 			);
 			name = SceneItTests;
 			packageProductDependencies = (
+				5C1E00000000000000000039 /* SceneItTestSupport */,
 			);
 			productName = SceneItTests;
 			productReference = 5C1E00000000000000000009 /* SceneItTests.xctest */;
@@ -469,6 +472,10 @@
 		5C1E0000000000000000000B /* SceneItCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SceneItCore;
+		};
+		5C1E00000000000000000039 /* SceneItTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SceneItTestSupport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

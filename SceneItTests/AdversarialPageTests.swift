@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import SwiftUI
 import Testing
 
@@ -272,7 +273,8 @@ struct AdversarialPageTests {
         try await withPage([scene("One", [[Run("Start.")]])]) { page in
             page.focusPage(at: 6)
             for _ in 0..<1500 { page.page.insertText("x", replacementRange: page.page.selectedRange()) }
-            try await Task.sleep(for: .milliseconds(200))
+            #expect(page.window.viewsNeedDisplay, "precondition: the keystrokes are still to be drawn")
+            await eventually { !page.window.viewsNeedDisplay }
             #expect(page.body().first?.text.count == 1506)
         }
     }
