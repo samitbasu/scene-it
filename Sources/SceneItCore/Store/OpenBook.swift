@@ -11,6 +11,10 @@ import Observation
 @Observable
 public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public let layout: PackageLayout
+    /// This opening of the book, never shared with another: reopening the same package (Open
+    /// Anyway, say) makes a new `OpenBook` at the same `layout`, which the window mustn't take
+    /// for the old one.
+    @ObservationIgnored public let instanceID = UUID()
     public private(set) var book: Book
     /// Kept in step with `book` by every edit, so the status bar never recounts the book.
     public private(set) var wordCounts: SceneWordCounts

@@ -2,8 +2,9 @@ import AppKit
 import SceneItCore
 
 /// The window's two editors of scene text, the page and the notes, each made once and kept for
-/// the window's life, which is its book's (ADR 0021), however often SwiftUI rebuilds the views
-/// that show them. They must outlive those rebuilds: the scenes' undo histories record typing
+/// the window's life, however often SwiftUI rebuilds the views that show them. The window's
+/// life is one `OpenBook`'s (`MainWindow` keys it on `OpenBook.instanceID`, ADR 0021), so the
+/// editors never outlive the book they edit, even when the same package is opened again. They must outlive those rebuilds: the scenes' undo histories record typing
 /// against an editor's own text storage, and an undo replayed on a storage that's gone does
 /// nothing, or raises.
 final class SceneEditors {
@@ -78,16 +79,30 @@ final class SceneTextHost<Scroll: NSScrollView> {
         slot.mount(scrollView)
     }
 
-    /// Takes the views out of the window, as SwiftUI takes their slot away: AppKit would leave
-    /// the text view the focus, typing into text no one sees, with its bar active. The focus
-    /// goes to `next` if it can take it.
-    func unmount(handingFocusTo next: NSView?) {
-        if let window = textView.window, window.firstResponder === textView {
+    /// Takes the views out of `slot` as SwiftUI takes it away, if they're still there (they may
+    /// have moved on to another): AppKit would leave the text view, or its find bar's field,
+    /// the focus, typing into text no one sees, with its bar active. The focus goes to `next`
+    /// if it can take it.
+    func unmount(from slot: HostingSlot, handingFocusTo next: NSView?) {
+        guard scrollView.superview === slot else { return }
+        if let window = textView.window, holdsFocus(window.firstResponder) {
             let handedOn = next.map { $0.window === window && window.makeFirstResponder($0) } ?? false
             if !handedOn { window.makeFirstResponder(nil) }
         }
         editor.keyboardFocusChanged(.elsewhere)
         scrollView.removeFromSuperview()
+    }
+
+    /// Whether `responder` is in the scroll view: the text view, or the find bar's field, whose
+    /// field editor is the responder while it's being edited.
+    private func holdsFocus(_ responder: NSResponder?) -> Bool {
+        let view: NSView? =
+            switch responder {
+            case let editor as NSTextView where editor.isFieldEditor: editor.delegate as? NSView
+            case let view as NSView: view
+            default: nil
+            }
+        return view?.isDescendant(of: scrollView) ?? false
     }
 }
 

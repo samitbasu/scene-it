@@ -31,7 +31,7 @@ struct PageView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
-        editors.page.unmount(handingFocusTo: nil)
+        editors.page.unmount(from: slot, handingFocusTo: nil)
     }
 }
 

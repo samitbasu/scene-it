@@ -35,7 +35,7 @@ struct NotesView: NSViewRepresentable {
     /// The focus goes back to the page, where the writer can go on typing, when the notes leave
     /// with their tab.
     static func dismantleNSView(_ slot: HostingSlot, coordinator editors: SceneEditors) {
-        editors.notes.unmount(handingFocusTo: editors.page.textView)
+        editors.notes.unmount(from: slot, handingFocusTo: editors.page.textView)
     }
 }
 

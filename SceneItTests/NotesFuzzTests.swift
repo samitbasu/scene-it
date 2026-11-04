@@ -172,6 +172,61 @@ struct EditorLifetimeTests {
         }
     }
 
+    /// Opening the same package again (as Open Anyway or Open Other Version do) makes a new
+    /// `OpenBook` at the same root: the window, with its editors and undo router, is made anew
+    /// for it, so typing reaches the book that's open, not the one it replaced.
+    @Test func reopeningTheSameBookGivesTheWindowNewEditorsForTheNewBook() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Held.sceneit", directoryHint: .isDirectory)
+            let kept = scene("Kept", [[Run("Start.")]])
+            var holder: EditableBook? = try BookPackage.create(at: url, title: "Held")
+            _ = try holder?.package.save(Book(title: "Held", scenes: [kept]))
+            let books = BookController(role: .testHost)
+            let store = books.store
+            #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
+            let readOnly = try #require(store.current)
+
+            let size = WindowMetrics.defaultSize
+            let controller = NSHostingController(rootView: MainWindow(books: books))
+            controller.sizingOptions = []
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
+                defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = controller
+            window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
+            window.orderFront(nil)
+            defer { window.close() }
+            @MainActor func page() -> ManuscriptTextView? {
+                subviewTree(of: window.contentView).compactMap { $0 as? ManuscriptTextView }.first
+            }
+            await eventually { page()?.string == "Start." }
+            let before = try #require(page())
+            #expect(before.editor?.book === readOnly)
+            #expect(!before.isEditable, "precondition: read-only")
+
+            holder = nil
+            #expect(await store.open(url) == .opened)
+            let editable = try #require(store.current)
+            #expect(editable !== readOnly, "precondition: a new OpenBook")
+            #expect(editable.layout.root == readOnly.layout.root, "precondition: at the same root")
+            await eventually { page().map { $0.editor?.book === editable && $0.isEditable } == true }
+            let after = try #require(page())
+            #expect(after !== before, "a new window's editors")
+
+            await inATurn {
+                window.makeFirstResponder(after)
+                after.setSelectedRange(NSRange(location: 6, length: 0))
+                after.insertText(" More.", replacementRange: after.selectedRange())
+            }
+            #expect(editable.book.scene(kept.id)?.body == [[Run("Start. More.")]])
+            #expect(readOnly.book.scene(kept.id)?.body == [[Run("Start.")]])
+            await eventually { editable.status == .saved }
+            #expect(try bookOnDisk(url).scenes.first?.body == [[Run("Start. More.")]])
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test func theNotesHaveNoInputMethod() async throws {
         try await withPage([withNotes("One", [[Run("B")]], notes: tides)]) { page in
             let notes = try await page.showNotes()

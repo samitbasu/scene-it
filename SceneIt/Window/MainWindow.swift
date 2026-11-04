@@ -8,13 +8,14 @@ struct MainWindow: View {
     var body: some View {
         Group {
             if let book = books.store.current {
-                // A new identity per book, so window state such as an open sheet never
-                // outlives the book it was opened over.
+                // A new identity per opening of a book, so window state (an open sheet, the
+                // editors, the undo router) never outlives the `OpenBook` it was made for, even
+                // when the same package is opened again.
                 OpenBookWindow(
                     book: book, store: books.store, preferences: books.preferences,
                     formatting: books.formatting
                 )
-                .id(book.layout.root)
+                .id(book.instanceID)
             } else {
                 StartView(books: books)
             }
