@@ -681,7 +681,8 @@ struct HighlightSelectionTests {
             ]
         ]
         let one = scene("One", body)
-        let two = scene("Two", body)
+        // Shorter, its highlight elsewhere: what was set for the first scene can't fit it.
+        let two = scene("Two", [[Run("Hi, "), Run("a highlighted phrase in green", highlight: .green)]])
         try await withPage([one, two], in: KeyWindow.self) { page in
             try await settle(page, at: .standard)
             let view = page.page
@@ -719,6 +720,14 @@ struct HighlightSelectionTests {
             let line = try textRect(NSRange(location: 0, length: page.storage.length), in: view)
             let accent = try await composited(view, in: line, matching: .selectedTextBackgroundColor)
             #expect(accent < 0.01, "nor anywhere on the line: \(accent)")
+            let layout = try #require(view.textLayoutManager)
+            var overrides = 0
+            layout.enumerateRenderingAttributes(from: layout.documentRange.location, reverse: false) {
+                _, attributes, _ in
+                if attributes[.backgroundColor] != nil { overrides += 1 }
+                return true
+            }
+            #expect(overrides == 0, "and no selection colour is kept for later: \(overrides)")
         }
     }
 
