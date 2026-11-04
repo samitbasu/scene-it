@@ -32,7 +32,7 @@ public struct BookScene: Identifiable, Hashable, Sendable {
     /// assignment takes any off.
     public var notes: [Paragraph] {
         didSet {
-            if !Paragraph.commentIDs(in: notes).isEmpty { notes = Self.uncommented(notes) }
+            if !Paragraph.commentIDs(in: notes).isEmpty { notes = notes.map(\.uncommented) }
         }
     }
     public var comments: [Comment]
@@ -55,7 +55,7 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         self.title = title
         self.tags = CharacterPolicy.admittedTags(tags)
         self.body = body
-        self.notes = Self.uncommented(notes)
+        self.notes = notes.map(\.uncommented)
         self.comments = comments
         self.errors = errors
     }
@@ -65,9 +65,6 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         !Paragraph.commentIDs(in: body).contains(comment)
     }
 
-    private static func uncommented(_ notes: [Paragraph]) -> [Paragraph] {
-        Paragraph.commentIDs(in: notes).isEmpty ? notes : notes.map { $0.keepingComments([]) }
-    }
 }
 
 /// A scene's two texts of formatted paragraphs: its body, on the page, and its notes, in the

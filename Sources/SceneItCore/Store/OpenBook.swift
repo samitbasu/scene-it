@@ -142,8 +142,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     private func replace(_ part: TextPart, of scene: SceneID, with paragraphs: [Paragraph]) {
-        edit(scene) { $0[keyPath: part.paragraphs] = paragraphs }
-        if book.scene(scene)?[keyPath: part.paragraphs] == paragraphs {
+        var stored: [Paragraph]?
+        edit(scene) { scene in
+            scene[keyPath: part.paragraphs] = paragraphs
+            stored = scene[keyPath: part.paragraphs]
+        }
+        if let stored, book.scene(scene)?[keyPath: part.paragraphs] == stored {
             textUndoManagers[part]?[scene]?.removeAllActions()
         }
     }

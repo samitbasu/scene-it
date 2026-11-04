@@ -169,9 +169,12 @@ struct CommentClickTests {
             let notes = try await harness.showNotes()
             await eventually { notes.string == "The letter again." }
             #expect(notes.textLayoutManager?.delegate == nil, "TextKit's own fragments")
-            try Self.click(harness, onCharacter: 6, in: notes)
             let selection = try #require(harness.page.editor?.comments)
-            #expect(selection.selected == nil)
+            try Self.click(harness, onCharacter: 6)
+            let pageSelection = selection.selected
+            try #require(pageSelection?.comment == noted, "precondition: the page's words are commented")
+            try Self.click(harness, onCharacter: 6, in: notes)
+            #expect(selection.selected == pageSelection, "the click in the notes neither selected nor cycled")
             #expect((6...7).contains(notes.selectedRange().location), "the click placed the caret")
         }
     }

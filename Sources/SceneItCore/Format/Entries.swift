@@ -1,4 +1,4 @@
-/// Why a comment or mark entry is an error (book format §4.8, E1–E10).
+/// Why a comment or mark entry is an error (book format §4.8, E1–E11).
 public enum EntryProblem: String, Error, Hashable, CaseIterable, Sendable {
     case strayLine = "E1"
     case fields = "E2"

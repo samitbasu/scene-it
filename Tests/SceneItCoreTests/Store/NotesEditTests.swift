@@ -136,6 +136,23 @@ struct NotesEditTests {
         }
     }
 
+    /// Notes given with a comment id are stored without it (ADR 0035), and still replace the
+    /// notes: their history, which describes the old text, goes.
+    @Test func notesReplacedWithACommentIdStillClearTheirHistory() async throws {
+        try await withScene { book, scene in
+            let notes = book.notesUndo(for: scene)
+            book.apply(BodyChange(lines: 0..<1, paragraphs: [[Run("Typed.")]]), to: scene, in: .notes)
+            notes.groupsByEvent = false
+            notes.beginUndoGrouping()
+            notes.registerUndo(withTarget: book) { _ in }
+            notes.endUndoGrouping()
+            try #require(notes.canUndo, "precondition: a history to clear")
+            book.replaceNotes(of: scene, with: [[Run("Replaced", comments: [noted])]])
+            #expect(book.book.scene(scene)?.notes == [[Run("Replaced")]])
+            #expect(!notes.canUndo)
+        }
+    }
+
     /// A paste into the notes that brought comments is undone on the notes' history.
     @Test func removingCommentsPastedIntoTheNotesIsUndoneOnTheNotes() async throws {
         try await withScene { book, scene in

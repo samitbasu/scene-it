@@ -661,7 +661,8 @@ It's also the writer's escape hatch: when you've rewritten the text a comment po
 new range, replace its range and quote with `detached`.
 
 A comment with ranges that don't match (§4.8) is **an error**, not detached. The parser never decides on its own that
-a comment has lost its text.
+a comment has lost its text, with one exception: a comment whose only ranges are in the notes is kept detached, with a
+notice (§4.2), since comments are on the manuscript only (ADR 0035).
 
 ### 4.6 Mark entries
 
@@ -699,7 +700,9 @@ After a scene's body and notes are read, its marks are applied in file order, th
 ### 4.8 What makes an entry an error
 
 Any of the following makes the whole entry (its logical line, verbatim after trimming) an error entry, tagged
-`[comments]` or `[marks]` by the section it was in. It then has no effect on the text.
+`[comments]` or `[marks]` by the section it was in. It then has no effect on the text. The exception is E11: read
+from `### Comments`, a valid comment's notes ranges are taken off it with a notice instead (§4.2), and the comment is
+kept; E11 is the reason only in an Unparsed entry or a repair.
 
 | # | Problem | Example |
 | --- | --- | --- |
@@ -1114,7 +1117,7 @@ What it parses to, in the places that exercise a rule:
 | *The ferry*, paragraph 2 | `She had packed in the dark, ` · *`by feel`* · `, the way … when ` · **`the house was asleep and `** · ***`leaving`*** · *` still seemed like a game.`* |
 | *The ferry*, paragraph 3 | … `by then she was ` · bold+italic+strike `already` · ` ashore.` |
 | *The ferry*, body plain text | 405 characters. `c4` covers the end of paragraph 1 and the start of paragraph 2 (the `\n` between them carries nothing); it overlaps `c2` (`at dawn`) and the purple mark (`harbor lights`). `c5` covers two separate stretches, and the blue highlight `the deckhand swore` overlaps its second one. |
-| *The ferry*, comments | `c2`, `c1`, `c4` (text empty), `c5` (text `Too much | "noise" here?`), `c7` (notes), `c6` (detached) |
+| *The ferry*, comments | `c2`, `c1`, `c4` (text empty), `c5` (text `Too much | "noise" here?`), `c7` (inside `c2`), `c6` (detached) |
 | *Arrival*, paragraphs 4–7 | `#7 was painted on the gate, and under it someone had chalked *KEEP OUT*.` · *(empty paragraph)* · `- Hello? she called, to the gate, to the gulls, to no one.␠` · `A tin sign read ROOM_2 ~ C:\ATTIC.` |
 | *Arrival*, body plain text | 445 characters; the empty paragraph makes `…*KEEP OUT*.\n\n- Hello?…` |
 | *The letter*, tags | `mother`, `clue`, `letters, unsent` |

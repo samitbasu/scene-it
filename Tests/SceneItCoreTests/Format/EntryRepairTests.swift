@@ -58,6 +58,25 @@ struct EntryRepairTests {
         #expect(scene.id == book.scenes[0].id && scene.modified == book.scenes[0].modified)
     }
 
+    /// A repair can't put a comment in the notes (ADR 0035): its notes range is E11, the entry
+    /// stays, and the scene's comments are as they were.
+    @Test func aRepairWithANotesRangeIsKeptAsE11() throws {
+        let broken = "- c1 | purple | \(Self.created) | c12-18 | \"lettre\" | Too early?"
+        let (book, ref) = try onlyEntry(
+            file(scene: "\(Self.body)\n\n### Notes\nCheck the tides.\n\n### Comments\n\(broken)"))
+        let before = book.scenes[0]
+        let inTheNotes = "- c1 | purple | \(Self.created) | notes c6-15 | \"the tides\" | Too early?"
+        guard case .kept(.scene(let scene), let reason)? = BookFormat.repair(ref, as: inTheNotes, in: book)
+        else {
+            Issue.record("expected the entry to be kept")
+            return
+        }
+        #expect(reason == .comment(.notesRange))
+        #expect(scene.comments == before.comments)
+        #expect(scene.notes == before.notes)
+        #expect(scene.errors == [ErrorEntry(.comments, inTheNotes)])
+    }
+
     @Test func aMarkWhoseRangeIsFixedTakesEffect() throws {
         let broken = "- color red | c12-19 | \"letter\""
         let (book, ref) = try onlyEntry(file(scene: "\(Self.body)\n\n### Marks\n\(broken)"))

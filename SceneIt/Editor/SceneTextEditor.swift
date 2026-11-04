@@ -287,30 +287,17 @@ final class SceneTextEditor: NSObject {
             }
             switch part {
             case .body: insert(pasted.lines, adding: pasted.comments)
-            case .notes: insert(Self.withoutComments(pasted.lines), adding: [])
+            case .notes: insert(pasted.lines.map(\.uncommented), adding: [])
             }
             return true
         }
         guard let text = Self.foreignText(on: pasteboard, type: type, typing: view.typingAttributes) else {
             return false
         }
-        let lines = Self.withoutComments(RunCodec.paragraphs(from: text))
+        let lines = RunCodec.paragraphs(from: text).map(\.uncommented)
         guard !lines.isEmpty else { return false }
         insert(lines, adding: [])
         return true
-    }
-
-    /// Comments are made on the page alone (ADR 0032), and text from elsewhere brings none.
-    private static func withoutComments(_ lines: [Paragraph]) -> [Paragraph] {
-        lines.map { paragraph in
-            Paragraph(
-                paragraph.runs.map { run in
-                    var run = run
-                    run.comments = []
-                    return run
-                }
-            )
-        }
     }
 
     /// Text another app put on the pasteboard; plain text takes the typing attributes.

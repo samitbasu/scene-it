@@ -29,7 +29,7 @@ replaced it. If you know serde, the contrast is the lesson: serde gives you
 | [`Format/BookSerializer.swift`](../../Sources/SceneItCore/Format/BookSerializer.swift) | the canonical writer |
 | [`Format/Lexical.swift`](../../Sources/SceneItCore/Format/Lexical.swift) | trimming, headings, `key: value`, field escapes |
 | [`Format/Inline.swift`](../../Sources/SceneItCore/Format/Inline.swift) | bold, italic and strikethrough, read and written |
-| [`Format/Entries.swift`](../../Sources/SceneItCore/Format/Entries.swift) | comment, mark and Unparsed entries, and the E1–E10 problems |
+| [`Format/Entries.swift`](../../Sources/SceneItCore/Format/Entries.swift) | comment, mark and Unparsed entries, and the E1–E11 problems |
 | [`Format/SceneText.swift`](../../Sources/SceneItCore/Format/SceneText.swift) | a scene's plain text while marks and comments are applied |
 
 The tests are in [`Tests/SceneItCoreTests/Format/`](../../Tests/SceneItCoreTests/Format/).
@@ -228,7 +228,7 @@ Entries recorded at different times are sorted by line number at the end, so the
 lists them in file order whichever check produced them.
 
 `Entries.mark` returns `Result<ParsedMark, EntryProblem>`, where `EntryProblem` is the
-spec's E1–E10. The parser doesn't store the problem (§5.4: the reason is derived, never
+spec's E1–E11. The parser doesn't store the problem (§5.4: the reason is derived, never
 stored), but the tests assert it for every class, and the Errors tab will use the same
 function to explain each row.
 
