@@ -105,11 +105,27 @@ class SceneTextView: KeyboardTextView {
         refreshSelectionBands()
     }
 
+    private var focusOnArrival = false
+
+    /// Takes the keyboard focus now, or, if SwiftUI hasn't put the view in a window yet, as
+    /// soon as it does.
+    func takeFocus() {
+        if let window {
+            window.makeFirstResponder(self)
+        } else {
+            focusOnArrival = true
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers = []
         guard let window else { return }
+        if focusOnArrival {
+            focusOnArrival = false
+            window.makeFirstResponder(self)
+        }
         windowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {
             NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) {
                 [weak self] _ in

@@ -15,10 +15,11 @@ struct BookWindow: View {
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
+    @State private var search: SearchSheetModel
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mode: Binding<WindowMode>, filing: FilingFlow? = nil
+        mode: Binding<WindowMode>, filing: FilingFlow? = nil, search: SearchSheetModel? = nil
     ) {
         self.book = book
         self.store = store
@@ -26,6 +27,7 @@ struct BookWindow: View {
         self.formatting = formatting
         _mode = mode
         _filing = State(initialValue: filing ?? FilingFlow(book: book))
+        _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
@@ -52,7 +54,9 @@ struct BookWindow: View {
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)
-                    if mode.isSheet {
+                    if mode == .search {
+                        SearchSheet(model: search, mode: $mode)
+                    } else if mode.isSheet {
                         SheetPlaceholder(book: book, mode: $mode)
                     }
                 }
@@ -66,7 +70,14 @@ struct BookWindow: View {
         .environment(undo)
         .environment(\.pageFocus, pageFocus)
         .focusedSceneValue(\.undoRouter, undo)
-        .onChange(of: mode, initial: true) { undo.mode = mode }
+        .onChange(of: mode, initial: true) {
+            undo.mode = mode
+            if mode == .search { search.refresh() } else { search.close() }
+        }
+        .onAppear {
+            search.opener = SearchOpener(
+                book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
+        }
         .toolbar { WindowToolbar(book: book, preferences: preferences, undo: undo, filing: filing) }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)

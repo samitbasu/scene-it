@@ -63,4 +63,8 @@ final class PageFocus {
         guard let title, title.isEnabled else { return }
         title.window?.makeFirstResponder(title)
     }
+
+    /// What the title field selects when it next shows the scene: a search result being opened
+    /// (PLAN §9.1).
+    var titleSelection = PendingSelection()
 }
