@@ -28,7 +28,13 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         didSet { tags = CharacterPolicy.admittedTags(tags) }
     }
     public var body: [Paragraph]
-    public var notes: [Paragraph]
+    /// Never carries a comment id: comments are on the manuscript only (ADR 0035). Every
+    /// assignment takes any off.
+    public var notes: [Paragraph] {
+        didSet {
+            if !Paragraph.commentIDs(in: notes).isEmpty { notes = Self.uncommented(notes) }
+        }
+    }
     public var comments: [Comment]
     /// What the parser couldn't understand in this scene, kept verbatim. They travel with
     /// the scene to and from the Boneyard.
@@ -49,14 +55,18 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         self.title = title
         self.tags = CharacterPolicy.admittedTags(tags)
         self.body = body
-        self.notes = notes
+        self.notes = Self.uncommented(notes)
         self.comments = comments
         self.errors = errors
     }
 
-    /// Whether no run in the body or the notes carries the comment.
+    /// Whether no run in the body carries the comment.
     public func isDetached(_ comment: CommentID) -> Bool {
-        !Paragraph.commentIDs(in: body + notes).contains(comment)
+        !Paragraph.commentIDs(in: body).contains(comment)
+    }
+
+    private static func uncommented(_ notes: [Paragraph]) -> [Paragraph] {
+        Paragraph.commentIDs(in: notes).isEmpty ? notes : notes.map { $0.keepingComments([]) }
     }
 }
 

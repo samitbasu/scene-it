@@ -74,6 +74,7 @@ public enum ErrorsWording {
         case .quoteSyntax: "A quote is missing or unfinished."
         case .quoteMismatch: "The quote doesn't match the scene's text at that range."
         case .leftover: "There's extra text after the quote."
+        case .notesRange: "Comments are on the manuscript only, not in the notes."
         }
     }
 

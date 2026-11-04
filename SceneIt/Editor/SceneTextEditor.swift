@@ -267,9 +267,7 @@ final class SceneTextEditor: NSObject {
             }
             switch part {
             case .body: insert(pasted.lines, adding: pasted.comments)
-            case .notes:
-                let kept = book.commentsAllowedInTheNotes(of: scene)
-                insert(pasted.lines.map { $0.keepingComments(kept) }, adding: [])
+            case .notes: insert(Self.withoutComments(pasted.lines), adding: [])
             }
             return true
         }

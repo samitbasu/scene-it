@@ -44,6 +44,7 @@ extension RepairNotice {
         switch self {
         case .duplicateSceneID: .metadata(.idInUse)
         case .otherFormat: .frontMatter(.otherFormat)
+        case .commentInTheNotes: .comment(.notesRange)
         default: .notice
         }
     }
