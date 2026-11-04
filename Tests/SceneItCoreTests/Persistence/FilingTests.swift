@@ -440,9 +440,34 @@ struct FileFingerprint: Equatable {
         }
     }
 
-    /// Opening twice: the first open repairs the index (a character it can't keep) and keeps
-    /// its original; the second finds nothing new and writes nothing.
-    @Test func aRepairedIndexIsRepairedOnceAcrossOpens() throws {
+    /// A repair the index's parse makes, and the tags it leaves.
+    enum IndexRepair: CaseIterable, CustomTestStringConvertible {
+        /// A character the index can't keep (ADR 0028).
+        case character
+        /// A line break inside a tag (#96, book format §2.2).
+        case lineBreakInATag
+
+        var tagsLine: String {
+            switch self {
+            case .character: "tags: caf\u{E9}"
+            case .lineBreakInATag: "tags: first\\ndraft, before"
+            }
+        }
+
+        var repairedTags: [String] {
+            switch self {
+            case .character: ["cafe"]
+            case .lineBreakInATag: ["first draft", "before"]
+            }
+        }
+
+        var testDescription: String { "\(self)" }
+    }
+
+    /// Opening twice: the first open repairs the index and keeps its original; the second
+    /// finds nothing new and writes nothing.
+    @Test(arguments: IndexRepair.allCases)
+    func aRepairedIndexIsRepairedOnceAcrossOpens(_ repair: IndexRepair) throws {
         try withTemporaryDirectory { directory in
             let url: URL
             do {
@@ -450,7 +475,7 @@ struct FileFingerprint: Equatable {
                 try fixture.file()
                 url = fixture.url
                 let damaged =
-                    "---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-11-01\ntags: caf\u{E9}\n"
+                    "---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-11-01\n\(repair.tagsLine)\n"
                     + "scenes: 3\nwords: 120\ncomments: 2\n"
                 try Data(damaged.utf8).write(to: fixture.layout.archiveIndex)
                 #expect(
@@ -477,7 +502,7 @@ struct FileFingerprint: Equatable {
                 #expect(try index().newEntries.isEmpty, "the repair's notice is kept, not new: open \(open)")
                 #expect(try originals().count == 1, "the original is kept once: open \(open)")
             }
-            #expect(try index().index.copies.first?.tags == ["cafe"], "the repair is kept")
+            #expect(try index().index.copies.first?.tags == repair.repairedTags, "the repair is kept")
         }
     }
 
