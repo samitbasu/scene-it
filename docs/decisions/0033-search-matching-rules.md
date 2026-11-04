@@ -35,14 +35,20 @@ Match case.
   punctuation would complicate every other query for a rare need.
 
 ## Consequences
-- `SearchText.withoutPossessive` is shared by the stemmer and Whole word, so the two can't disagree on what a possessive is.
+- One private function, `SearchText.possessor`, decides what a possessive is (an `'s` that isn't on the contraction
+  list). The stemmer and Whole word (`withoutPossessive`) both call it, so they can't disagree.
 - Each distinct spelling is interned under six comparison keys instead of four.
 - The contraction list is closed: an `'s` contraction not on it (`one's`, `John's` meaning "John is") reads as a
   possessive. Adding one is a one-line change to the list.
-- **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1). Read from `book.md` or
-  `Archive/index.md`, it's a **repair**: the tag gets a space, and the scene or filed copy gets a notice (`This scene's
-  tags held line breaks, which were changed to spaces.`), so the book opens read-only as repaired, with its original
-  kept (ADR 0024). Typing and pasting stay silent (ADR 0028): `CharacterPolicy.admittedTags` is the model's backstop.
+- **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1). Read from a file, it's a
+  **repair**: the tag gets a space, and its owner gets a notice (`This scene's tags held line breaks, which were changed
+  to spaces.`, or the filed copy's equivalent).
+  - In `book.md`, the scene's notice makes the book open read-only as repaired, with its original kept (ADR 0024).
+  - In `Archive/index.md`, ADR 0024 doesn't apply. The filed copy's notice follows the archive index's own rule: a
+  rewrite that changes what was written first keeps `Archive/index.md.original-<UTC>.md` (book format §8, PR #85).
+  - Typing and pasting stay silent (ADR 0028), and so does repairing a `[metadata] tags:` entry in the Errors tab,
+  which is the writer's own edit: such an entry reads as `.readsNow`, and applying it stores the spaces.
+  `CharacterPolicy.admittedTags` is the model's backstop.
   The writer never writes `\n` in a tag. The app never produced such tags, so only a hand-edited file can hold one.
   Corpus cases `s2.2-tags-line-break-noticed` and `s8-tags-line-break-noticed` pin it.
 - Phrases still compare words exactly: `"bear claw"` doesn't find `bear's claw`.

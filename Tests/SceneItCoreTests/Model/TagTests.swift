@@ -56,6 +56,8 @@ import Testing
             filed: Corpus.filedDay)
         let copy = try #require(parsed.index.copies.first)
         #expect(copy.tags == ["first draft"])
-        #expect(parsed.newEntries == [RepairNotice.lineBreaksInTags(.filedCopy).entry])
+        let notice = RepairNotice.lineBreaksInTags(.filedCopy).entry
+        #expect(parsed.newEntries == [notice])
+        #expect(copy.errors == [notice])
     }
 }

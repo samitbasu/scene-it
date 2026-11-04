@@ -689,8 +689,10 @@ Within a scene (or the book), entries are kept in this order:
 
 1. Entries in file order of the line that produced them: those read from `### Unparsed` sections, and those produced
    by failed front-matter, metadata, comment, mark and heading lines, interleaved by position in the file.
-2. Then the notices produced at the end of the scene, in the order: id (missing or duplicate), modified, replaced
-   characters. For the book: encoding, title, format, replaced characters.
+2. Then the notices produced at the end of the scene, in the order: id (missing or duplicate), modified, line breaks
+   in tags, then the transliterated and replaced characters. For the book: encoding, title, format, then the
+   transliterated and replaced characters. For a filed copy's section of the archive index (§8): filed date, line
+   breaks in tags, then the transliterated and replaced characters.
 
 The serializer writes entries in the model's order, so the order is stable from then on.
 
@@ -898,6 +900,7 @@ comments: 44
 | Section heading | `## save<NNNN>.md`: `save`, four or more decimal digits, `.md`. Any other `##` heading → a book-level `[line]` entry, and the metadata lines under it too. A second section for the same file → `[line]` entries; the first wins. |
 | `filed` | `YYYY-MM-DD`, the date the writer gave (editable, PLAN §7.1). Missing or bad → the filed copy's modification date in the local time zone, plus a `[metadata]` entry (bad) or a notice (missing). |
 | `tags` | As scene tags (§2.2), including the notice for a line break. Omitted when empty. |
+| Notices | At the end of the section's `### Unparsed`, in the order: missing filed date, line breaks in tags, then the transliterated and replaced characters (§5.2, §5.3). |
 | `note` | Free text, field-escaped (§4.1); a newline is `\n`. Omitted when empty. |
 | `scenes`, `words`, `comments` | Non-negative decimal integers. They're a cache of facts about an immutable file, so if one is missing or bad it's **recomputed from the filed copy, silently** †, and written on the next save of the index. |
 | Unknown key, duplicate key | `[metadata]` entry in the section's `### Unparsed`. |

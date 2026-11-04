@@ -51,7 +51,8 @@ tag `red door` but not the tags `red` and `door` side by side, while the words `
 without quotes still find both, in different sentences. Tags are single-line in the model
 (`CharacterPolicy.admittedTags` turns a line break into a space, as in a title), so `\n` in a
 tag unit is always a separator. A line break read from a file's `tags:` line is a repair with
-a notice, so the book opens as repaired
+a notice: in `book.md` the book opens as repaired (ADR 0024), and in `Archive/index.md` the
+index keeps its original before it's rewritten
 ([ADR 0033](../decisions/0033-search-matching-rules.md)).
 
 Every field is a `let`, and every type inside is a value type, so the snapshot can't change

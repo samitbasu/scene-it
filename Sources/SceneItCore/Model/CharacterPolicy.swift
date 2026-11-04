@@ -332,10 +332,10 @@ extension RepairNotice {
             + (replaced.isEmpty ? [] : [.replacedCharacters(replaced)])
     }
 
-    /// The notice for `tags` as the file spelled them, if any holds a line break that
-    /// `CharacterPolicy.admittedTags` will turn into a space.
+    /// The notice for `tags` as the file spelled them, if storing them changes them. The
+    /// file's characters are already admitted, so only a line break can.
     static func lineBreaks(in tags: [String], of owner: TagOwner) -> [RepairNotice] {
-        tags.contains { $0.contains("\n") } ? [.lineBreaksInTags(owner)] : []
+        CharacterPolicy.admittedTags(tags) != tags ? [.lineBreaksInTags(owner)] : []
     }
 
     /// The notices for the characters one part of the file had changed, if any.
