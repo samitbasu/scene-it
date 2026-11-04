@@ -52,6 +52,11 @@ expect accepts forbid_interpolated_traps SceneIt/Store.swift 'fatalError("Crash 
 expect accepts forbid_interpolated_traps SceneIt/Store.swift 'precondition(index >= 0, "index must not be negative")'
 expect accepts forbid_interpolated_traps Tests/CoreTests/T.swift 'Issue.record("not built: \(state)")'
 
+expect rejects forbid_exit_tests SceneItTests/T.swift 'await #expect(processExitsWith: .failure) { crash() }'
+expect rejects forbid_exit_tests Tests/CoreTests/T.swift '#require(processExitsWith: .success) {}'
+expect rejects forbid_exit_tests SceneItTests/T.swift 'let result: ExitTest.Result = r'
+expect accepts forbid_exit_tests SceneItTests/T.swift 'app.terminate(nil)'
+
 expect_missing_path_fails() {
     local status=0
     (cd "$fixtures" && forbid_textkit1 does-not-exist >/dev/null) || status=$?
