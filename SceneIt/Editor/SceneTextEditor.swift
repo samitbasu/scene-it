@@ -95,7 +95,7 @@ final class SceneTextEditor: NSObject {
         view.scrollRangeToVisible(selection)
         // The sheet's focus holder leaves the window in this same update.
         DispatchQueue.main.async { [weak view] in
-            view?.window?.makeFirstResponder(view)
+            view?.takeFocus()
         }
     }
 

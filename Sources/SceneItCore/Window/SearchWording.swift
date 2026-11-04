@@ -6,7 +6,6 @@ public enum SearchWording {
     public static let searchTags = "Search tags"
     public static let matchCase = "Match case"
     public static let wholeWord = "Whole word"
-    public static let fileCabinet = "File Cabinet"
     public static let scopeLabel = "Scope"
     public static let searchTagsHelp = "Also match scene tags"
 

@@ -129,9 +129,13 @@ final class SearchSheetModel {
         search()
     }
 
-    /// Waits for the search in progress, if any, to finish or be cancelled.
+    /// Waits until no search is in progress: the latest one has finished or been cancelled,
+    /// including any started while waiting.
     func settle() async {
-        await run?.value
+        while let current = run {
+            await current.value
+            if run == current { return }
+        }
     }
 
     private func search() {

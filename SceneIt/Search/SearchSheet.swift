@@ -6,7 +6,6 @@ import SwiftUI
 struct SearchSheet: View {
     @Bindable var model: SearchSheetModel
     @Binding var mode: WindowMode
-    @Environment(\.searchSheetLook) private var look
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
@@ -27,52 +26,24 @@ struct SearchSheet: View {
         }
     }
 
-    @ViewBuilder private var header: some View {
-        switch look.options {
-        case .oneRow, .oneRowWithCabinet:
-            HStack(spacing: WindowMetrics.Search.headerSpacing) {
-                title
-                field
-                checkbox(.searchTags)
-                scopes
-                checkbox(.matchCase)
-                checkbox(.wholeWord)
-                Spacer(minLength: 0)
-                close
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        case .twoRows:
-            HStack(alignment: .top, spacing: WindowMetrics.Search.headerSpacing) {
-                title
-                    .frame(height: 22)
-                VStack(alignment: .leading, spacing: 8) {
-                    field
-                    HStack(spacing: WindowMetrics.Search.headerSpacing) {
-                        checkbox(.searchTags)
-                        checkbox(.matchCase)
-                        checkbox(.wholeWord)
-                    }
-                }
-                scopes
-                Spacer(minLength: 0)
-                close
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+    /// The mockup's single row (owner, #31). File Cabinet joins the scopes with #34.
+    private var header: some View {
+        HStack(spacing: WindowMetrics.Search.headerSpacing) {
+            Text(SearchWording.title)
+                .font(.title3.weight(.semibold))
+            TextField(SearchWording.placeholder, text: $model.text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: WindowMetrics.Search.fieldWidth)
+                .focused($fieldFocused)
+            checkbox(.searchTags)
+            scopes
+            checkbox(.matchCase)
+            checkbox(.wholeWord)
+            Spacer(minLength: 0)
+            close
         }
-    }
-
-    private var title: some View {
-        Text(SearchWording.title)
-            .font(.title3.weight(.semibold))
-    }
-
-    private var field: some View {
-        TextField(SearchWording.placeholder, text: $model.text)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: WindowMetrics.Search.fieldWidth)
-            .focused($fieldFocused)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func checkbox(_ checkbox: SearchCheckbox) -> some View {
@@ -86,8 +57,8 @@ struct SearchSheet: View {
         .help(checkbox == .searchTags ? SearchWording.searchTagsHelp : "")
     }
 
-    @ViewBuilder private var scopes: some View {
-        let picker = Picker(SearchWording.scopeLabel, selection: $model.scope) {
+    private var scopes: some View {
+        Picker(SearchWording.scopeLabel, selection: $model.scope) {
             ForEach(SearchScope.allCases, id: \.self) { scope in
                 Text(SearchWording.scope(scope)).tag(scope)
             }
@@ -95,19 +66,6 @@ struct SearchSheet: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .fixedSize()
-        switch look.options {
-        case .oneRow, .twoRows:
-            picker
-        case .oneRowWithCabinet:
-            HStack(spacing: 0) {
-                picker
-                Text(SearchWording.fileCabinet)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize()
-                    .padding(.horizontal, 10)
-                    .help(WindowWording.sheetComingLater)
-            }
-        }
     }
 
     private var close: some View {
@@ -175,66 +133,35 @@ private struct SearchResults: View {
     }
 }
 
-/// One scene's hits: its header, its best hits, and "+N more in this scene".
+/// One scene's hits: its header, its best hit, and "+N more in this scene", which shows the
+/// rest (owner, #31).
 private struct SceneGroup: View {
     let model: SearchSheetModel
     let hits: SceneHits
-    @Environment(\.searchSheetLook) private var look
 
     var body: some View {
         let expanded = model.isExpanded(hits)
-        let shown = expanded ? hits.hits : Array(hits.hits.prefix(look.hitsBeforeMore))
-        let more = hits.hits.count - min(hits.hits.count, look.hitsBeforeMore)
-        switch look.rows {
-        case .bestThenMore, .firstThreeThenMore:
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                ForEach(shown, id: \.self) { hit in
-                    WindowMetrics.Search.rowLine.frame(height: 1)
-                    HitRow(model: model, hit: hit)
-                }
-                if more > 0 {
-                    WindowMetrics.Search.rowLine.frame(height: 1)
-                    moreButton(more, expanded: expanded)
-                        .padding(WindowMetrics.Search.rowPadding)
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            ForEach(expanded ? hits.hits : [hits.best], id: \.self) { hit in
+                WindowMetrics.Search.rowLine.frame(height: 1)
+                HitRow(model: model, hit: hit)
             }
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: WindowMetrics.Search.groupCornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: WindowMetrics.Search.groupCornerRadius)
-                    .strokeBorder(WindowMetrics.Search.line))
-        case .compact:
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    SceneNumber(placement: hits.best.unit.placement)
-                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                    sceneTitle
-                        .lineLimit(1)
-                        .frame(width: WindowMetrics.Search.compactTitleWidth, alignment: .leading)
-                    HitRow(model: model, hit: hits.best, padding: EdgeInsets())
-                    if more > 0 {
-                        moreButton(more, expanded: expanded)
-                            .fixedSize()
-                    }
+            if hits.moreCount > 0 {
+                WindowMetrics.Search.rowLine.frame(height: 1)
+                Button(expanded ? SearchWording.fewerInScene : SearchWording.moreInScene(hits.moreCount)) {
+                    model.toggleExpanded(hits)
                 }
-                if expanded {
-                    ForEach(hits.hits.dropFirst(), id: \.self) { hit in
-                        HitRow(model: model, hit: hit, padding: EdgeInsets())
-                            .padding(
-                                .leading,
-                                WindowMetrics.Search.numberSize + 10 + WindowMetrics.Search.compactTitleWidth
-                                    + 10
-                            )
-                            .padding(.top, 4)
-                    }
-                }
+                .buttonStyle(.link)
+                .font(.system(size: 12))
+                .padding(WindowMetrics.Search.rowPadding)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: WindowMetrics.Search.groupCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: WindowMetrics.Search.groupCornerRadius)
+                .strokeBorder(WindowMetrics.Search.line))
     }
 
     private var header: some View {
@@ -259,14 +186,6 @@ private struct SceneGroup: View {
             title.font(.system(size: 14))
         }
     }
-
-    private func moreButton(_ more: Int, expanded: Bool) -> some View {
-        Button(expanded ? SearchWording.fewerInScene : SearchWording.moreInScene(more)) {
-            model.toggleExpanded(hits)
-        }
-        .buttonStyle(.link)
-        .font(.system(size: 12))
-    }
 }
 
 /// A scene's number in a circle, or **B** for the Boneyard.
@@ -286,8 +205,6 @@ private struct SceneNumber: View {
 private struct HitRow: View {
     let model: SearchSheetModel
     let hit: SearchHit
-    var padding = WindowMetrics.Search.rowPadding
-    @Environment(\.searchSheetLook) private var look
     @State private var hovering = false
 
     var body: some View {
@@ -299,15 +216,12 @@ private struct HitRow: View {
                     .font(.system(size: 11))
                     .tracking(0.4)
                     .foregroundStyle(.secondary)
-                    .frame(
-                        minWidth: look.rows == .compact ? 0 : WindowMetrics.Search.labelWidth - 12,
-                        alignment: .leading
-                    )
+                    .frame(minWidth: WindowMetrics.Search.labelWidth, alignment: .leading)
                     .fixedSize()
                 snippet
                 Spacer(minLength: 0)
             }
-            .padding(padding)
+            .padding(WindowMetrics.Search.rowPadding)
             .contentShape(Rectangle())
             .background(hovering ? WindowMetrics.Search.hover : .clear)
         }
@@ -319,7 +233,7 @@ private struct HitRow: View {
         if hit.unit.field == .tags {
             HStack(spacing: 6) {
                 ForEach(Array(SearchSnippet.tags(hit).enumerated()), id: \.offset) { _, tag in
-                    Text(Self.marked(tag, look))
+                    Text(Self.marked(tag))
                         .font(.system(size: 13))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 1)
@@ -327,14 +241,16 @@ private struct HitRow: View {
                 }
             }
         } else {
-            Text(Self.marked(SearchSnippet(hit), look))
+            Text(Self.marked(SearchSnippet(hit)))
                 .font(.custom("Times New Roman", size: WindowMetrics.Search.snippetSize))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
     }
 
-    static func marked(_ snippet: SearchSnippet, _ look: SearchSheetLook) -> AttributedString {
+    /// Matches in the mockup's yellow; in a near match, the words that differ underlined in
+    /// orange (owner, #31).
+    static func marked(_ snippet: SearchSnippet) -> AttributedString {
         var text = AttributedString(snippet.text)
         let utf16 = snippet.text.utf16
         for highlight in snippet.highlights {
@@ -342,34 +258,10 @@ private struct HitRow: View {
             let upper = utf16.index(utf16.startIndex, offsetBy: highlight.range.upperBound)
             guard let range = Range(lower..<upper, in: text) else { continue }
             switch highlight.kind {
-            case .match: mark(&text[range], look.match)
-            case .differs: mark(&text[range], look.differs)
+            case .match: text[range].backgroundColor = WindowMetrics.Search.marker
+            case .differs: text[range].underlineStyle = Text.LineStyle(pattern: .solid, color: .orange)
             }
         }
         return text
-    }
-
-    private static func mark(_ text: inout AttributedSubstring, _ mark: SearchSheetLook.MatchMark) {
-        switch mark {
-        case .yellow:
-            text.backgroundColor = WindowMetrics.Search.marker
-        case .yellowBold:
-            text.backgroundColor = WindowMetrics.Search.marker
-            text.inlinePresentationIntent = .stronglyEmphasized
-        case .accentTint:
-            text.backgroundColor = Color.accentColor.opacity(0.22)
-        }
-    }
-
-    private static func mark(_ text: inout AttributedSubstring, _ mark: SearchSheetLook.DiffersMark) {
-        switch mark {
-        case .orangeUnderline:
-            text.underlineStyle = Text.LineStyle(pattern: .solid, color: .orange)
-        case .dottedRed:
-            text.underlineStyle = Text.LineStyle(pattern: .dot, color: .red)
-        case .grayDashed:
-            text.backgroundColor = WindowMetrics.Search.differsGray
-            text.underlineStyle = Text.LineStyle(pattern: .dash, color: .secondary)
-        }
     }
 }

@@ -88,7 +88,7 @@ extension SearchSheetModel {
     }
 
     fileprivate func completed() async throws -> SearchListing {
-        await eventually(within: .seconds(60)) { completeListing != nil }
+        await settle()
         return try #require(completeListing)
     }
 }
@@ -98,7 +98,7 @@ extension SearchSheetModel {
 @MainActor
 private func showSheet(_ page: PageHarness) async throws {
     page.modes.mode = .search
-    await eventually(within: .seconds(60)) {
+    await eventually {
         page.title.currentEditor() == nil && page.window.firstResponder !== page.page
             && subviewTree(of: page.window.contentView).contains {
                 ($0 as? UndoFocusView)?.role == .sheet
@@ -106,7 +106,7 @@ private func showSheet(_ page: PageHarness) async throws {
     }
 }
 
-@Suite(.timeLimit(.minutes(5)))
+@Suite(.timeLimit(.minutes(2)))
 struct SearchSheetTests {
     @Test func theCheckboxesAreTheQuerysOptions() async throws {
         let scenes = [scene("Bears", body: ["A Bear crossed.", "Two bears."], tags: ["bear"])]
@@ -216,7 +216,7 @@ struct SearchSheetTests {
             let recorder = SearchRecorder(holding: "letter")
             let model = SearchSheetModel(book: page.book) { recorder.index($0) }
             model.text = "letter"
-            await eventually(within: .seconds(60)) {
+            await eventually {
                 if case .results(_, .current) = model.state { true } else { false }
             }
             guard case .results(let partial, .current) = model.state else { return }
@@ -225,7 +225,7 @@ struct SearchSheetTests {
 
             model.text = "ferry"
             let ferry = try await model.completed()
-            await eventually(within: .seconds(60)) { recorder.cancelled == [SearchQuery("letter")] }
+            await eventually { recorder.cancelled == [SearchQuery("letter")] }
             #expect(ferry.hitCount == 3)
             #expect(model.reported?.query == SearchQuery("ferry"))
             await model.settle()
@@ -268,7 +268,7 @@ struct SearchSheetTests {
             #expect(page.modes.mode == .page)
             #expect(page.book.openScene == second.id)
             let bench = NSRange(location: 41, length: 5)
-            await eventually(within: .seconds(60)) {
+            await eventually {
                 page.page.selectedRange() == bench && page.window.firstResponder === page.page
             }
             #expect(
@@ -280,7 +280,7 @@ struct SearchSheetTests {
             let title = try #require(try await model.completed().scenes.first?.best)
             model.open(title)
             #expect(page.book.openScene == first.id)
-            await eventually(within: .seconds(60)) {
+            await eventually {
                 page.title.currentEditor()?.selectedRange == NSRange(location: 4, length: 10)
                     && page.window.firstResponder === page.title.currentEditor()
             }
@@ -291,13 +291,12 @@ struct SearchSheetTests {
             model.open(notes)
             #expect(page.book.openScene == second.id)
             #expect(page.preferences.rightPanelTab == .notes)
-            await eventually(within: .seconds(60)) {
+            // The notes take the focus, with the match selected.
+            await eventually {
                 guard let focused = page.window.firstResponder as? SceneTextView else { return false }
                 return !(focused is ManuscriptTextView)
                     && focused.selectedRange() == NSRange(location: 10, length: 11)
             }
-            #expect(
-                !(page.window.firstResponder is ManuscriptTextView), "the notes have the focus")
         }
     }
 
@@ -310,7 +309,7 @@ struct SearchSheetTests {
             let id = try #require(page.book.openScene)
             page.book.replaceBody(of: id, with: paragraphs(["A wolf."]))
             page.modes.mode = .search
-            await eventually(within: .seconds(60)) { model.completeListing?.sceneCount == 1 }
+            await eventually { model.completeListing?.sceneCount == 1 }
         }
     }
 }

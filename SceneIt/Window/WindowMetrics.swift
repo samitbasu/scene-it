@@ -48,16 +48,14 @@ enum WindowMetrics {
         static let rowPadding = EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12)
         static let headerPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
         static let numberSize: CGFloat = 24
-        static let labelWidth: CGFloat = 64
+        static let labelWidth: CGFloat = 52
         static let snippetSize: CGFloat = 15
-        static let compactTitleWidth: CGFloat = 220
         static let background = Color(red: 0xF3 / 255, green: 0xF2 / 255, blue: 0xEF / 255)
         static let groupHeader = Color(red: 0xF0 / 255, green: 0xEF / 255, blue: 0xEB / 255)
         static let line = Color(red: 0xD9 / 255, green: 0xD7 / 255, blue: 0xD1 / 255)
         static let rowLine = Color(red: 0xEE / 255, green: 0xED / 255, blue: 0xE9 / 255)
         static let hover = Color(red: 0xE8 / 255, green: 0xEF / 255, blue: 0xFB / 255)
         static let marker = Color(red: 0xFF / 255, green: 0xE5 / 255, blue: 0x8A / 255)
-        static let differsGray = Color(white: 0.88)
     }
     enum Notes {
         /// Between the panel's edges and the notes' text.

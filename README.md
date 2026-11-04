@@ -288,11 +288,8 @@ It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-
 The Search sheet's renders (`SearchSheetRenders.swift`, #31) go in a `search/` subfolder: each
 state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
 `search-near-end`, `search-near-all`, `search-no-results`, `search-no-words`,
-`search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`, and the
-look candidates stacked one per choice (`candidates-options`, `candidates-rows`,
-`candidates-match`, `candidates-differs`, each `@1x` and `@2x`). To render only these, add
-`-only-testing:SceneItTests/WindowRenders/searchSheet\(\)` and
-`-only-testing:SceneItTests/WindowRenders/searchSheetCandidates\(\)`.
+`search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`. To
+render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)`.
 
 ### `scripts/release.sh`: build a distributable app
 
