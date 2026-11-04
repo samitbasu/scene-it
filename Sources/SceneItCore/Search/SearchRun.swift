@@ -139,7 +139,8 @@ struct CompiledKeyword {
         let sensitivity: SearchText.CaseSensitivity =
             query.options.contains(.matchCase) ? .sensitive : .insensitive
         let words = Comparison(
-            sensitivity: sensitivity, endings: query.options.contains(.wholeWord) ? .significant : .ignored)
+            sensitivity: sensitivity,
+            endings: query.options.contains(.wholeWord) ? .possessiveIgnored : .ignored)
         let phrases = Comparison(sensitivity: sensitivity, endings: .significant)
         func key(_ word: String, _ comparison: Comparison) -> Int32? {
             index.keyIDs[comparison.key(Array(word.utf16))]

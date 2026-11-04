@@ -9,7 +9,8 @@ import Testing
     private static let pieces = [
         "bear", "Bears", "bear's", "BEAR", "claw", "claws", "caf\u{E9}", "Cafe", "CAF\u{C9}", "don't",
         "well-known", "ladies", "lady", "box", "boxes", "the", "a", "and", "--", "...", ".", "!\"", ",", "\n",
-        "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "movie", "movies", "heroes",
+        "Mr.", "3.14", "na\u{EF}ve", "naive", "(", ")", "James", "James's", "Jameses", "movie", "movies",
+        "heroes",
         "hero",
         "news", "sizes", "size", "glass", "shoe", "shoes", "toe", "toes", "canoes",
     ]
@@ -116,7 +117,7 @@ import Testing
         static func stem(_ word: String) -> String {
             let lower = word.lowercased()
             if lower == "news" || lower == "does" { return word }
-            if lower.hasSuffix("'s") { return stem(String(word.dropLast(2))) }
+            if lower.hasSuffix("'s") { return stem(withoutPossessive(word)) }
             var stem = word
             if stem.count >= 5,
                 ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { lower.hasSuffix($0) })
@@ -133,12 +134,17 @@ import Testing
             return stem
         }
 
+        static func withoutPossessive(_ word: String) -> String {
+            word.lowercased().hasSuffix("'s") ? String(word.dropLast(2)) : word
+        }
+
         func folded(_ word: String) -> String {
             query.options.contains(.matchCase) ? word : word.lowercased()
         }
 
         func wordKey(_ word: String) -> String {
-            query.options.contains(.wholeWord) ? folded(word) : Self.stem(folded(word))
+            query.options.contains(.wholeWord)
+                ? Self.withoutPossessive(folded(word)) : Self.stem(folded(word))
         }
 
         /// Each distinct keyword, as the keys its words must have.

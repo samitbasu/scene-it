@@ -61,7 +61,7 @@ enum SearchText {
     }
 
     /// Whether case is significant when comparing words.
-    enum CaseSensitivity: Hashable, Sendable {
+    enum CaseSensitivity: Int, Hashable, Sendable, CaseIterable {
         case insensitive
         case sensitive
     }
@@ -86,14 +86,9 @@ enum SearchText {
     ///    share "lady". A final `oe` becomes `o` when at least 3 characters remain, so "shoe" and
     ///    "shoes" share "sho", as "hero" and "heroes" share "hero"; "toe" and "toes" share "toe".
     static func stem(_ word: [UInt16]) -> [UInt16] {
-        func endsWith(_ word: [UInt16], _ suffix: String) -> Bool {
-            let suffix = Array(suffix.utf16)
-            return word.count >= suffix.count
-                && zip(word.suffix(suffix.count), suffix).allSatisfy { lower($0) == $1 }
-        }
         let minimumStem = 3
         if word.count == 4, endsWith(word, "news") || endsWith(word, "does") { return word }
-        if endsWith(word, "'s") { return stem(Array(word.dropLast(2))) }
+        if endsWith(word, possessive) { return stem(withoutPossessive(word)) }
         var stem = word
         if stem.count - 2 >= minimumStem,
             ["sses", "xes", "zzes", "ches", "shes", "oes"].contains(where: { endsWith(stem, $0) })
@@ -110,6 +105,20 @@ enum SearchText {
             stem.removeLast()
         }
         return stem
+    }
+
+    /// `word` without a final possessive `'s`, whatever its case ("James's" → "James").
+    static func withoutPossessive(_ word: [UInt16]) -> [UInt16] {
+        endsWith(word, possessive) ? Array(word.dropLast(2)) : word
+    }
+
+    private static let possessive = "'s"
+
+    /// Whether `word` ends with the lower-case `suffix`, whatever the case of `word`.
+    private static func endsWith(_ word: [UInt16], _ suffix: String) -> Bool {
+        let suffix = Array(suffix.utf16)
+        return word.count >= suffix.count
+            && zip(word.suffix(suffix.count), suffix).allSatisfy { lower($0) == $1 }
     }
 
     private static let apostrophe = UInt16(ascii: "'")

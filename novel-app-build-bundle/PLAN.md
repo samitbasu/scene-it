@@ -440,7 +440,9 @@ See `10-search-whole-book.png` and `11-search-file-cabinet-range.png`.
   - case-insensitive, on whole words (ASCII lowercasing: since ADR 0028 the book holds only ASCII, and a query is admitted as the text is, so an accent typed in a query finds the plain letter);
   - simple word endings, so `bear` matches `bears` and `bear's`;
   - `"quotes"` for an exact phrase;
-  - Match case and Whole word override the defaults.
+  - Match case and Whole word override the defaults; Whole word still matches a possessive `'s`, so `bear` finds `bear's` but not `bears` (ADR 0033);
+  - a scene's tags are joined by line breaks, so a phrase can't span two tags (ADR 0033);
+  - matching is word-based: punctuation can't be searched here, and literal text such as `--` is found with the scene's find bar (ADR 0033).
 - **Ranking** (sorted in this order):
   1. **Coverage:** the number of distinct keywords matched.
   2. **Proximity tier:** all matched words in one sentence, then within one paragraph.

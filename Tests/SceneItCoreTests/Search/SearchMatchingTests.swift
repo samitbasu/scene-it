@@ -96,10 +96,39 @@ import Testing
         #expect(try await foundTexts(units, "\"bear\"", .matchCase) == ["bear"])
     }
 
-    @Test func wholeWordDropsTheEndings() async throws {
-        let units = bodyUnits(["bear", "Bear", "bears", "bear's"])
-        #expect(Set(try await foundTexts(units, "bear", .wholeWord)) == ["bear", "Bear"])
-        #expect(try await foundTexts(units, "Bear", [.wholeWord, .matchCase]) == ["Bear"])
+    @Test func wholeWordDropsTheEndingsButKeepsThePossessive() async throws {
+        let units = bodyUnits(["bear", "Bear", "bears", "bear's", "Bear's", "bearing", "Bears'"])
+        #expect(
+            Set(try await foundTexts(units, "bears")).count == units.count - 1,
+            "precondition: without Whole word, every ending but -ing matches")
+        #expect(Set(try await foundTexts(units, "bear", .wholeWord)) == ["bear", "Bear", "bear's", "Bear's"])
+        #expect(
+            try await foundTexts(units, "Bear", [.wholeWord, .matchCase]).sorted() == ["Bear", "Bear's"])
+        #expect(
+            Set(try await foundTexts(units, "bear's", .wholeWord)) == ["bear", "Bear", "bear's", "Bear's"])
+        #expect(Set(try await foundTexts(units, "bears", .wholeWord)) == ["bears", "Bears'"])
+    }
+
+    @Test func wholeWordFindsANamesPossessiveButNotItsPlural() async throws {
+        let units = bodyUnits(["James", "James's hat", "JAMES'S hat", "the Jameses", "Jame"])
+        #expect(
+            try await foundTexts(units, "James").contains("Jame"),
+            "precondition: without Whole word, the stem matches more")
+        #expect(
+            Set(try await foundTexts(units, "James", .wholeWord)) == ["James", "James's hat", "JAMES'S hat"])
+        let hit = try #require(
+            hits(try await finalUpdate(units, "James", .wholeWord)).first { $0.unit.text == "James's hat" })
+        #expect(highlighted(hit) == ["James's"])
+    }
+
+    @Test(arguments: [
+        ("bear's", "bear"), ("Bear'S", "Bear"), ("James's", "James"), ("it's", "it"), ("bears", "bears"),
+        ("James", "James"), ("don't", "don't"),
+    ])
+    func thePossessiveRule(word: String, withoutPossessive: String) {
+        #expect(
+            String(decoding: SearchText.withoutPossessive(Array(word.utf16)), as: UTF16.self)
+                == withoutPossessive)
     }
 
     @Test func highlightsAreUTF16RangesOfTheWholeWord() async throws {

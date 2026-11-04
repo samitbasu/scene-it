@@ -39,3 +39,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0030](0030-text-height-caret.md) | A text-height caret on the double-spaced page: our own `NSTextInsertionIndicator`, the system caret clear | Accepted |
 | [0031](0031-boneyard-delete-hides.md) | Deleting from the Boneyard hides the scene in a Deleted section of book.md; restore by hand | Accepted — resolves PLAN Q7 |
 | [0032](0032-comment-underlines-stack.md) | Commented text gets stacked colored underlines, one per comment | Accepted — resolves PLAN Q1 |
+| [0033](0033-search-matching-rules.md) | Search: Whole word keeps the possessive, tags are one per line, punctuation goes to the find bar | Accepted — refines PLAN §9.2 |

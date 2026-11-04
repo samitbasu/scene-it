@@ -45,6 +45,12 @@ Boneyard's, each marked with its `ScenePlacement` (`.story(number:)` or `.boneya
 `version` is `.working` today. When the File Cabinet lands (#34), each decoded filed copy becomes
 units the same way with `version: .filed(number)`, and the arrays are simply concatenated.
 
+A scene's tags become one unit, joined by a line break (`SearchUnit.tagSeparator`). A line break
+ends a sentence (§5), so a phrase can't run from one tag into the next: `"red door"` finds the
+tag `red door` but not the tags `red` and `door` side by side, while the words `red door`
+without quotes still find both, in different sentences
+([ADR 0033](../decisions/0033-search-matching-rules.md)).
+
 Every field is a `let`, and every type inside is a value type, so the snapshot can't change
 while a search reads it. That is what lets the whole thing be `Sendable` without a lock. In Rust
 you'd get the same guarantee from `Arc<[SearchUnit]>` with no interior mutability: the compiler
@@ -239,14 +245,21 @@ that should match. The rule accepts some false positives (Hans, Carlos and Mars 
 so "Han" finds "Hans"; Whole word is the escape hatch) and doesn't know irregular plurals
 (mice, children).
 
-**Whole word** turns the endings off. **Match case** makes case significant (an accent in the
-query is still read as its plain letter). A `"quoted phrase"` always compares words exactly,
-adjacent and within one sentence.
+**Whole word** turns the endings off but keeps the possessive (`SearchText.withoutPossessive`):
+"bear" finds "bear's" but not "bears", and "James" finds "James's" but not "Jameses". There's no
+substring mode. **Match case** makes case significant (an accent in the query is still read as
+its plain letter). A `"quoted phrase"` always compares words exactly, adjacent and within one
+sentence.
+
+The Search window is word-based, so it can't find punctuation: `"` delimits a phrase, and
+anything that isn't a letter, digit or inner apostrophe separates words. Literal text such as a
+stray straight quote, `--` or `...` is found with the scene's find bar (Cmd+F, PLAN §8).
 
 ### Interning: comparing integers
 
-`KeywordSearch.init` reads every unit once. For each distinct spelling it computes four keys,
-one per combination of case sensitivity and endings, and interns each key as an `Int32`. A
+`KeywordSearch.init` reads every unit once. For each distinct spelling it computes six keys,
+one per `Comparison` (case sensitive or not, times endings significant, possessive ignored or
+all ignored), and interns each key as an `Int32`. A
 query then maps each distinct spelling to the word keyword it matches, if any
 (`CompiledQuery.wordKeywordOfForm`), so scanning 120,000 tokens is 120,000 array lookups. It's
 the same trick as a Rust `string_interner`, built from a `[[UInt16]: Int32]` dictionary.
