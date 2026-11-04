@@ -153,7 +153,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// An editor's edit to `scene`'s body or notes, adding `comments` to the scene with it (a
-    /// paste onto the page that brings comments along, decisions 0017 and 0035). Any comment id
+    /// paste onto the page that brings comments along, decisions 0017 and 0035, or a new
+    /// comment on the text it covers). Any comment id
     /// the scene then has no comment for is dropped from the new paragraphs, so the book always
     /// saves; the notes take no comment and carry none (ADR 0035). Returns the
     /// paragraphs the part now holds in place of the replaced lines; `nil`, changing nothing,
@@ -198,30 +199,114 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
-    /// Takes back comments a paste into `part` added (its undo), unless some text still
-    /// carries them. Registers putting them back on that part's undo.
-    public func removeComments(_ ids: Set<CommentID>, from scene: SceneID, pastedInto part: TextPart = .body)
-    {
-        guard editingDriver != nil, let place = place(of: scene) else { return }
-        let current = book[keyPath: place.list][place.index]
-        let removed = current.comments.filter { ids.contains($0.id) && current.isDetached($0.id) }
-        guard !removed.isEmpty else { return }
-        book[keyPath: place.list][place.index].comments.removeAll { removed.contains($0) }
-        undo(for: scene, part).registerUndo(withTarget: self) {
-            $0.restoreComments(removed, to: scene, pastedInto: part)
-        }
-        editingDriver?.send(.edited)
+    // MARK: Comments (PLAN §8.1), on the page only (ADR 0035)
+
+    // A comment's text on the page changes as the page's own edit, through
+    // `apply(_:to:in:adding:)`, so the page's undo history keeps describing its text; the
+    // operations here change only the scene's comment list. Each registers its inverse on the
+    // page's undo, where every comment action goes (PLAN §8.6).
+
+    /// A comment for `scene` in `color`, empty and made now, with an id none of its comments
+    /// has; `nil` if the book is read-only or has no such scene. It isn't in the scene yet:
+    /// the page's edit that covers its text adds it (`apply(_:to:in:adding:)`).
+    public func newComment(in scene: SceneID, colored color: PaletteColor) -> Comment? {
+        guard editingDriver != nil, let existing = book.scene(scene) else { return nil }
+        var id = ids.commentID()
+        while existing.comments.contains(where: { $0.id == id }) { id = ids.commentID() }
+        return Comment(id: id, color: color, text: "", created: Timestamp(.now, in: .current))
     }
 
-    private func restoreComments(_ comments: [Comment], to scene: SceneID, pastedInto part: TextPart) {
-        guard editingDriver != nil, let place = place(of: scene) else { return }
-        let present = Set(book[keyPath: place.list][place.index].comments.map(\.id))
-        let restored = comments.filter { !present.contains($0.id) }
-        book[keyPath: place.list][place.index].comments += restored
-        undo(for: scene, part).registerUndo(withTarget: self) {
-            $0.removeComments(Set(restored.map(\.id)), from: scene, pastedInto: part)
+    /// Gives `scene`'s comment `id` the text `text` (as `CharacterPolicy` admits it), as one
+    /// change. `false`, changing nothing, if the book is read-only or there's no such comment.
+    @discardableResult
+    public func setText(_ text: String, ofComment id: CommentID, in scene: SceneID) -> Bool {
+        change(id, in: scene, named: CommentWording.editUndoName) { $0.text = text }
+    }
+
+    /// Gives `scene`'s comment `id` the color `color`, as one change. `false`, changing
+    /// nothing, if the book is read-only or there's no such comment.
+    @discardableResult
+    public func recolor(_ id: CommentID, in scene: SceneID, to color: PaletteColor) -> Bool {
+        change(id, in: scene, named: CommentWording.recolorUndoName) { $0.color = color }
+    }
+
+    /// Dismisses `scene`'s comment `id` (PLAN §8.1): it's removed from the scene, and undoing
+    /// that puts it back where it was. Only a detached comment: the page takes a comment off
+    /// its text first (`SceneTextEditor.dismiss`). `false`, changing nothing, if the book is
+    /// read-only, there's no such comment or text still carries it.
+    @discardableResult
+    public func dismiss(_ id: CommentID, in scene: SceneID) -> Bool {
+        guard let current = book.scene(scene), current.comments.contains(where: { $0.id == id }),
+            current.isDetached(id)
+        else { return false }
+        return removeComments([id], from: scene, named: CommentWording.dismissUndoName)
+    }
+
+    /// Takes `ids` out of `scene`'s comments, except those some text still carries: a paste's
+    /// comments, as its undo takes its text away, or a dismissed one. Returns whether it took
+    /// any.
+    @discardableResult
+    public func removeComments(_ ids: Set<CommentID>, from scene: SceneID, named name: String? = nil) -> Bool
+    {
+        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        let current = book[keyPath: place.list][place.index]
+        let removed = current.comments.enumerated().filter {
+            ids.contains($1.id) && current.isDetached($1.id)
         }
-        editingDriver?.send(.edited)
+        guard !removed.isEmpty else { return false }
+        for (offset, _) in removed.reversed() {
+            book[keyPath: place.list][place.index].comments.remove(at: offset)
+        }
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerCommentUndo(in: scene, named: name) {
+            $0.restoreComments(removed.map { ($0.offset, $0.element) }, to: scene, named: name)
+        }
+        driver.send(.edited)
+        return true
+    }
+
+    /// Puts removed comments back at their indices, in ascending order of index.
+    private func restoreComments(
+        _ comments: [(index: Int, comment: Comment)], to scene: SceneID, named name: String?
+    ) {
+        guard let driver = editingDriver, let place = place(of: scene) else { return }
+        var list = book[keyPath: place.list][place.index].comments
+        let restored = comments.filter { entry in !list.contains { $0.id == entry.comment.id } }
+        for (index, comment) in restored { list.insert(comment, at: min(index, list.count)) }
+        book[keyPath: place.list][place.index].comments = list
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerCommentUndo(in: scene, named: name) {
+            $0.removeComments(Set(restored.map(\.comment.id)), from: scene, named: name)
+        }
+        driver.send(.edited)
+    }
+
+    /// Changes `scene`'s comment `id` by `change`, registering the change back.
+    private func change(
+        _ id: CommentID, in scene: SceneID, named name: String, _ change: (inout Comment) -> Void
+    ) -> Bool {
+        guard let driver = editingDriver, let place = place(of: scene),
+            let index = book[keyPath: place.list][place.index].comments.firstIndex(where: { $0.id == id })
+        else { return false }
+        let old = book[keyPath: place.list][place.index].comments[index]
+        var new = old
+        change(&new)
+        guard new != old else { return true }
+        book[keyPath: place.list][place.index].comments[index] = new
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerCommentUndo(in: scene, named: name) {
+            _ = $0.change(id, in: scene, named: name) { $0 = old }
+        }
+        driver.send(.edited)
+        return true
+    }
+
+    private func registerCommentUndo(
+        in scene: SceneID, named name: String?, _ inverse: @escaping (OpenBook) -> Void
+    ) {
+        let undo = pageUndo(for: scene)
+        undo.registerUndo(withTarget: self, handler: inverse)
+        if let name { undo.setActionName(name) }
     }
 
     /// The undo history of `scene`'s page or notes (PLAN §8.6), each its own, kept while the

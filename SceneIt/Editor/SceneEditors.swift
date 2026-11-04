@@ -39,7 +39,9 @@ final class SceneEditors {
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .body, formatting: formatting, comments: comments), page,
+            SceneTextEditor(
+                book: book, part: .body, preferences: preferences, formatting: formatting, comments: comments),
+            page,
             in: scrollView)
     }()
 
@@ -56,7 +58,9 @@ final class SceneEditors {
         notes.setAccessibilityLabel(WindowWording.tab(.notes))
         scrollView.holdGrowingText(notes)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .notes, formatting: formatting, comments: comments), notes,
+            SceneTextEditor(
+                book: book, part: .notes, preferences: preferences, formatting: formatting, comments: comments
+            ), notes,
             in: scrollView)
     }()
 }

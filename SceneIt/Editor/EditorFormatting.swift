@@ -30,6 +30,12 @@ final class EditorFormatting {
         active?.selection
     }
 
+    /// The page's editor while it can be formatted, which is when it can take a new comment
+    /// (Edit → New Comment).
+    var page: SceneTextEditor? {
+        active?.part == .body ? editor : nil
+    }
+
     /// The selection a bar beside `part`'s editor shows; `nil` while that bar is inactive.
     func selection(in part: TextPart) -> SelectionFormatting? {
         active?.part == part ? active?.selection : nil

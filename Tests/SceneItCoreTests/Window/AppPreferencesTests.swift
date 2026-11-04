@@ -106,6 +106,20 @@ struct LastUsedColorTests {
         #expect(next.lastHighlight == .blue)
     }
 
+    /// A comment can be any palette color, black included (book format §4.4), and starts purple.
+    @Test func aCommentColorIsRememberedBlackIncluded() {
+        let storage = TransientPreferenceStorage()
+        let preferences = AppPreferences(storage)
+        #expect(preferences.lastCommentColor == .purple)
+        preferences.rememberCommentColor(.black)
+        #expect(preferences.lastCommentColor == .black)
+        #expect(storage.values == ["lastCommentColor": "black"])
+        #expect(AppPreferences(storage).lastCommentColor == .black)
+        #expect(
+            AppPreferences(TransientPreferenceStorage(["lastCommentColor": "mauve"])).lastCommentColor
+                == .purple)
+    }
+
     @Test func unknownStoredColorsAreTheDefaults() {
         let preferences = AppPreferences(
             TransientPreferenceStorage(["lastTextColor": "black", "lastHighlight": "mauve"]))
