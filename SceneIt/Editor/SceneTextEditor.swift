@@ -60,6 +60,7 @@ final class SceneTextEditor: NSObject {
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
         guard let view = textView else { return }
+        view.commentPalette = CommentPalette(book.book.scene(scene)?.comments ?? [])
         let text = modelText(of: scene) ?? []
         if scene != self.scene {
             load(scene, text, caret: 0)

@@ -19,6 +19,8 @@ class SceneTextView: KeyboardTextView {
     }
     /// How the text is displayed, which every replaced string takes.
     private(set) var role = ParagraphRole.body
+    /// Lays the text out with its comments underlined (ADR 0032).
+    private let underliner = CommentUnderliner()
 
     /// Sets up what every editor of scene text shares.
     func configure(_ role: ParagraphRole) {
@@ -41,7 +43,19 @@ class SceneTextView: KeyboardTextView {
         // The selection is drawn as bands (ADR 0034), so the system's highlight has no colour.
         selectedTextAttributes = [:]
         textContainer?.lineFragmentPadding = 0
+        textLayoutManager?.delegate = underliner
         typingAttributes = role.typingAttributes
+    }
+
+    /// The comments underlined, as the scene has them.
+    var commentPalette: CommentPalette {
+        get { underliner.palette }
+        set { underliner.show(newValue, in: underliner.style, laidOutBy: textLayoutManager) }
+    }
+
+    var underlineStyle: UnderlineStyle {
+        get { underliner.style }
+        set { underliner.show(underliner.palette, in: newValue, laidOutBy: textLayoutManager) }
     }
 
     /// The typing attributes take the style of the caret's paragraph. TextKit also lays out the

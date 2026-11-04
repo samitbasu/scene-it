@@ -285,6 +285,10 @@ candidates for a future look change, render each candidate the same way with a d
 It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
 `final-errors-tab`, and `final-errors-focus`, the tab with the keyboard focus) and a book saved by a newer version (`final-banner-newer`), the same way.
 
+`commentUnderlines` renders comment underlines (#24) on the page in each candidate style
+(`underlines-<style>@1x.png`, `@2x.png`, `-vs-mockup.png`), and `underlines-compare@1x.png` and
+`@2x.png`, the page's text in every style one above another.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile
