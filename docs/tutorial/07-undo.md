@@ -58,6 +58,21 @@ One writer action can register several inverses; Undo should take them all back 
 actions in reverse order of registration, which is why a paste that brings comments registers
 the comments' removal *first* ([chapter 05](05-appkit-interop-textkit2.md) §8).
 
+**Comment actions** (PLAN §8.1, #23) lean on that order too. A comment is two things that must
+agree: an id on the runs it covers, and an entry in the scene's `comments`. Whatever changes the
+page's *text* goes through the page's own text view (`SceneTextEditor.newComment`, `dismiss`,
+`reanchor`, which rewrite the runs' attributes as formatting does), so the page's undo history
+keeps describing its storage; whatever changes only the *list* is an `OpenBook` method
+(`setText(_:ofComment:in:)`, `recolor`, `dismiss`, `removeComments`) that registers its own
+inverse on the same page history. Within one group:
+
+| Action | Registered, in order | Undo runs | So that |
+| --- | --- | --- | --- |
+| New comment | remove the comment; the text's id | the text's id goes, then the comment | no run ever names a missing comment |
+| Dismiss | the text's id off; restore the comment | the comment comes back, then the id | the same, the other way round |
+
+`removeComments` puts a comment back at its old index, so the panel's order survives an undo.
+
 With `groupsByEvent` (on by default), the manager opens a group at the first registration in
 an event and closes it when the run loop finishes that event. So one Delete click is one
 group, with no code at all. Tests have no events: a registration leaves `groupingLevel == 1`

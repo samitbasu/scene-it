@@ -77,7 +77,8 @@ extension WindowRenders {
     {
         let formatting = EditorFormatting(preferences: preferences)
         let editor = SceneTextEditor(
-            book: book, part: .body, formatting: formatting, comments: CommentSelection())
+            book: book, part: .body, preferences: preferences, formatting: formatting,
+            comments: CommentSelection())
         formatting.show(SelectionFormatting([Run("x", color: .purple, highlight: .green)]), from: editor)
         for (name, kind) in [("text", PaletteKind.textColor), ("highlight", .highlight)] {
             let view = NSHostingView(

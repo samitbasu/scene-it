@@ -29,7 +29,7 @@ struct EditorArea: View {
                 Divider()
                 PageView(
                     book: book, preferences: preferences, editors: editors, scene: scene.id,
-                    paragraphs: scene.body)
+                    paragraphs: scene.body, comments: scene.comments)
             } else {
                 ScrollView(.vertical) {
                     Page {

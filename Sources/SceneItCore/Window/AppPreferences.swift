@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// The window's layout, the page's zoom and the formatting bar's last-used colors, which are the app's, not the
-/// book's (ADR 0022): they're kept between launches, and changing them never edits the open
-/// book.
+/// The window's layout, the page's zoom and the last-used colors of the formatting bar and of
+/// comments, which are the app's, not the book's (ADR 0022): they're kept between launches,
+/// and changing them never edits the open book.
 @MainActor
 @Observable
 public final class AppPreferences {
@@ -13,6 +13,8 @@ public final class AppPreferences {
     public private(set) var lastTextColor: TextColor
     /// What the bar's highlight button applies. Never None.
     public private(set) var lastHighlight: HighlightColor
+    /// A new comment's color: the last one chosen for a comment (PLAN §8.1).
+    public private(set) var lastCommentColor: PaletteColor
     /// The page's magnification, the same for every book (ADR 0022).
     public private(set) var zoom: Zoom
     @ObservationIgnored public let storage: any PreferenceStorage
@@ -28,6 +30,8 @@ public final class AppPreferences {
             storage.string(forKey: Key.lastTextColor).flatMap(TextColor.init(rawValue:)) ?? .purple
         lastHighlight =
             storage.string(forKey: Key.lastHighlight).flatMap(HighlightColor.init(rawValue:)) ?? .green
+        lastCommentColor =
+            storage.string(forKey: Key.lastCommentColor).flatMap(PaletteColor.init(rawValue:)) ?? .purple
         zoom = storage.string(forKey: Key.zoom).flatMap(Double.init).flatMap(Zoom.init(exactly:)) ?? .standard
     }
 
@@ -44,6 +48,11 @@ public final class AppPreferences {
         case .highlight(nil), .toggle:
             break
         }
+    }
+
+    public func rememberCommentColor(_ color: PaletteColor) {
+        lastCommentColor = color
+        storage.set(color.rawValue, forKey: Key.lastCommentColor)
     }
 
     public func setRightPanel(_ visibility: PanelVisibility) {
@@ -87,6 +96,7 @@ public final class AppPreferences {
         static let rightPanelTab = "rightPanelTab"
         static let lastTextColor = "lastTextColor"
         static let lastHighlight = "lastHighlight"
+        static let lastCommentColor = "lastCommentColor"
         static let zoom = "zoom"
     }
 }

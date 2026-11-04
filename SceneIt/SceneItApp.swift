@@ -16,6 +16,7 @@ struct SceneItApp: App {
             TextEditingCommands()
             BookCommands(books: .shared)
             WindowCommands(books: .shared)
+            CommentCommands()
             FormatCommands(formatting: BookController.shared.formatting)
             DiagnosticsCommands(diagnostics: .shared)
         }

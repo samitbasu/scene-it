@@ -9,9 +9,10 @@ struct PageView: NSViewRepresentable {
     let preferences: AppPreferences
     let editors: SceneEditors
     let scene: SceneID
-    /// The scene's body. The page reads the model itself; this is here so that SwiftUI updates
-    /// the page whenever the body changes.
+    /// The scene's body and comments. The page reads the model itself; these are here so that
+    /// SwiftUI updates the page whenever they change, its text or its underlines.
     let paragraphs: [Paragraph]
+    let comments: [Comment]
 
     func makeCoordinator() -> SceneEditors {
         editors

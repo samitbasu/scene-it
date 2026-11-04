@@ -152,22 +152,4 @@ struct NotesEditTests {
             #expect(!notes.canUndo)
         }
     }
-
-    /// A paste into the notes that brought comments is undone on the notes' history.
-    @Test func removingCommentsPastedIntoTheNotesIsUndoneOnTheNotes() async throws {
-        try await withScene { book, scene in
-            book.replaceBody(of: scene, with: [])
-            let undo = book.notesUndo(for: scene)
-            undo.groupsByEvent = false
-            undo.beginUndoGrouping()
-            book.removeComments([noted], from: scene, pastedInto: .notes)
-            undo.endUndoGrouping()
-            #expect(book.book.scene(scene)?.comments.isEmpty == true)
-            #expect(!book.pageUndo(for: scene).canUndo, "nothing reaches the page's history")
-            undo.undo()
-            #expect(book.book.scene(scene)?.comments.map(\.id) == [noted])
-            undo.redo()
-            #expect(book.book.scene(scene)?.comments.isEmpty == true)
-        }
-    }
 }

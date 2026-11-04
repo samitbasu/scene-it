@@ -70,6 +70,7 @@ struct BookWindow: View {
         .environment(undo)
         .environment(\.pageFocus, pageFocus)
         .focusedSceneValue(\.undoRouter, undo)
+        .focusedSceneValue(\.sceneEditors, editors)
         .onChange(of: mode, initial: true) {
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }

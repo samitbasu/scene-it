@@ -39,7 +39,9 @@ final class SceneEditors {
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .body, formatting: formatting, comments: comments), page,
+            SceneTextEditor(
+                book: book, part: .body, preferences: preferences, formatting: formatting, comments: comments),
+            page,
             in: scrollView)
     }()
 
@@ -56,9 +58,16 @@ final class SceneEditors {
         notes.setAccessibilityLabel(WindowWording.tab(.notes))
         scrollView.holdGrowingText(notes)
         return SceneTextHost(
-            SceneTextEditor(book: book, part: .notes, formatting: formatting, comments: comments), notes,
+            SceneTextEditor(
+                book: book, part: .notes, preferences: preferences, formatting: formatting, comments: comments
+            ), notes,
             in: scrollView)
     }()
+
+    /// Whether Edit → New Comment applies: the page has the focus and can be edited.
+    var canComment: Bool {
+        formatting.selection(in: .body) != nil
+    }
 }
 
 /// One editor of scene text with its views, which a `HostingSlot` shows while SwiftUI shows it.
