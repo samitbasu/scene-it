@@ -450,8 +450,10 @@ Copy and paste in an `NSTextView` go through four overridable members:
 | --- | --- |
 | `writablePasteboardTypes` | copy, cut, drag: which types to offer |
 | `writeSelection(to:type:)` | writing one of those types |
-| `readablePasteboardTypes` | paste, drop: which types to accept, in order of preference |
+| `readablePasteboardTypes` | paste: which types to accept, in order of preference |
 | `readSelection(from:type:)` | reading the chosen type into the text |
+| `acceptableDragTypes` | drop: which types a drag may bring |
+| `performDragOperation(_:)` | drop: putting the dragged text in |
 
 The page offers its own type first, then whatever `NSTextView` already writes (RTF and plain
 text, for other apps). It reads its own type, then RTF, RTFD and HTML (so bold and italic from
@@ -477,6 +479,34 @@ That reuses the format's exact encoding and its save verification, and the readi
 the parser that never fails. On paste, `OpenBook.resolve(_:into:)` decides the ids: pasting
 into the same scene while the comment still exists keeps the id, so cut and paste is lossless;
 anything else gets a copy of the comment with a fresh id.
+
+### Drops are pastes where they land
+
+A drag that reaches a view goes through four `NSDraggingDestination` calls: `draggingEntered`
+and `draggingUpdated` (the view answers with the operation it would do, and draws the drop
+caret), `prepareForDragOperation`, then `performDragOperation`, which does the drop.
+`NSTextView` accepts a drag only in a type that is in both `acceptableDragTypes` and
+`readablePasteboardTypes`. Its own `acceptableDragTypes` spell the text types by their legacy
+names (`NSStringPboardType`, `NeXT Rich Text Format v1.0 pasteboard type`), and the page's
+`readablePasteboardTypes` spells them as UTIs (`public.utf8-plain-text`, `public.rtf`), so
+for a long time the two lists had nothing in common and the page refused every drop (#92).
+Both now return `SceneTextEditor.readableTypes`. An image or a file isn't among them, so it's
+refused before it's dropped (ADR 0016).
+
+The drop itself is `SceneTextEditor.drop(_:)`, not `NSTextView`'s own: it puts the caret where
+the text lands (`characterIndexForInsertion(at:)`) and calls the same `paste(from:type:)` a
+paste does, so the codec, the character policy and the page clip's comments apply exactly as
+they do for Cmd+V. The dropped text is then selected, as the system's text views do. Dragging
+a selection within the same view moves it unless Option is held; `NSTextView` does that
+as two changes, the insertion when the text is dropped and the deletion when the drag ends,
+and its drop expects an undo group that's still open afterwards, which the paste's own group
+doesn't leave (the first try raised `NSInternalInconsistencyException`). So the editor makes
+the move itself, as one undo group: the text goes in first and is taken from where it was
+only after that, so a drop that pastes nothing never loses the original. Since the deletion
+goes through `shouldChangeText`, `NSTextView` updates the ranges it remembers for the drag
+to match, and has nothing left to delete when the drag ends. The title and the File a Copy
+fields keep `NSTextView`'s own drop: it reads the pasteboard the way their paste does, and
+their `shouldChangeText` override admits the text either way.
 
 ## 8. Undo managers
 
@@ -563,6 +593,7 @@ of our own and call the same methods the system would:
 | types | `insertText(_:replacementRange:)`, `insertParagraphSeparator(_:)` |
 | copies or cuts | `writeSelection(to:types:)` on a private `NSPasteboard`, then `delete(_:)` |
 | pastes | `readSelection(from:)` on that pasteboard |
+| drags text and drops it | `drop(_:at:from:)` (`DropTests.swift`): the view's `draggingEntered`, `draggingUpdated`, `prepareForDragOperation`, `performDragOperation` and `concludeDragOperation`, with `DragDouble`, an `NSDraggingInfo` carrying that pasteboard |
 | presses Cmd+Z | `tryToPerform(_:with:)` with the `undo:` action, as the menu does |
 | presses Return in the title | the field editor's `doCommand(by:)` |
 

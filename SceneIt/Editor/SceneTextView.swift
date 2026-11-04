@@ -282,9 +282,20 @@ class SceneTextView: KeyboardTextView {
         SceneTextEditor.readableTypes
     }
 
-    /// Every paste and drop arrives here, and goes through the codec and the character policy.
+    /// `NSTextView` accepts a drag only in a type it also reads; its own list names the same
+    /// types by their legacy names, which the readable types don't.
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        SceneTextEditor.readableTypes
+    }
+
+    /// Every paste arrives here, and goes through the codec and the character policy.
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         editor?.paste(from: pboard, type: type) ?? false
+    }
+
+    /// Every drop arrives here, and is pasted where it's dropped.
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        editor?.drop(sender) ?? false
     }
 
     // MARK: Edits

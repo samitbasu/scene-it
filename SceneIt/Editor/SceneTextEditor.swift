@@ -267,6 +267,47 @@ final class SceneTextEditor: NSObject {
         return true
     }
 
+    /// Pastes what `drag` carries where it's dropped, and selects it, as the system's text views
+    /// do. Text dragged within this view moves, unless the writer asked for a copy; the move is
+    /// one undoable change, and the text is taken from where it was only once it's in place.
+    func drop(_ drag: any NSDraggingInfo) -> Bool {
+        guard let view = textView, let storage = view.textStorage, let undo = view.undoManager,
+            view.isEditable,
+            let type = drag.draggingPasteboard.availableType(from: Self.readableTypes)
+        else { return false }
+        let target = view.characterIndexForInsertion(at: view.convert(drag.draggingLocation, from: nil))
+        let moved =
+            DropKind(drag, onto: view) == .move
+            ? view.selectedRanges.map(\.rangeValue).filter { $0.length > 0 } : []
+        if moved.contains(where: { $0.location <= target && target <= $0.upperBound }) { return false }
+        view.breakUndoCoalescing()
+        undo.beginUndoGrouping()
+        defer { undo.endUndoGrouping() }
+        view.setSelectedRange(NSRange(location: target, length: 0))
+        let before = storage.length
+        guard paste(from: drag.draggingPasteboard, type: type) else { return false }
+        let dropped = storage.length - before
+        if !moved.isEmpty {
+            let sources = moved.map {
+                $0.location < target ? $0 : NSRange(location: $0.location + dropped, length: $0.length)
+            }
+            view.replace(sources, with: sources.map { _ in "" })
+        }
+        let shift = moved.filter { $0.location < target }.reduce(0) { $0 + $1.length }
+        view.setSelectedRange(NSRange(location: target - shift, length: dropped))
+        return true
+    }
+
+    private enum DropKind {
+        case copy, move
+
+        init(_ drag: any NSDraggingInfo, onto view: NSTextView) {
+            let fromHere = (drag.draggingSource as AnyObject?) === view
+            let movable = !drag.draggingSourceOperationMask.isDisjoint(with: [.move, .generic])
+            self = fromHere && movable ? .move : .copy
+        }
+    }
+
     /// Text another app put on the pasteboard; plain text takes the typing attributes.
     private static func foreignText(
         on pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType, typing: [NSAttributedString.Key: Any]
