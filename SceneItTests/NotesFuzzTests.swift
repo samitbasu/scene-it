@@ -173,8 +173,10 @@ struct EditorLifetimeTests {
     }
 
     /// Opening the same package again (as Open Anyway or Open Other Version do) makes a new
-    /// `OpenBook` at the same root: the window, with its editors and undo router, is made anew
-    /// for it, so typing reaches the book that's open, not the one it replaced.
+    /// `OpenBook` at the same root, swapped in by the store in one turn, with the window still
+    /// up: the window, with its editors and undo router, is made anew for it, so typing reaches
+    /// the book that's open, not the one it replaced. (Keyed on the package root, the window
+    /// kept its editors, bound to the old book, and this test fails.)
     @Test func reopeningTheSameBookGivesTheWindowNewEditorsForTheNewBook() async throws {
         try await withTemporaryFolder { folder in
             let url = folder.appending(path: "Held.sceneit", directoryHint: .isDirectory)
@@ -213,6 +215,8 @@ struct EditorLifetimeTests {
             await eventually { page().map { $0.editor?.book === editable && $0.isEditable } == true }
             let after = try #require(page())
             #expect(after !== before, "a new window's editors")
+            #expect(before.window == nil, "the old book's page left with its window")
+            #expect(before.editor?.book !== store.current, "and was never bound to the new book")
 
             await inATurn {
                 window.makeFirstResponder(after)
