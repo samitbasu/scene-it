@@ -69,18 +69,6 @@ func withTemporaryFolder<T>(_ body: (URL) async throws -> T) async throws -> T {
     return try await body(url)
 }
 
-/// Waits, briefly sleeping so off-main saves can finish, until `condition` holds or 10 s pass.
-@MainActor
-func eventually(
-    _ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation
-) async {
-    for _ in 0..<5000 {
-        if condition() { return }
-        try? await Task.sleep(for: .milliseconds(2))
-    }
-    Issue.record("the condition never held", sourceLocation: sourceLocation)
-}
-
 /// The book in `package`'s `book.md`, parsed.
 func bookOnDisk(_ package: URL, file: String = "book.md") throws -> Book {
     var ids = IDGenerator.system

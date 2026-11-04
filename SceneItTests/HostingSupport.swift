@@ -1,4 +1,5 @@
 import AppKit
+import SceneItTestSupport
 import SwiftUI
 import Testing
 
