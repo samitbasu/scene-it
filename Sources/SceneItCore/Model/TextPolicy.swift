@@ -1,3 +1,5 @@
+import Foundation
+
 /// Which characters manuscript text treats specially, decided once for the model and the
 /// editors.
 extension Character {
@@ -11,5 +13,13 @@ extension Character {
     /// it, since manuscripts are text only (decision 0016).
     public var isObjectReplacement: Bool {
         unicodeScalars.contains("\u{FFFC}")
+    }
+}
+
+extension NSString {
+    /// Whether the UTF-16 unit at `index` is a line break (`Character.isLineBreak`); half of a
+    /// surrogate pair never is.
+    public func isLineBreak(at index: Int) -> Bool {
+        Unicode.Scalar(character(at: index)).map { Character($0).isLineBreak } ?? false
     }
 }

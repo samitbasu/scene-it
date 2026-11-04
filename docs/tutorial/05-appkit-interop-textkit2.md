@@ -13,7 +13,6 @@ attributed strings are new to you.
 | [`SceneIt/Editor/PageView.swift`](../../SceneIt/Editor/PageView.swift) | the `NSViewRepresentable` that puts the page in SwiftUI, and `PageFocus` |
 | [`SceneIt/Editor/SceneTextView.swift`](../../SceneIt/Editor/SceneTextView.swift) | the `NSTextView` subclass every scene-text editor shares: TextKit 2 set-up, focus, Tab, the pasteboard, `replace` |
 | [`SceneIt/Editor/ManuscriptTextView.swift`](../../SceneIt/Editor/ManuscriptTextView.swift) | its page subclass: the page on the desk, Shift-Tab to the title |
-| [`SceneIt/Editor/CaretIndicator.swift`](../../SceneIt/Editor/CaretIndicator.swift) | the page's text-height caret (ADR 0030) |
 | [`SceneIt/Editor/SceneTextEditor.swift`](../../SceneIt/Editor/SceneTextEditor.swift) | the coordinator, for the page and the notes alike: delegates, model sync, paste, undo managers |
 | [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
 | [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
@@ -166,36 +165,71 @@ desk, `usesFindBar = true` puts the standard find bar above the desk with no fur
 Cmd+F reaches it through `TextEditingCommands()`, the standard Find menu, added in
 `SceneItApp`.
 
-### The caret
+### Double spacing, below the line
 
-The body is double spaced with `lineHeightMultiple = 2`, which makes every line fragment twice
-as tall and puts the extra space above the letters. Since macOS 14 `NSTextView` draws its caret
-as a subview, an `NSTextInsertionIndicator`, as tall as the line fragment, so on the page it was
-twice the height of the text. Nothing public sizes that subview: set its frame and AppKit puts it
-back on the next turn of the run loop. So the page makes its own caret clear
-(`insertionPointColor = .clear`) and shows a second `NSTextInsertionIndicator` of its own: the
-class is public so that custom text views can draw a standard caret. `CaretIndicator` places it:
+PLAN asks for the body double spaced. `lineHeightMultiple = 2` does that, but TextKit 2 makes
+each line twice as tall with the extra space *above* the letters, and the caret and the selection
+fill the line, so both were twice the text's height. The body now has `lineSpacing` instead,
+which TextKit puts below each line, and the page's text starts one gap lower, so every line
+keeps its baseline (ADR 0034).
 
-- **Where:** the selection segment of the caret's empty range, from
-  `NSTextLayoutManager.enumerateTextSegments`, gives the x and the line's baseline (the
-  *standard* segment would leave out a first line's indent). A single-spaced line in the typing
-  font, laid out once by a throwaway `NSTextLayoutManager`, gives the height and how far the top
-  is above the baseline. Using TextKit's own layout matters: it rounds the font's ascent and
-  descent up (11 + 3 + 0.51 = 14.51 pt for 12 pt Times, where the font says
-  10.69 + 2.60 + 0.51).
-- **When:** `ManuscriptTextView` calls `update()` from the hooks AppKit already calls:
-  `updateInsertionPointStateAndRestartTimer(_:)` (every caret move and edit),
-  `textViewportLayoutControllerDidLayout(_:)` (TextKit 2 lays out lazily, so a line's position
-  can change with the selection unmoved), `typingAttributes`, becoming and resigning first
-  responder, `isEditable`, `setFrameSize`, and the window's key notifications. `SceneTextView`
-  records its own keyboard focus, which the indicator and the editor both read, because inside
-  `resignFirstResponder` the window's `firstResponder` is still the view.
+The gap isn't a constant in the code. `ParagraphRole.doubleSpacingGap` lays a line out both
+ways with a throwaway `NSTextLayoutManager` and takes the difference: 14 pt for 12 pt Times, its
+ascent and descent rounded up to whole points (11 + 3), which isn't what the font's own metrics
+(10.69 + 2.60) add up to. A test pins that, so a change in TextKit's rounding shows up as a
+failing test rather than drifting lines.
 
-The selection highlight stays the full line height, by the owner's choice (ADR 0030).
+Two lines with no text need their own style, because TextKit lays an empty line out with its
+line spacing *inside* it, which put the caret back at double height:
 
-In Rust terms: the system caret is a field you can't write, so rather than fighting it you set
-the one knob you have (its color) to hide it, and draw a replacement from a single function of
-the layout state.
+- **An empty paragraph** gets its gap as `paragraphSpacingBefore`, which puts its line exactly
+  where typed text will go.
+- **The empty paragraph at the very end** (after a final Return) has no character to hold a
+  style: TextKit lays it out in the typing attributes. After an empty paragraph it's spaced as
+  one; TextKit doesn't always lay it out the same way there (see ADR 0034's consequences). `SceneTextView` overrides
+  `typingAttributes` so they always take the style of the caret's paragraph, and lays the end
+  line out again when that style changes.
+
+`ParagraphRole.paragraphStyle(for: ParagraphContent)` is the one place that decides. The codec
+applies it as it renders, and the editor re-applies it in `willProcessEditing` to the paragraphs
+an edit touches, so a paragraph that becomes empty, or gets typed into, is restyled within the
+same edit, and the page still mirrors the model exactly.
+
+In Rust terms: the style is a pure function of the paragraph's content, and every writer of the
+text storage calls it rather than storing a style of its own.
+
+### The selection, drawn as bands
+
+With the spacing below, the system's selection of several lines is one block: TextKit's
+selection segments for every line after the first reach up over the gap above. The owner wanted
+a band per line, text height, so both editors switch the system's highlight off
+(`selectedTextAttributes = [:]`, which leaves its views with no colour) and draw the bands
+themselves, behind the text, in `drawBackground(in:)`.
+
+`SelectionBands.bands(of:in:)` (in the core) is the rule: it enumerates the selection's
+*standard* text segments, which cover the selected text alone (the *selection* segments the
+system draws also reach the right edge of every line the selection goes on past), and trims each
+to its bottom `ParagraphRole.textLineHeight`, which is exactly the cursor's height and position.
+A band is never narrower than a space, so a selected empty paragraph shows as a sliver.
+
+`SceneTextView` recomputes the bands when the selection changes, a layout pass ends or the text
+container's inset moves, only for what's selected within the viewport (TextKit's
+`viewportRange`), so selecting all of a long scene costs no more than a line. It marks only the
+bands that appeared or went (a set difference) as needing display, `setNeedsDisplay(_:)` with a
+rect rather than the whole view, so a drag redraws little. The colour is the system's pair:
+`selectedTextBackgroundColor` while the view has the focus in the key window,
+`unemphasizedSelectedTextBackgroundColor` otherwise.
+
+A highlight (`.backgroundColor` in the text) is drawn with the text, over the bands, so on its own
+it would hide a selection. TextKit 2's *rendering attributes* are display-only attributes on a
+range, kept by the layout manager rather than the storage, and they win over the text's own:
+`addRenderingAttribute(.backgroundColor, value: selectionColor, for: range)` on the selected,
+visible ranges draws the selection colour in the highlight's place, and removing it when the
+selection moves gives the highlight back. The notes draw no background, and then
+`NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
+
+The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
+the accent colour, as in TextEdit.
 
 ## 4. The text storage is a mirror; the model is the truth
 

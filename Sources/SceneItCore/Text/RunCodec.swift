@@ -64,6 +64,7 @@ public enum RunCodec {
                     NSAttributedString(string: run.text, attributes: RunFormat(run).attributes(in: role)))
             }
         }
+        role.styleParagraphs(of: text, around: NSRange(location: 0, length: text.length))
         return text
     }
 

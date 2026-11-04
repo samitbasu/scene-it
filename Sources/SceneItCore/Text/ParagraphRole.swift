@@ -18,19 +18,65 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         }
     }
 
+    /// The style of a paragraph with text in this role.
     public var paragraphStyle: NSParagraphStyle {
+        paragraphStyle(for: .text)
+    }
+
+    public func paragraphStyle(for content: ParagraphContent) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        switch self {
-        case .title:
+        switch (self, content) {
+        case (.title, _):
             break
-        case .notes:
+        case (.notes, _):
             style.paragraphSpacing = Self.notesParagraphGap
-        case .body:
-            style.lineHeightMultiple = 2
+        case (.body, .text):
+            style.lineSpacing = Self.doubleSpacingGap
+            style.firstLineHeadIndent = 36
+        case (.body, .empty):
+            // TextKit lays an empty line out with its line spacing inside it, which makes the
+            // cursor there double height; spacing before it puts the line where typed text goes.
+            style.paragraphSpacingBefore = Self.doubleSpacingGap
+            style.firstLineHeadIndent = 36
+        case (.body, .emptyEnd):
+            // The text line above already has its spacing below it.
             style.firstLineHeadIndent = 36
         }
         return style
     }
+
+    /// Gives each paragraph of `text` that `range` touches the style for what it holds.
+    public func styleParagraphs(of text: NSMutableAttributedString, around range: NSRange) {
+        let string = text.string as NSString
+        string.enumerateSubstrings(
+            in: string.paragraphRange(for: range), options: [.byParagraphs, .substringNotRequired]
+        ) {
+            _, _, paragraph, _ in
+            guard paragraph.length > 0 else { return }
+            let style = paragraphStyle(for: ParagraphContent(ofParagraphAt: paragraph.location, in: string))
+            var styled = true
+            text.enumerateAttribute(.paragraphStyle, in: paragraph) { value, _, stop in
+                if (value as? NSParagraphStyle) != style {
+                    styled = false
+                    stop.pointee = true
+                }
+            }
+            if !styled { text.addAttribute(.paragraphStyle, value: style, range: paragraph) }
+        }
+    }
+
+    /// What double spacing adds below each line of the body (ADR 0034): as much as TextKit adds
+    /// when it lays a line out twice as tall (`lineHeightMultiple = 2`), which puts the space
+    /// above the letters instead, so the cursor and the selection were twice the text's height.
+    public static let doubleSpacingGap: CGFloat = {
+        let doubled = NSMutableParagraphStyle()
+        doubled.lineHeightMultiple = 2
+        return TextKitLine.height(of: textTypeface[[]], in: doubled) - textLineHeight
+    }()
+
+    /// How tall TextKit makes a single-spaced line of the body and notes, which is the height of
+    /// the cursor and of each band of a selection (ADR 0034).
+    public static let textLineHeight: CGFloat = TextKitLine.height(of: textTypeface[[]], in: .default)
 
     /// Between the notes' paragraphs, which are otherwise single-spaced (the owner's pick, #19).
     private static let notesParagraphGap: CGFloat = 6
@@ -76,6 +122,33 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         case .title: Self.titleTypeface
         case .body, .notes: Self.textTypeface
         }
+    }
+}
+
+/// What a paragraph holds, which decides where its double spacing goes (ADR 0034).
+public enum ParagraphContent: Sendable {
+    case text
+    /// An empty paragraph: only its paragraph break.
+    case empty
+    /// The empty paragraph at the very end, after a final break that ends text, or in empty
+    /// text. It has no character of its own: TextKit lays it out in the typing attributes.
+    /// After an empty paragraph, whose gap is above it, it's spaced as an empty paragraph.
+    case emptyEnd
+
+    /// What the paragraph holding `location` holds.
+    public init(ofParagraphAt location: Int, in string: NSString) {
+        let paragraph = string.paragraphRange(for: NSRange(location: min(location, string.length), length: 0))
+        if paragraph.length == 0 {
+            let afterAnEmptyParagraph =
+                string.length > 0 && Self(ofParagraphAt: string.length - 1, in: string) == .empty
+            self = afterAnEmptyParagraph ? .empty : .emptyEnd
+            return
+        }
+        var end = paragraph.upperBound
+        while end > paragraph.location, string.isLineBreak(at: end - 1) {
+            end -= 1
+        }
+        self = end == paragraph.location ? .empty : .text
     }
 }
 

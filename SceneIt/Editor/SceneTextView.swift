@@ -38,9 +38,194 @@ class SceneTextView: KeyboardTextView {
         usesFontPanel = false
         usesRuler = false
         usesInspectorBar = false
-        insertionPointColor = .black
+        // The selection is drawn as bands (ADR 0034), so the system's highlight has no colour.
+        selectedTextAttributes = [:]
         textContainer?.lineFragmentPadding = 0
         typingAttributes = role.typingAttributes
+    }
+
+    /// The typing attributes take the style of the caret's paragraph. TextKit also lays out the
+    /// empty line after a final paragraph break in them, so when their style changes that line is
+    /// laid out again. (What's typed is restyled for its own paragraph as it's typed.)
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        get { super.typingAttributes }
+        set {
+            guard let string = textStorage?.string as NSString? else {
+                super.typingAttributes = newValue
+                return
+            }
+            var attributes = newValue
+            let style = role.paragraphStyle(
+                for: ParagraphContent(ofParagraphAt: selectedRange().location, in: string))
+            attributes[.paragraphStyle] = style
+            let restyled = super.typingAttributes[.paragraphStyle] as? NSParagraphStyle != style
+            super.typingAttributes = attributes
+            if restyled, string.length > 0, let layout = textLayoutManager,
+                let last = layout.location(layout.documentRange.endLocation, offsetBy: -1),
+                let range = NSTextRange(location: last, end: layout.documentRange.endLocation)
+            {
+                layout.invalidateLayout(for: range)
+                updateInsertionPointStateAndRestartTimer(false)
+            }
+        }
+    }
+
+    // MARK: The selection (ADR 0034)
+
+    /// Where the selection's bands are drawn, in this view's coordinates.
+    private(set) var selectionBands: [NSRect] = []
+    /// Where the selection colour overrides a highlight, and in which colour.
+    private var highlightOverride: (ranges: [NSRange], color: NSColor) = ([], .clear)
+    /// Where the last refresh or colour change asked for display, for tests of what's redrawn.
+    private(set) var invalidatedBands: [NSRect] = []
+    private var windowObservers: [NSObjectProtocol] = []
+
+    isolated deinit {
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    /// The colour the system highlights a selection with: the accent colour while this view has
+    /// the keyboard focus in the key window, grey otherwise.
+    var selectionColor: NSColor {
+        keyboardFocus == .here && window?.isKeyWindow == true
+            ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor
+    }
+
+    override func setSelectedRanges(
+        _ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool
+    ) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        refreshSelectionBands()
+    }
+
+    /// TextKit lays out lazily, so a selected line can move with the selection unmoved.
+    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
+        super.textViewportLayoutControllerDidLayout(controller)
+        refreshSelectionBands()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
+        guard let window else { return }
+        windowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {
+            NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated { self?.selectionColorChanged() }
+            }
+        }
+    }
+
+    /// Redraws only where the bands were and are, so dragging a selection out never redraws the
+    /// whole text.
+    func refreshSelectionBands() {
+        let ranges = visibleSelection()
+        overrideHighlights(in: ranges)
+        let bands = bands(of: ranges)
+        guard bands != selectionBands else { return }
+        let previous = Set(selectionBands.map(Band.init))
+        let current = Set(bands.map(Band.init))
+        selectionBands = bands
+        invalidate(previous.symmetricDifference(current).map(\.rect))
+    }
+
+    private func invalidate(_ rects: [NSRect]) {
+        invalidatedBands = rects
+        for rect in rects { setNeedsDisplay(rect) }
+    }
+
+    /// A band as a set member: `NSRect` isn't `Hashable`.
+    private struct Band: Hashable {
+        let x, y, width, height: CGFloat
+
+        init(_ rect: NSRect) {
+            (x, y, width, height) = (rect.minX, rect.minY, rect.width, rect.height)
+        }
+
+        var rect: NSRect { NSRect(x: x, y: y, width: width, height: height) }
+    }
+
+    /// The page re-centres its text as the window's width changes.
+    override var textContainerInset: NSSize {
+        didSet { refreshSelectionBands() }
+    }
+
+    /// The focus or the window's key state changed, and the selection's colour with them.
+    private func selectionColorChanged() {
+        overrideHighlights(in: visibleSelection())
+        invalidate(selectionBands)
+    }
+
+    /// What's selected within the viewport, the only part that can be drawn, so a long selection
+    /// costs no more than a short one.
+    private func visibleSelection() -> [NSTextRange] {
+        guard let layout = textLayoutManager, let viewport = layout.textViewportLayoutController.viewportRange
+        else { return [] }
+        return layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
+    }
+
+    private func bands(of ranges: [NSTextRange]) -> [NSRect] {
+        guard let layout = textLayoutManager else { return [] }
+        let origin = textContainerOrigin
+        return SelectionBands.bands(of: ranges, in: layout).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
+    }
+
+    /// A highlight is a background colour drawn over the bands, so where the selection covers one
+    /// a rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
+    /// They're set by character offsets, which an edit or a new scene can't leave pointing at the
+    /// wrong text, and every one goes before new ones are set: no other code sets this attribute.
+    private func overrideHighlights(in ranges: [NSTextRange]) {
+        guard let layout = textLayoutManager, let content = layout.textContentManager,
+            let storage = textStorage
+        else { return }
+        let start = content.documentRange.location
+        var highlighted: [NSRange] = []
+        for range in ranges {
+            let offsets = NSRange(
+                location: content.offset(from: start, to: range.location),
+                length: content.offset(from: range.location, to: range.endLocation))
+            storage.enumerateAttribute(.backgroundColor, in: offsets) { value, run, _ in
+                if value != nil { highlighted.append(run) }
+            }
+        }
+        let color = selectionColor
+        guard highlightOverride.ranges != highlighted || highlightOverride.color != color else { return }
+        layout.removeRenderingAttribute(.backgroundColor, for: layout.documentRange)
+        for run in highlighted {
+            guard let from = content.location(start, offsetBy: run.location),
+                let to = content.location(from, offsetBy: run.length),
+                let range = NSTextRange(location: from, end: to)
+            else { continue }
+            layout.addRenderingAttribute(.backgroundColor, value: color, for: range)
+        }
+        highlightOverride = (highlighted, color)
+    }
+
+    /// An edit can change what the same offsets hold, so the highlights are looked at afresh.
+    override func didChangeText() {
+        super.didChangeText()
+        highlightOverride = ([], .clear)
+        refreshSelectionBands()
+    }
+
+    /// Draws the selection's bands behind the text.
+    func drawSelectionBands(in rect: NSRect) {
+        let visible = selectionBands.filter { $0.intersects(rect) }
+        guard !visible.isEmpty else { return }
+        selectionColor.setFill()
+        for band in visible { band.fill() }
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawSelectionBands(in: rect)
+    }
+
+    /// Without a background of its own (the notes), the view never calls `drawBackground(in:)`.
+    override func draw(_ dirtyRect: NSRect) {
+        if !drawsBackground { drawSelectionBands(in: dirtyRect) }
+        super.draw(dirtyRect)
     }
 
     // MARK: Focus
@@ -70,6 +255,7 @@ class SceneTextView: KeyboardTextView {
 
     func keyboardFocusDidChange() {
         editor?.showFormatting()
+        selectionColorChanged()
     }
 
     // MARK: Keys

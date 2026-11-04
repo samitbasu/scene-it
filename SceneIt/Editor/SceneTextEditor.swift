@@ -354,13 +354,19 @@ extension SceneTextEditor: @MainActor NSTextStorageDelegate {
         guard !isLoading else { return }
         let string = textStorage.string as NSString
         let plain = role.typingAttributes
-        for index in editedRange.location..<editedRange.upperBound
-        where Self.isLineBreak(string.character(at: index)) {
+        for index in editedRange.location..<editedRange.upperBound where string.isLineBreak(at: index) {
             let attributes = textStorage.attributes(at: index, effectiveRange: nil)
-            if !NSDictionary(dictionary: attributes).isEqual(to: plain) {
-                textStorage.setAttributes(plain, range: NSRange(location: index, length: 1))
+            // Its paragraph style is `styleParagraphs`'s, below.
+            var expected = plain
+            expected[.paragraphStyle] = attributes[.paragraphStyle]
+            if !NSDictionary(dictionary: attributes).isEqual(to: expected) {
+                textStorage.setAttributes(expected, range: NSRange(location: index, length: 1))
             }
         }
+        // The paragraph after the edit too: a break inserted before its text can leave it empty.
+        let rest = string.length - editedRange.location
+        let following = NSRange(location: editedRange.location, length: min(editedRange.length + 1, rest))
+        role.styleParagraphs(of: textStorage, around: following)
     }
 
     func textStorage(
@@ -374,11 +380,6 @@ extension SceneTextEditor: @MainActor NSTextStorageDelegate {
         // without `textDidChange`. (After a change of characters the selection still has its
         // old ranges here, and moves later, which shows the formatting then.)
         if !editedMask.contains(.editedCharacters) { showFormatting() }
-    }
-
-    /// A UTF-16 unit that is a line break by the codec's rule; a surrogate never is.
-    private static func isLineBreak(_ unit: unichar) -> Bool {
-        Unicode.Scalar(unit).map { Character($0).isLineBreak } ?? false
     }
 }
 

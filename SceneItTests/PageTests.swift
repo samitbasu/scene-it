@@ -20,7 +20,7 @@ struct PageTests {
             #expect(!page.page.importsGraphics)
             let attributes = page.storage.attributes(at: 0, effectiveRange: nil)
             let style = try #require(attributes[.paragraphStyle] as? NSParagraphStyle)
-            #expect(style.lineHeightMultiple == 2)
+            #expect(style.lineSpacing == ParagraphRole.doubleSpacingGap)
             #expect(style.firstLineHeadIndent == 36)
             #expect((attributes[.font] as? NSFont)?.familyName == ParagraphRole.fontFamily)
             #expect((attributes[.font] as? NSFont)?.pointSize == 12)

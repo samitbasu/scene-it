@@ -1,6 +1,7 @@
 # 0030 — A text-height caret on the double-spaced page
 
-**Status:** Accepted (2026-11-03, the owner's choices on #90).
+**Status:** Superseded by [0034](0034-double-spacing-below-the-line.md) (2026-11-03): the owner found our caret
+looked wrong, and chose to move the double spacing below the line instead. Was accepted 2026-11-03 (#90).
 
 ## Context
 The body is double spaced with `lineHeightMultiple = 2` (`ParagraphRole.body`). TextKit 2 makes each line fragment

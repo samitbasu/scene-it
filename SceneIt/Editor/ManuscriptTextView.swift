@@ -7,15 +7,12 @@ import SwiftUI
 /// scene's body only (decision 0015); its `SceneTextEditor` keeps it in step with the model.
 final class ManuscriptTextView: SceneTextView {
     weak var focus: PageFocus?
-    /// Set up by `page()`, so `nil` only while the view is being created.
-    private(set) var caret: CaretIndicator?
 
     static func page() -> ManuscriptTextView {
         let view = ManuscriptTextView(usingTextLayoutManager: true)
         view.configure(.body)
         view.drawsBackground = true
         view.backgroundColor = NSColor(WindowMetrics.deskColor)
-        view.caret = CaretIndicator(in: view, color: .black)
         // The text column is always 6.5 in, however wide the view, so zoom and the window's
         // width never change a line break.
         view.textContainer?.widthTracksTextView = false
@@ -43,11 +40,12 @@ final class ManuscriptTextView: SceneTextView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         let page = pageRect
+        // The body's double spacing is below each line (ADR 0034), so the first line starts that
+        // much lower, where the spacing above it used to put it.
         let inset = NSSize(
             width: page.minX + WindowMetrics.pageMargin,
-            height: WindowMetrics.deskPadding + WindowMetrics.pageMargin)
+            height: WindowMetrics.deskPadding + WindowMetrics.pageMargin + ParagraphRole.doubleSpacingGap)
         if textContainerInset != inset { textContainerInset = inset }
-        caret?.update()
     }
 
     override func drawBackground(in rect: NSRect) {
@@ -62,40 +60,7 @@ final class ManuscriptTextView: SceneTextView {
         NSColor.white.setFill()
         pageRect.fill()
         NSGraphicsContext.restoreGraphicsState()
-    }
-
-    // MARK: The caret (ADR 0030)
-
-    override func keyboardFocusDidChange() {
-        super.keyboardFocusDidChange()
-        caret?.update()
-    }
-
-    override var isEditable: Bool {
-        didSet { caret?.update() }
-    }
-
-    /// The caret's height follows the typing font, which the editor sets after the selection moves.
-    override var typingAttributes: [NSAttributedString.Key: Any] {
-        didSet { caret?.update() }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        caret?.observe(window)
-    }
-
-    /// Where the text view moves its own (clear) caret, for every caret move and edit.
-    override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
-        super.updateInsertionPointStateAndRestartTimer(restartFlag)
-        caret?.update()
-    }
-
-    /// TextKit 2 lays out lazily, so a line can move after an edit or an estimate is replaced
-    /// without the selection moving.
-    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
-        super.textViewportLayoutControllerDidLayout(controller)
-        caret?.update()
+        drawSelectionBands(in: rect)
     }
 
     // MARK: Keys
