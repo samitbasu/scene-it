@@ -134,10 +134,7 @@ import Testing
         }
 
         func folded(_ word: String) -> String {
-            let options: String.CompareOptions =
-                query.options.contains(.matchCase)
-                ? [.diacriticInsensitive] : [.caseInsensitive, .diacriticInsensitive]
-            return word.folding(options: options, locale: nil)
+            query.options.contains(.matchCase) ? word : word.lowercased()
         }
 
         func wordKey(_ word: String) -> String {

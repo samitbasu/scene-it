@@ -187,7 +187,7 @@ enum Editor: CaseIterable, Sendable {
 
     @Test func savedTextFollowsTheCharacterPolicy() {
         let typed = NSAttributedString(string: "\u{201C}Wait\u{201D}\u{2014} 🌊 cafe\u{301}\tthen")
-        #expect(RunCodec.body(from: typed).map(\.text) == ["\"Wait\"-- [?] café then"])
+        #expect(RunCodec.body(from: typed).map(\.text) == ["\"Wait\"-- [?] cafe then"])
     }
 
     @Test(arguments: 0..<100)

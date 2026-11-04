@@ -16,9 +16,8 @@ struct SearchToken: Hashable, Sendable {
     var range: Range<Int> { Int(start)..<Int(end) }
 }
 
-/// How search reads text: words, sentences, folding and endings. Model text is printable
-/// Latin-1 (decision 0022), so each character is one UTF-16 unit; strict ASCII (decision 0028)
-/// will only shrink the tables.
+/// How search reads text: words, sentences, case and endings. Model text is printable ASCII
+/// (decision 0028), so each character is one UTF-16 unit.
 enum SearchText {
     /// The words of `text`, each tagged with its sentence.
     ///
@@ -67,21 +66,10 @@ enum SearchText {
         case sensitive
     }
 
-    /// `word` as search compares it: diacritics removed, and case folded when `case` is
-    /// `.insensitive`, as Foundation's `.diacriticInsensitive` and `.caseInsensitive` folding
-    /// does it (so `ß` folds to `ss`).
+    /// `word` as search compares it: in lower case when `case` is `.insensitive`, otherwise as
+    /// it is. Model text is ASCII, so there are no diacritics left to fold.
     static func folded(_ word: some Collection<UInt16>, _ sensitivity: CaseSensitivity) -> [UInt16] {
-        let table = sensitivity == .insensitive ? Folding.insensitive : Folding.sensitive
-        var folded: [UInt16] = []
-        folded.reserveCapacity(word.count)
-        for unit in word {
-            if unit < 0x100 {
-                folded.append(contentsOf: table[Int(unit)])
-            } else {
-                folded.append(unit)
-            }
-        }
-        return folded
+        sensitivity == .insensitive ? word.map(lower) : Array(word)
     }
 
     /// `word` reduced to a stem, so that "bear", "bears", "bear's" and "Bears'" share one.
@@ -98,9 +86,6 @@ enum SearchText {
     ///    share "lady". A final `oe` becomes `o` when at least 3 characters remain, so "shoe" and
     ///    "shoes" share "sho", as "hero" and "heroes" share "hero"; "toe" and "toes" share "toe".
     static func stem(_ word: [UInt16]) -> [UInt16] {
-        func lower(_ unit: UInt16) -> UInt16 {
-            (0x41...0x5A).contains(unit) ? unit | 0x20 : unit
-        }
         func endsWith(_ word: [UInt16], _ suffix: String) -> Bool {
             let suffix = Array(suffix.utf16)
             return word.count >= suffix.count
@@ -131,7 +116,7 @@ enum SearchText {
     private static let newline = UInt16(ascii: "\n")
 
     private static func isWordCharacter(_ unit: UInt16) -> Bool {
-        unit < 0x100 && Folding.wordCharacters[Int(unit)]
+        (0x30...0x39).contains(unit) || (0x41...0x5A).contains(unit) || (0x61...0x7A).contains(unit)
     }
 
     private static func isSentenceTerminal(_ unit: UInt16) -> Bool {
@@ -144,25 +129,11 @@ enum SearchText {
     }
 
     private static func isWhitespace(_ unit: UInt16) -> Bool {
-        unit == UInt16(ascii: " ") || unit == newline || unit == UInt16(ascii: "\t") || unit == 0xA0
+        unit == UInt16(ascii: " ") || unit == newline || unit == UInt16(ascii: "\t")
     }
 
-    /// Per Latin-1 character, computed once from Foundation rather than written out by hand.
-    private enum Folding {
-        static let insensitive = table([.caseInsensitive, .diacriticInsensitive])
-        static let sensitive = table([.diacriticInsensitive])
-        static let wordCharacters: [Bool] = (0..<0x100).map { value in
-            let properties = Unicode.Scalar(UInt8(value)).properties
-            return properties.isAlphabetic || properties.generalCategory == .decimalNumber
-        }
-
-        private static func table(_ options: String.CompareOptions) -> [[UInt16]] {
-            (0..<0x100).map { value in
-                Array(
-                    String(Character(Unicode.Scalar(UInt8(value)))).folding(options: options, locale: nil)
-                        .utf16)
-            }
-        }
+    private static func lower(_ unit: UInt16) -> UInt16 {
+        (0x41...0x5A).contains(unit) ? unit | 0x20 : unit
     }
 }
 

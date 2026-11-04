@@ -238,6 +238,11 @@ TEST_RUNNER_PAGE_FUZZ_SEEDS=8 TEST_RUNNER_PAGE_FUZZ_STEPS=1500 xcodebuild -proje
     test -only-testing:SceneItTests/PageFuzzTests
 ```
 
+`NotesFuzzTests` (in `SceneItTests/NotesFuzzTests.swift`) does the same for the page and the
+notes together, across scene and tab switches; the gate runs 2 seeds × 120 steps, and
+`TEST_RUNNER_NOTES_FUZZ_SEEDS` and `TEST_RUNNER_NOTES_FUZZ_STEPS` run more, with
+`-only-testing:SceneItTests/NotesFuzzTests`.
+
 Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time limit grows with
 the steps (never under two minutes). **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
@@ -278,7 +283,7 @@ preferences are throwaway (a temporary folder, a test-host `BookController`). To
 candidates for a future look change, render each candidate the same way with a different name.
 
 It also renders a damaged book (`final-banner-repaired`, `final-errors-tab-read-only`,
-`final-errors-tab`) and a book saved by a newer version (`final-banner-newer`), the same way.
+`final-errors-tab`, and `final-errors-focus`, the tab with the keyboard focus) and a book saved by a newer version (`final-banner-newer`), the same way.
 
 ### `scripts/release.sh`: build a distributable app
 

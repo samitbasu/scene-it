@@ -2,7 +2,9 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// File a Copy (PLAN §7.1) for one open book: the dialog while it's up, then the toast.
+/// File a Copy (PLAN §7.1) for one open book: the dialog while it's up, then the toast. The
+/// owner chose the look (#32): labels in a column beside the fields, the archive box by the
+/// title, and the toast above the status bar.
 @MainActor
 @Observable
 final class FilingFlow {
@@ -59,36 +61,6 @@ final class FilingFlow {
     }
 }
 
-// MARK: - Candidates (#32): the owner picks one; the others go
-
-/// The dialog's look. Rendered side by side for the owner's pick (CLAUDE.md); the provisional
-/// default is the recommendation.
-enum FilingDialogLayout: CaseIterable {
-    /// The mockup's: each label above its field, the date a field with a calendar button.
-    case stacked
-    /// macOS's grouped form: labels on the left of rounded rows.
-    case grouped
-    /// Labels right-aligned in a column, the archive box beside the title, as an alert.
-    case columns
-
-    static let provisional = FilingDialogLayout.stacked
-}
-
-/// Where the toast appears.
-enum FilingToastPlacement: CaseIterable {
-    /// Centered over the page, just above the status bar.
-    case bottom
-    /// Centered under the toolbar.
-    case top
-
-    static let provisional = FilingToastPlacement.bottom
-}
-
-extension EnvironmentValues {
-    @Entry var filingDialogLayout = FilingDialogLayout.provisional
-    @Entry var filingToastPlacement = FilingToastPlacement.provisional
-}
-
 // MARK: - The dialog
 
 struct FileACopyDialog: View {
@@ -96,16 +68,40 @@ struct FileACopyDialog: View {
     let isFiling: Bool
     let cancel: () -> Void
     let confirm: () -> Void
-    @Environment(\.filingDialogLayout) private var layout
 
     var body: some View {
-        Group {
-            switch layout {
-            case .stacked: stacked
-            case .grouped: grouped
-            case .columns: columns
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "archivebox.fill")
+                    .font(.system(size: 30)).foregroundStyle(.tint)
+                    .frame(width: 40)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ArchiveWording.dialogTitle).font(.headline)
+                    Text(ArchiveWording.dialogExplanation)
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 12) {
+                GridRow {
+                    Text(ArchiveWording.tagsLabel + ":").gridColumnAlignment(.trailing)
+                    TagEntry(draft: $draft)
+                }
+                GridRow {
+                    Text(ArchiveWording.dateLabel + ":")
+                    DatePicker(ArchiveWording.dateLabel, selection: date, displayedComponents: .date)
+                        .datePickerStyle(.field)
+                        .labelsHidden()
+                        .fixedSize()
+                }
+                GridRow {
+                    Text(ArchiveWording.noteLabel + ":")
+                    note
+                }
+            }
+            buttons
         }
+        .padding(20)
         .frame(width: 440)
     }
 
@@ -115,14 +111,8 @@ struct FileACopyDialog: View {
             set: { draft.filed = CalendarDay($0, in: .current) })
     }
 
-    private var tags: some View {
-        TagEntry(draft: $draft)
-    }
-
     private var note: some View {
-        TextEditor(text: $draft.note)
-            .font(.body)
-            .scrollContentBackground(.hidden)
+        NoteTextView(draft: $draft)
             .padding(4)
             .frame(height: 56)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
@@ -142,92 +132,6 @@ struct FileACopyDialog: View {
         .disabled(isFiling)
     }
 
-    private var stacked: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ArchiveWording.dialogTitle).font(.title3).fontWeight(.semibold)
-                Text(ArchiveWording.dialogExplanation)
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            labelled(ArchiveWording.tagsLabel) { tags }
-            labelled(ArchiveWording.dateLabel) {
-                DatePicker(ArchiveWording.dateLabel, selection: date, displayedComponents: .date)
-                    .datePickerStyle(.stepperField)
-                    .labelsHidden()
-            }
-            labelled(ArchiveWording.noteLabel) { note }
-            buttons.padding(.top, 4)
-        }
-        .padding(20)
-    }
-
-    private func labelled(_ label: String, @ViewBuilder _ field: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
-            field()
-        }
-    }
-
-    private var grouped: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section {
-                    LabeledContent(ArchiveWording.tagsLabel) { tags }
-                    DatePicker(ArchiveWording.dateLabel, selection: date, displayedComponents: .date)
-                    LabeledContent(ArchiveWording.noteLabel) { note }
-                } header: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(ArchiveWording.dialogTitle).font(.title3).fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-                        Text(ArchiveWording.dialogExplanation)
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.bottom, 6)
-                }
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .frame(height: 300)
-            buttons.padding([.horizontal, .bottom], 20)
-        }
-    }
-
-    private var columns: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "archivebox.fill")
-                    .font(.system(size: 30)).foregroundStyle(.tint)
-                    .frame(width: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(ArchiveWording.dialogTitle).font(.headline)
-                    Text(ArchiveWording.dialogExplanation)
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 12) {
-                GridRow {
-                    Text(ArchiveWording.tagsLabel + ":").gridColumnAlignment(.trailing)
-                    tags
-                }
-                GridRow {
-                    Text(ArchiveWording.dateLabel + ":")
-                    DatePicker(ArchiveWording.dateLabel, selection: date, displayedComponents: .date)
-                        .datePickerStyle(.field)
-                        .labelsHidden()
-                        .fixedSize()
-                }
-                GridRow {
-                    Text(ArchiveWording.noteLabel + ":")
-                    note
-                }
-            }
-            buttons
-        }
-        .padding(20)
-    }
 }
 
 // MARK: - Tags as chips
@@ -275,7 +179,9 @@ private struct TagChip: View {
 }
 
 /// An `NSTextField`, so Return and ⌫ arrive as the field editor's commands
-/// (`insertNewline:`, `deleteBackward:`) whatever SwiftUI does with keys.
+/// (`insertNewline:`, `deleteBackward:`) whatever SwiftUI does with keys. Its field editor has
+/// no input method and applies the character policy as the editors do (ADR 0028), so it never
+/// shows what the index won't keep.
 struct TagTextField: NSViewRepresentable {
     @Binding var draft: FilingDraft
 
@@ -284,7 +190,7 @@ struct TagTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: draft.pendingTag)
+        let field = TagField(string: draft.pendingTag)
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -307,18 +213,9 @@ struct TagTextField: NSViewRepresentable {
             self.draft = draft
         }
 
-        /// What's typed goes through `CharacterPolicy` as in the editors: the field shows only
-        /// what the tag will keep, the caret where it was.
         func controlTextDidChange(_ notification: Notification) {
             guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
-            let typed = editor.string
-            draft.wrappedValue.pendingTag = typed
-            let kept = draft.wrappedValue.pendingTag
-            guard !kept.utf16.elementsEqual(typed.utf16) else { return }
-            let caret = min(editor.selectedRange().location, (typed as NSString).length)
-            let before = CharacterPolicy.admittedLine((typed as NSString).substring(to: caret))
-            editor.string = kept
-            editor.setSelectedRange(NSRange(location: min(before.utf16.count, kept.utf16.count), length: 0))
+            draft.wrappedValue.pendingTag = editor.string
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -334,6 +231,80 @@ struct TagTextField: NSViewRepresentable {
             default:
                 return false
             }
+        }
+    }
+}
+
+final class TagField: NSTextField {
+    override class var cellClass: AnyClass? {
+        get { Cell.self }
+        set {}
+    }
+
+    final class Cell: NSTextFieldCell {
+        let editor: AdmittingTextView = {
+            let editor = AdmittingTextView()
+            editor.admit = CharacterPolicy.admittedLine
+            editor.isFieldEditor = true
+            editor.allowsUndo = true
+            return editor
+        }()
+
+        override func fieldEditor(for controlView: NSView) -> NSTextView? {
+            editor
+        }
+    }
+}
+
+/// The note, in an `AdmittingTextView`: no input method, and the character policy applied as
+/// the writer types or pastes (ADR 0028).
+struct NoteTextView: NSViewRepresentable {
+    @Binding var draft: FilingDraft
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(draft: $draft)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        let view = Self.editor()
+        view.frame = scroll.contentView.bounds
+        view.string = draft.note
+        view.delegate = context.coordinator
+        scroll.documentView = view
+        return scroll
+    }
+
+    static func editor() -> AdmittingTextView {
+        let view = AdmittingTextView()
+        view.admit = CharacterPolicy.admittedInput
+        view.isRichText = false
+        view.allowsUndo = true
+        view.drawsBackground = false
+        view.font = .systemFont(ofSize: NSFont.systemFontSize)
+        view.autoresizingMask = [.width]
+        view.textContainer?.widthTracksTextView = true
+        view.setAccessibilityLabel(ArchiveWording.noteLabel)
+        return view
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.draft = $draft
+        guard let view = scroll.documentView as? NSTextView else { return }
+        if view.string != draft.note { view.string = draft.note }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var draft: Binding<FilingDraft>
+
+        init(draft: Binding<FilingDraft>) {
+            self.draft = draft
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let view = notification.object as? NSTextView else { return }
+            draft.wrappedValue.note = view.string
         }
     }
 }
@@ -412,17 +383,16 @@ struct FilingToastView: View {
     }
 }
 
-/// Puts the toast over the window, where `FilingToastPlacement` says.
+/// Puts the toast over the window, centered just above the status bar.
 struct FilingToastOverlay: ViewModifier {
     let flow: FilingFlow
-    @Environment(\.filingToastPlacement) private var placement
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: placement == .bottom ? .bottom : .top) {
+        content.overlay(alignment: .bottom) {
             if let toast = flow.toast {
                 FilingToastView(text: toast.text)
-                    .padding(placement == .bottom ? .bottom : .top, placement == .bottom ? 44 : 14)
-                    .transition(.opacity.combined(with: .move(edge: placement == .bottom ? .bottom : .top)))
+                    .padding(.bottom, 44)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .id(toast.id)
             }
         }

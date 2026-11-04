@@ -3,7 +3,7 @@ new line - [line] Remember to back this up!
 new notice - [notice] Some of this file wasn't valid UTF-8: 2 byte(s) were read as Windows-1252 characters.
 new E4 - [comments] - c1 | mauve | 2026-10-31T20:40:00-07:00 | c45-58 | "harbor lights" | Too pretty?
 new E9 - [comments] - c3 | blue | 2026-10-31T20:41:00-07:00 | c4-9 | "ferry left" | Wrong range.
-new notice - [notice] Characters Scene It can't store were replaced with [?]: U+1F30A.
+new notice - [notice] Characters with no ASCII form were replaced with [?]: U+1F30A.
 new notice - [notice] This scene had no id, so it was given id-A0.
 new line - [line] ### Note
 new notice - [notice] This scene had no id, so it was given id-B0.

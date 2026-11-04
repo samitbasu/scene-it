@@ -47,20 +47,6 @@ public struct Bounded<Bounds: ScalarBounds>: Comparable, Hashable, Codable, Send
     }
 }
 
-/// Page magnification, 50–300% (PLAN §4.1).
-public typealias Zoom = Bounded<ZoomBounds>
-
-public enum ZoomBounds: ScalarBounds {
-    public static let range: ClosedRange<Double> = 0.5...3.0
-    public static let standard = 1.0
-}
-
-extension Double {
-    public init(_ zoom: Zoom) {
-        self = zoom.value
-    }
-}
-
 /// `AVSpeechUtterance.rate`, whose minimum and maximum are 0 and 1.
 public typealias SpeechRate = Bounded<SpeechRateBounds>
 

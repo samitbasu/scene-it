@@ -9,12 +9,15 @@ struct BookWindow: View {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
-    let formatting: PageFormatting
+    let formatting: EditorFormatting
     @Binding var mode: WindowMode
     let filing: FilingFlow
+    @State private var undo: UndoRouter
+    @State private var pageFocus: PageFocus
+    @State private var editors: SceneEditors
 
     init(
-        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: PageFormatting,
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow = FilingFlow()
     ) {
         self.book = book
@@ -23,6 +26,12 @@ struct BookWindow: View {
         self.formatting = formatting
         _mode = mode
         self.filing = filing
+        _undo = State(initialValue: UndoRouter(book: book))
+        let focus = PageFocus()
+        _pageFocus = State(initialValue: focus)
+        _editors = State(
+            initialValue: SceneEditors(
+                book: book, preferences: preferences, formatting: formatting, focus: focus))
     }
 
     var body: some View {
@@ -34,9 +43,12 @@ struct BookWindow: View {
                 ZStack {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
-                        EditorArea(book: book, formatting: formatting)
+                        EditorArea(
+                            book: book, preferences: preferences, formatting: formatting, focus: pageFocus,
+                            editors: editors)
                         Divider()
-                        RightPanel(book: book, preferences: preferences)
+                        RightPanel(
+                            book: book, preferences: preferences, formatting: formatting, editors: editors)
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)
@@ -50,7 +62,12 @@ struct BookWindow: View {
         }
         .background(.background)
         .modifier(FilingToastOverlay(flow: filing))
-        .toolbar { WindowToolbar(book: book, filing: filing) }
+        .background(UndoRouterWindow(router: undo))
+        .environment(undo)
+        .environment(\.pageFocus, pageFocus)
+        .focusedSceneValue(\.undoRouter, undo)
+        .onChange(of: mode, initial: true) { undo.mode = mode }
+        .toolbar { WindowToolbar(book: book, preferences: preferences, undo: undo, filing: filing) }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
         .focusedSceneValue(\.filingFlow, book.isEditable ? filing : nil)

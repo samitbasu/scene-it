@@ -6,14 +6,16 @@ import SwiftUI
 /// field, and the page on its gray desk.
 struct EditorArea: View {
     let book: AppOpenBook
-    let formatting: PageFormatting
-    @State private var focus = PageFocus()
+    let preferences: AppPreferences
+    let formatting: EditorFormatting
+    let focus: PageFocus
+    let editors: SceneEditors
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                FormattingBar(formatting: formatting)
+                FormattingBar(formatting: formatting, part: .body)
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -26,7 +28,8 @@ struct EditorArea: View {
                     .padding(.vertical, WindowMetrics.titleStripPadding)
                 Divider()
                 PageView(
-                    book: book, scene: scene.id, paragraphs: scene.body, focus: focus, formatting: formatting)
+                    book: book, preferences: preferences, editors: editors, scene: scene.id,
+                    paragraphs: scene.body)
             } else {
                 ScrollView(.vertical) {
                     Page {
@@ -40,7 +43,18 @@ struct EditorArea: View {
                 .background(WindowMetrics.deskColor)
             }
         }
+        .focusedSceneValue(\.page, focus)
     }
+}
+
+extension FocusedValues {
+    /// The focused window's page, for View → Fit Width.
+    @Entry var page: PageFocus?
+}
+
+extension EnvironmentValues {
+    /// The window's page, for views that hand the focus back to it.
+    @Entry var pageFocus: PageFocus?
 }
 
 /// An empty white US Letter page with 1 in margins, drawn as `ManuscriptTextView` draws a
@@ -85,7 +99,9 @@ struct SceneTitleField: View {
 }
 
 /// The title's text field: Return and Tab go on to the body, and spelling is checked as the
-/// writer types (decision 0015).
+/// writer types (decision 0015). Each scene's title has its own undo history. Opening another
+/// scene ends the editing first, so what was typed stays in the scene it was typed in; if the
+/// title had the focus, the next scene's title gets it.
 private struct TitleTextField: NSViewRepresentable {
     let book: AppOpenBook
     let scene: SceneID
@@ -98,6 +114,15 @@ private struct TitleTextField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = TitleField(string: title)
+        context.coordinator.field = field
+        let center = NotificationCenter.default
+        center.addObserver(
+            context.coordinator, selector: #selector(Coordinator.sceneWillSwitch),
+            name: .openBookWillSwitchScene, object: book)
+        for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+            center.addObserver(
+                context.coordinator, selector: #selector(Coordinator.historyChanged), name: name, object: nil)
+        }
         field.bezelStyle = .roundedBezel
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
@@ -110,10 +135,20 @@ private struct TitleTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.book = book
-        context.coordinator.scene = scene
-        context.coordinator.focus = focus
+        let coordinator = context.coordinator
+        coordinator.book = book
+        coordinator.scene = scene
+        coordinator.focus = focus
+        (field.cell as? TitleField.Cell)?.history = book.titleUndo(for: scene)
         if field.currentEditor() == nil, field.stringValue != title { field.stringValue = title }
+        if coordinator.resumesEditing {
+            coordinator.resumesEditing = false
+            DispatchQueue.main.async { [weak field] in
+                guard let field, field.window?.makeFirstResponder(field) == true else { return }
+                let end = (field.stringValue as NSString).length
+                field.currentEditor()?.selectedRange = NSRange(location: end, length: 0)
+            }
+        }
         let enabled = context.environment.isEnabled
         if field.isEnabled != enabled || field.isEditable != enabled {
             if !enabled, field.currentEditor() != nil { field.window?.makeFirstResponder(nil) }
@@ -126,16 +161,59 @@ private struct TitleTextField: NSViewRepresentable {
         var book: AppOpenBook?
         var scene: SceneID?
         var focus: PageFocus?
+        weak var field: NSTextField?
+        /// The scene whose title is being edited: fixed when the editing begins, so typing
+        /// can't reach a scene opened since.
+        private var editing: SceneID?
+        /// Whether the title had the focus when the writer opened another scene.
+        var resumesEditing = false
+
+        @objc func sceneWillSwitch(_ notification: Notification) {
+            guard let field, field.currentEditor() != nil else { return }
+            resumesEditing = true
+            field.window?.makeFirstResponder(nil)
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            editing = scene
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            editing = nil
+        }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let book, let scene, let editor = Self.editor(notification) else { return }
+            guard let editor = Self.editor(notification) else { return }
+            sync(editor)
+        }
+
+        /// An undo or redo in the field changes its text without telling the field's delegate,
+        /// so the title is taken from the field editor here instead.
+        @objc func historyChanged(_ notification: Notification) {
+            guard let editor = field?.currentEditor() as? NSTextView,
+                let history = notification.object as? UndoManager, history === editor.undoManager
+            else { return }
+            sync(editor)
+        }
+
+        private func sync(_ editor: NSTextView) {
+            guard let book, let scene = editing ?? scene else { return }
             let typed = editor.string
             let title = SceneTitle(pasted: typed)
             book.setTitle(of: scene, to: title)
             guard !title.text.utf16.elementsEqual(typed.utf16) else { return }
+            // A backstop: the editor's veto keeps out what the title can't hold, so only an edit
+            // that skipped it gets here. Mid-undo the text is between two steps of a change that
+            // ends admitted, so it's left alone.
+            if let history = editor.undoManager, history.isUndoing || history.isRedoing { return }
             let caret = min(editor.selectedRange().location, (typed as NSString).length)
             let before = (typed as NSString).substring(to: caret)
-            editor.string = title.text
+            let all = NSRange(location: 0, length: (typed as NSString).length)
+            guard let storage = editor.textStorage,
+                editor.shouldChangeText(in: all, replacementString: title.text)
+            else { return }
+            storage.replaceCharacters(in: all, with: title.text)
+            editor.didChangeText()
             editor.setSelectedRange(NSRange(location: SceneTitle(pasted: before).text.utf16.count, length: 0))
         }
 
@@ -155,8 +233,9 @@ private struct TitleTextField: NSViewRepresentable {
     }
 }
 
-/// A text field with a field editor of its own, which checks spelling as the writer types. (The
-/// window's shared field editor serves every other field, which shouldn't.)
+/// A text field with a field editor of its own, which checks spelling as the writer types and has
+/// no input method (ADR 0028). (The window's shared field editor serves every other field, which
+/// shouldn't.)
 private final class TitleField: NSTextField {
     override class var cellClass: AnyClass? {
         get { Cell.self }
@@ -164,8 +243,15 @@ private final class TitleField: NSTextField {
     }
 
     final class Cell: NSTextFieldCell {
-        private lazy var editor: NSTextView = {
-            let editor = NSTextView()
+        /// The open scene's title history.
+        var history: UndoManager? {
+            get { editor.history }
+            set { editor.history = newValue }
+        }
+
+        private lazy var editor: Editor = {
+            let editor = Editor()
+            editor.admit = { SceneTitle(pasted: $0).text }
             editor.isFieldEditor = true
             editor.allowsUndo = true
             editor.isContinuousSpellCheckingEnabled = true
@@ -174,6 +260,14 @@ private final class TitleField: NSTextField {
 
         override func fieldEditor(for controlView: NSView) -> NSTextView? {
             editor
+        }
+    }
+
+    final class Editor: AdmittingTextView {
+        var history: UndoManager?
+
+        override var undoManager: UndoManager? {
+            history ?? super.undoManager
         }
     }
 }

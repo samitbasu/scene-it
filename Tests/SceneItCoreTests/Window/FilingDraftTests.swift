@@ -33,6 +33,16 @@ import Testing
         #expect(draft.tags == ["draft 4"])
     }
 
+    @Test func tagsAndTheNoteAreTransliteratedToASCII() {
+        var draft = FilingDraft(today: Self.today)
+        draft.pendingTag = "caf\u{E9} \u{2014} \u{1F3AC}"
+        draft.note = "\u{201C}Na\u{EF}ve\u{201D}\r\nend\u{2026}"
+        #expect(draft.pendingTag == "cafe -- [?]")
+        #expect(draft.note == "\"Naive\"\nend...")
+        draft.commitPendingTag()
+        #expect(draft.record.tags == ["cafe -- [?]"])
+    }
+
     @Test func deleteRemovesTheLastTagOnlyWhileNothingIsTyped() {
         var draft = FilingDraft(today: Self.today)
         for tag in ["one", "two"] {

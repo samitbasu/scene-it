@@ -11,8 +11,8 @@ public enum ArchiveIndexFormat {
     /// line, or a bad one: the archive gives the filed copy's modification day.
     public static func parse(_ bytes: Data, filed: (FiledCopyNumber) -> CalendarDay) -> ParsedArchiveIndex {
         let decoded = BookTextDecoder.decode(bytes)
-        let admitted = CharacterPolicy.admitLatin1(decoded.text)
-        let reader = IndexReader(lines: BookParser.lines(admitted.bytes), replacements: admitted.replacements)
+        let admitted = CharacterPolicy.fileText(decoded.text)
+        let reader = IndexReader(lines: BookParser.lines(admitted.bytes), changes: admitted.changes)
         reader.read()
         return reader.finish(windows1252ByteCount: decoded.windows1252ByteCount, filed: filed)
     }
@@ -81,7 +81,7 @@ private final class SectionDraft {
     /// Only the valid ones.
     var counts: [String: Int] = [:]
     var entries: [Positioned] = []
-    var replaced: [Unicode.Scalar] = []
+    var changed: [CharacterChange] = []
     var inUnparsed = false
 
     init(number: FiledCopyNumber) {
@@ -92,7 +92,7 @@ private final class SectionDraft {
         let day = filed ?? defaultDay(number)
         let notices =
             (keys.contains("filed") ? [] : [RepairNotice.missingFiledDate(setTo: day)])
-            + RepairNotice.replaced(replaced)
+            + RepairNotice.characters(changed)
         let ordered = Positioned.inFileOrder(entries)
         var cached: FiledCopyCounts?
         if let scenes = counts["scenes"], let words = counts["words"], let comments = counts["comments"] {
@@ -120,18 +120,18 @@ private final class IndexReader {
     private static let keys: Set = ["filed", "tags", "note", "scenes", "words", "comments"]
 
     private let lines: [[UInt8]]
-    private var replacements: ReplacementCursor
+    private var changes: ChangeCursor
     private var entries: [Positioned] = []
-    private var replaced: [Unicode.Scalar] = []
+    private var changed: [CharacterChange] = []
     private var frontMatterKeys: Set<String> = []
     private var format: Int?
     private var place = Place.preamble
     private var sections: [SectionDraft] = []
     private var entry: LogicalLine?
 
-    init(lines: [[UInt8]], replacements: [Replacement]) {
+    init(lines: [[UInt8]], changes: [CharacterChange]) {
         self.lines = lines
-        self.replacements = ReplacementCursor(replacements)
+        self.changes = ChangeCursor(changes)
     }
 
     func read() {
@@ -140,7 +140,7 @@ private final class IndexReader {
             self.frontMatter(lines[number], number)
         }
         for number in 0..<frontMatter.end {
-            replaced += replacements.through(line: number)
+            changed += changes.through(line: number)
         }
         for number in frontMatter.end..<lines.count {
             process(number)
@@ -168,9 +168,9 @@ private final class IndexReader {
             startSection(named: name)
         }
         if case .section(let section) = place {
-            section.replaced += replacements.through(line: number)
+            section.changed += changes.through(line: number)
         } else {
-            replaced += replacements.through(line: number)
+            changed += changes.through(line: number)
         }
         switch kind {
         case .heading(2, _):
@@ -274,7 +274,7 @@ private final class IndexReader {
         }
         var notices: [RepairNotice] = []
         if windows1252ByteCount > 0 { notices.append(.invalidUTF8(byteCount: windows1252ByteCount)) }
-        notices += RepairNotice.format(format) + RepairNotice.replaced(replaced)
+        notices += RepairNotice.format(format) + RepairNotice.characters(changed)
         let ordered = Positioned.inFileOrder(entries)
         let index = ArchiveIndex(
             copies: copies.sorted { $0.number < $1.number },

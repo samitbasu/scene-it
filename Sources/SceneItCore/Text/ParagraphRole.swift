@@ -21,14 +21,19 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
     public var paragraphStyle: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         switch self {
-        case .title, .notes:
+        case .title:
             break
+        case .notes:
+            style.paragraphSpacing = Self.notesParagraphGap
         case .body:
             style.lineHeightMultiple = 2
             style.firstLineHeadIndent = 36
         }
         return style
     }
+
+    /// Between the notes' paragraphs, which are otherwise single-spaced (the owner's pick, #19).
+    private static let notesParagraphGap: CGFloat = 6
 
     public func font(_ styles: Set<TextStyle>) -> NSFont {
         let traits = styles.reduce(into: baseTraits) { traits, style in
@@ -70,6 +75,16 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         switch self {
         case .title: Self.titleTypeface
         case .body, .notes: Self.textTypeface
+        }
+    }
+}
+
+extension TextPart {
+    /// How the part's paragraphs are displayed.
+    public var role: ParagraphRole {
+        switch self {
+        case .body: .body
+        case .notes: .notes
         }
     }
 }

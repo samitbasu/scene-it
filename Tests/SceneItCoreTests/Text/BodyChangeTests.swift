@@ -89,6 +89,6 @@ import Testing
 
     @Test func inputIsAdmittedWithoutAttachments() {
         #expect(
-            CharacterPolicy.admittedInput("“Hi”—\u{FFFC}\u{1F30A}\u{2028}é\r\nΩ") == "\"Hi\"--[?]\né\n[?]")
+            CharacterPolicy.admittedInput("“Hi”—\u{FFFC}\u{1F30A}\u{2028}é\r\nΩ") == "\"Hi\"--[?]\ne\n[?]")
     }
 }

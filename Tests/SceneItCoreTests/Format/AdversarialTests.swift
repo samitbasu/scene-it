@@ -52,9 +52,11 @@ import Testing
 
     // MARK: Escaping over books built through the model's API
 
-    static let latin1: [Character] = (Array(0x20...0x7E) + Array(0xA0...0xFF)).map {
-        Character(Unicode.Scalar(UInt8($0)))
-    }
+    /// Printable ASCII, and every character the transliteration table spells, which the model
+    /// admits as the book is built.
+    static let alphabet: [Character] =
+        (0x20...0x7E).map { Character(Unicode.Scalar(UInt8($0))) }
+        + Transliteration.table.keys.sorted().map(Character.init)
     static let tokens = [
         "# ", "## x", "### Notes", "# Boneyard", "- ", "-", "---", "<br>", "<BR/>", "<br />", "**", "*", "~~",
         "~",
@@ -63,7 +65,7 @@ import Testing
         "\u{A0}", "\u{AD}", "* * *", "***", "a*b*c", ":", "tags: a", "C:\\", "\u{1F30A}", "\u{2014}", "\t",
     ]
 
-    /// Random books over the whole of Latin-1 and every token that looks like structure.
+    /// Random books over `alphabet` and every token that looks like structure.
     struct Nasty {
         var random: SplitMix64
 
@@ -77,7 +79,7 @@ import Testing
                 switch int(0...4) {
                 case 0: result += pick(AdversarialTests.tokens)
                 case 1 where newlines: result += "\n"
-                default: result.append(pick(AdversarialTests.latin1))
+                default: result.append(pick(AdversarialTests.alphabet))
                 }
             }
             return result

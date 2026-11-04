@@ -99,21 +99,25 @@ struct FileACopyTests {
         }
     }
 
-    @Test func theTagFieldKeepsOnlyWhatTheIndexWill() throws {
-        var draft = FilingDraft(today: try #require(CalendarDay(year: 2026, month: 11, day: 3)))
-        let field = TagTextField.Coordinator(draft: Binding(get: { draft }, set: { draft = $0 }))
-        let editor = NSTextView()
-        let typed = "draft \u{1F3AC} 4\tlate"
-        editor.string = typed
-        editor.setSelectedRange(NSRange(location: (typed as NSString).length, length: 0))
-        field.controlTextDidChange(
-            Notification(
-                name: NSControl.textDidChangeNotification, object: NSTextField(),
-                userInfo: ["NSFieldEditor": editor]))
-        #expect(draft.pendingTag == CharacterPolicy.admittedLine(typed))
-        #expect(draft.pendingTag != typed, "precondition: the policy changed something")
-        #expect(editor.string == draft.pendingTag, "the field shows what the tag will keep")
-        #expect(editor.selectedRange().location == (draft.pendingTag as NSString).length)
+    /// The dialog's tags and note go through the character policy as the editors do (ADR
+    /// 0028): what's typed or pasted is transliterated to ASCII as it arrives.
+    @Test func theTagAndNoteFieldsAdmitWhatsTypedThroughTheCharacterPolicy() throws {
+        let typed = "caf\u{E9} \u{2014} \u{201C}na\u{EF}ve\u{201D}"
+        #expect(
+            CharacterPolicy.admittedLine(typed) == "cafe -- \"naive\"",
+            "precondition: the policy transliterates")
+        for (editor, admit) in [
+            (TagField.Cell().editor, CharacterPolicy.admittedLine),
+            (NoteTextView.editor(), CharacterPolicy.admittedInput),
+        ] {
+            #expect(editor.inputContext == nil, "no input method")
+            editor.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
+            #expect(editor.string == admit(typed))
+            let isASCII = editor.string.unicodeScalars.allSatisfy { $0.isASCII }
+            #expect(isASCII)
+            #expect(
+                editor.selectedRange() == NSRange(location: (editor.string as NSString).length, length: 0))
+        }
     }
 
     @Test func aReadOnlyBookHasNoFileACopy() async throws {

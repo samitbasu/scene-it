@@ -10,8 +10,21 @@ struct ErrorsTab: View {
     /// Kept here, by each entry's identity, so a row being fixed stays open while the rows
     /// around it change, and a fix that still doesn't read stays open on the edited line.
     @State private var fixes: [ErrorRef.Identity: Fix] = [:]
+    /// Deleting or fixing an entry gives the tab the focus, which it keeps, with a ring
+    /// around it, until Esc or a click goes back to the page; meanwhile Undo undoes the
+    /// tab's own operations.
+    @State private var focus = UndoFocusAnchor()
+    @Environment(\.pageFocus) private var pageFocus
 
     var body: some View {
+        entries
+            .background(
+                UndoFocusHolder(
+                    role: .errorsTab, anchor: focus,
+                    escape: { [pageFocus] in pageFocus?.focusBody() }))
+    }
+
+    @ViewBuilder private var entries: some View {
         let groups = book.book.errorGroups
         if groups.isEmpty {
             Text(ErrorsWording.empty)
@@ -33,9 +46,16 @@ struct ErrorsTab: View {
                             id: \.identity
                         ) {
                             row in
-                            ErrorRow(book: book, ref: row.ref, fix: $fixes[row.identity]) {
-                                apply($0, to: row.ref)
-                            }
+                            ErrorRow(
+                                book: book, ref: row.ref, fix: $fixes[row.identity],
+                                delete: {
+                                    focus.takeFocus()
+                                    book.deleteError(row.ref)
+                                },
+                                apply: {
+                                    focus.takeFocus()
+                                    apply($0, to: row.ref)
+                                })
                         }
                     }
                 }
@@ -88,6 +108,7 @@ private struct ErrorRow: View {
     let ref: ErrorRef
     /// The payload being fixed, while it is.
     @Binding var fix: ErrorsTab.Fix?
+    let delete: () -> Void
     let apply: (String) -> Void
 
     var body: some View {
@@ -104,7 +125,7 @@ private struct ErrorRow: View {
                             .disabled(!book.isEditable)
                     }
                     Spacer()
-                    Button(ErrorsWording.delete) { book.deleteError(ref) }
+                    Button(ErrorsWording.delete, action: delete)
                         .disabled(!book.isEditable)
                 }
                 .buttonStyle(.borderless)

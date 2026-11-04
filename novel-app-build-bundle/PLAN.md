@@ -399,7 +399,7 @@ All three tabs are view-only when a filed copy is open (§7.5).
 
 ### 8.6 Undo model
 - **Text:** each scene's page and notes have their own `UndoManager` stacks, kept for the session. They're not persisted.
-- **Comments:** comment actions register on the page's undo manager.
+- **Comments:** comment actions register on the undo manager of the text they were made in: the page's, or the notes' (comments can cover notes text too).
 - **Structure:** add, reorder, cut, restore and delete-permanently register on `BookStore.structureUndo`.
 - **Routing:** the toolbar Undo/Redo buttons and Cmd+Z / Shift+Cmd+Z go to the focused text view's undo manager. While the Scenes sheet is open, they go to `structureUndo`.
 
@@ -437,7 +437,7 @@ See `10-search-whole-book.png` and `11-search-file-cabinet-range.png`.
 - **Filed copies:** the first time a File Cabinet search runs, a background task decodes each `saveNNNN.json` and keeps only its search units in memory (about 1.2 MB of text per copy; 50 copies ≈ 60 MB). File a copy adds the new copy's units immediately.
 - **Copy-level tag units** come straight from `index.json`, so tag search over the cabinet is instant even before the copies have loaded. Editing tags updates them immediately.
 - **Matching:**
-  - case- and diacritic-insensitive (`.caseInsensitive`, `.diacriticInsensitive`), on whole words;
+  - case-insensitive, on whole words (ASCII lowercasing: since ADR 0028 the book holds only ASCII, and a query is admitted as the text is, so an accent typed in a query finds the plain letter);
   - simple word endings, so `bear` matches `bears` and `bear's`;
   - `"quotes"` for an exact phrase;
   - Match case and Whole word override the defaults.

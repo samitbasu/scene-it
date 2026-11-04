@@ -15,12 +15,31 @@ public enum WindowWording {
     public static let redo = "Redo"
     public static let zoomOut = "Zoom Out"
     public static let zoomIn = "Zoom In"
+
+    public static func zoomStep(_ step: ZoomStep) -> String {
+        switch step {
+        case .zoomIn: zoomIn
+        case .zoomOut: zoomOut
+        }
+    }
     public static let print = "Print"
     public static let exportToWord = "Export to Word"
     public static let fileACopy = "File a copy…"
 
     public static func zoom(_ zoom: Zoom) -> String {
         (Double(zoom)).formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    // MARK: View menu (PLAN §11)
+
+    public static let actualSize = "Actual Size"
+    public static let fitWidth = "Fit Width"
+
+    public static func sceneStep(_ step: SceneStep) -> String {
+        switch step {
+        case .previous: "Previous Scene"
+        case .next: "Next Scene"
+        }
     }
 
     public static let boneyard = "Boneyard"
@@ -82,8 +101,13 @@ public enum WindowWording {
     public static let noHighlight = "None"
     public static let showPalette = "Show the palette"
     public static let readAloud = "Read aloud"
-    /// The bar's tooltip while the page doesn't have the focus.
-    public static let clickInThePageToFormat = "Click in the page to format"
+    /// A bar's tooltip while its editor doesn't have the focus (PLAN §6.2; approved, #18, #19).
+    public static func clickToFormat(_ part: TextPart) -> String {
+        switch part {
+        case .body: "Click in the page to format"
+        case .notes: "Click in the notes to format"
+        }
+    }
 
     public static func style(_ style: TextStyle) -> String {
         switch style {

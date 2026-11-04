@@ -1313,6 +1313,24 @@ it dictionaries. The impure wrapper, `Archive.reconcile`, runs it when a book op
 when the book is editable (its lock is held) and something changed, and never when `index.md` couldn't be
 read: an index Scene It can't read may hold tags it would otherwise overwrite.
 
+### The dialog, and what the writer typed
+
+[`SceneIt/Window/FileACopy.swift`](../../SceneIt/Window/FileACopy.swift) holds the dialog
+(labels in a column, the archive box by the title, as the owner chose in #32), the toast
+above the status bar, and `FilingFlow`, which owns both for one window. The draft is
+`FilingDraft` in the core, so its rules (Return adds a chip, ⌫ in an empty field removes the
+last, a repeated tag is ignored) are unit-tested without a window.
+
+Text typed in the dialog goes through the same character policy as the page (ADR 0028). The
+tag field's field editor and the note are `AdmittingTextView`s: `KeyboardTextView`s with no
+input method that veto a change they can't hold and make its admitted reading instead, the
+same class the scene title uses. `FilingDraft` admits again on every assignment, so the model
+can't hold what `index.md` won't keep.
+
+The dialog stays up until the copy is filed, so a failure loses nothing typed. If the copy is
+filed but the index can't be written, the open book keeps the record as pending, and the next
+save or filing writes it. Every alert that might lose text quotes the tags and note back.
+
 ### Three layers keep a filed copy unchanged
 
 1. **Nothing writes there.** Rotation, snapshots, pruning and the stray-temporary-file sweeps only list the

@@ -6,7 +6,7 @@ public struct SearchOptions: OptionSet, Hashable, Sendable {
         self.rawValue = rawValue
     }
 
-    /// Case is significant. Diacritics never are.
+    /// Case is significant. (Model text is ASCII, so there are no diacritics to consider.)
     public static let matchCase = SearchOptions(rawValue: 1 << 0)
     /// A word matches only itself, without the endings `SearchText.stem` removes.
     public static let wholeWord = SearchOptions(rawValue: 1 << 1)
