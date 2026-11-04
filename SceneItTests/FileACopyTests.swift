@@ -43,6 +43,8 @@ struct FileACopyTests {
             let (tags, field, editor) = try Self.tagField(flow)
             for tag in ["draft 4", "oops"] {
                 editor.insertText(tag, replacementRange: NSRange(location: 0, length: 0))
+                try await Task.sleep(for: .milliseconds(50))
+                #expect(editor.undoManager?.canUndo == true, "precondition: the typing can be undone")
                 #expect(tags.control(field, textView: editor, doCommandBy: Self.newline))
                 #expect(editor.string.isEmpty, "Return empties the field")
                 #expect(editor.undoManager?.canUndo == false, "the added tag's text can't be undone back")
@@ -142,47 +144,135 @@ struct FileACopyTests {
         }
     }
 
+    /// `view` in an offscreen window of its own, laid out, for `body`; the window is closed after.
+    @MainActor
+    private static func inWindow<T>(_ view: some View, _ body: (NSWindow) async throws -> T) async throws -> T
+    {
+        let window = NSWindow(
+            contentRect: NSRect(x: -30000, y: -30000, width: 500, height: 400), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: view)
+        window.orderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        return try await body(window)
+    }
+
     /// The dialog's tags and note go through the character policy as the editors do (ADR
     /// 0028): what's typed or pasted is transliterated to ASCII as it arrives, as one undoable
-    /// step, with no input method.
+    /// step on the editor's real history, with no input method and on TextKit 2.
     @Test func theTagAndNoteEditorsAdmitWhatsTypedAndPastedThroughTheCharacterPolicy() async throws {
         let typed = "caf\u{E9} \u{2014} \u{201C}na\u{EF}ve\u{201D}"
         #expect(
             CharacterPolicy.admittedLine(typed) == "cafe -- \"naive\"",
             "precondition: the policy transliterates")
-        var draft = FilingDraft(today: try #require(CalendarDay(year: 2026, month: 11, day: 3)))
-        let binding = Binding(get: { draft }, set: { draft = $0 })
-        let tagCoordinator = TagTextField.Coordinator(draft: binding)
-        let noteCoordinator = NoteTextView.Coordinator(draft: binding)
-        let tags = TagTextField.field("", tagCoordinator)
-        let note = NoteTextView.editor(noteCoordinator)
-        note.history = UndoManager()
-        let editors = [
-            (try #require(tags.editor), CharacterPolicy.admittedLine), (note, CharacterPolicy.admittedInput),
-        ]
-        for (editor, admit) in editors {
-            #expect(editor.inputContext == nil, "no input method")
-            editor.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
-            #expect(editor.string == admit(typed))
-            let isASCII = editor.string.unicodeScalars.allSatisfy { $0.isASCII }
-            #expect(isASCII)
-            #expect(
-                editor.selectedRange() == NSRange(location: (editor.string as NSString).length, length: 0))
-            try await Task.sleep(for: .milliseconds(50))
-            let history = try #require(editor.undoManager)
-            history.undo()
-            #expect(editor.string.isEmpty, "the admitted typing is one undoable step")
-            #expect(!history.canUndo)
-
-            try await PageHarness.withPasteboard { pasteboard in
-                pasteboard.clearContents()
-                pasteboard.setString(typed, forType: .string)
-                #expect(editor.readSelection(from: pasteboard))
-                #expect(editor.string == admit(typed), "a paste is admitted too")
+        let flow = DraftBox(FilingDraft(today: try #require(CalendarDay(year: 2026, month: 11, day: 3))))
+        let dialog = FileACopyDialog(
+            draft: Binding(get: { flow.draft }, set: { flow.draft = $0 }), stage: .editing, cancel: {},
+            confirm: {})
+        try await Self.inWindow(dialog) { window in
+            let views = subviewTree(of: window.contentView)
+            let field = try #require(views.compactMap { $0 as? AdmittingTextField }.first)
+            let note = try #require(views.compactMap { $0 as? AdmittingTextView }.first, "the note's editor")
+            #expect(window.makeFirstResponder(field))
+            let tagEditor = try #require(
+                field.currentEditor() as? AdmittingTextView, "the field's own editor")
+            for (editor, admit, kept) in [
+                (tagEditor, CharacterPolicy.admittedLine, { flow.draft.pendingTag }),
+                (note, CharacterPolicy.admittedInput, { flow.draft.note }),
+            ] {
+                if editor === note { #expect(window.makeFirstResponder(note)) }
+                #expect(editor.inputContext == nil, "no input method")
+                #expect(editor.textLayoutManager != nil, "TextKit 2")
+                let history = try #require(editor.undoManager)
+                if editor === note {
+                    #expect(history === window.undoManager, "the note undoes as the window does")
+                }
+                history.removeAllActions()
+                for paste in [false, true] {
+                    if paste {
+                        try await PageHarness.withPasteboard { pasteboard in
+                            pasteboard.clearContents()
+                            pasteboard.setString(typed, forType: .string)
+                            #expect(editor.readSelection(from: pasteboard))
+                        }
+                    } else {
+                        editor.insertText(typed, replacementRange: editor.selectedRange())
+                    }
+                    let how = paste ? "pasted" : "typed"
+                    #expect(editor.string == admit(typed), "\(how)")
+                    #expect(kept() == admit(typed), "the draft holds what's shown, \(how)")
+                    let isASCII = editor.string.unicodeScalars.allSatisfy { $0.isASCII }
+                    #expect(isASCII)
+                    #expect(
+                        editor.selectedRange()
+                            == NSRange(location: (editor.string as NSString).length, length: 0),
+                        "the caret follows the admitted text, \(how)")
+                    try await Task.sleep(for: .milliseconds(50))
+                    history.undo()
+                    #expect(editor.string.isEmpty, "one undo takes it back, \(how)")
+                    #expect(!history.canUndo, "it was one step, \(how)")
+                }
             }
-            editor.string = ""
         }
-        withExtendedLifetime((tagCoordinator, noteCoordinator)) {}
+    }
+
+    /// The title field as `NSTextField(string:)` made it on main: the same font, and it scrolls
+    /// sideways so the caret stays visible in a title wider than the field.
+    @Test func theTitleFieldScrollsAndKeepsItsFont() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let store = books.store
+            let url = folder.appending(path: "Title 32.sceneit", directoryHint: .isDirectory)
+            #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
+            let scene = try #require(book.addScene(after: nil))
+            book.setTitle(of: scene, to: SceneTitle(String(repeating: "A very long scene title ", count: 12)))
+            let window = BookWindow(
+                book: book, store: store, preferences: books.preferences,
+                formatting: EditorFormatting(preferences: books.preferences), mode: .constant(.page))
+            let fieldsMatch = { (field: NSTextField) in field.font == NSTextField(string: "").font }
+            try await WindowRenders.withWindow(window) { window in
+                let title = try #require(
+                    subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first {
+                        $0.placeholderString == WindowWording.untitledScene
+                    })
+                #expect(window.makeFirstResponder(title))
+                let editor = try #require(title.currentEditor() as? NSTextView)
+                let end = (editor.string as NSString).length
+                editor.setSelectedRange(NSRange(location: end, length: 0))
+                editor.scrollRangeToVisible(NSRange(location: end, length: 0))
+            } capture: { window in
+                let title = try #require(
+                    subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first {
+                        $0.placeholderString == WindowWording.untitledScene
+                    })
+                #expect(title.cell?.isScrollable == true)
+                let onMain = NSTextField(string: "")
+                onMain.lineBreakMode = .byTruncatingTail
+                onMain.cell?.isScrollable = true
+                #expect(
+                    title.lineBreakMode == onMain.lineBreakMode, "as main's order of setting them leaves it")
+                #expect(fieldsMatch(title), "the font NSTextField(string:) gives")
+                let editor = try #require(title.currentEditor() as? NSTextView)
+                #expect(
+                    editor.frame.width > title.bounds.width, "precondition: the title is wider than the field"
+                )
+                let clip = try #require(editor.superview as? NSClipView)
+                #expect(clip.bounds.minX > 0, "scrolled so the caret at the end shows")
+            }
+            let tags = TagTextField.field(
+                "",
+                TagTextField.Coordinator(
+                    draft: .constant(FilingDraft(today: CalendarDay(.now, in: .current)))))
+            #expect(fieldsMatch(tags), "and so does the tag field")
+            #expect(tags.cell?.isScrollable == true)
+            #expect(await store.closeBook() == .left)
+        }
     }
 
     /// File a Copy on a book that opened read-only: nothing is filed, and the writer is told.
@@ -264,5 +354,15 @@ struct FileACopyTests {
             filing.cancel()
             #expect(await store.closeBook() == .left)
         }
+    }
+}
+
+/// A draft a test's dialog edits.
+@MainActor
+private final class DraftBox {
+    var draft: FilingDraft
+
+    init(_ draft: FilingDraft) {
+        self.draft = draft
     }
 }

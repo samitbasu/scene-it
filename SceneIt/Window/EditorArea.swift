@@ -115,7 +115,7 @@ private struct TitleTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> AdmittingTextField {
         let editor = AdmittingTextView.fieldEditor(admitting: { SceneTitle(pasted: $0).text })
         editor.isContinuousSpellCheckingEnabled = true
-        let field = AdmittingTextField(string: title, editor: editor)
+        let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
         context.coordinator.field = field
         let center = NotificationCenter.default
         center.addObserver(
@@ -128,7 +128,6 @@ private struct TitleTextField: NSViewRepresentable {
         field.bezelStyle = .roundedBezel
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
-        field.lineBreakMode = .byTruncatingTail
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.delegate = context.coordinator
         focus.title = field

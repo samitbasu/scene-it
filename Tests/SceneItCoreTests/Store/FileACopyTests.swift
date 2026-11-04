@@ -266,6 +266,85 @@ struct FileACopyTests {
         }
     }
 
+    @Test func switchingBooksWithTypedTextAndCancelStaysWithTheDialog() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([UnfiledDraftChoice.cancel])
+            let store = makeStore(in: folder, prompts: prompts)
+            let other = try await createBook("Other", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.filingDraft = Self.typedDraft()
+
+            #expect(await store.open(other) == .stayed)
+
+            #expect(prompts.titles == [Self.closeTitle])
+            #expect(store.current === book)
+            #expect(book.filingDraft == Self.typedDraft())
+        }
+    }
+
+    /// Choosing "… Anyway" loses the typed text only if the book is really left: when the leave
+    /// then stops (a save fails and the writer cancels, the next book won't open), the dialog
+    /// still holds it.
+    enum LeavePath: CaseIterable {
+        case quit, close, switchBooks
+    }
+
+    @Test(arguments: LeavePath.allCases)
+    func leaveAnywayThenStayingKeepsTheTypedText(_ path: LeavePath) async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([UnfiledDraftChoice.leaveAnyway, QuitAlertChoice.cancel])
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            let fileSystem = FaultInjectingFileSystem(root: url)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.filingDraft = Self.typedDraft()
+
+            switch path {
+            case .quit, .close:
+                book.write("Unsaved, and the save will fail")
+                fileSystem.inject(.fail(.writeTemporary("book.md")))
+                let outcome = path == .quit ? await store.prepareToQuit() : await store.closeBook()
+                #expect(outcome == .stayed)
+                #expect(prompts.titles.count == 2, "asked about the dialog, then about the failed save")
+                fileSystem.clearFault()
+            case .switchBooks:
+                let missing = folder.appending(path: "Missing.sceneit", directoryHint: .isDirectory)
+                guard case .failed = await store.open(missing) else {
+                    Issue.record("precondition: the next book doesn't open")
+                    return
+                }
+            }
+
+            #expect(store.current === book)
+            #expect(book.filingDraft == Self.typedDraft(), "the dialog still holds what was typed")
+        }
+    }
+
+    @Test func theLeavePromptSaysWhatWasTyped() throws {
+        let day = Self.record.filed
+        let tagsOnly = FilingRecord(filed: day, tags: ["draft 4"])
+        let noteOnly = FilingRecord(filed: day, note: "Before the ending")
+        let both = FilingRecord(filed: day, tags: ["draft 4"], note: "Before the ending")
+        for (record, sentence) in [
+            (tagsOnly, "The tags you typed haven't been filed."),
+            (noteOnly, "The note you typed hasn't been filed."),
+            (both, "The tags and note you typed haven't been filed."),
+        ] {
+            let message = ArchiveWording.unfiledDraftAlert(record, leaving: .quit).message
+            #expect(message == sentence + ArchiveWording.typed(record), "\(sentence)")
+        }
+        var halfTyped = FilingDraft(today: day)
+        halfTyped.pendingTag = "half typ"
+        #expect(halfTyped.holdsTypedText)
+        #expect(
+            ArchiveWording.unfiledDraftAlert(halfTyped.record, leaving: .closeBook).message
+                .hasPrefix("The tags you typed haven't been filed."), "a tag still being typed counts as tags"
+        )
+    }
+
     @Test func leavingWithAnEmptyDialogDoesntAsk() async throws {
         try await withTemporaryFolder { folder in
             let prompts = ScriptedPrompts()

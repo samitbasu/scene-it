@@ -74,8 +74,18 @@ public enum ArchiveWording {
             }
         return UnfiledDraftAlert(
             title: "\(verb) without filing the copy?",
-            message: "The tags and note you typed haven't been filed." + typed(record),
+            message: unfiled(record) + typed(record),
             buttons: [.init(choice: .cancel, label: cancel), .init(choice: .leaveAnyway, label: anyway)])
+    }
+
+    /// What wasn't filed, as the writer typed it: tags (a tag still being typed counts), a
+    /// note, or both.
+    static func unfiled(_ record: FilingRecord) -> String {
+        switch (!record.tags.isEmpty, !record.note.isEmpty) {
+        case (true, false): "The tags you typed haven't been filed."
+        case (false, true): "The note you typed hasn't been filed."
+        case (true, true), (false, false): "The tags and note you typed haven't been filed."
+        }
     }
 
     /// "Your tags: "draft 4", "before the ending". Your note: "Before the rewrite"."

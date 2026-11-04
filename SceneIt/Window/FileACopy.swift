@@ -213,7 +213,7 @@ struct TagTextField: NSViewRepresentable {
     static func field(_ text: String, _ coordinator: Coordinator) -> AdmittingTextField {
         let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
         editor.history = coordinator.history
-        let field = AdmittingTextField(string: text, editor: editor)
+        let field = AdmittingTextField(string: text, editor: editor, lineBreakMode: .byClipping)
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -366,22 +366,29 @@ private struct ChipFlow: Layout {
         var items: [(Int, CGSize)] = []
         var width: CGFloat = 0
         var height: CGFloat = 0
+
+        private func gap(_ spacing: ChipSpacing) -> CGFloat {
+            items.isEmpty ? 0 : spacing.points
+        }
+
+        /// An empty line takes anything.
+        func fits(_ size: CGSize, _ spacing: ChipSpacing, _ line: LineWidth) -> Bool {
+            items.isEmpty || width + gap(spacing) + size.width <= line.points
+        }
+
+        mutating func add(_ index: Int, _ size: CGSize, _ spacing: ChipSpacing) {
+            width += gap(spacing) + size.width
+            height = max(height, size.height)
+            items.append((index, size))
+        }
     }
 
     private func arrange(_ subviews: Subviews, within line: LineWidth) -> [Row] {
         var rows = [Row()]
         for index in subviews.indices {
             let size = subviews[index].sizeThatFits(.unspecified)
-            let gap = rows[rows.count - 1].items.isEmpty ? 0 : spacing.points
-            if !rows[rows.count - 1].items.isEmpty,
-                rows[rows.count - 1].width + gap + size.width > line.points
-            {
-                rows.append(Row())
-            }
-            let placedGap = rows[rows.count - 1].items.isEmpty ? 0 : spacing.points
-            rows[rows.count - 1].items.append((index, size))
-            rows[rows.count - 1].width += placedGap + size.width
-            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+            if !rows[rows.count - 1].fits(size, spacing, line) { rows.append(Row()) }
+            rows[rows.count - 1].add(index, size, spacing)
         }
         return rows
     }

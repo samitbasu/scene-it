@@ -492,14 +492,24 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
+    /// Before the writer leaves the book: if File a Copy's dialog holds typed text, asks whether
+    /// to leave it unfiled. The draft stays as it is either way; it goes with the book only if
+    /// the book really is left, so a leave that fails later (a save, the next book) loses nothing.
+    func confirmLeaving(_ leaving: Leaving, asking prompts: any StorePrompts) async -> LeaveConfirmation {
+        guard let draft = filingDraft, draft.holdsTypedText else { return .leave }
+        switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record, leaving: leaving)) {
+        case .cancel: return .stay
+        case .leaveAnyway: return .leave
+        }
+    }
+
+    enum LeaveConfirmation {
+        case leave
+        case stay
+    }
+
     /// Saves before the writer leaves the book, asking whenever that would lose edits.
     func settle(before leaving: Leaving, asking prompts: any StorePrompts) async -> Settled {
-        if let draft = filingDraft, draft.holdsTypedText {
-            switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record, leaving: leaving)) {
-            case .cancel: return .stay
-            case .leaveAnyway: filingDraft = nil
-            }
-        }
         guard let driver = autosave else { return .saved }
         while true {
             let verdict: QuitVerdict

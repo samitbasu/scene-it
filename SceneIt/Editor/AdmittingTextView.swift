@@ -81,10 +81,18 @@ final class AdmittingTextField: NSTextField {
         }
     }
 
-    init(string: String, editor: AdmittingTextView) {
+    /// As `NSTextField(string:)` makes one: editable, selectable, bezeled, scrolling sideways as
+    /// the text grows (`init(frame:)` already gives its font). `lineBreakMode` is set before
+    /// scrolling is, since setting it turns scrolling off.
+    init(string: String, editor: AdmittingTextView, lineBreakMode: NSLineBreakMode) {
         super.init(frame: .zero)
         (cell as? Cell)?.editor = editor
         stringValue = string
+        isEditable = true
+        isSelectable = true
+        isBezeled = true
+        drawsBackground = true
+        self.lineBreakMode = lineBreakMode
         cell?.usesSingleLineMode = true
         cell?.wraps = false
         cell?.isScrollable = true

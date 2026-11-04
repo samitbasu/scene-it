@@ -74,7 +74,10 @@ struct BookWindow: View {
         .sheet(isPresented: isDialogUp) {
             FileACopyDialog(
                 draft: draft, stage: filing.stage, cancel: { filing.cancel() },
-                confirm: { Task { await filing.confirm(in: store) } })
+                confirm: { Task { await filing.confirm(in: store) } }
+            )
+            .environment(undo)
+            .focusedSceneValue(\.undoRouter, undo)
         }
     }
 

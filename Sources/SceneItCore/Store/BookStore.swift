@@ -241,6 +241,7 @@ public final class BookStore<C: Clock<Duration>> {
     private func switchBooks<Failure>(
         to url: URL, obtaining next: () async -> Result<LoadedBook, Failure>
     ) async -> Switch<Failure> {
+        guard await confirmLeavingCurrent(.closeBook) == .leave else { return .stayed }
         var settled = await settleCurrent(before: .closeBook)
         guard settled != .stay else { return .stayed }
         let loaded: LoadedBook
@@ -378,6 +379,7 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func closeBook() async -> LeaveOutcome {
         await exclusively {
+            guard await confirmLeavingCurrent(.closeBook) == .leave else { return .stayed }
             let settled = await settleCurrent(before: .closeBook)
             guard settled != .stay else { return .stayed }
             await replaceCurrent(with: nil, after: settled)
@@ -390,6 +392,7 @@ public final class BookStore<C: Clock<Duration>> {
     public func prepareToQuit() async -> LeaveOutcome {
         await exclusively {
             guard let book = current else { return .left }
+            guard await book.confirmLeaving(.quit, asking: prompts) == .leave else { return .stayed }
             switch await book.settle(before: .quit, asking: prompts) {
             case .stay:
                 return .stayed
@@ -414,6 +417,11 @@ public final class BookStore<C: Clock<Duration>> {
     }
 
     // MARK: Helpers
+
+    /// Asked once per leave, before any saving, however many times the leave settles.
+    private func confirmLeavingCurrent(_ leaving: Leaving) async -> OpenBook<C>.LeaveConfirmation {
+        await current?.confirmLeaving(leaving, asking: prompts) ?? .leave
+    }
 
     private func settleCurrent(before leaving: Leaving) async -> OpenBook<C>.Settled {
         await current?.settle(before: leaving, asking: prompts) ?? .saved
