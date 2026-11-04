@@ -26,8 +26,7 @@ final class SceneTextEditor: NSObject {
     private var sync = Sync.inStep
     /// Comments a paste is adding, handed to the model with the text that carries them.
     private var pastedComments: [Comment] = []
-    /// What `reveal` selects once the view shows its scene.
-    private var pendingReveal: (scene: SceneID, range: NSRange)?
+    private var pendingReveal = PendingSelection()
 
     /// Our own type first; then rich text, so pasted bold and italic survive; then plain.
     static let readableTypes: [NSPasteboard.PasteboardType] = [.pageClip, .rtf, .rtfd, .html, .string]
@@ -92,22 +91,19 @@ final class SceneTextEditor: NSObject {
             if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
             showFormatting()
         }
-        if let pending = pendingReveal, pending.scene == scene, editability == .editable || !book.isEditable {
-            pendingReveal = nil
-            select(pending.range, in: view)
+        if let range = pendingReveal.take(showing: scene) {
+            select(range, in: view)
         }
     }
 
-    /// Selects `range` of `scene`'s text, scrolled into view and with the focus, the next time
-    /// the view shows `scene` outside a sheet: a search result being opened (PLAN §9.1).
+    /// Selects `range` of `scene`'s text, scrolled into view and with the focus, when the view
+    /// next shows `scene`: a search result being opened (PLAN §9.1).
     func reveal(_ range: NSRange, in scene: SceneID) {
-        pendingReveal = (scene, range)
+        pendingReveal.set(range, in: scene)
     }
 
     private func select(_ range: NSRange, in view: SceneTextView) {
-        let length = view.textStorage?.length ?? 0
-        let location = min(range.location, length)
-        let selection = NSRange(location: location, length: min(range.length, length - location))
+        let selection = range.clamped(toLength: view.textStorage?.length ?? 0)
         view.setSelectedRange(selection)
         view.scrollRangeToVisible(selection)
         // The sheet's focus holder leaves the window in this same update.

@@ -72,7 +72,7 @@ struct BookWindow: View {
         .focusedSceneValue(\.undoRouter, undo)
         .onChange(of: mode, initial: true) {
             undo.mode = mode
-            if mode == .search { search.refresh() }
+            if mode == .search { search.refresh() } else { search.close() }
         }
         .onAppear {
             search.opener = SearchOpener(

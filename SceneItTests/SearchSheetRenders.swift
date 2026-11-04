@@ -57,12 +57,16 @@ extension WindowRenders {
             formatting: EditorFormatting(preferences: preferences), mode: .constant(.search), search: model)
     }
 
-    /// Renders the sheet after `prepare` sets up the model, once its search is complete.
+    /// Renders the sheet once `prepare` has set up the model and the search it started is
+    /// complete (`settle`), so no render catches a search in progress.
     private static func renderSheet(
         _ store: AppBookStore, _ book: AppOpenBook, _ preferences: AppPreferences, _ model: SearchSheetModel,
-        _ prepare: @escaping (SearchSheetModel) -> Void
+        _ prepare: @escaping (SearchSheetModel) async -> Void
     ) async throws -> Renders {
-        try await render(sheet(store, book, preferences, model)) { _ in prepare(model) }
+        try await render(sheet(store, book, preferences, model)) { _ in
+            await prepare(model)
+            await model.settle()
+        }
     }
 
     @Test func searchSheet() async throws {
@@ -70,12 +74,11 @@ extension WindowRenders {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withSearchSheet { store, book, preferences, model in
             @MainActor func state(
-                _ name: String, _ caption: String, _ prepare: @escaping (SearchSheetModel) -> Void
+                _ name: String, _ caption: String, _ prepare: @escaping (SearchSheetModel) async -> Void
             )
                 async throws
             {
                 let renders = try await Self.renderSheet(store, book, preferences, model, prepare)
-                await model.settle()
                 try Self.write(renders, name: name, caption: caption, to: output, beside: Self.searchMockup)
             }
             try await state("search-prompt", "Nothing typed yet") { $0.text = "" }
@@ -86,6 +89,7 @@ extension WindowRenders {
             try #require(Self.listing(model)?.quality == .exact, "precondition: exact matches")
             try await state("search-exact-expanded", "\"letter\", the first scene's +N more opened") {
                 $0.text = "letter"
+                await $0.settle()
                 if let first = Self.listing($0)?.scenes.first { $0.toggleExpanded(first) }
             }
             try await state("search-near", "\"found the ring\": no exact matches, the best 20 scenes") {
@@ -95,6 +99,8 @@ extension WindowRenders {
             let near = try #require(Self.listing(model))
             #expect(near.quality == .near && near.hiddenSceneCount > 0, "precondition: capped near matches")
             let end = try await Self.render(Self.sheet(store, book, preferences, model)) { window in
+                await model.settle()
+                window.contentView?.layoutSubtreeIfNeeded()
                 for scroll in subviewTree(of: window.contentView).compactMap({ $0 as? NSScrollView })
                 where !(scroll is DeskView) {
                     scroll.documentView?.scroll(NSPoint(x: 0, y: scroll.documentView?.bounds.maxY ?? 0))

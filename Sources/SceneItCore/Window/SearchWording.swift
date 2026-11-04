@@ -53,6 +53,14 @@ public enum SearchWording {
         "\(self.matches(matches)) in \(self.scenes(scenes))"
     }
 
+    /// "No exact matches · Near matches · 66 matches in 26 scenes".
+    public static func nearSummary(matches: Int, scenes: Int) -> String {
+        "\(noExactMatches) · \(summary(matches: matches, scenes: scenes))"
+    }
+
+    /// After a Boneyard scene's title in its result group: " · Boneyard".
+    public static let boneyardSuffix = " · \(WindowWording.boneyard)"
+
     public static func moreInScene(_ count: Int) -> String {
         "+\(count.formatted()) more in this scene"
     }
@@ -85,6 +93,4 @@ public enum SearchWording {
     public static func sceneTitle(_ title: String) -> String {
         title.isEmpty ? WindowWording.untitledScene : title
     }
-
-    public static let boneyard = WindowWording.boneyard
 }

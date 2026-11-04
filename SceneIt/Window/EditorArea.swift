@@ -155,13 +155,12 @@ private struct TitleTextField: NSViewRepresentable {
             field.isEnabled = enabled
             field.isEditable = enabled
         }
-        if enabled, let range = focus.takeTitleSelection() {
+        // A read-only book's title can't take the focus, so its selection is dropped.
+        if let range = focus.titleSelection.take(showing: scene), enabled {
             DispatchQueue.main.async { [weak field] in
                 guard let field, field.window?.makeFirstResponder(field) == true else { return }
                 let length = (field.stringValue as NSString).length
-                let location = min(range.location, length)
-                field.currentEditor()?.selectedRange = NSRange(
-                    location: location, length: min(range.length, length - location))
+                field.currentEditor()?.selectedRange = range.clamped(toLength: length)
             }
         }
     }

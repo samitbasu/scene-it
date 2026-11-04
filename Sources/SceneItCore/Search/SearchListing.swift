@@ -76,6 +76,8 @@ public enum SearchTarget: Hashable, Sendable {
     case text(TextPart, Range<Int>)
     case comment(CommentID)
     case tags
+    /// The scene, with nothing selected: the hit's text is no longer what the book holds.
+    case scene
 }
 
 extension SearchHit {
@@ -84,27 +86,29 @@ extension SearchHit {
         highlights.first { $0.kind == .match }?.range ?? 0..<0
     }
 
-    /// Where opening the hit goes in `scene`, as the book holds it now. A paragraph that has
-    /// since gone selects the end of the part.
+    /// Where opening the hit goes in `scene`, as the book holds it now. A hit whose text the
+    /// book no longer holds there selects nothing, since its offsets would land on other words.
     public func target(in scene: BookScene) -> SearchTarget {
         switch unit.field {
-        case .title: .title(firstMatch)
-        case .body(let paragraph): .text(.body, Self.offset(firstMatch, paragraph, of: scene.body))
-        case .notes(let paragraph): .text(.notes, Self.offset(firstMatch, paragraph, of: scene.notes))
-        case .comment(let id): .comment(id)
-        case .tags: .tags
+        case .title:
+            scene.title.text == unit.text ? .title(firstMatch) : .scene
+        case .body(let paragraph):
+            text(.body, paragraph, of: scene.body)
+        case .notes(let paragraph):
+            text(.notes, paragraph, of: scene.notes)
+        case .comment(let id):
+            scene.comments.contains { $0.id == id } ? .comment(id) : .scene
+        case .tags:
+            .tags
         }
     }
 
-    private static func offset(_ range: Range<Int>, _ paragraph: Int, of paragraphs: [Paragraph]) -> Range<
-        Int
-    > {
-        let start = paragraphs.prefix(paragraph).reduce(0) { $0 + $1.text.utf16.count + 1 }
-        guard paragraph < paragraphs.count else {
-            let end = max(0, start - 1)
-            return end..<end
+    private func text(_ part: TextPart, _ paragraph: Int, of paragraphs: [Paragraph]) -> SearchTarget {
+        guard paragraphs.indices.contains(paragraph), paragraphs[paragraph].text == unit.text else {
+            return .scene
         }
-        return (start + range.lowerBound)..<(start + range.upperBound)
+        let start = paragraphs.prefix(paragraph).reduce(0) { $0 + $1.text.utf16.count + 1 }
+        return .text(part, (start + firstMatch.lowerBound)..<(start + firstMatch.upperBound))
     }
 }
 

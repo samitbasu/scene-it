@@ -64,17 +64,7 @@ final class PageFocus {
         title.window?.makeFirstResponder(title)
     }
 
-    private var pendingTitleSelection: NSRange?
-
-    /// Selects `range` of the title, with the focus, the next time the title field is updated
-    /// outside a sheet: a search result being opened (PLAN §9.1).
-    func selectTitle(_ range: NSRange) {
-        pendingTitleSelection = range
-    }
-
-    /// The pending title selection, once.
-    func takeTitleSelection() -> NSRange? {
-        defer { pendingTitleSelection = nil }
-        return pendingTitleSelection
-    }
+    /// What the title field selects when it next shows the scene: a search result being opened
+    /// (PLAN §9.1).
+    var titleSelection = PendingSelection()
 }

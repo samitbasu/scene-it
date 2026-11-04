@@ -94,17 +94,24 @@ private struct SearchResults: View {
             case .noSceneOpen:
                 summary(SearchWording.noSceneOpen)
             case .searching:
-                summary(SearchWording.searching, searching: true)
+                summary(SearchWording.searching, .searching)
             case .results(let listing, let staleness):
-                results(listing, searching: staleness == .stale || listing.progress != .complete)
+                let activity: Activity =
+                    staleness == .stale || listing.progress != .complete ? .searching : .done
+                results(listing, activity)
             }
         }
     }
 
-    private func summary(_ text: String, searching: Bool = false) -> some View {
+    /// Whether a search is still to report, which the summary shows with a spinner.
+    private enum Activity {
+        case searching, done
+    }
+
+    private func summary(_ text: String, _ activity: Activity = .done) -> some View {
         HStack(spacing: 8) {
             Text(text)
-            if searching {
+            if activity == .searching {
                 ProgressView().controlSize(.small)
             }
         }
@@ -112,17 +119,18 @@ private struct SearchResults: View {
         .foregroundStyle(.secondary)
     }
 
-    @ViewBuilder private func results(_ listing: SearchListing, searching: Bool) -> some View {
+    @ViewBuilder private func results(_ listing: SearchListing, _ activity: Activity) -> some View {
         if listing.sceneCount == 0 {
-            summary(searching ? SearchWording.searching : SearchWording.noMatches, searching: searching)
+            summary(activity == .searching ? SearchWording.searching : SearchWording.noMatches, activity)
         } else {
-            let counts = SearchWording.summary(matches: listing.hitCount, scenes: listing.sceneCount)
             switch listing.quality {
-            case .exact: summary(counts, searching: searching)
-            case .near: summary("\(SearchWording.noExactMatches) · \(counts)", searching: searching)
+            case .exact:
+                summary(SearchWording.summary(matches: listing.hitCount, scenes: listing.sceneCount), activity)
+            case .near:
+                summary(SearchWording.nearSummary(matches: listing.hitCount, scenes: listing.sceneCount), activity)
             }
             LazyVStack(alignment: .leading, spacing: WindowMetrics.Search.groupSpacing) {
-                ForEach(listing.scenes, id: \.self) { hits in
+                ForEach(listing.scenes, id: \.key) { hits in
                     SceneGroup(model: model, hits: hits)
                 }
             }
@@ -143,7 +151,7 @@ private struct SceneGroup: View {
         let expanded = model.isExpanded(hits)
         VStack(alignment: .leading, spacing: 0) {
             header
-            ForEach(expanded ? hits.hits : [hits.best], id: \.self) { hit in
+            ForEach(expanded ? hits.hits : [hits.best], id: \.unit.field) { hit in
                 WindowMetrics.Search.rowLine.frame(height: 1)
                 HitRow(model: model, hit: hit)
             }
@@ -180,7 +188,7 @@ private struct SceneGroup: View {
     @ViewBuilder private var sceneTitle: some View {
         let title = Text(SearchWording.sceneTitle(hits.best.unit.sceneTitle)).fontWeight(.semibold)
         if hits.best.unit.placement == .boneyard {
-            Text("\(title)\(Text(" · \(SearchWording.boneyard)").foregroundStyle(.secondary))")
+            Text("\(title)\(Text(SearchWording.boneyardSuffix).foregroundStyle(.secondary))")
                 .font(.system(size: 14))
         } else {
             title.font(.system(size: 14))

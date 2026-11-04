@@ -69,6 +69,111 @@ private nonisolated struct RecordingIndex: SearchIndex {
     }
 }
 
+/// Holds back indexing while it's shut, so a test can look at the sheet before the book is
+/// searched again.
+nonisolated final class IndexGate: Sendable {
+    private struct State {
+        var isOpen = true
+        var waiting: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let state = Mutex(State())
+
+    func shut() {
+        state.withLock { $0.isOpen = false }
+    }
+
+    func open() {
+        let waiting = state.withLock { state in
+            state.isOpen = true
+            defer { state.waiting = [] }
+            return state.waiting
+        }
+        for continuation in waiting { continuation.resume() }
+    }
+
+    func pass() async {
+        await withCheckedContinuation { continuation in
+            let passes = state.withLock { state in
+                if !state.isOpen { state.waiting.append(continuation) }
+                return state.isOpen
+            }
+            if passes { continuation.resume() }
+        }
+    }
+}
+
+/// An index whose search for `late` reports its first update, then, once it's cancelled, one
+/// more, as a search that ignored cancellation for a moment would: the sheet must not show it.
+private nonisolated struct LateIndex: SearchIndex {
+    let engine: KeywordSearch
+    let late: SearchQuery
+    let recorder: LateRecorder
+
+    func search(_ query: SearchQuery) -> LateUpdates {
+        LateUpdates(engine: engine, query: query, isLate: query == late, recorder: recorder)
+    }
+}
+
+nonisolated final class LateRecorder: Sendable {
+    private let finished = Mutex(false)
+
+    /// Whether the late search's iterator is gone: its task has done with every update.
+    var lateSearchFinished: Bool { finished.withLock { $0 } }
+
+    fileprivate func finish() {
+        finished.withLock { $0 = true }
+    }
+}
+
+private nonisolated struct LateUpdates: AsyncSequence, Sendable {
+    let engine: KeywordSearch
+    let query: SearchQuery
+    let isLate: Bool
+    let recorder: LateRecorder
+
+    func makeAsyncIterator() -> Iterator {
+        Iterator(engine: engine, query: query, isLate: isLate, token: isLate ? Token(recorder) : nil)
+    }
+
+    /// Tells the recorder when the iterator is gone.
+    nonisolated final class Token: Sendable {
+        let recorder: LateRecorder
+        init(_ recorder: LateRecorder) { self.recorder = recorder }
+        deinit { recorder.finish() }
+    }
+
+    nonisolated struct Iterator: AsyncIteratorProtocol {
+        let engine: KeywordSearch
+        let query: SearchQuery
+        let isLate: Bool
+        let token: Token?
+        var pending: [SearchUpdate]?
+
+        init(engine: KeywordSearch, query: SearchQuery, isLate: Bool, token: Token?) {
+            self.engine = engine
+            self.query = query
+            self.isLate = isLate
+            self.token = token
+        }
+
+        mutating func next() async -> SearchUpdate? {
+            if pending == nil {
+                var all: [SearchUpdate] = []
+                for await update in engine.search(query) { all.append(update) }
+                pending = all
+            }
+            guard var updates = pending, !updates.isEmpty else { return nil }
+            if isLate, updates.count == 1 {
+                while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+            }
+            let update = updates.removeFirst()
+            pending = isLate && updates.count > 1 ? [updates.last!] : updates
+            return update
+        }
+    }
+}
+
 private func paragraphs(_ texts: [String]) -> [Paragraph] {
     texts.map { [Run($0)] }
 }
@@ -81,10 +186,14 @@ private func scene(_ title: String, body: [String], notes: [String] = [], tags: 
 }
 
 extension SearchSheetModel {
+    /// What the sheet lists for the current query, complete or not.
+    fileprivate var currentListing: SearchListing? {
+        if case .results(let listing, .current) = state { listing } else { nil }
+    }
+
     /// What the sheet lists once the current query's search is complete.
     fileprivate var completeListing: SearchListing? {
-        guard case .results(let listing, .current) = state, listing.progress == .complete else { return nil }
-        return listing
+        currentListing.flatMap { $0.progress == .complete ? $0 : nil }
     }
 
     fileprivate func completed() async throws -> SearchListing {
@@ -103,6 +212,15 @@ private func showSheet(_ page: PageHarness) async throws {
             && subviewTree(of: page.window.contentView).contains {
                 ($0 as? UndoFocusView)?.role == .sheet
             }
+    }
+}
+
+/// Closes the Search sheet as × does, and waits until it's gone.
+@MainActor
+private func hideSheet(_ page: PageHarness) async {
+    page.modes.mode = .page
+    await eventually {
+        !subviewTree(of: page.window.contentView).contains { ($0 as? UndoFocusView)?.role == .sheet }
     }
 }
 
@@ -216,10 +334,8 @@ struct SearchSheetTests {
             let recorder = SearchRecorder(holding: "letter")
             let model = SearchSheetModel(book: page.book) { recorder.index($0) }
             model.text = "letter"
-            await eventually {
-                if case .results(_, .current) = model.state { true } else { false }
-            }
-            guard case .results(let partial, .current) = model.state else { return }
+            await eventually { model.currentListing != nil }
+            let partial = try #require(model.currentListing)
             #expect(partial.progress != .complete, "precondition: the held search is still in progress")
             #expect(recorder.cancelled.isEmpty)
 
@@ -247,6 +363,123 @@ struct SearchSheetTests {
             model.toggleExpanded(hits)
             model.text = "bears"
             #expect(!model.isExpanded(hits))
+        }
+    }
+
+    /// A search that reports once more after it's cancelled can't replace the next search's
+    /// results: the model checks for cancellation before it shows an update.
+    @Test func anUpdateFromACancelledSearchIsNeverShown() async throws {
+        let scenes = (1...3).map { scene("Scene \($0)", body: ["The letter.", "The ferry."]) }
+        try await withPage(scenes) { page in
+            let late = LateRecorder()
+            let model = SearchSheetModel(book: page.book) { units in
+                LateIndex(
+                    engine: KeywordSearch(units: units, updateInterval: .zero), late: SearchQuery("letter"),
+                    recorder: late)
+            }
+            model.text = "letter"
+            await eventually { model.currentListing != nil }
+            #expect(model.currentListing?.progress != .complete, "precondition: the late search is in progress")
+
+            model.text = "ferry"
+            let ferry = try await model.completed()
+            #expect(ferry.hitCount == 3)
+            await eventually { late.lateSearchFinished }
+            #expect(model.reported?.query == SearchQuery("ferry"), "the late update wasn't shown")
+            #expect(model.currentListing == ferry)
+        }
+    }
+
+    @Test func closingTheSheetStopsTheSearchAndLetsGoOfTheIndexes() async throws {
+        let scenes = (1...3).map { scene("Scene \($0)", body: ["The letter.", "The ferry."]) }
+        let recorder = SearchRecorder(holding: "letter")
+        try await withPage(scenes, searchIndexing: { recorder.index($0) }) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.text = "letter"
+            await eventually { model.currentListing != nil }
+            #expect(recorder.indexed.count == 1)
+
+            await hideSheet(page)
+            await eventually { recorder.cancelled == [SearchQuery("letter")] }
+            await model.settle()
+            #expect(model.reported == nil, "the results went with the sheet")
+
+            try await showSheet(page)
+            await eventually { recorder.indexed.count == 2 }
+            #expect(recorder.searched.last == SearchQuery("letter"), "reopening searches again, afresh")
+        }
+    }
+
+    /// What one opening of the sheet found is never shown, as current, by the next, which
+    /// searches the book as it is then.
+    @Test func reopeningAfterSwitchingScenesShowsOnlyTheNewScene() async throws {
+        let first = scene("One", body: ["A bear."])
+        let second = scene("Two", body: ["Two bears."])
+        let gate = IndexGate()
+        try await withPage([first, second], searchIndexing: { units in
+            await gate.pass()
+            return KeywordSearch(units: units)
+        }) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.scope = .thisScene
+            model.text = "bear"
+            let listed = try await model.completed()
+            #expect(listed.scenes.map(\.scene) == [first.id])
+
+            await hideSheet(page)
+            page.book.select(second.id)
+            gate.shut()
+            try await showSheet(page)
+            #expect(model.reported == nil, "nothing from the last opening")
+            #expect(model.state == .searching)
+            gate.open()
+            let reopened = try await model.completed()
+            #expect(reopened.scenes.map(\.scene) == [second.id])
+        }
+    }
+
+    @Test func reopeningAfterAnEditShowsTheEditedText() async throws {
+        let only = scene("One", body: ["A bear.", "A wolf."])
+        let gate = IndexGate()
+        try await withPage([only], searchIndexing: { units in
+            await gate.pass()
+            return KeywordSearch(units: units)
+        }) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.text = "bear"
+            let listed = try await model.completed()
+            #expect(listed.scenes.first?.best.unit.text == "A bear.")
+
+            await hideSheet(page)
+            page.book.replaceBody(of: only.id, with: paragraphs(["A wolf.", "The old bear."]))
+            gate.shut()
+            try await showSheet(page)
+            #expect(model.reported == nil, "nothing from the last opening")
+            gate.open()
+            let edited = try #require(try await model.completed().scenes.first?.best)
+            #expect(edited.unit.text == "The old bear.")
+            #expect(edited.unit.field == .body(paragraph: 1))
+        }
+    }
+
+    @Test func openingAHitWhoseTextChangedSelectsNothing() async throws {
+        let first = scene("One", body: ["Dawn came."])
+        let second = scene("Two", body: ["Dawn came.", "He found the letter under the bench."])
+        try await withPage([first, second]) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.text = "bench"
+            let hit = try #require(try await model.completed().scenes.first?.best)
+            page.book.replaceBody(of: second.id, with: paragraphs(["Dawn came.", "The bench was empty."]))
+
+            model.open(hit)
+            #expect(page.book.openScene == second.id, "the scene still opens")
+            #expect(page.modes.mode == .page)
+            await eventually { page.pageMirrorsModel }
+            #expect(page.page.selectedRange().length == 0, "no words are selected")
         }
     }
 
@@ -310,6 +543,80 @@ struct SearchSheetTests {
             page.book.replaceBody(of: id, with: paragraphs(["A wolf."]))
             page.modes.mode = .search
             await eventually { model.completeListing?.sceneCount == 1 }
+        }
+    }
+
+    /// A scene with a comment on "letter", the tag "harbor", and its own words.
+    private static func commentedScene() -> BookScene {
+        var ids = IDGenerator.system
+        let comment = Comment(
+            id: ids.commentID(), color: .purple, text: "Check the postmark.",
+            created: Timestamp(.now, in: .current))
+        return BookScene(
+            id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "Arrival", tags: ["harbor"],
+            body: [[Run("He found the "), Run("letter", comments: [comment.id]), Run(" early.")]],
+            comments: [comment])
+    }
+
+    @Test func openingACommentOrTagHitShowsItsTab() async throws {
+        let first = scene("One", body: ["Dawn came."])
+        let second = Self.commentedScene()
+        try await withPage([first, second]) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.text = "postmark"
+            let comment = try #require(try await model.completed().scenes.first?.best)
+            #expect(comment.unit.field == .comment(second.comments[0].id), "precondition: a comment hit")
+            model.open(comment)
+            #expect(page.book.openScene == second.id)
+            #expect(page.modes.mode == .page)
+            #expect(page.preferences.rightPanelTab == .comments)
+            #expect(page.preferences.rightPanel == .open)
+
+            page.book.select(first.id)
+            try await showSheet(page)
+            model.set(.searchTags, .on)
+            model.text = "harbor"
+            let tags = try #require(try await model.completed().scenes.first?.best)
+            #expect(tags.unit.field == .tags, "precondition: a tag hit")
+            model.open(tags)
+            #expect(page.book.openScene == second.id)
+            #expect(page.preferences.rightPanelTab == .tags)
+        }
+    }
+
+    @Test func aBoneyardHitIsLabelledBAndOpensTheBoneyardScene() async throws {
+        let cut = scene("Cut", body: ["An old lantern."])
+        try await withPage([scene("One", body: ["Dawn came."])], boneyard: [cut]) { page in
+            let model = page.search
+            try await showSheet(page)
+            model.text = "lantern"
+            let hits = try #require(try await model.completed().scenes.first)
+            #expect(hits.best.unit.placement == .boneyard)
+            #expect(SearchWording.sceneNumber(hits.best.unit.placement) == WindowWording.boneyardBadge)
+            #expect(SearchWording.boneyardSuffix == " · Boneyard")
+            model.open(hits.best)
+            let opened = try #require(page.book.book.scene(cut.id))
+            #expect(page.book.location == .boneyard(opened))
+            await eventually {
+                page.page.selectedRange() == NSRange(location: 7, length: 7)
+                    && page.window.firstResponder === page.page
+            }
+        }
+    }
+
+    @Test func openingAHitInTheOpenSceneSelectsItsMatch() async throws {
+        try await withPage([scene("One", body: ["Dawn came.", "The tide went out early."])]) { page in
+            let open = page.book.openScene
+            let model = page.search
+            try await showSheet(page)
+            model.text = "early"
+            let hit = try #require(try await model.completed().scenes.first?.best)
+            model.open(hit)
+            #expect(page.book.openScene == open, "the same scene stays open")
+            let early = NSRange(location: 11 + 18, length: 5)
+            await eventually { page.page.selectedRange() == early && page.window.firstResponder === page.page }
+            #expect((page.storage.string as NSString).range(of: "early") == early, "precondition: the match")
         }
     }
 }

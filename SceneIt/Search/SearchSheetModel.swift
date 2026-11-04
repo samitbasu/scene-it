@@ -50,7 +50,9 @@ final class SearchSheetModel {
         }
     }
 
-    init(book: AppOpenBook, indexing: @escaping Indexing = { await KeywordSearch.indexing($0) }) {
+    static let keywordIndexing: Indexing = { await KeywordSearch.indexing($0) }
+
+    init(book: AppOpenBook, indexing: @escaping Indexing = keywordIndexing) {
         self.book = book
         self.indexing = indexing
     }
@@ -110,7 +112,7 @@ final class SearchSheetModel {
     }
 
     func isExpanded(_ hits: SceneHits) -> Bool {
-        expanded.contains(SceneKey(hits))
+        expanded.contains(hits.key)
     }
 
     func toggleExpanded(_ hits: SceneHits) {
@@ -122,11 +124,20 @@ final class SearchSheetModel {
         opener?.open(hit)
     }
 
-    /// Searches the book as it is now, as the sheet opens.
+    /// Searches the book as it is now, as the sheet opens. What an earlier opening found is
+    /// never shown: the book may have changed since, under its offsets.
     func refresh() {
+        close()
+        search()
+    }
+
+    /// As the sheet closes: stops the search and lets go of the indexes and the results.
+    func close() {
+        run?.cancel()
+        run = nil
         for index in indexes.values { index.cancel() }
         indexes = [:]
-        search()
+        reported = nil
     }
 
     /// Waits until no search is in progress: the latest one has finished or been cancelled,
@@ -193,7 +204,8 @@ struct SearchOpener {
         mode.wrappedValue = mode.wrappedValue.closingSheet
         switch hit.target(in: scene) {
         case .title(let range):
-            focus.selectTitle(NSRange(range))
+            // A read-only book's title field can't take the focus.
+            if book.isEditable { focus.titleSelection.set(NSRange(range), in: scene.id) }
         case .text(.body, let range):
             editors.page.editor.reveal(NSRange(range), in: scene.id)
         case .text(.notes, let range):
@@ -204,6 +216,15 @@ struct SearchOpener {
             preferences.reveal(.comments)
         case .tags:
             preferences.reveal(.tags)
+        case .scene:
+            break
         }
+    }
+}
+
+extension SceneHits {
+    /// Which scene of which version these are, which the sheet identifies its groups by.
+    var key: SearchSheetModel.SceneKey {
+        SearchSheetModel.SceneKey(self)
     }
 }
