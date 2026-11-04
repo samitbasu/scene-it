@@ -113,6 +113,27 @@ private struct LockHolder {
         #expect(fcntl(lock.descriptor, F_GETFD) & FD_CLOEXEC != 0)
     }
 
+    /// A process being spawned holds a copy of every descriptor until its `exec` closes the
+    /// `O_CLOEXEC` ones, so a lock released then must not wait for the spawn to finish.
+    @Test func releasingUnlocksEvenWhileAChildHoldsACopyOfTheDescriptor() throws {
+        let directory = try TemporaryDirectory()
+        let file = directory.url.appending(path: "test.lock")
+        let lock = try ExclusiveFileLock.acquire(file).lock()
+        let child = Process()
+        child.executableURL = URL(filePath: "/bin/sleep")
+        child.arguments = ["60"]
+        child.standardInput = FileHandle(fileDescriptor: lock.descriptor, closeOnDealloc: false)
+        try child.run()
+        defer {
+            child.terminate()
+            child.waitUntilExit()
+        }
+
+        lock.release()
+        #expect(child.isRunning, "precondition: the child still holds its copy of the descriptor")
+        #expect(ExclusiveFileLock.acquire(file).summary() == "acquired")
+    }
+
     @Test func lockingNeverTruncatesOrDeletesTheFile() throws {
         let directory = try TemporaryDirectory()
         let file = directory.url.appending(path: "test.lock")

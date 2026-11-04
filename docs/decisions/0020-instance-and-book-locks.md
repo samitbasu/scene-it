@@ -39,7 +39,9 @@ drops it when the process exits. That's the same mechanism as Rust's `fs2::FileE
   the writer was shown.
 - **The lock file is never deleted** (deleting races with a process about to lock it) and
   never opened with `O_TRUNC`. It's opened with `O_CLOEXEC`, so child processes don't
-  inherit the lock. A lock file without write permission is locked through a read-only
+  inherit the lock, and released with `LOCK_UN` before `close`: a process being spawned
+  holds a copy of every descriptor until its `exec`, and `close` alone wouldn't release a
+  lock whose open file still has another reference (#103). A lock file without write permission is locked through a read-only
   descriptor (`flock` allows it); only the record can't be written.
 - **A failed load takes no lock**: `open` reads first, then locks, so a damaged package gains
   no `.lock`. If `book.json` (`book.md` since ADR 0022) changed in between, it's read again under the lock; if it no

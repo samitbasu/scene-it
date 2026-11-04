@@ -2,8 +2,8 @@ import Foundation
 
 /// An exclusive `flock(2)` on a file, held for as long as this value lives (ADR 0020).
 ///
-/// The kernel ties the lock to the open file, not to the process's good behaviour: closing
-/// the descriptor, or the process dying in any way, releases it. So there's never a stale
+/// The kernel ties the lock to the open file, not to the process's good behaviour: dropping
+/// this value, or the process dying in any way, releases it. So there's never a stale
 /// lock to break.
 ///
 /// Non-copyable, so exactly one value owns the descriptor and dropping it releases the lock,
@@ -24,7 +24,11 @@ public struct ExclusiveFileLock: ~Copyable, Sendable {
         self.enforcement = enforcement
     }
 
+    /// Unlocks before closing: `close` releases the `flock` only if it drops the last
+    /// reference to the open file, and a process being spawned on another thread holds a
+    /// copy of every descriptor until its `exec` closes the `O_CLOEXEC` ones.
     deinit {
+        flock(descriptor, LOCK_UN)
         close(descriptor)
     }
 
