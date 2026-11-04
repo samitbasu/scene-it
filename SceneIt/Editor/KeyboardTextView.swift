@@ -39,14 +39,17 @@ class KeyboardTextView: NSTextView {
         false
     }
 
-    /// Before macOS 27, a press on the selection followed by a drag starts a drag here.
+    /// A press on the selection followed by a drag starts a drag here when presses go through
+    /// `mouseDown`: always before macOS 27, and from it in a view that overrides `mouseDown`, as
+    /// the page does.
     override func dragSelection(with event: NSEvent, offset mouseOffset: NSSize, slideBack: Bool) -> Bool {
         false
     }
 
-    /// From macOS 27 the text view is its own `NSTextSelectionManager`'s delegate, and the manager
-    /// asks it for the drag of a pressed selection; `NSTextView` doesn't declare the method, so
-    /// this replaces it by its selector. `nil` means no drag.
+    /// From macOS 27 a text view that leaves `mouseDown` alone is its own
+    /// `NSTextSelectionManager`'s delegate, and the manager asks it for the drag of a pressed
+    /// selection; `NSTextView` doesn't declare the method, so this replaces it by its selector.
+    /// `nil` means no drag.
     @available(macOS 27, *)
     @objc(selectionManager:makeDraggingSessionWithGesture:)
     func selectionManager(_ manager: NSTextSelectionManager, makeDraggingSession gesture: NSGestureRecognizer)

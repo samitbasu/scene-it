@@ -529,9 +529,12 @@ text arrives typed or pasted, and pasting is the one path through the policy. So
 `KeyboardTextView`, which every manuscript editor is, turns both off. It has no acceptable
 drag types and registers none, so a window never routes a drag to it; its destination
 methods answer "no operation"; and it refuses to start a drag of the selection, at
-`dragSelection(with:offset:slideBack:)` and, from macOS 27 (where a TK2 text view selects
-through an `NSTextSelectionManager` whose delegate is the view itself), at
-`selectionManager(_:makeDraggingSession:)`. `NSTextView` doesn't declare that one in its
+`dragSelection(with:offset:slideBack:)`, which `mouseDown` reaches, and at
+`selectionManager(_:makeDraggingSession:)`. From macOS 27 a TK2 text view selects through an
+`NSTextSelectionManager` whose delegate is the view itself, *unless* the view overrides
+`mouseDown`: then it has no manager and tracks presses in `mouseDown` as before. The page
+overrides `mouseDown` for comment clicks, so it takes the first route and the notes take the
+second; `DropTests` asserts which route each view takes before checking it. `NSTextView` doesn't declare that one in its
 header, so the override is an `@objc(selectionManager:makeDraggingSessionWithGesture:)`
 method that replaces it by its selector, with no `super` to call.
 

@@ -18,9 +18,12 @@ decided text doesn't need drag and drop at all.
   session, so the system's drop caret never shows.
 - The rule lives in `KeyboardTextView`, which every one of those editors is: `acceptableDragTypes` is empty, the view
   registers no drag types, `draggingEntered`/`draggingUpdated` answer no operation and `performDragOperation` does
-  nothing. Dragging out is refused at both of `NSTextView`'s starting points: `dragSelection(with:offset:slideBack:)`
-  (before macOS 27) and, from macOS 27, `selectionManager(_:makeDraggingSession:)`, which the view answers as
-  its own `NSTextSelectionManager`'s delegate and which returns `nil`, documented as "prevent dragging".
+  nothing. Dragging out is refused at both of `NSTextView`'s starting points. One is
+  `dragSelection(with:offset:slideBack:)`, reached from `mouseDown`: before macOS 27 that's every editor, and from
+  macOS 27 it's any text view that overrides `mouseDown`, as the page does for comment clicks (ADR 0035), which then
+  has no `NSTextSelectionManager` (observed). The other, from macOS 27, is
+  `selectionManager(_:makeDraggingSession:)`, which the notes and the fields answer as their own selection
+  manager's delegate; it returns `nil`, documented as "prevent dragging".
 - **The comments panel (#25)**: its comment text fields refuse drag and drop the same way (make them
   `KeyboardTextView`s, or apply the same overrides).
 - Fields that aren't manuscript text (the Errors tab's fix field, search, the sheets' other fields) keep the system's
@@ -35,7 +38,7 @@ decided text doesn't need drag and drop at all.
   it, the selection is left as it was, and every drop is refused through the destination entry points.
 - **Not verified:** what a real press and drag on the selection does once the drag is refused. Agents don't
   synthesize input, so no test can make one. Most likely it does nothing while the pointer moves, on both the macOS 26
-  and the macOS 27 path, and the release may collapse the selection to a caret. It probably won't start a new
+  and the macOS 27 paths, and the release may collapse the selection to a caret. It probably won't start a new
   selection. The owner checks this by hand: select a word, press on it and drag, then release.
 - `NSTextView`'s `_setGroupIdentifier:` drop path can't be reached, since `performDragOperation` never calls `super`.
 

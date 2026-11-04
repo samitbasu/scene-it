@@ -94,6 +94,13 @@ func onTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
     }
 }
 
+/// How a text view handles a press on macOS 27. An `NSTextView` that overrides `mouseDown`, as the page
+/// does for comment clicks, tracks presses there, as before macOS 27; one that doesn't selects through
+/// an `NSTextSelectionManager`, which asks its delegate for a drag of the selection.
+enum PressRoute {
+    case mouseDown, selectionManager
+}
+
 extension NSTextView {
     /// Drags each kind of content over this view at its first character, from elsewhere and from
     /// the view itself, through the entry points AppKit calls, and checks that each is refused,
@@ -124,7 +131,7 @@ extension NSTextView {
     /// Checks that this view refuses to start a drag of its selection, at the methods `NSTextView`
     /// starts one from. A refusal that's lost would start a real drag session, so each method is
     /// called only once it's known to be ours.
-    func expectRefusesToDragItsSelection() throws {
+    func expectRefusesToDragItsSelection(pressedThrough route: PressRoute) throws {
         #expect(selectedRange().length > 0, "precondition: a selection to drag")
         let legacy = #selector(NSTextView.dragSelection(with:offset:slideBack:))
         try #require(
@@ -137,10 +144,14 @@ extension NSTextView {
                 timestamp: 0, windowNumber: window?.windowNumber ?? 0, context: nil, eventNumber: 0,
                 clickCount: 1,
                 pressure: 1))
-        #expect(!dragSelection(with: event, offset: .zero, slideBack: true), "no drag before macOS 27")
+        #expect(!dragSelection(with: event, offset: .zero, slideBack: true), "no drag from mouseDown")
         if #available(macOS 27, *) {
+            guard route == .selectionManager else {
+                #expect(textSelectionManager == nil, "precondition: presses go through mouseDown")
+                return
+            }
             let manager = try #require(
-                textSelectionManager, "precondition: macOS 27 selects through a manager")
+                textSelectionManager, "precondition: presses go through a selection manager")
             #expect(manager.delegate === self, "precondition: the view is the manager's delegate")
             let session = NSSelectorFromString("selectionManager:makeDraggingSessionWithGesture:")
             try #require(
@@ -207,7 +218,7 @@ struct DropTests {
             #expect(page.body() == letterScene)
             #expect(page.pageMirrorsModel)
             page.page.setSelectedRange(NSRange(location: 4, length: 6))
-            try page.page.expectRefusesToDragItsSelection()
+            try page.page.expectRefusesToDragItsSelection(pressedThrough: .mouseDown)
         }
     }
 
@@ -221,7 +232,7 @@ struct DropTests {
             #expect(page.notes() == [[Run("Check the tides.")]])
             #expect(page.notesMirrorModel(notes))
             notes.setSelectedRange(NSRange(location: 0, length: 5))
-            try notes.expectRefusesToDragItsSelection()
+            try notes.expectRefusesToDragItsSelection(pressedThrough: .selectionManager)
         }
     }
 
@@ -233,7 +244,7 @@ struct DropTests {
             try await editor.expectRefusesEveryDrop()
             #expect(page.book.book.scene(page.book.openScene)?.title == "One")
             editor.setSelectedRange(NSRange(location: 0, length: 3))
-            try editor.expectRefusesToDragItsSelection()
+            try editor.expectRefusesToDragItsSelection(pressedThrough: .selectionManager)
         }
     }
 
