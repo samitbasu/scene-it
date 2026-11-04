@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where diagnostics are kept and read from. The app uses `applicationSupport()`; tests and
-/// previews use `temporary(at:)` so they never touch the user's real files.
+/// previews use `temporary(under:)` so they never touch the user's real files.
 public struct DiagnosticsDirectory: Sendable {
     /// Holds the session marker, the log ring and MetricKit payloads.
     public let root: URL
@@ -27,13 +27,30 @@ public struct DiagnosticsDirectory: Sendable {
             reports: fileManager.temporaryDirectory.appending(path: "Scene It Reports"))
     }
 
-    /// Everything under `folder`, which is emptied first.
-    public static func temporary(at folder: URL) -> DiagnosticsDirectory {
-        try? FileManager.default.removeItem(at: folder)
+    /// A folder of this process's own under `parent`, named by its process ID, so test hosts
+    /// running at the same time never empty each other's. It starts empty, and the folders of
+    /// processes that have exited are removed.
+    public static func temporary(
+        under parent: URL, processID: Int32 = ProcessInfo.processInfo.processIdentifier,
+        isRunning: (Int32) -> Bool = processIsRunning
+    ) -> DiagnosticsDirectory {
+        let manager = FileManager.default
+        let siblings = (try? manager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? []
+        for sibling in siblings {
+            guard let owner = Int32(sibling.lastPathComponent), owner == processID || !isRunning(owner)
+            else { continue }
+            try? manager.removeItem(at: sibling)
+        }
+        let folder = parent.appending(path: String(processID), directoryHint: .isDirectory)
         return DiagnosticsDirectory(
             root: folder.appending(path: "Diagnostics"),
             crashReports: folder.appending(path: "DiagnosticReports"),
             reports: folder.appending(path: "Reports"))
+    }
+
+    /// True if any process has this ID, ours or not.
+    public static func processIsRunning(_ processID: Int32) -> Bool {
+        kill(processID, 0) == 0 || errno == EPERM
     }
 
     public var sessionMarker: SessionMarker { SessionMarker(directory: root) }

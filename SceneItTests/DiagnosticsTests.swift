@@ -30,6 +30,19 @@ private func unzippedFile(endingWith suffix: String, in zip: URL) throws -> Stri
     return ""
 }
 
+/// The report's zip; otherwise records an issue quoting the diagnostics errors logged since `start`.
+private func zip(
+    of report: ProblemReport, since start: Date, sourceLocation: SourceLocation = #_sourceLocation
+) -> URL? {
+    if case .zip(let zip) = report.archive { return zip }
+    let logged = ((try? CurrentProcessLog.entries(since: start)) ?? [])
+        .filter { $0.category == .diagnostics && $0.level == .error }.map(\.message)
+    Issue.record(
+        "report was not zipped: \(report.archive); diagnostics errors: \(logged)",
+        sourceLocation: sourceLocation)
+    return nil
+}
+
 @Test func testHostKeepsDiagnosticsOutOfTheUsersFiles() throws {
     let directory = DiagnosticsController.shared.directory
     let real = try DiagnosticsDirectory.applicationSupport()
@@ -39,6 +52,8 @@ private func unzippedFile(endingWith suffix: String, in zip: URL) throws -> Stri
     #expect(directory.root != real.root)
     #expect(directory.crashReports != real.crashReports)
     #expect(directory.reports != real.reports)
+    let owner = directory.root.deletingLastPathComponent().lastPathComponent
+    #expect(owner == String(ProcessInfo.processInfo.processIdentifier), "another test host would empty it")
 }
 
 @Test func thisLaunchWroteASessionMarker() throws {
@@ -74,6 +89,7 @@ private func unzippedFile(endingWith suffix: String, in zip: URL) throws -> Stri
 
 @Test func reportFromTheAppsRealInputsHasInfoEntriesInBothLogs() async throws {
     let diagnostics = DiagnosticsController.shared
+    let start = Date.now
     let marker = UUID()
     Log.app.info("Hosted report test", ["marker": .id(marker)])
     let model = ReportModel(inputs: diagnostics.reportInputs(), reports: diagnostics.directory.reports)
@@ -82,16 +98,39 @@ private func unzippedFile(endingWith suffix: String, in zip: URL) throws -> Stri
         Issue.record("report was not built: \(model.state)")
         return
     }
-    guard case .zip(let zip) = report.archive else {
-        Issue.record("report was not zipped: \(report.archive)")
-        return
-    }
+    guard let zip = zip(of: report, since: start) else { return }
     #expect(isInsideTemporaryDirectory(zip))
     let names = report.manifest.included.map(\.name)
     #expect(names.contains("logs/recent-sessions.log"))
     #expect(names.contains("logs/this-session.log"))
     #expect(try unzippedFile(endingWith: "logs/recent-sessions.log", in: zip).contains(marker.uuidString))
     #expect(try unzippedFile(endingWith: "logs/this-session.log", in: zip).contains(marker.uuidString))
+}
+
+@Test func twoReportsPreparedAtOnceAreBothZipped() async throws {
+    try await withTemporaryFolder { reports in
+        let start = Date.now
+        let inputs = DiagnosticsController.shared.reportInputs()
+        let first = ReportModel(inputs: inputs, reports: reports)
+        let second = ReportModel(inputs: inputs, reports: reports)
+        async let preparingFirst: Void = first.prepare()
+        async let preparingSecond: Void = second.prepare()
+        _ = await (preparingFirst, preparingSecond)
+        var zips: [URL] = []
+        for model in [first, second] {
+            guard case .ready(let report) = model.state else {
+                Issue.record("report was not built: \(model.state)")
+                return
+            }
+            guard let zip = zip(of: report, since: start) else { return }
+            zips.append(zip)
+        }
+        try #require(Set(zips.map(\.lastPathComponent)).count == 1, "the two reports must share a name")
+        #expect(Set(zips).count == 2)
+        for zip in zips {
+            #expect(try unzippedFile(endingWith: "manifest.txt", in: zip).contains("logs/this-session.log"))
+        }
+    }
 }
 
 @Test func helpMenuReportAProblemOpensTheReportWindow() async throws {
