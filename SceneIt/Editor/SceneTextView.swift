@@ -79,6 +79,7 @@ class SceneTextView: KeyboardTextView {
                 let range = NSTextRange(location: last, end: layout.documentRange.endLocation)
             {
                 layout.invalidateLayout(for: range)
+                layout.ensureLayout(for: range)
                 updateInsertionPointStateAndRestartTimer(false)
             }
         }
