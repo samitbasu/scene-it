@@ -1327,7 +1327,14 @@ input method that veto a change they can't hold and make its admitted reading in
 same class the scene title uses. `FilingDraft` admits again on every assignment, so the model
 can't hold what `index.md` won't keep.
 
-The dialog stays up until the copy is filed, so a failure loses nothing typed. If the copy is
+The dialog's contents are the open book's `filingDraft`, so leaving the book sees them:
+`OpenBook.settle`, the step quitting, closing and switching books all take, first asks
+"Quit without filing the copy?" (or "Close…") when tags or a note are typed, with Cancel as
+the default. The book window's first responder stays the page while the sheet is up, so
+`UndoStack` takes a `dialog` input: while one is attached, Undo acts only on a text field in
+it, never on what's behind.
+
+The dialog stays up, and not editable, until the copy is filed, so a failure loses nothing typed. If the copy is
 filed but the index can't be written, the open book keeps the record as pending, and the next
 save or filing writes it. Every alert that might lose text quotes the tags and note back.
 

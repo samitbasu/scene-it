@@ -28,6 +28,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// What the writer gave copies whose filing couldn't save their section in the index:
     /// recorded by the next save or reconciliation that can write it.
     public private(set) var pendingRecords: [FiledCopyNumber: FilingRecord] = [:]
+    /// File a Copy's dialog while it's up (PLAN §7.1): what the writer has typed there, which
+    /// leaving the book asks about first.
+    public var filingDraft: FilingDraft?
     /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
@@ -491,6 +494,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Saves before the writer leaves the book, asking whenever that would lose edits.
     func settle(before leaving: Leaving, asking prompts: any StorePrompts) async -> Settled {
+        if let draft = filingDraft, draft.holdsTypedText {
+            switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record, leaving: leaving)) {
+            case .cancel: return .stay
+            case .leaveAnyway: filingDraft = nil
+            }
+        }
         guard let driver = autosave else { return .saved }
         while true {
             let verdict: QuitVerdict

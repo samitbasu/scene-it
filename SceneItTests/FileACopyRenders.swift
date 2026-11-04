@@ -24,7 +24,7 @@ extension WindowRenders {
         let output = try #require(renderFolder)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withSampleBook { store, book, preferences in
-            let filing = FilingFlow()
+            let filing = FilingFlow(book: book)
             filing.draft = Self.filledDraft()
             let dialog = BookWindow(
                 book: book, store: store, preferences: preferences,
@@ -36,12 +36,36 @@ extension WindowRenders {
                 return (try Self.withSheet(window, sheet), Self.bitmap(of: sheetView, scale: 3))
             }
             #expect(filing.draft != nil, "the dialog stayed up while it was drawn")
+            filing.cancel()
             try Self.write(
                 renders, name: "final-file-a-copy", caption: "File a copy", to: output,
                 beside: Self.fileACopyMockup)
             try Self.png(sheet).write(to: output.appending(path: "final-file-a-copy-dialog@3x.png"))
 
-            let toasting = FilingFlow()
+            let long = FilingFlow(book: book)
+            var draft = Self.filledDraft()
+            draft.note = (1...6).map { "Line \($0) of a long note, which grows and then scrolls." }.joined(
+                separator: "\n")
+            long.draft = draft
+            let longDialog = BookWindow(
+                book: book, store: store, preferences: preferences,
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page), filing: long)
+            let longSheet = try await Self.withWindow(longDialog) { window in
+                let sheet = try #require(window.attachedSheet, "precondition: the dialog is a sheet")
+                let note = try #require(
+                    subviewTree(of: sheet.contentView).compactMap { $0 as? NSScrollView }
+                        .first { $0.documentView is AdmittingTextView })
+                let document = try #require(note.documentView)
+                #expect(
+                    document.frame.height > note.contentSize.height, "the note grew past its frame, to scroll"
+                )
+                return Self.bitmap(of: try #require(sheet.contentView?.superview), scale: 3)
+            }
+            try Self.png(longSheet).write(
+                to: output.appending(path: "final-file-a-copy-long-note-dialog@3x.png"))
+            long.cancel()
+
+            let toasting = FilingFlow(book: book)
             let window = BookWindow(
                 book: book, store: store, preferences: preferences,
                 formatting: EditorFormatting(preferences: preferences), mode: .constant(.page),

@@ -123,6 +123,15 @@ private func sampleBook() throws -> Book {
         }
     }
 
+    /// File a Copy's sheet keeps the page as the window's first responder behind it.
+    @Test func whileADialogIsAttachedOnlyItsTextFieldCanBeUndone() {
+        for mode in WindowMode.allCases {
+            #expect(UndoStack(mode: mode, focus: .text, dialog: .attached) == .focusedText, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .errorsTab, dialog: .attached) == UndoStack.none, "\(mode)")
+            #expect(UndoStack(mode: mode, focus: .elsewhere, dialog: .attached) == UndoStack.none, "\(mode)")
+        }
+    }
+
     @Test func otherwiseTheFocusDecides() {
         for mode in WindowMode.allCases where mode != .scenes {
             #expect(UndoStack(mode: mode, focus: .text) == .focusedText, "\(mode)")

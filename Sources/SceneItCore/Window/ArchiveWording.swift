@@ -1,8 +1,8 @@
 import Foundation
 
 /// Every string File a Copy shows (PLAN §7.1), in one place so the owner can review the wording
-/// as a whole. Drafts awaiting the owner's approval (#32); the dialog's text follows the mockup
-/// (14-file-a-copy-dialog.png).
+/// as a whole. The owner approved all of it (#32, 2026-11-03); the dialog's text follows the
+/// mockup (14-file-a-copy-dialog.png).
 public enum ArchiveWording {
     public static let menuItem = "File a Copy…"
 
@@ -64,6 +64,20 @@ public enum ArchiveWording {
 
     private static let couldntFile = "Scene It couldn't file a copy."
 
+    /// Asked before quitting or closing the book while the dialog holds typed text. Cancel is
+    /// first, so it's the default (Return); its label also answers Escape.
+    public static func unfiledDraftAlert(_ record: FilingRecord, leaving: Leaving) -> UnfiledDraftAlert {
+        let (verb, anyway) =
+            switch leaving {
+            case .quit: ("Quit", "Quit Anyway")
+            case .closeBook: ("Close", "Close Anyway")
+            }
+        return UnfiledDraftAlert(
+            title: "\(verb) without filing the copy?",
+            message: "The tags and note you typed haven't been filed." + typed(record),
+            buttons: [.init(choice: .cancel, label: cancel), .init(choice: .leaveAnyway, label: anyway)])
+    }
+
     /// "Your tags: "draft 4", "before the ending". Your note: "Before the rewrite"."
     static func typed(_ record: FilingRecord) -> String {
         var parts: [String] = []
@@ -116,4 +130,13 @@ public enum ArchiveWording {
                 + "again with the next save while the book is open."
         }
     }
+}
+
+public typealias UnfiledDraftAlert = WriterAlert<UnfiledDraftChoice>
+
+/// Leaving the book while File a Copy's dialog holds typed text.
+public enum UnfiledDraftChoice: Hashable, Sendable {
+    case cancel
+    /// Leave, losing what's typed in the dialog.
+    case leaveAnyway
 }

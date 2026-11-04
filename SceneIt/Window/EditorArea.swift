@@ -112,8 +112,10 @@ private struct TitleTextField: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = TitleField(string: title)
+    func makeNSView(context: Context) -> AdmittingTextField {
+        let editor = AdmittingTextView.fieldEditor(admitting: { SceneTitle(pasted: $0).text })
+        editor.isContinuousSpellCheckingEnabled = true
+        let field = AdmittingTextField(string: title, editor: editor)
         context.coordinator.field = field
         let center = NotificationCenter.default
         center.addObserver(
@@ -127,19 +129,18 @@ private struct TitleTextField: NSViewRepresentable {
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
         field.lineBreakMode = .byTruncatingTail
-        field.cell?.isScrollable = true
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.delegate = context.coordinator
         focus.title = field
         return field
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: AdmittingTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.book = book
         coordinator.scene = scene
         coordinator.focus = focus
-        (field.cell as? TitleField.Cell)?.history = book.titleUndo(for: scene)
+        field.editor?.history = book.titleUndo(for: scene)
         if field.currentEditor() == nil, field.stringValue != title { field.stringValue = title }
         if coordinator.resumesEditing {
             coordinator.resumesEditing = false
@@ -229,45 +230,6 @@ private struct TitleTextField: NSViewRepresentable {
 
         private static func editor(_ notification: Notification) -> NSTextView? {
             notification.userInfo?["NSFieldEditor"] as? NSTextView
-        }
-    }
-}
-
-/// A text field with a field editor of its own, which checks spelling as the writer types and has
-/// no input method (ADR 0028). (The window's shared field editor serves every other field, which
-/// shouldn't.)
-private final class TitleField: NSTextField {
-    override class var cellClass: AnyClass? {
-        get { Cell.self }
-        set {}
-    }
-
-    final class Cell: NSTextFieldCell {
-        /// The open scene's title history.
-        var history: UndoManager? {
-            get { editor.history }
-            set { editor.history = newValue }
-        }
-
-        private lazy var editor: Editor = {
-            let editor = Editor()
-            editor.admit = { SceneTitle(pasted: $0).text }
-            editor.isFieldEditor = true
-            editor.allowsUndo = true
-            editor.isContinuousSpellCheckingEnabled = true
-            return editor
-        }()
-
-        override func fieldEditor(for controlView: NSView) -> NSTextView? {
-            editor
-        }
-    }
-
-    final class Editor: AdmittingTextView {
-        var history: UndoManager?
-
-        override var undoManager: UndoManager? {
-            history ?? super.undoManager
         }
     }
 }

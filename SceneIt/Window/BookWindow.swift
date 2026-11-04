@@ -11,21 +11,21 @@ struct BookWindow: View {
     let preferences: AppPreferences
     let formatting: EditorFormatting
     @Binding var mode: WindowMode
-    let filing: FilingFlow
+    @State private var filing: FilingFlow
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mode: Binding<WindowMode>, filing: FilingFlow = FilingFlow()
+        mode: Binding<WindowMode>, filing: FilingFlow? = nil
     ) {
         self.book = book
         self.store = store
         self.preferences = preferences
         self.formatting = formatting
         _mode = mode
-        self.filing = filing
+        _filing = State(initialValue: filing ?? FilingFlow(book: book))
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
@@ -71,21 +71,22 @@ struct BookWindow: View {
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
         .focusedSceneValue(\.filingFlow, book.isEditable ? filing : nil)
-        .sheet(isPresented: isFiling) {
+        .sheet(isPresented: isDialogUp) {
             FileACopyDialog(
-                draft: draft, isFiling: filing.isFiling, cancel: { filing.cancel() },
+                draft: draft, stage: filing.stage, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } })
         }
     }
 
-    private var isFiling: Binding<Bool> {
+    private var isDialogUp: Binding<Bool> {
         Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
     }
 
+    /// Writes only while the dialog is up, so a change arriving as it closes can't reopen it.
     private var draft: Binding<FilingDraft> {
         Binding(
             get: { filing.draft ?? FilingDraft(today: CalendarDay(.now, in: .current)) },
-            set: { filing.draft = $0 })
+            set: { if filing.draft != nil { filing.draft = $0 } })
     }
 }
 

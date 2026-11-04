@@ -22,8 +22,14 @@ public enum UndoStack: Hashable, Sendable {
     /// Nothing to undo here.
     case none
 
-    /// While the Scenes sheet is open, the structure; otherwise what has the focus decides.
-    public init(mode: WindowMode, focus: UndoFocus) {
+    /// While a dialog is attached to the window (File a Copy's), only a text field in it: what's
+    /// behind it can't be undone. Otherwise, while the Scenes sheet is open, the structure; and
+    /// otherwise what has the focus decides.
+    public init(mode: WindowMode, focus: UndoFocus, dialog: UndoDialog = .none) {
+        if dialog == .attached {
+            self = focus == .text ? .focusedText : .none
+            return
+        }
         if mode == .scenes {
             self = .structure
             return
@@ -34,4 +40,11 @@ public enum UndoStack: Hashable, Sendable {
         case .elsewhere: self = .none
         }
     }
+}
+
+/// Whether a dialog (an AppKit sheet) is attached to the window, which takes the focus that
+/// decides from the window behind it.
+public enum UndoDialog: Hashable, Sendable {
+    case none
+    case attached
 }

@@ -44,6 +44,12 @@ public struct FilingDraft: Hashable, Sendable {
         tags.removeAll { $0 == tag }
     }
 
+    /// Whether the writer typed anything that leaving would lose: a tag, one being typed, or a
+    /// note. The date alone doesn't count.
+    public var holdsTypedText: Bool {
+        !record.tags.isEmpty || !note.isEmpty
+    }
+
     /// File copy: what's filed, with a tag still being typed counted as one.
     public var record: FilingRecord {
         var draft = self

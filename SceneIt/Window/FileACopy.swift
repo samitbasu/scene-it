@@ -5,13 +5,14 @@ import SwiftUI
 /// File a Copy (PLAN §7.1) for one open book: the dialog while it's up, then the toast. The
 /// owner chose the look (#32): labels in a column beside the fields, the archive box by the
 /// title, and the toast above the status bar.
+///
+/// The dialog's contents are the book's `filingDraft`, so quitting or closing the book sees
+/// what's typed there and asks first.
 @MainActor
 @Observable
 final class FilingFlow {
-    /// The dialog is up exactly while there's a draft.
-    var draft: FilingDraft?
-    /// The dialog's File copy is running; its buttons wait.
-    private(set) var isFiling = false
+    @ObservationIgnored let book: AppOpenBook
+    private(set) var stage = FilingStage.editing
     private(set) var toast: Toast?
 
     struct Toast: Equatable {
@@ -21,6 +22,16 @@ final class FilingFlow {
 
     static let toastDuration = Duration.seconds(3)
 
+    init(book: AppOpenBook) {
+        self.book = book
+    }
+
+    /// The dialog is up exactly while there's a draft.
+    var draft: FilingDraft? {
+        get { book.filingDraft }
+        set { book.filingDraft = newValue }
+    }
+
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
         draft = FilingDraft(today: today)
     }
@@ -29,14 +40,14 @@ final class FilingFlow {
         draft = nil
     }
 
-    /// The dialog's File copy. The dialog stays up, as it was, until the copy is filed, so a
-    /// filing that fails (the store's alert says why) loses nothing the writer typed. A copy
-    /// filed, locked and indexed gets the toast; anything less gets the store's alert.
+    /// The dialog's File copy. The dialog stays up, as it was and not editable, until the copy
+    /// is filed, so a filing that fails (the store's alert says why) loses nothing the writer
+    /// typed. A copy filed, locked and indexed gets the toast; anything less gets the alert.
     @discardableResult
     func confirm(in store: AppBookStore) async -> FilingResult? {
-        guard let draft, !isFiling else { return nil }
-        isFiling = true
-        defer { isFiling = false }
+        guard let draft, stage == .editing else { return nil }
+        stage = .filing
+        defer { stage = .editing }
         let record = draft.record
         let result = await store.fileACopy(as: record)
         switch result {
@@ -61,11 +72,17 @@ final class FilingFlow {
     }
 }
 
+/// Whether the dialog's File copy is running: while it is, the whole dialog waits.
+enum FilingStage: Equatable {
+    case editing
+    case filing
+}
+
 // MARK: - The dialog
 
 struct FileACopyDialog: View {
     @Binding var draft: FilingDraft
-    let isFiling: Bool
+    let stage: FilingStage
     let cancel: () -> Void
     let confirm: () -> Void
 
@@ -103,6 +120,7 @@ struct FileACopyDialog: View {
         }
         .padding(20)
         .frame(width: 440)
+        .disabled(stage == .filing)
     }
 
     private var date: Binding<Date> {
@@ -129,9 +147,7 @@ struct FileACopyDialog: View {
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
         }
-        .disabled(isFiling)
     }
-
 }
 
 // MARK: - Tags as chips
@@ -142,7 +158,7 @@ private struct TagEntry: View {
     @Binding var draft: FilingDraft
 
     var body: some View {
-        ChipFlow(spacing: 5) {
+        ChipFlow(spacing: ChipSpacing(points: 5)) {
             ForEach(draft.tags, id: \.self) { tag in
                 TagChip(tag: tag) { draft.remove(tag) }
             }
@@ -178,10 +194,10 @@ private struct TagChip: View {
     }
 }
 
-/// An `NSTextField`, so Return and ⌫ arrive as the field editor's commands
-/// (`insertNewline:`, `deleteBackward:`) whatever SwiftUI does with keys. Its field editor has
-/// no input method and applies the character policy as the editors do (ADR 0028), so it never
-/// shows what the index won't keep.
+/// An `AdmittingTextField`, so Return and ⌫ arrive as the field editor's commands
+/// (`insertNewline:`, `deleteBackward:`) whatever SwiftUI does with keys, and what's typed goes
+/// through the character policy as in the editors. The field has its own undo history; adding
+/// a tag clears it, since the text it would bring back is the tag's.
 struct TagTextField: NSViewRepresentable {
     @Binding var draft: FilingDraft
 
@@ -189,32 +205,52 @@ struct TagTextField: NSViewRepresentable {
         Coordinator(draft: $draft)
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = TagField(string: draft.pendingTag)
+    func makeNSView(context: Context) -> AdmittingTextField {
+        Self.field(draft.pendingTag, context.coordinator)
+    }
+
+    /// The field `makeNSView` makes, wired to `coordinator`.
+    static func field(_ text: String, _ coordinator: Coordinator) -> AdmittingTextField {
+        let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        editor.history = coordinator.history
+        let field = AdmittingTextField(string: text, editor: editor)
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.placeholderString = ArchiveWording.tagsPlaceholder
         field.setAccessibilityLabel(ArchiveWording.tagsLabel)
-        field.cell?.isScrollable = true
-        field.delegate = context.coordinator
+        field.delegate = coordinator
+        coordinator.field = field
         return field
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: AdmittingTextField, context: Context) {
         context.coordinator.draft = $draft
         if field.stringValue != draft.pendingTag { field.stringValue = draft.pendingTag }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var draft: Binding<FilingDraft>
+        let history = UndoManager()
+        weak var field: AdmittingTextField?
 
         init(draft: Binding<FilingDraft>) {
             self.draft = draft
+            super.init()
+            for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(historyChanged), name: name, object: history)
+            }
         }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
+            draft.wrappedValue.pendingTag = editor.string
+        }
+
+        /// An undo or redo changes the editor's text without telling the delegate.
+        @objc func historyChanged(_ notification: Notification) {
+            guard let editor = field?.editor else { return }
             draft.wrappedValue.pendingTag = editor.string
         }
 
@@ -224,6 +260,7 @@ struct TagTextField: NSViewRepresentable {
                 draft.wrappedValue.pendingTag = textView.string
                 draft.wrappedValue.commitPendingTag()
                 textView.string = ""
+                history.removeAllActions()
                 return true
             case #selector(NSResponder.deleteBackward(_:)):
                 guard textView.string.isEmpty else { return false }
@@ -235,29 +272,8 @@ struct TagTextField: NSViewRepresentable {
     }
 }
 
-final class TagField: NSTextField {
-    override class var cellClass: AnyClass? {
-        get { Cell.self }
-        set {}
-    }
-
-    final class Cell: NSTextFieldCell {
-        let editor: AdmittingTextView = {
-            let editor = AdmittingTextView()
-            editor.admit = CharacterPolicy.admittedLine
-            editor.isFieldEditor = true
-            editor.allowsUndo = true
-            return editor
-        }()
-
-        override func fieldEditor(for controlView: NSView) -> NSTextView? {
-            editor
-        }
-    }
-}
-
 /// The note, in an `AdmittingTextView`: no input method, and the character policy applied as
-/// the writer types or pastes (ADR 0028).
+/// the writer types or pastes (ADR 0028). It grows with its text and scrolls past its frame.
 struct NoteTextView: NSViewRepresentable {
     @Binding var draft: FilingDraft
 
@@ -266,26 +282,25 @@ struct NoteTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
         scroll.drawsBackground = false
-        let view = Self.editor()
-        view.frame = scroll.contentView.bounds
+        let view = Self.editor(context.coordinator)
         view.string = draft.note
-        view.delegate = context.coordinator
-        scroll.documentView = view
+        scroll.holdGrowingText(view)
         return scroll
     }
 
-    static func editor() -> AdmittingTextView {
-        let view = AdmittingTextView()
-        view.admit = CharacterPolicy.admittedInput
+    /// The text view `makeNSView` makes, wired to `coordinator`.
+    static func editor(_ coordinator: Coordinator) -> AdmittingTextView {
+        let view = AdmittingTextView(admitting: CharacterPolicy.admittedInput)
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false
         view.font = .systemFont(ofSize: NSFont.systemFontSize)
-        view.autoresizingMask = [.width]
-        view.textContainer?.widthTracksTextView = true
         view.setAccessibilityLabel(ArchiveWording.noteLabel)
+        view.delegate = coordinator
         return view
     }
 
@@ -309,10 +324,15 @@ struct NoteTextView: NSViewRepresentable {
     }
 }
 
+/// The gap between chips, and between their lines.
+private struct ChipSpacing {
+    let points: CGFloat
+}
+
 /// Lays its views out left to right, wrapping to a new line where the next doesn't fit; the
 /// last view (the text field) takes the rest of its line.
 private struct ChipFlow: Layout {
-    let spacing: CGFloat
+    let spacing: ChipSpacing
 
     /// How wide a line of chips may be.
     private struct LineWidth {
@@ -322,7 +342,7 @@ private struct ChipFlow: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 400
         let rows = arrange(subviews, within: LineWidth(points: width))
-        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(rows.count - 1, 0))
+        let height = rows.reduce(0) { $0 + $1.height } + spacing.points * CGFloat(max(rows.count - 1, 0))
         return CGSize(width: width, height: height)
     }
 
@@ -336,9 +356,9 @@ private struct ChipFlow: Layout {
                 subviews[index].place(
                     at: CGPoint(x: x, y: y + (row.height - size.height) / 2), anchor: .topLeading,
                     proposal: ProposedViewSize(width: width, height: size.height))
-                x += width + spacing
+                x += width + spacing.points
             }
-            y += row.height + spacing
+            y += row.height + spacing.points
         }
     }
 
@@ -352,13 +372,15 @@ private struct ChipFlow: Layout {
         var rows = [Row()]
         for index in subviews.indices {
             let size = subviews[index].sizeThatFits(.unspecified)
-            let needed = (rows[rows.count - 1].items.isEmpty ? 0 : spacing) + size.width
-            if !rows[rows.count - 1].items.isEmpty, rows[rows.count - 1].width + needed > line.points {
+            let gap = rows[rows.count - 1].items.isEmpty ? 0 : spacing.points
+            if !rows[rows.count - 1].items.isEmpty,
+                rows[rows.count - 1].width + gap + size.width > line.points
+            {
                 rows.append(Row())
             }
-            let gap = rows[rows.count - 1].items.isEmpty ? 0 : spacing
+            let placedGap = rows[rows.count - 1].items.isEmpty ? 0 : spacing.points
             rows[rows.count - 1].items.append((index, size))
-            rows[rows.count - 1].width += gap + size.width
+            rows[rows.count - 1].width += placedGap + size.width
             rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
         }
         return rows

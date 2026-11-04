@@ -184,6 +184,108 @@ struct FileACopyTests {
         }
     }
 
+    // MARK: Leaving with the dialog up
+
+    /// A draft as the dialog leaves it: a chip, a tag still being typed, and a note.
+    static func typedDraft() -> FilingDraft {
+        var draft = FilingDraft(today: record.filed)
+        draft.pendingTag = "draft 4"
+        draft.commitPendingTag()
+        draft.pendingTag = "half typ"
+        draft.note = "Before the ending"
+        return draft
+    }
+
+    static let quitTitle = "Quit without filing the copy?"
+    static let closeTitle = "Close without filing the copy?"
+
+    @Test func quittingWithTypedTextAsksAndCancelKeepsTheBookAndTheDialog() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([UnfiledDraftChoice.cancel])
+            let store = makeStore(in: folder, prompts: prompts)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.filingDraft = Self.typedDraft()
+
+            #expect(await store.prepareToQuit() == .stayed)
+
+            #expect(prompts.titles == [Self.quitTitle])
+            #expect(prompts.labels == [["Cancel", "Quit Anyway"]], "Cancel first: the default")
+            let alert = ArchiveWording.unfiledDraftAlert(Self.typedDraft().record, leaving: .quit)
+            #expect(alert.message.hasPrefix("The tags and note you typed haven't been filed."))
+            #expect(alert.message.contains("\u{201C}half typ\u{201D}"), "the tag being typed is quoted")
+            #expect(alert.message.contains("\u{201C}Before the ending\u{201D}"))
+            #expect(store.current === book)
+            #expect(book.filingDraft == Self.typedDraft(), "the dialog keeps what was typed")
+        }
+    }
+
+    @Test func quittingWithTypedTextAndQuitAnywayQuits() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([UnfiledDraftChoice.leaveAnyway])
+            let store = makeStore(in: folder, prompts: prompts)
+            try await createBook("Novel", in: folder, store: store)
+            store.current?.filingDraft = Self.typedDraft()
+
+            #expect(await store.prepareToQuit() == .left)
+
+            #expect(prompts.titles == [Self.quitTitle])
+            #expect(store.current == nil)
+        }
+    }
+
+    @Test(arguments: [UnfiledDraftChoice.cancel, .leaveAnyway])
+    func closingTheBookWithTypedTextAsksOnce(_ choice: UnfiledDraftChoice) async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([choice])
+            let store = makeStore(in: folder, prompts: prompts)
+            try await createBook("Novel", in: folder, store: store)
+            store.current?.filingDraft = Self.typedDraft()
+
+            let outcome = await store.closeBook()
+
+            #expect(prompts.titles == [Self.closeTitle])
+            #expect(prompts.labels == [["Cancel", "Close Anyway"]])
+            #expect(outcome == (choice == .cancel ? .stayed : .left))
+            #expect((store.current != nil) == (choice == .cancel))
+        }
+    }
+
+    @Test func openingAnotherBookWithTypedTextAsksOnce() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([UnfiledDraftChoice.leaveAnyway])
+            let store = makeStore(in: folder, prompts: prompts)
+            let other = try await createBook("Other", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
+            try await createBook("Novel", in: folder, store: store)
+            store.current?.filingDraft = Self.typedDraft()
+
+            #expect(await store.open(other) == .opened)
+
+            #expect(prompts.titles == [Self.closeTitle], "switching books settles twice but asks once")
+        }
+    }
+
+    @Test func leavingWithAnEmptyDialogDoesntAsk() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            try await createBook("Novel", in: folder, store: store)
+            var draft = FilingDraft(today: Self.record.filed)
+            draft.pendingTag = "   "
+            draft.filed = CalendarDay(year: 2020, month: 1, day: 1)!
+            #expect(!draft.holdsTypedText, "precondition: blanks and the date aren't typed text")
+            store.current?.filingDraft = draft
+
+            #expect(await store.closeBook() == .left)
+            try await createBook("Again", in: folder, store: store)
+            store.current?.filingDraft = draft
+            #expect(await store.prepareToQuit() == .left)
+
+            #expect(prompts.titles.isEmpty)
+        }
+    }
+
     // MARK: Reconciliation on open
 
     @Test func openingReconcilesTheArchiveAndSavesTheIndex() async throws {
