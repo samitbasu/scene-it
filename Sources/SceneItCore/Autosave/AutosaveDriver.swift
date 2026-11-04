@@ -50,8 +50,17 @@ public final class AutosaveDriver<C: Clock<Duration>> {
     /// needs the writer's choice. A save still running after `AutosavePolicy.quitGracePeriod`
     /// gives `.askWriter(.stillSaving)` and keeps running. Call it again for Retry or Wait.
     public func prepareToQuit() async throws(CancellationError) -> QuitVerdict {
+        try await saveAndWait(after: .quitRequested)
+    }
+
+    /// Cmd+S, then waits as `prepareToQuit` does: `.terminate` once every edit so far is on disk.
+    public func saveAndWait() async throws(CancellationError) -> QuitVerdict {
+        try await saveAndWait(after: .saveCommand)
+    }
+
+    private func saveAndWait(after request: AutosaveEvent) async throws(CancellationError) -> QuitVerdict {
         guard saver != nil else { return .terminate }
-        send(.quitRequested)
+        send(request)
         let deadline = clock.now.advanced(by: AutosavePolicy.quitGracePeriod.duration)
         while true {
             if case .settled(let verdict) = state.quitDecision { return verdict }

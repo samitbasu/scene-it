@@ -146,7 +146,9 @@ func bookWithNewEntries(_ number: Int) throws -> Book {
             fileSystem.clearCalls()
             #expect(try package.save(draft(9)).backupStatus == .intact)
             let steps = SaveFault.fileSystemSteps.compactMap(\.call)
-            #expect(fileSystem.calls == steps + [.discard("temporary book.md"), .list("")])
+            // The sweeps: the root, then Archive/ (its filed copies, then its temporary files).
+            let sweeps: [FaultInjectingFileSystem.Call] = [.list(""), .list("Archive"), .list("Archive")]
+            #expect(fileSystem.calls == steps + [.discard("temporary book.md")] + sweeps)
         }
     }
 

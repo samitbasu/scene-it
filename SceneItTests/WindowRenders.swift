@@ -292,6 +292,19 @@ struct WindowRenders {
         async throws
         -> Renders
     {
+        try await withWindow(view, preparing: prepare) { window in
+            let frameView = try #require(window.contentView?.superview)
+            return Renders(
+                single: bitmap(of: frameView, scale: 1), double: bitmap(of: frameView, scale: 2),
+                triple: bitmap(of: frameView, scale: 3))
+        }
+    }
+
+    /// `view` in an offscreen window of `windowSize`, laid out and drawn, for `capture`.
+    static func withWindow<T>(
+        _ view: some View, preparing prepare: (NSWindow) throws -> Void = { _ in },
+        capture: (NSWindow) throws -> T
+    ) async throws -> T {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
         controller.sceneBridgingOptions = [.toolbars, .title]
@@ -315,9 +328,7 @@ struct WindowRenders {
         let frameView = try #require(window.contentView?.superview)
         frameView.layoutSubtreeIfNeeded()
         frameView.displayIfNeeded()
-        return Renders(
-            single: bitmap(of: frameView, scale: 1), double: bitmap(of: frameView, scale: 2),
-            triple: bitmap(of: frameView, scale: 3))
+        return try capture(window)
     }
 
     static func bitmap(of view: NSView, scale: Int) -> NSBitmapImageRep {

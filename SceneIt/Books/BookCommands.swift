@@ -1,10 +1,11 @@
 import SceneItCore
 import SwiftUI
 
-/// File → New Book…, Open Book…, Save and Make Editable…, in place of SwiftUI's New Window and
-/// Save.
+/// File → New Book…, Open Book…, Save, Make Editable… and File a Copy…, in place of SwiftUI's
+/// New Window and Save.
 struct BookCommands: Commands {
     let books: BookController
+    @FocusedValue(\.filingFlow) private var filing
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -18,6 +19,8 @@ struct BookCommands: Commands {
                 .keyboardShortcut("s")
             Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
                 .disabled(books.store.current?.canBeMadeEditable != true)
+            Button(ArchiveWording.menuItem) { filing?.begin() }
+                .disabled(filing == nil || books.store.current?.isEditable != true || filing?.draft != nil)
         }
     }
 }

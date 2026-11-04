@@ -104,6 +104,7 @@ public struct LocalFileSystem: FileSystem {
     /// Only on volumes that declare swap support: FAT32 on macOS 27 returns success from
     /// `RENAME_SWAP` but performs a plain rename, destroying the destination.
     public func exchange(_ temporary: TemporaryFile, with destination: URL) throws(FileSystemError) {
+        try Self.refuseFiledCopy(destination, .exchange)
         guard Self.volume(of: destination, declares: .swapRename) else {
             throw FileSystemError(.exchange, destination, .unsupported)
         }
@@ -120,6 +121,8 @@ public struct LocalFileSystem: FileSystem {
     }
 
     public func move(_ source: URL, over destination: URL) throws(FileSystemError) {
+        try Self.refuseFiledCopy(source, .move)
+        try Self.refuseFiledCopy(destination, .move)
         do {
             try Self.rename(source, to: destination, flags: 0)
         } catch {
@@ -157,9 +160,29 @@ public struct LocalFileSystem: FileSystem {
     }
 
     public func remove(_ file: URL) throws(FileSystemError) {
+        try Self.refuseFiledCopy(file, .remove)
         guard (file.withUnsafeFileSystemRepresentation { unlink($0!) }) == 0 else {
             throw FileSystemError(.remove, file, .init(errno: errno))
         }
+    }
+
+    /// `UF_IMMUTABLE` is the owner's flag: the owner can clear it (`chflags nouchg`), but
+    /// nothing, the owner included, can change, rename or remove the file while it's set.
+    public func makeImmutable(_ file: URL) throws(FileSystemError) {
+        var info = stat()
+        guard (file.withUnsafeFileSystemRepresentation { lstat($0!, &info) }) == 0 else {
+            throw FileSystemError(.makeImmutable, file, .init(errno: errno))
+        }
+        let flags = info.st_flags | UInt32(UF_IMMUTABLE)
+        guard (file.withUnsafeFileSystemRepresentation { lchflags($0!, flags) }) == 0 else {
+            throw FileSystemError(.makeImmutable, file, .init(errno: errno))
+        }
+    }
+
+    private static func refuseFiledCopy(
+        _ url: URL, _ operation: FileSystemError.Operation
+    ) throws(FileSystemError) {
+        if PackageLayout.isFiledCopy(url) { throw FileSystemError(operation, url, .filedCopy) }
     }
 
     public func removeDirectory(_ directory: URL) throws(FileSystemError) {

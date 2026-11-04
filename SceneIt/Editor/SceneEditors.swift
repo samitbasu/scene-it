@@ -50,14 +50,8 @@ final class SceneEditors {
         notes.configure(.notes)
         notes.drawsBackground = false
         notes.textContainerInset = WindowMetrics.Notes.padding
-        notes.textContainer?.widthTracksTextView = true
-        notes.isVerticallyResizable = true
-        notes.isHorizontallyResizable = false
-        notes.autoresizingMask = [.width]
-        notes.frame = NSRect(origin: .zero, size: scrollView.contentSize)
-        notes.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         notes.setAccessibilityLabel(WindowWording.tab(.notes))
-        scrollView.documentView = notes
+        scrollView.holdGrowingText(notes)
         return SceneTextHost(
             SceneTextEditor(book: book, part: .notes, formatting: formatting), notes, in: scrollView)
     }()

@@ -89,7 +89,8 @@ public enum QuitWording {
             case .noSpace: "The disk is full."
             case .readOnlyVolume: "The disk is read-only."
             case .permissionDenied: "Scene It doesn't have permission to write to the book."
-            case .notFound, .alreadyExists, .unsupported, .io, .other: "The disk reported an error."
+            case .notFound, .alreadyExists, .unsupported, .io, .filedCopy, .other:
+                "The disk reported an error."
             }
         case .writeProtected(.locked):
             "The book is locked in Finder."

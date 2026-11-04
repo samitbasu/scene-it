@@ -127,6 +127,14 @@ public struct CalendarDay: Hashable, Comparable, Sendable, CustomStringConvertib
     public static func < (lhs: Self, rhs: Self) -> Bool {
         (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
     }
+
+    /// Noon of this day in `timeZone`: a date picker shows it as this day, whatever the
+    /// daylight-saving shifts around it.
+    public func noon(in timeZone: TimeZone) -> Date {
+        let local = LocalDateTime(year: year, month: month, day: day, hour: 12, minute: 0, second: 0)
+        let asIfUTC = Date(timeIntervalSince1970: TimeInterval(local.secondsSince1970))
+        return asIfUTC - TimeInterval(timeZone.secondsFromGMT(for: asIfUTC))
+    }
 }
 
 /// A proleptic Gregorian wall-clock time. The day arithmetic is Howard Hinnant's

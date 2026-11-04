@@ -298,17 +298,65 @@ public final class BookPackage: Sendable {
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
-            let current = try readCurrent(lastSeen, policy)
-            if current?.data == data {
-                Log.store.debug("book unchanged; nothing saved")
-                return .unchanged
-            }
-            let backups = try replaceBook(with: data, current: current, &lastSeen)
-            lastSeen = ContentDigest(data)
-            Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
-            StrayTemporaryFiles(packageRoot: layout, fileSystem: fileSystem).sweep(now: .now)
-            return .saved(backups, PublishedBook(data: data))
+            try save(data, policy, &lastSeen)
         }
+    }
+
+    private func save(_ data: Data, _ policy: ExternalChangePolicy, _ lastSeen: inout ContentDigest)
+        throws(SaveError) -> SaveOutcome
+    {
+        let current = try readCurrent(lastSeen, policy)
+        if current?.data == data {
+            Log.store.debug("book unchanged; nothing saved")
+            return .unchanged
+        }
+        let backups = try replaceBook(with: data, current: current, &lastSeen)
+        lastSeen = ContentDigest(data)
+        Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
+        StrayTemporaryFiles(packageRoot: layout, fileSystem: fileSystem).sweep(now: .now)
+        StrayTemporaryFiles(archiveOf: layout, fileSystem: fileSystem).sweep(now: .now)
+        return .saved(backups, PublishedBook(data: data))
+    }
+
+    // MARK: The archive (PLAN §5.5)
+
+    /// File a copy (PLAN §7.1): saves `book` (refusing another program's version, as autosave
+    /// does), checks that `book.md` now holds exactly its verified bytes, and files those bytes
+    /// as the next `Archive/saveNNNN.md` (`Archive.file`). No save can run in between.
+    public func fileCopy(
+        of book: Book, as record: FilingRecord, pending: [FiledCopyNumber: FilingRecord] = [:]
+    ) throws(FilingFailure) -> FiledBook {
+        let data: Data
+        do {
+            data = try BookFormat.verifiedSerialization(of: book)
+        } catch {
+            throw .save(.encoding(error))
+        }
+        return try lastSeen.withLock { (lastSeen) throws(FilingFailure) -> FiledBook in
+            let saved: SaveOutcome
+            do throws(SaveError) {
+                saved = try save(data, .refuse, &lastSeen)
+            } catch {
+                throw .save(error)
+            }
+            let current: Data
+            do throws(FileSystemError) {
+                current = try fileSystem.read(layout.book)
+            } catch {
+                throw .fileSystem(error)
+            }
+            guard current == data else { throw .bookChangedOnDisk }
+            let outcome = try Archive(layout: layout, fileSystem: fileSystem).file(
+                data, as: record, pending: pending)
+            return FiledBook(saved: saved, outcome: outcome)
+        }
+    }
+
+    /// Reconciles `Archive/` with its index (PLAN §5.5), locking any filed copy that isn't
+    /// and saving the index if it changes: this package holds the book's lock. `pending`
+    /// gives sections for filed copies whose filing couldn't save theirs.
+    public func reconcileArchive(pending: [FiledCopyNumber: FilingRecord] = [:]) -> ReconciledArchive {
+        Archive(layout: layout, fileSystem: fileSystem).reconcile(.writable, pending: pending)
     }
 
     /// What `book.md` holds now, and whose it is.
@@ -647,6 +695,12 @@ public struct PublishedBook: Hashable, Sendable {
     }
 }
 
+/// What `BookPackage.fileCopy` did: the save that came first, and the filing.
+public struct FiledBook: Sendable {
+    public let saved: SaveOutcome
+    public let outcome: FilingOutcome
+}
+
 /// A book as `open` found it. Only the editable form has a `BookPackage`, and so a way to save.
 public enum OpenedBook: Sendable {
     case editing(EditableBook)
@@ -670,6 +724,11 @@ public struct EditableBook: Sendable {
 public struct ReadOnlyBook: Sendable {
     public let layout: PackageLayout
     public let book: Book
+
+    /// What the File Cabinet lists, read and reconciled without writing anything.
+    public func reconcileArchive(fileSystem: any FileSystem = LocalFileSystem()) -> ReconciledArchive {
+        Archive(layout: layout, fileSystem: fileSystem).reconcile(.readOnly)
+    }
 }
 
 /// Why a book opened read-only. `ReadOnlyWording` has the message for each.
