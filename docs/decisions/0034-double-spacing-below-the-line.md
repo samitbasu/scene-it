@@ -39,6 +39,9 @@ height. The owner chose instead to put the spacing below each line, so that the 
     which cover the selected text alone. A selected empty paragraph is a sliver a space wide at its indent.
   - **The notes get bands too**, for one look across both editors: single-spaced, their lines' bands meet, but the
     6 pt between paragraphs stays clear, as it does on the page.
+  - **The plain-text fields keep the system's selection**: the title, and File a Copy's tags and note
+    (`AdmittingTextView`). They're single-spaced system-font controls, where the system's highlight is already
+    text height, and they look like every other field in their dialog or window. None of them sets a cursor colour.
   - Only the bands that changed are redrawn, so dragging a selection out never redraws the whole text; they follow
     a layout pass (`textViewportLayoutControllerDidLayout(_:)`) as well as the selection, and scale with the zoom.
     Find's indicator is the system's own overlay, unchanged; a match it selects shows as its band.
