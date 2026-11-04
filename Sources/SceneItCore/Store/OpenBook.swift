@@ -37,6 +37,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @ObservationIgnored public let errorsUndo = UndoManager()
     @ObservationIgnored private var textUndoManagers: [TextPart: [SceneID: UndoManager]] = [:]
     @ObservationIgnored private var titleUndoManagers: [SceneID: UndoManager] = [:]
+    /// The scene each registered structure undo acts on, kept current when an Errors-tab Fix
+    /// changes a scene's id, so the undo still finds it.
+    @ObservationIgnored private var structureTargets: [StructureTarget: SceneID] = [:]
 
     private var access: Access
     @ObservationIgnored private weak var store: BookStore<C>?
@@ -264,6 +267,39 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return new.id
     }
 
+    /// Deletes a Boneyard scene as far as the writer can tell (ADR 0031): it moves to the
+    /// book's Deleted section, which the app never shows, and stays in the file with its
+    /// id, notes and comments. One change on `structureUndo`. `false`, changing nothing, if
+    /// the book is read-only or the Boneyard has no such scene.
+    @discardableResult
+    public func deleteFromBoneyard(_ scene: SceneID) -> Bool {
+        let target = StructureTarget()
+        structureTargets[target] = scene
+        return delete(target)
+    }
+
+    private func delete(_ target: StructureTarget) -> Bool {
+        guard editingDriver != nil, let scene = structureTargets[target],
+            book.boneyard.contains(where: { $0.id == scene })
+        else { return false }
+        if openScene == scene { select(nil) }
+        // Leaving the scene may have saved what was typed into it, so look it up again.
+        guard let driver = editingDriver, let index = book.delete(fromBoneyard: scene) else { return false }
+        structureUndo.registerUndo(withTarget: self) { $0.undelete(target, toBoneyardAt: index) }
+        structureUndo.setActionName(BoneyardWording.deleteUndoName)
+        driver.send(.edited)
+        return true
+    }
+
+    private func undelete(_ target: StructureTarget, toBoneyardAt index: Int) {
+        guard let driver = editingDriver, let scene = structureTargets[target],
+            book.undelete(scene, toBoneyardAt: index)
+        else { return }
+        structureUndo.registerUndo(withTarget: self) { _ = $0.delete(target) }
+        structureUndo.setActionName(BoneyardWording.deleteUndoName)
+        driver.send(.edited)
+    }
+
     /// Opens `scene`. Every way of opening another scene comes here; it first posts
     /// `openBookWillSwitchScene`, so the window can finish what's being typed into the scene
     /// it's leaving while that scene is still the open one. (An Errors-tab fix that changes
@@ -277,10 +313,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Where the scene with this id is: in the story or the Boneyard, and at which index.
     private func place(of id: SceneID) -> (list: WritableKeyPath<Book, [BookScene]>, index: Int)? {
-        for list in [\Book.scenes, \Book.boneyard] {
-            if let index = book[keyPath: list].firstIndex(where: { $0.id == id }) { return (list, index) }
-        }
-        return nil
+        book.visiblePlace(of: id).map { ($0.part.scenes, $0.index) }
     }
 
     private func edit(_ id: SceneID, _ change: (inout BookScene) -> Void) {
@@ -456,6 +489,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
                 }
             }
             if owner == openScene.map(ErrorOwner.scene) { openScene = scene.id }
+            if case .scene(let id) = owner, id != scene.id {
+                for (target, held) in structureTargets where held == id {
+                    structureTargets[target] = scene.id
+                }
+            }
         }
         errorsUndo.registerUndo(withTarget: self, handler: inverse)
         if let name { errorsUndo.setActionName(name) }
@@ -557,6 +595,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         defer { access = .closed }
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
     }
+}
+
+/// Names the scene of one structure change for its undo and redo, whatever its id becomes.
+private struct StructureTarget: Hashable {
+    let id = UUID()
 }
 
 extension OpenBook {

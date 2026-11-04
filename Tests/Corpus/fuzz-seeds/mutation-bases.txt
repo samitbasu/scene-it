@@ -1,2 +1,3 @@
 book/s9.1-complete-book
 book/demo-book
+book/s1.9-deleted

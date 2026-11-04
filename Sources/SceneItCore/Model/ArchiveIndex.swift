@@ -70,7 +70,7 @@ public struct FiledCopyCounts: Hashable, Sendable {
 
 extension FiledCopyCounts {
     /// The story's scenes, words (ADR 0023) and comments, as the status bar counts the book:
-    /// the Boneyard isn't counted.
+    /// neither the Boneyard nor the deleted scenes are counted.
     public init(_ book: Book) {
         scenes = book.scenes.count
         words = book.scenes.reduce(0) { $0 + $1.wordCount.words }

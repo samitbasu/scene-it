@@ -20,7 +20,7 @@ is §4.8, rule E9). It holds:
 | --- | --- |
 | `input.md` | The file's raw bytes, exactly as they'd be on disk: any encoding damage, `\r\n` endings, byte-order mark or missing final newline is the point of the case. Can be empty. |
 | `expected.md` | What serializing the parse of `input.md` must give, byte for byte: the canonical form (§7.1). |
-| `entries.txt` | The parse's error entries, one per line, in the Errors tab's order (§5.4): the book's own, then each story scene's, then each Boneyard scene's, each in model order (§5.2). Empty if there are none. |
+| `entries.txt` | The parse's error entries, one per line, in the Errors tab's order (§5.4): the book's own, then each story scene's, each Boneyard scene's and each deleted scene's (§1.9), each in model order (§5.2). Empty if there are none. |
 | `properties.txt` | The byte properties of `input.md` that are the point of the case, one per line: `has-bom`, `has-crlf`, `invalid-utf8`, `no-final-newline`, `trailing-space` (a line ending in a space or tab). It lists exactly the ones `input.md` has, and is left out when there are none. |
 | `notes.md` | Optional: anything about the case worth saying that the files don't. |
 

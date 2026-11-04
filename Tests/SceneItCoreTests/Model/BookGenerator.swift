@@ -27,8 +27,10 @@ struct BookGenerator {
     mutating func book() -> Book {
         let scenes = (0..<int(0...4)).map { _ in scene() }
         let boneyard = (0..<int(0...2)).map { _ in scene() }
+        let deleted = (0..<int(0...2)).map { _ in scene() }
         return Book(
-            title: string(Self.anyAlphabet, 0...12), scenes: scenes, boneyard: boneyard, errors: errors())
+            title: string(Self.anyAlphabet, 0...12), scenes: scenes, boneyard: boneyard, deleted: deleted,
+            errors: errors())
     }
 
     /// An archive index (book format §8): copies in ascending order, each number once.

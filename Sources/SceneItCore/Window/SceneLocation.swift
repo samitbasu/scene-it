@@ -8,12 +8,10 @@ public enum SceneLocation: Hashable, Sendable {
     case boneyard(BookScene)
 
     public init(of scene: SceneID?, in book: Book) {
-        if let scene, let index = book.scenes.firstIndex(where: { $0.id == scene }) {
-            self = .story(book.scenes[index], number: index + 1, of: book.scenes.count)
-        } else if let scene, let cut = book.boneyard.first(where: { $0.id == scene }) {
-            self = .boneyard(cut)
-        } else {
-            self = .noScene
+        switch book.visiblePlace(of: scene) {
+        case (.story, let index)?: self = .story(book.scenes[index], number: index + 1, of: book.scenes.count)
+        case (.boneyard, let index)?: self = .boneyard(book.boneyard[index])
+        case (.deleted, _)?, nil: self = .noScene
         }
     }
 

@@ -41,7 +41,8 @@ public struct SearchUnit: Hashable, Sendable {
 ```
 
 `SearchUnit.units(of:version:)` turns a `Book` into units, story scenes first and then the
-Boneyard's, each marked with its `ScenePlacement` (`.story(number:)` or `.boneyard`). The
+Boneyard's, each marked with its `ScenePlacement` (`.story(number:)` or `.boneyard`). Deleted
+scenes (ADR 0031) never become units: they're in `Book.deleted`, which it doesn't read. The
 `version` is `.working` today. When the File Cabinet lands (#34), each decoded filed copy becomes
 units the same way with `version: .filed(number)`, and the arrays are simply concatenated.
 
