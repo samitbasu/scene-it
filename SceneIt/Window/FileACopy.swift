@@ -32,6 +32,14 @@ final class FilingFlow {
         set { book.filingDraft = newValue }
     }
 
+    /// The draft for the dialog's views. It writes only while the dialog is up, so nothing
+    /// arriving as the dialog closes, or from a view that outlived it, can bring a draft back.
+    var draftBinding: Binding<FilingDraft> {
+        Binding(
+            get: { self.draft ?? FilingDraft(today: CalendarDay(.now, in: .current)) },
+            set: { if self.draft != nil { self.draft = $0 } })
+    }
+
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
         draft = FilingDraft(today: today)
     }

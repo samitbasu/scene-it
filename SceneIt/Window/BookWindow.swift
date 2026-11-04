@@ -73,7 +73,7 @@ struct BookWindow: View {
         .focusedSceneValue(\.filingFlow, book.isEditable ? filing : nil)
         .sheet(isPresented: isDialogUp) {
             FileACopyDialog(
-                draft: draft, stage: filing.stage, cancel: { filing.cancel() },
+                draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } }
             )
             .environment(undo)
@@ -85,12 +85,6 @@ struct BookWindow: View {
         Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
     }
 
-    /// Writes only while the dialog is up, so a change arriving as it closes can't reopen it.
-    private var draft: Binding<FilingDraft> {
-        Binding(
-            get: { filing.draft ?? FilingDraft(today: CalendarDay(.now, in: .current)) },
-            set: { if filing.draft != nil { filing.draft = $0 } })
-    }
 }
 
 extension FocusedValues {
