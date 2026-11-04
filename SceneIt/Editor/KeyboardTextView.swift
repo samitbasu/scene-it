@@ -4,7 +4,7 @@ import AppKit
 /// the title field and the notes. Keys reach it through the key bindings alone, as `insertText`,
 /// so there's no dead key, press-and-hold accent or IME composition, and it never holds marked
 /// text. Whatever it's given, its owner puts through the character policy. Text neither drops
-/// into it nor drags out of it (ADR 0035): it arrives typed or pasted.
+/// into it nor drags out of it (ADR 0036): it arrives typed or pasted.
 class KeyboardTextView: NSTextView {
     override var inputContext: NSTextInputContext? {
         nil
@@ -17,7 +17,7 @@ class KeyboardTextView: NSTextView {
         set {}
     }
 
-    // MARK: No drag and drop (ADR 0035)
+    // MARK: No drag and drop (ADR 0036)
 
     override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
         []

@@ -483,7 +483,7 @@ anything else gets a copy of the comment with a fresh id.
 `NSTextView` also takes drops and drags its selection out, through the same pasteboard
 machinery: as a drag destination (`acceptableDragTypes`, then `draggingEntered`,
 `draggingUpdated` and `performDragOperation`) and as a drag source (a press on the selection
-followed by a drag). Scene It's text needs neither ([ADR 0035](../decisions/0035-no-drag-and-drop-of-text.md)):
+followed by a drag). Scene It's text needs neither ([ADR 0036](../decisions/0036-no-drag-and-drop-of-text.md)):
 text arrives typed or pasted, and pasting is the one path through the policy. So
 `KeyboardTextView`, which every manuscript editor is, turns both off. It has no acceptable
 drag types and registers none, so a window never routes a drag to it; its destination

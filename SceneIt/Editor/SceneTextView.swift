@@ -283,7 +283,7 @@ class SceneTextView: KeyboardTextView {
     }
 
     /// Every paste arrives here, and goes through the codec and the character policy. (Nothing is
-    /// dropped: ADR 0035.)
+    /// dropped: ADR 0036.)
     override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
         editor?.paste(from: pboard, type: type) ?? false
     }

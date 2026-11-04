@@ -1,4 +1,4 @@
-# 0035 — No drag and drop of text
+# 0036 — No drag and drop of text
 
 **Status:** Accepted (2026-11-04, the owner's call on #92). Amends [0016](0016-text-only-no-images.md) and
 [0028](0028-strict-ascii-no-input-methods.md) where they mention dropped content: nothing is dropped.

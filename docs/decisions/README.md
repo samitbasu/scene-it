@@ -41,4 +41,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0032](0032-comment-underlines-stack.md) | Commented text gets stacked colored underlines, one per comment | Accepted — resolves PLAN Q1 |
 | [0033](0033-search-matching-rules.md) | Search: Whole word keeps the possessive, contractions stay whole, tags are single-line and one per line, punctuation goes to the find bar | Accepted — refines PLAN §9.2 |
 | [0034](0034-double-spacing-below-the-line.md) | Double spacing below the line (`lineSpacing`, the text a gap lower), so the system caret and selection are text height | Accepted — supersedes 0030; deviates from PLAN §6.1 |
-| [0035](0035-no-drag-and-drop-of-text.md) | No drag and drop of text: the manuscript editors and fields refuse drops and never start a drag | Accepted — amends 0016 and 0028 on drops |
+| [0036](0036-no-drag-and-drop-of-text.md) | No drag and drop of text: the manuscript editors and fields refuse drops and never start a drag | Accepted — amends 0016 and 0028 on drops |
