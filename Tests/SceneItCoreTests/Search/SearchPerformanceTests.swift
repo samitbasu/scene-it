@@ -43,8 +43,8 @@ import Testing
 
     /// A paragraph whose only window holding both keywords is the whole of it: `repeats` bears,
     /// then a claw. A window search that rescans the window as it shrinks is quadratic here.
-    private static func bearsThenAClaw(_ repeats: Int, paragraph: Int = 0) -> SearchUnit {
-        unit(String(repeating: "bear ", count: repeats) + "claw", field: .body(paragraph: paragraph))
+    private static func bearsThenAClaw(_ repeats: Int) -> SearchUnit {
+        unit(String(repeating: "bear ", count: repeats) + "claw", field: .body(paragraph: 0))
     }
 
     @Test func aHugeParagraphIsSearchedInLinearTime() {
@@ -56,26 +56,5 @@ import Testing
             return { _ = searchedToCompletion(index, query) }
         }
         print("search, one paragraph of 10,000 and 20,000 words: \(scaling)")
-    }
-
-    /// Timing alone can't place the cancellation mid-search on a loaded machine, so this test
-    /// asserts only that stopping is prompt; `aCancelledSearchReadsNoFurtherUnit` pins where
-    /// cancellation is checked.
-    @Test func cancellingStopsASearchOfHugeParagraphsPromptly() async throws {
-        let units = (0..<40).map { Self.bearsThenAClaw(20_000, paragraph: $0) }
-        let index = KeywordSearch(units: units, updateInterval: .seconds(3600))
-        let query = SearchQuery("bear claw")
-        let clock = ContinuousClock()
-        let whole = await clock.measure { _ = await updates(index, query) }
-        let search = Task { await updates(index, query) }
-        try await Task.sleep(for: whole / 10)
-        search.cancel()
-        let start = clock.now
-        let received = await search.value
-        let stopping = clock.now - start
-        print(
-            "search of 40 huge paragraphs: \(whole); stopped \(stopping) after cancelling,"
-                + (received.isEmpty ? " mid-search" : " after it had finished"))
-        #expect(stopping < whole / 2)
     }
 }

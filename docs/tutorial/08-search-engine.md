@@ -191,14 +191,15 @@ let received = await Task {
 ```
 
 Because the iterator is lazy, that single update is also proof that nothing more was searched:
-the work only ever happens inside `next()`. A second test,
-`cancellingStopsASearchOfHugeParagraphsPromptly` in
-[`SearchPerformanceTests.swift`](../../Tests/SceneItCoreTests/Search/SearchPerformanceTests.swift),
-cancels a search of 40 paragraphs of 20,000 words each from outside, aiming for the middle of its
-one long `advance()`, and checks that it stops in under half the time the whole search takes.
-Timing can't guarantee the cancellation lands mid-search on a loaded machine, so
-`aCancelledSearchReadsNoFurtherUnit` pins the check itself: in a cancelled task, `advance()`
-returns `nil` before reading a unit.
+the work only ever happens inside `next()`. That test cancels between steps, though. To show the
+check sits inside one long step, `aCancelledSearchReadsNoFurtherUnit` needs the cancellation to
+land between two units of the same `advance()`. Timing from another task can't place it there on
+a loaded machine, so `advance` takes its clock as a parameter (`some Clock<Duration>`, defaulting
+to `ContinuousClock()`), as `AutosaveDriver` does. The test passes a `CancellingClock` that
+stands still and cancels the task reading it on a chosen reading. `advance` reads the clock once
+to set its deadline and once after each unit, so the test can cancel before the first unit, or
+just after the first or second of three. Each time, `advance()` returns `nil` having searched
+exactly the units read before the cancellation (`unitsSearched`, readable from tests).
 
 ## 5. Words, sentences and endings
 

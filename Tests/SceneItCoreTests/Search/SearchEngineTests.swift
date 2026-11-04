@@ -159,15 +159,24 @@ import Testing
     }
 
     /// The iterator checks nothing itself, so this shows the check sits in the loop over units,
-    /// inside a single long step.
-    @Test func aCancelledSearchReadsNoFurtherUnit() async {
-        let index = KeywordSearch(units: bodyUnits(["bear", "bear"]), updateInterval: .seconds(3600))
-        let update = await Task {
-            var run = SearchRun(index: index, query: SearchQuery("bear"))
-            withUnsafeCurrentTask { $0?.cancel() }
-            return run.advance()
+    /// inside a single long step: cancelled before the step, or while it reads any unit but the
+    /// last, the step reads no further unit and reports nothing.
+    @Test(arguments: 0..<3) func aCancelledSearchReadsNoFurtherUnit(unitsRead: Int) async {
+        let index = KeywordSearch(units: bodyUnits(["bear", "bear", "bear"]), updateInterval: .seconds(3600))
+        let query = SearchQuery("bear")
+        var uncancelled = SearchRun(index: index, query: query)
+        #expect(
+            uncancelled.advance(on: ManualClock())?.progress == .complete,
+            "precondition: one step reads every unit")
+
+        let clock = CancellingClock(onRead: unitsRead + 1)
+        let (update, searched) = await Task {
+            var run = SearchRun(index: index, query: query)
+            let update = run.advance(on: clock)
+            return (update, run.unitsSearched)
         }.value
         #expect(update == nil)
+        #expect(searched == unitsRead)
     }
 
     @Test func aSearchIndexIsUsableAsAnExistential() async throws {
