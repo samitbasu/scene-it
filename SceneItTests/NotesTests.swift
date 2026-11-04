@@ -201,9 +201,10 @@ struct NotesTests {
         }
     }
 
-    /// Book format §4.2: a comment can cover the notes' text, so a commented span cut from the
-    /// page and pasted into the notes keeps its comment, which stays anchored; and back again.
-    @Test func aCommentedSpanCutFromThePageKeepsItsCommentInTheNotes() async throws {
+    /// The notes have no comments (the owner's ruling, ADR 0032): a commented span cut from the
+    /// page and pasted into the notes keeps its text and formatting and leaves its comment behind,
+    /// detached; copied back to the page, it's plain text.
+    @Test func aCommentedSpanCutFromThePageLeavesItsCommentBehindInTheNotes() async throws {
         let one = sceneWithNotes("One", letterScene, notes: [[Run("See ")]], .withTooEarly)
         try await withPage([one]) { page in
             let notes = try await page.showNotes()
@@ -213,29 +214,33 @@ struct NotesTests {
                 page.window.makeFirstResponder(page.page)
                 page.page.setSelectedRange(letter)
                 #expect(page.page.writeSelection(to: pasteboard, types: page.page.writablePasteboardTypes))
+                #expect(
+                    pasteboard.types?.contains(.pageClip) == true,
+                    "precondition: the clip carries the comment")
                 page.page.delete(nil)
                 #expect(Paragraph.commentIDs(in: page.body()).isEmpty, "precondition: cut from the page")
 
                 page.focusNotes(notes, at: 4)
                 #expect(notes.readSelection(from: pasteboard))
-                #expect(page.notes() == [[Run("See "), Run("letter", color: .red, comments: [noted])]])
+                #expect(page.notes() == [[Run("See "), Run("letter", color: .red)]])
                 #expect(page.notesMirrorModel(notes))
                 let scene = try #require(page.book.book.scene(one.id))
-                #expect(scene.comments.map(\.id) == [noted], "the same comment, not a copy")
-                #expect(!scene.isDetached(noted), "anchored in the notes")
+                #expect(scene.comments.map(\.id) == [noted], "the comment stays, for its card")
+                #expect(scene.isDetached(noted), "anchored nowhere")
                 page.store.saveNow()
                 await eventually { page.book.status == .saved }
                 let saved = try #require(try bookOnDisk(page.url).scenes.first)
                 #expect(saved.notes == page.notes())
-                #expect(saved.comments.map(\.id) == [noted])
 
                 notes.setSelectedRange(NSRange(location: 4, length: 6))
                 pasteboard.clearContents()
                 #expect(notes.writeSelection(to: pasteboard, types: notes.writablePasteboardTypes))
-                #expect(pasteboard.types?.contains(.pageClip) == true, "the notes write the app's own clip")
                 page.focusPage(at: 4)
                 #expect(page.page.readSelection(from: pasteboard))
-                #expect(page.body() == letterScene, "back on the page, still commented")
+                #expect(
+                    page.body() == [
+                        [Run("The "), Run("letter", color: .red), Run(" waited.")], [Run("Dawn.")],
+                    ])
                 #expect(page.pageMirrorsModel)
             }
         }

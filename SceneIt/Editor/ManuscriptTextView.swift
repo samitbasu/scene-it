@@ -12,6 +12,7 @@ final class ManuscriptTextView: SceneTextView {
         let view = ManuscriptTextView(usingTextLayoutManager: true)
         view.configure(.body)
         view.drawsBackground = true
+        view.textLayoutManager?.delegate = view.underliner
         view.backgroundColor = NSColor(WindowMetrics.deskColor)
         // The text column is always 6.5 in, however wide the view, so zoom and the window's
         // width never change a line break.
@@ -23,6 +24,27 @@ final class ManuscriptTextView: SceneTextView {
         view.minSize = NSSize(width: 0, height: WindowMetrics.pageSize.height + 2 * WindowMetrics.deskPadding)
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         return view
+    }
+
+    // MARK: Comments (ADR 0032): on the page alone
+
+    /// Lays the text out with its comments underlined.
+    private let underliner = CommentUnderliner()
+
+    /// The comments underlined, as the scene has them.
+    var commentPalette: CommentPalette {
+        get { underliner.palette }
+        set { underliner.show(newValue, laidOutBy: textLayoutManager) }
+    }
+
+    /// A click on commented text, or on its underlines, selects its comment (PLAN §8.1), once
+    /// it has placed the caret as any click does.
+    override func mouseDown(with event: NSEvent) {
+        let pressed = CommentPress.character(pressedBy: event, in: self)
+        super.mouseDown(with: event)
+        if let pressed, CommentPress.selectsComment(leaving: selectedRange()) {
+            editor?.clickedComments(at: pressed)
+        }
     }
 
     // MARK: The page on the desk
@@ -72,5 +94,27 @@ final class ManuscriptTextView: SceneTextView {
         } else {
             super.insertBacktab(sender)
         }
+    }
+}
+
+/// Which presses on the text select a comment: plain clicks only (the owner's call, #24).
+enum CommentPress {
+    /// The character an unmodified single press is on, or above the underline it's on; `nil` for
+    /// a press with Shift, Command, Option or Control, a double press, or a press off the text.
+    static func character(pressedBy event: NSEvent, in view: NSTextView) -> Int? {
+        let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        guard event.clickCount == 1, modifiers.isEmpty, let layout = view.textLayoutManager else {
+            return nil
+        }
+        let point = view.convert(event.locationInWindow, from: nil)
+        let origin = view.textContainerOrigin
+        return CommentUnderlineFragment.character(
+            at: CGPoint(x: point.x - origin.x, y: point.y - origin.y), in: layout)
+    }
+
+    /// Whether the press, done, was a click: a press that dragged out a selection selects no
+    /// comment.
+    static func selectsComment(leaving selection: NSRange) -> Bool {
+        selection.length == 0
     }
 }
