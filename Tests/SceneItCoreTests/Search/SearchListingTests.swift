@@ -27,7 +27,9 @@ import Testing
 
     @Test func aMatchNearTheStartShowsTheWholeText() throws {
         let text = "The letter waited on the table."
-        let snippet = SearchSnippet(Self.hit(unit(text, field: .body(paragraph: 0)), [(try Self.range(of: "letter", in: text), .match)]))
+        let snippet = SearchSnippet(
+            Self.hit(
+                unit(text, field: .body(paragraph: 0)), [(try Self.range(of: "letter", in: text), .match)]))
         #expect(snippet.text == text)
         #expect(Self.marked(snippet) == ["letter"])
     }
@@ -68,8 +70,12 @@ import Testing
     private static func update(scenes count: Int, _ quality: MatchQuality) -> SearchUpdate {
         let scenes = (0..<count).map { index in
             SceneHits(hits: [
-                hit(unit("a bear", field: .body(paragraph: 0), scene: "s\(index)", number: index + 1), [(2..<6, .match)]),
-                hit(unit("a bear", field: .body(paragraph: 1), scene: "s\(index)", number: index + 1), [(2..<6, .match)]),
+                hit(
+                    unit("a bear", field: .body(paragraph: 0), scene: "s\(index)", number: index + 1),
+                    [(2..<6, .match)]),
+                hit(
+                    unit("a bear", field: .body(paragraph: 1), scene: "s\(index)", number: index + 1),
+                    [(2..<6, .match)]),
             ])
         }
         return SearchUpdate(scenes: scenes, quality: quality, progress: .complete)
@@ -103,11 +109,14 @@ import Testing
         BookScene(
             id: SceneID(rawValue: "s1"), modified: created, title: SceneTitle(title),
             body: body.map { [Run($0)] }, notes: notes.map { [Run($0)] },
-            comments: [Comment(id: CommentID(rawValue: "c1"), color: .purple, text: "Check it.", created: created)])
+            comments: [
+                Comment(id: CommentID(rawValue: "c1"), color: .purple, text: "Check it.", created: created)
+            ])
     }
 
     @Test func aBodyOrNotesHitSelectsItsMatchAfterTheParagraphsBeforeIt() throws {
-        let scene = Self.scene(title: "Arrival", body: ["Dawn came.", "He found the letter."], notes: ["One.", "Two letters."])
+        let scene = Self.scene(
+            title: "Arrival", body: ["Dawn came.", "He found the letter."], notes: ["One.", "Two letters."])
         let body = Self.hit(unit("He found the letter.", field: .body(paragraph: 1)), [(13..<19, .match)])
         #expect(body.target(in: scene) == .text(.body, (11 + 13)..<(11 + 19)))
         let notes = Self.hit(unit("Two letters.", field: .notes(paragraph: 1)), [(4..<11, .match)])
@@ -116,9 +125,13 @@ import Testing
 
     @Test func aTitleCommentOrTagsHitLeadsToItsField() {
         let scene = Self.scene(title: "The letter", body: ["Dawn."])
-        #expect(Self.hit(unit("The letter", field: .title), [(4..<10, .match)]).target(in: scene) == .title(4..<10))
+        #expect(
+            Self.hit(unit("The letter", field: .title), [(4..<10, .match)]).target(in: scene)
+                == .title(4..<10))
         let comment = CommentID(rawValue: "c1")
-        #expect(Self.hit(unit("Check it.", field: .comment(comment)), [(0..<5, .match)]).target(in: scene) == .comment(comment))
+        #expect(
+            Self.hit(unit("Check it.", field: .comment(comment)), [(0..<5, .match)]).target(in: scene)
+                == .comment(comment))
         #expect(Self.hit(unit("harbor", field: .tags), [(0..<6, .match)]).target(in: scene) == .tags)
     }
 
@@ -131,7 +144,11 @@ import Testing
         #expect(gone.target(in: scene) == .scene, "a paragraph that has gone")
         #expect(Self.hit(unit("Old title", field: .title), [(0..<3, .match)]).target(in: scene) == .scene)
         let dismissed = CommentID(rawValue: "c9")
-        #expect(Self.hit(unit("Gone.", field: .comment(dismissed)), [(0..<4, .match)]).target(in: scene) == .scene)
-        #expect(Self.hit(unit("One.", field: .notes(paragraph: 0)), [(0..<3, .match)]).target(in: scene) == .scene)
+        #expect(
+            Self.hit(unit("Gone.", field: .comment(dismissed)), [(0..<4, .match)]).target(in: scene) == .scene
+        )
+        #expect(
+            Self.hit(unit("One.", field: .notes(paragraph: 0)), [(0..<3, .match)]).target(in: scene) == .scene
+        )
     }
 }

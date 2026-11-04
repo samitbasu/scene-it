@@ -398,6 +398,12 @@ arrives can't miss it, and a stale update never replaces a newer one. In Rust yo
 same effect by dropping the old future (`JoinHandle::abort`) and checking a generation counter
 before writing to shared state; here the actor plays the counter's part.
 
+Closing the sheet (`close()`) cancels the search and drops the indexes and the results;
+opening it (`refresh()`) searches the book as it is then. Results from an earlier opening are
+never shown, because their offsets describe text that may have changed. As a second line of
+defence, `SearchHit.target(in:)` checks that the hit's text is still what the book holds before
+it selects anything (`.scene` otherwise).
+
 The model keeps one index per scope, each a `Task<any SearchIndex, Never>`, so a query typed
 while the book is still being indexed simply awaits the same task. *This scene* doesn't filter
 results: the sheet gives the engine only the open scene's units

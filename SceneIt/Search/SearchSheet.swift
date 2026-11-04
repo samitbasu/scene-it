@@ -125,9 +125,12 @@ private struct SearchResults: View {
         } else {
             switch listing.quality {
             case .exact:
-                summary(SearchWording.summary(matches: listing.hitCount, scenes: listing.sceneCount), activity)
+                summary(
+                    SearchWording.summary(matches: listing.hitCount, scenes: listing.sceneCount), activity)
             case .near:
-                summary(SearchWording.nearSummary(matches: listing.hitCount, scenes: listing.sceneCount), activity)
+                summary(
+                    SearchWording.nearSummary(matches: listing.hitCount, scenes: listing.sceneCount), activity
+                )
             }
             LazyVStack(alignment: .leading, spacing: WindowMetrics.Search.groupSpacing) {
                 ForEach(listing.scenes, id: \.key) { hits in

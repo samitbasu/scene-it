@@ -92,6 +92,14 @@ nonisolated final class IndexGate: Sendable {
         for continuation in waiting { continuation.resume() }
     }
 
+    /// Keyword search, built once the gate lets it through.
+    var indexing: SearchSheetModel.Indexing {
+        { units in
+            await self.pass()
+            return KeywordSearch(units: units)
+        }
+    }
+
     func pass() async {
         await withCheckedContinuation { continuation in
             let passes = state.withLock { state in
@@ -117,6 +125,13 @@ private nonisolated struct LateIndex: SearchIndex {
 
 nonisolated final class LateRecorder: Sendable {
     private let finished = Mutex(false)
+    /// The late update waits for this as well as for the cancellation, so a test can deliver
+    /// it after the next search has reported.
+    let release: IndexGate = {
+        let gate = IndexGate()
+        gate.shut()
+        return gate
+    }()
 
     /// Whether the late search's iterator is gone: its task has done with every update.
     var lateSearchFinished: Bool { finished.withLock { $0 } }
@@ -166,6 +181,7 @@ private nonisolated struct LateUpdates: AsyncSequence, Sendable {
             guard var updates = pending, !updates.isEmpty else { return nil }
             if isLate, updates.count == 1 {
                 while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)) }
+                await token?.recorder.release.pass()
             }
             let update = updates.removeFirst()
             pending = isLate && updates.count > 1 ? [updates.last!] : updates
@@ -379,11 +395,14 @@ struct SearchSheetTests {
             }
             model.text = "letter"
             await eventually { model.currentListing != nil }
-            #expect(model.currentListing?.progress != .complete, "precondition: the late search is in progress")
+            #expect(
+                model.currentListing?.progress != .complete, "precondition: the late search is in progress")
 
             model.text = "ferry"
             let ferry = try await model.completed()
             #expect(ferry.hitCount == 3)
+            #expect(!late.lateSearchFinished, "precondition: the late update is still to come")
+            late.release.open()
             await eventually { late.lateSearchFinished }
             #expect(model.reported?.query == SearchQuery("ferry"), "the late update wasn't shown")
             #expect(model.currentListing == ferry)
@@ -393,7 +412,8 @@ struct SearchSheetTests {
     @Test func closingTheSheetStopsTheSearchAndLetsGoOfTheIndexes() async throws {
         let scenes = (1...3).map { scene("Scene \($0)", body: ["The letter.", "The ferry."]) }
         let recorder = SearchRecorder(holding: "letter")
-        try await withPage(scenes, searchIndexing: { recorder.index($0) }) { page in
+        let indexing: SearchSheetModel.Indexing = { recorder.index($0) }
+        try await withPage(scenes, searchIndexing: indexing) { page in
             let model = page.search
             try await showSheet(page)
             model.text = "letter"
@@ -417,10 +437,7 @@ struct SearchSheetTests {
         let first = scene("One", body: ["A bear."])
         let second = scene("Two", body: ["Two bears."])
         let gate = IndexGate()
-        try await withPage([first, second], searchIndexing: { units in
-            await gate.pass()
-            return KeywordSearch(units: units)
-        }) { page in
+        try await withPage([first, second], searchIndexing: gate.indexing) { page in
             let model = page.search
             try await showSheet(page)
             model.scope = .thisScene
@@ -443,10 +460,7 @@ struct SearchSheetTests {
     @Test func reopeningAfterAnEditShowsTheEditedText() async throws {
         let only = scene("One", body: ["A bear.", "A wolf."])
         let gate = IndexGate()
-        try await withPage([only], searchIndexing: { units in
-            await gate.pass()
-            return KeywordSearch(units: units)
-        }) { page in
+        try await withPage([only], searchIndexing: gate.indexing) { page in
             let model = page.search
             try await showSheet(page)
             model.text = "bear"
@@ -615,7 +629,9 @@ struct SearchSheetTests {
             model.open(hit)
             #expect(page.book.openScene == open, "the same scene stays open")
             let early = NSRange(location: 11 + 18, length: 5)
-            await eventually { page.page.selectedRange() == early && page.window.firstResponder === page.page }
+            await eventually {
+                page.page.selectedRange() == early && page.window.firstResponder === page.page
+            }
             #expect((page.storage.string as NSString).range(of: "early") == early, "precondition: the match")
         }
     }
