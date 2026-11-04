@@ -1,7 +1,8 @@
 # 0037 — Comment operations: the page changes the text, the store changes the list
 
 **Status:** Accepted (2026-11-04, the owner's decisions on #23 / PR #118). Deviates from PLAN §8.1 ("The
-`BookStore` changes both together") and PLAN §11 (New Comment's shortcut).
+`BookStore` changes both together", and a comment with no selection) and PLAN §11 (New Comment's
+shortcut). Amended 2026-11-04: no selection, no comment.
 
 ## Context
 A comment is two things that must agree: its id on the runs it covers, and its entry in the scene's `comments`.
@@ -25,11 +26,15 @@ typing undo every time they made, dismissed or re-anchored one.
 - **Dismiss removes** the comment (PLAN §8.1: undoing it restores the card and the underline); undo puts the
   entry back at its index.
 - **What a new comment covers:** the selection, less ranges of only line breaks (which carry no comment, book
-  format §4.2). **A selection of only spaces may be commented** (the owner's call). With no selection, the
-  word the caret is in, or the one it follows past closing punctuation ("end.", "dogs'", `"no"`), as a
-  double click selects it (so a hyphen splits "well-known"). Nothing to cover beeps and changes nothing.
+  format §4.2). **A selection of only spaces may be commented** (the owner's call). **With no selection
+  there's nothing to comment** (the owner's call, after #118: "I'm fine with disabling comment if there is
+  no active selection"). This deviates from PLAN §8.1's "With no selection, the comment attaches to the word
+  at the cursor" and replaces this ADR's first version, which commented the word at the caret, found past
+  closing punctuation, as a double click selects it.
 - **New Comment is Cmd+Shift+M**, not PLAN §11's Cmd+Option+M, which is macOS's Minimize All. It's enabled
-  while the page has the focus and can be edited.
+  while the page has the focus, can be edited and has a selection a comment can cover: with only a caret,
+  or only line breaks selected, it's disabled. An editor call with nothing to cover beeps and changes
+  nothing.
 - A new comment's color is the last one chosen for a comment (`AppPreferences.lastCommentColor`), **purple**
   at first. The undo names are the owner's: New Comment, Edit Comment, Comment Color, Dismiss Comment,
   Re-anchor Comment.

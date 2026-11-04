@@ -30,43 +30,14 @@ struct CommentRangesTests {
         #expect(text.commentRanges(selecting: [NSRange(location: 18, length: 2)]).isEmpty)
     }
 
-    /// With nothing selected, the word the caret is in or just after; beside no word, nothing.
-    @Test func noSelectionCommentsTheWordAtTheCaret() {
-        let word = NSRange(location: 4, length: 6)
-        #expect((text.string as NSString).substring(with: word) == "letter", "precondition")
-        for caret in [4, 7, 10] {
-            #expect(
-                text.commentRanges(selecting: [NSRange(location: caret, length: 0)]) == [word], "\(caret)")
+    /// No selection covers nothing, wherever the caret is (ADR 0037).
+    @Test func noSelectionCoversNothing() {
+        for caret in [0, 4, 7, 10, 19] {
+            #expect(text.commentRanges(selecting: [NSRange(location: caret, length: 0)]).isEmpty, "\(caret)")
         }
-        #expect(
-            text.commentRanges(selecting: [NSRange(location: 0, length: 0)]) == [
-                NSRange(location: 0, length: 3)
-            ])
-        #expect(text.commentRanges(selecting: [NSRange(location: 19, length: 0)]).isEmpty, "an empty line")
         #expect(
             NSAttributedString(string: "").commentRanges(selecting: [NSRange(location: 0, length: 0)]).isEmpty
         )
-        #expect(
-            NSAttributedString(string: " . ").commentRanges(selecting: [NSRange(location: 1, length: 0)])
-                .isEmpty)
-    }
-
-    /// After closing punctuation, the word it closes; inside a contraction or after a leading
-    /// apostrophe, the word as a double click selects it, which splits at a hyphen.
-    @Test func theWordAtTheCaretIsFoundPastClosingPunctuation() {
-        let cases: [(String, Int, String?)] = [
-            ("the end.", 8, "end"), ("the dogs'", 9, "dogs"), ("\"no\"", 4, "no"), ("\"no.\" ", 5, "no"),
-            ("don't", 5, "don't"), ("don't", 3, "don't"), ("well-known", 10, "known"),
-            ("well-known", 2, "well"),
-            ("well-known", 4, "well"), ("'tis", 4, "tis"), ("the end. ", 9, nil), ("...", 3, nil),
-        ]
-        for (string, caret, expected) in cases {
-            let ranges = NSAttributedString(string: string).commentRanges(
-                selecting: [NSRange(location: caret, length: 0)])
-            #expect(
-                ranges.map { (string as NSString).substring(with: $0) } == expected.map { [$0] } ?? [],
-                "\(string) at \(caret)")
-        }
     }
 
     @Test func aSelectionOfOnlySpacesIsCommented() {
