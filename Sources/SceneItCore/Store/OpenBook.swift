@@ -41,6 +41,10 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// changes a scene's id, so the undo still finds it.
     @ObservationIgnored private var structureTargets: [StructureTarget: SceneID] = [:]
 
+    /// The comments the book's notes carried as it opened (ADR 0035): the only ones an edit of
+    /// the notes keeps, so one the file anchored there survives typing, undo and moves.
+    @ObservationIgnored private let commentsOpenedInTheNotes: Set<CommentID>
+
     private var access: Access
     @ObservationIgnored private weak var store: BookStore<C>?
     @ObservationIgnored private var ids = IDGenerator<SystemRandomNumberGenerator>.system
@@ -65,6 +69,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         self.archive = archive.index
         archiveNotices = archive.notices
         wordCounts = SceneWordCounts(opened.book)
+        commentsOpenedInTheNotes = Paragraph.commentIDs(
+            in: (opened.book.scenes + opened.book.boneyard + opened.book.deleted).flatMap(\.notes))
         access = .closed
         switch opened {
         case .editing(let editable):
@@ -145,7 +151,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard let current = book.scene(scene) else { return }
         let paragraphs =
             part == .notes
-            ? paragraphs.map { $0.keepingComments(Self.commentsAllowed(in: .notes, of: current)) }
+            ? paragraphs.map { $0.keepingComments(commentsAllowed(in: .notes, of: current)) }
             : paragraphs
         edit(scene) { $0[keyPath: part.paragraphs] = paragraphs }
         if book.scene(scene)?[keyPath: part.paragraphs] == paragraphs {
@@ -170,7 +176,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             part == .body
             ? comments.filter { comment in !edited.comments.contains { $0.id == comment.id } } : []
         edited.comments += added
-        let known = Self.commentsAllowed(in: part, of: edited)
+        let known = commentsAllowed(in: part, of: edited)
         let accepted = change.mapParagraphs { $0.keepingComments(known) }
         let text = part.paragraphs
         guard let replaced = accepted.replaced(in: edited[keyPath: text]),
@@ -191,13 +197,18 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// The comment ids `part` of `scene` may carry: the scene's, on the page. Comments are made
-    /// on the page alone (ADR 0032), so the notes keep only those they were loaded with.
-    private static func commentsAllowed(in part: TextPart, of scene: BookScene) -> Set<CommentID> {
+    /// on the page alone (ADR 0035), so the notes keep only those they opened with.
+    private func commentsAllowed(in part: TextPart, of scene: BookScene) -> Set<CommentID> {
         let known = Set(scene.comments.map(\.id))
         switch part {
         case .body: return known
-        case .notes: return Paragraph.commentIDs(in: scene.notes).intersection(known)
+        case .notes: return commentsOpenedInTheNotes.intersection(known)
         }
+    }
+
+    /// The comment ids text pasted into `scene`'s notes may keep: those the notes opened with.
+    public func commentsAllowedInTheNotes(of scene: SceneID) -> Set<CommentID> {
+        book.scene(scene).map { commentsAllowed(in: .notes, of: $0) } ?? []
     }
 
     /// Takes back comments a paste into `part` added (its undo), unless some text still

@@ -1,7 +1,7 @@
 import Observation
 
 /// The selected comment (PLAN §8.1): the card the comments panel shows selected, chosen there or
-/// by clicking commented text on the page or in the notes. It belongs to a scene, so it means
+/// by clicking commented text on the page. It belongs to a scene, so it means
 /// nothing once another scene is open.
 @MainActor @Observable
 public final class CommentSelection {

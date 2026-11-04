@@ -75,7 +75,7 @@ public struct Paragraph: Hashable, Sendable, ExpressibleByArrayLiteral {
     }
 
     /// The same text, carrying no comment but `known`.
-    func keepingComments(_ known: Set<CommentID>) -> Paragraph {
+    public func keepingComments(_ known: Set<CommentID>) -> Paragraph {
         guard !Paragraph.commentIDs(in: [self]).isSubset(of: known) else { return self }
         return Paragraph(
             runs.map { run in

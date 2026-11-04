@@ -75,7 +75,7 @@ struct CommentClickTests {
             let scene = try #require(harness.book.openScene)
             let letter = try Self.frame(of: 6, in: harness.page)
             let point = CGPoint(x: letter.midX, y: Self.baseline(of: letter) - 4)
-            for modifiers: NSEvent.ModifierFlags in [.shift, .command] {
+            for modifiers: NSEvent.ModifierFlags in [.shift, .command, .option, .control] {
                 try Self.click(harness, at: point, modifiers: modifiers)
                 #expect(selection.comment(in: scene) == nil, "\(modifiers)")
             }
@@ -84,6 +84,21 @@ struct CommentClickTests {
             #expect(
                 harness.page.selectedRange().length > 0, "precondition: the press dragged out a selection")
             #expect(selection.comment(in: scene) == nil)
+        }
+    }
+
+    /// A double click's first press is a plain click and selects once; its second press, which
+    /// selects the word, changes nothing (the owner's call, #24).
+    @Test func aDoubleClickSelectsOnce() async throws {
+        try await withPage([Self.commentedScene()]) { harness in
+            let selection = try #require(harness.page.editor?.comments)
+            let scene = try #require(harness.book.openScene)
+            let letter = try Self.frame(of: 6, in: harness.page)
+            let point = CGPoint(x: letter.midX, y: Self.baseline(of: letter) - 4)
+            try Self.click(harness, at: point)
+            try Self.click(harness, at: point, clickCount: 2)
+            #expect(
+                selection.comment(in: scene) == Self.newer.id, "the first press selected the newest, once")
         }
     }
 
@@ -147,6 +162,39 @@ struct CommentClickTests {
 
     /// Notes from a file that anchors a comment in them (the format allows it, ADR 0032) show no
     /// underline, and a click there selects nothing.
+    /// A comment the file anchored in the notes survives a cut and paste within them, and its
+    /// undo and redo, through the notes' own editor (ADR 0035): nothing is silently detached.
+    @Test func aCommentTheNotesOpenedWithSurvivesACutAndPasteThere() async throws {
+        var commented = scene("One", letterScene, .withTooEarly)
+        commented.notes = [[Run("The "), Run("letter", comments: [noted]), Run(" again.")]]
+        try await withPage([commented]) { harness in
+            let notes = try await harness.showNotes()
+            await eventually { notes.string == "The letter again." }
+            @MainActor func carried() -> Bool {
+                harness.book.book.scene(commented.id).map { Paragraph.commentIDs(in: $0.notes) == [noted] }
+                    ?? false
+            }
+            try await PageHarness.withPasteboard { pasteboard in
+                harness.focusNotes(notes, at: 4)
+                notes.setSelectedRange(NSRange(location: 4, length: 6))
+                #expect(notes.writeSelection(to: pasteboard, types: notes.writablePasteboardTypes))
+                notes.delete(nil)
+                #expect(!carried(), "precondition: cut")
+                notes.setSelectedRange(NSRange(location: 0, length: 0))
+                #expect(notes.readSelection(from: pasteboard))
+                #expect(carried(), "pasted back with its comment")
+                let undo = try #require(notes.undoManager)
+                await undoInAnEvent(undo)
+                await undoInAnEvent(undo)
+                #expect(carried(), "the cut undone")
+                await undoInAnEvent(undo, .redo)
+                await undoInAnEvent(undo, .redo)
+                #expect(carried(), "and redone")
+                #expect(harness.book.book.scene(commented.id)?.comments == [tooEarly])
+            }
+        }
+    }
+
     @Test func theNotesDrawNoUnderlinesAndClicksThereSelectNothing() async throws {
         var commented = scene("One", letterScene, .withTooEarly)
         commented.notes = [[Run("The "), Run("letter", comments: [noted]), Run(" again.")]]
@@ -198,7 +246,7 @@ struct CommentClickTests {
     /// to the view.
     static func click(
         _ harness: PageHarness, at point: CGPoint, in view: SceneTextView? = nil,
-        modifiers: NSEvent.ModifierFlags = [], draggingTo end: CGPoint? = nil
+        modifiers: NSEvent.ModifierFlags = [], clickCount: Int = 1, draggingTo end: CGPoint? = nil
     ) throws {
         let view = view ?? harness.page
         func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
@@ -207,7 +255,7 @@ struct CommentClickTests {
                     with: type, location: view.convert(point, to: nil), modifierFlags: modifiers,
                     timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: harness.window.windowNumber,
-                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+                    context: nil, eventNumber: 0, clickCount: clickCount, pressure: 1))
         }
         if let end {
             harness.window.postEvent(try event(.leftMouseDragged, at: end), atStart: false)

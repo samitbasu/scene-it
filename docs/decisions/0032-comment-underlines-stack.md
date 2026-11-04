@@ -21,7 +21,8 @@ the newest comment's color.
   line's slot; the deepest line keeps 1 pt clear of it, and half a device pixel spare for the baseline's rounding.
 - **Zoom:** the lines are drawn at the real device step (the display's backing scale times the page's zoom, 0.5 to 3), and
   the stack is as deep as fits there, and never deeper than fits at 1x and at 2x at 100%, so it's never more than 5 and
-  always stays above the next line's slot and inside the paragraph's drawing surface. At 1x and 50%, for instance, 3 fit.
+  always stays above the next line's slot and inside the paragraph's drawing surface. At 1x and 50%, for instance, 3 fit:
+  zooming out takes a deep stack into the fallback sooner, which the owner accepted (#24).
   **Past the limit, the fallback applies to that stretch only**: one line, at the first level, in the newest covering
   comment's colour.
 - **The notes have no comments** (ADR 0035), so nothing is drawn there.
@@ -44,8 +45,9 @@ A plain click on commented text on the page, or on its underlines in the spacing
 (`CommentSelection`, shared by the page and the comments panel): the newest covering comment, or, if one of
 them is already selected, the next older one, round again to the newest, so clicking the same spot cycles. The click still
 places the caret.
-- **Only plain clicks** (the owner's call): a press with Shift, Command, Option or Control, a double click, and a press that
-  drags out a selection select no comment.
+- **Only plain clicks** (the owner's call): a press with Shift, Command, Option or Control, and a press that drags out a
+  selection, select no comment. A double click's first press is a plain click, so it selects (or cycles) once; its second
+  press selects the word and changes nothing (the owner accepted this, #24).
 - A click on text no comment covers leaves the selection as it was.
 - A selection belongs to its scene, and goes when the scene no longer has the comment (an undo took it away).
 - Each line answers clicks from the top of its letters' slot to the end of the room below it, so a click on an underline
