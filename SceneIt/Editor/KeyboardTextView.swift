@@ -3,7 +3,8 @@ import AppKit
 /// A text view with no input method (ADR 0028), for every editor of manuscript text: the page,
 /// the title field and the notes. Keys reach it through the key bindings alone, as `insertText`,
 /// so there's no dead key, press-and-hold accent or IME composition, and it never holds marked
-/// text. Whatever it's given, its owner puts through the character policy.
+/// text. Whatever it's given, its owner puts through the character policy. Text neither drops
+/// into it nor drags out of it (ADR 0035): it arrives typed or pasted.
 class KeyboardTextView: NSTextView {
     override var inputContext: NSTextInputContext? {
         nil
@@ -14,6 +15,45 @@ class KeyboardTextView: NSTextView {
     override var writingToolsBehavior: NSWritingToolsBehavior {
         get { .none }
         set {}
+    }
+
+    // MARK: No drag and drop (ADR 0035)
+
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        []
+    }
+
+    override func updateDragTypeRegistration() {
+        unregisterDraggedTypes()
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        []
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        []
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        false
+    }
+
+    /// Before macOS 27, a press on the selection followed by a drag starts a drag here; refused,
+    /// the press selects as any other does.
+    override func dragSelection(with event: NSEvent, offset mouseOffset: NSSize, slideBack: Bool) -> Bool {
+        false
+    }
+
+    /// From macOS 27 the text view is its own `NSTextSelectionManager`'s delegate, and the manager
+    /// asks it for the drag of a pressed selection; `NSTextView` doesn't declare the method, so
+    /// this replaces it by its selector. `nil` means no drag.
+    @available(macOS 27, *)
+    @objc(selectionManager:makeDraggingSessionWithGesture:)
+    func selectionManager(_ manager: NSTextSelectionManager, makeDraggingSession gesture: NSGestureRecognizer)
+        -> NSDraggingSession?
+    {
+        nil
     }
 
     /// Without an input context nothing should call this; if anything does, its text is typed

@@ -143,10 +143,6 @@ struct FileACopyTests {
         }
     }
 
-    private enum Arrival: CaseIterable {
-        case typed, pasted, dropped
-    }
-
     /// `view` (File a Copy's dialog) in an offscreen window of its own, once its fields are
     /// there, for `body`; the window is closed after.
     @MainActor
@@ -172,9 +168,9 @@ struct FileACopyTests {
     }
 
     /// The dialog's tags and note go through the character policy as the editors do (ADR
-    /// 0028): what's typed, pasted or dropped is transliterated to ASCII as it arrives, as one undoable
+    /// 0028): what's typed or pasted is transliterated to ASCII as it arrives, as one undoable
     /// step on the editor's real history, with no input method and on TextKit 2.
-    @Test func theTagAndNoteEditorsAdmitWhatsTypedPastedAndDroppedThroughTheCharacterPolicy() async throws {
+    @Test func theTagAndNoteEditorsAdmitWhatsTypedAndPastedThroughTheCharacterPolicy() async throws {
         let typed = "caf\u{E9} \u{2014} \u{201C}na\u{EF}ve\u{201D}"
         #expect(
             CharacterPolicy.admittedLine(typed) == "cafe -- \"naive\"",
@@ -202,32 +198,26 @@ struct FileACopyTests {
                     #expect(history === window.undoManager, "the note undoes as the window does")
                 }
                 history.removeAllActions()
-                for how in Arrival.allCases {
-                    switch how {
-                    case .typed:
-                        editor.insertText(typed, replacementRange: editor.selectedRange())
-                    case .pasted, .dropped:
+                try await editor.expectRefusesEveryDrop()
+                for paste in [false, true] {
+                    if paste {
                         try await PageHarness.withPasteboard { pasteboard in
                             pasteboard.clearContents()
                             pasteboard.setString(typed, forType: .string)
-                            if how == .pasted {
-                                #expect(editor.readSelection(from: pasteboard))
-                            } else {
-                                #expect(!(await editor.drop(pasteboard, at: 0)).entered.isEmpty)
-                            }
+                            #expect(editor.readSelection(from: pasteboard))
                         }
+                    } else {
+                        editor.insertText(typed, replacementRange: editor.selectedRange())
                     }
+                    let how = paste ? "pasted" : "typed"
                     #expect(editor.string == admit(typed), "\(how)")
                     #expect(kept() == admit(typed), "the draft holds what's shown, \(how)")
                     let isASCII = editor.string.unicodeScalars.allSatisfy { $0.isASCII }
                     #expect(isASCII)
-                    let length = (editor.string as NSString).length
                     #expect(
                         editor.selectedRange()
-                            == (how == .dropped
-                                ? NSRange(location: 0, length: length)
-                                : NSRange(location: length, length: 0)),
-                        "the caret follows the admitted text, or a drop selects it, \(how)")
+                            == NSRange(location: (editor.string as NSString).length, length: 0),
+                        "the caret follows the admitted text, \(how)")
                     try await Task.sleep(for: .milliseconds(50))
                     history.undo()
                     #expect(editor.string.isEmpty, "one undo takes it back, \(how)")

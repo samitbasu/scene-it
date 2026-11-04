@@ -112,7 +112,7 @@ private final class Fuzz {
         let view = page.page
         let length = page.storage.length
         view.setSelectedRange(randomRange(length, &rng))
-        switch Int.random(in: 0..<18, using: &rng) {
+        switch Int.random(in: 0..<16, using: &rng) {
         case 0, 1:
             let text = randomText(&rng)
             log.append("insertText(\(text.debugDescription)) at \(view.selectedRange())")
@@ -177,25 +177,6 @@ private final class Fuzz {
         case 14:
             log.append("insert a lone surrogate at \(view.selectedRange())")
             view.insertText(lone(), replacementRange: view.selectedRange())
-        case 15:
-            let text = randomText(&rng)
-            let point = view.dropPoint(at: Int.random(in: 0...length, using: &rng))
-            log.append(
-                "drop \(text.debugDescription) at \(view.characterIndexForInsertion(at: view.convert(point, from: nil)))"
-            )
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            _ = view.drop(pasteboard, atWindowPoint: point, from: .elsewhere)
-        case 16:
-            let point = view.dropPoint(at: Int.random(in: 0...length, using: &rng))
-            log.append(
-                "drag \(view.selectedRange()) to \(view.characterIndexForInsertion(at: view.convert(point, from: nil)))"
-            )
-            pasteboard.clearContents()
-            if view.selectedRange().length > 0 {
-                _ = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
-                _ = view.drop(pasteboard, atWindowPoint: point, from: .moving(view))
-            }
         default:
             log.append("uppercaseWord at \(view.selectedRange())")
             view.uppercaseWord(nil)
@@ -223,7 +204,7 @@ private final class Fuzz {
 
 /// What the end of an event does to an undo manager that groups by event. A test has no events,
 /// so without this everything it does lands in one undo group.
-func endEvent(_ undo: UndoManager) {
+private func endEvent(_ undo: UndoManager) {
     while undo.groupingLevel > 0 { undo.endUndoGrouping() }
 }
 
