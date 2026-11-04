@@ -713,8 +713,8 @@ stays in the file until the writer deletes it. The texts are proposals †; word
 | No (valid) `id` | Scene | `This scene had no id, so it was given <new id>.` |
 | Duplicate `id` | Scene | `This scene's id <old id> was already used by an earlier scene, so it was given <new id>.` |
 | No (valid) `modified` | Scene | `This scene had no modified date, so it was set to <timestamp>.` |
-| A tag held `\n` (§2.2) | Scene | `This scene's tags held line breaks, which were changed to spaces.` It comes before the character notices. |
-| A filed copy's tag held `\n` (§8) | Filed copy | `This filed copy's tags held line breaks, which were changed to spaces.` |
+| A tag held `\n` (§2.2) | Scene | `This scene's tags had line breaks, so they were changed to spaces.` It comes before the character notices. |
+| A filed copy's tag held `\n` (§8) | Filed copy | `This filed copy's tags had line breaks, so they were changed to spaces.` |
 
 The parser takes the current time, the local time zone and an id generator as inputs, so tests can make the defaults
 deterministic.

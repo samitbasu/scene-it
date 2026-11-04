@@ -11,7 +11,7 @@ tags: red door, blue
 Body.
 
 ### Unparsed
-- [notice] This scene's tags held line breaks, which were changed to spaces.
+- [notice] This scene's tags had line breaks, so they were changed to spaces.
 
 ## Plain
 id: s2

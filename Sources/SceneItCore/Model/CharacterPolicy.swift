@@ -313,9 +313,9 @@ public enum RepairNotice: Hashable, Sendable {
             "This scene had no modified date, so it was set to \(timestamp)."
         case .missingFiledDate(let day):
             "This filed copy had no filed date, so it was set to \(day)."
-        case .lineBreaksInTags(.scene): "This scene's tags held line breaks, which were changed to spaces."
+        case .lineBreaksInTags(.scene): "This scene's tags had line breaks, so they were changed to spaces."
         case .lineBreaksInTags(.filedCopy):
-            "This filed copy's tags held line breaks, which were changed to spaces."
+            "This filed copy's tags had line breaks, so they were changed to spaces."
         }
     }
 

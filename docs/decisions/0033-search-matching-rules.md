@@ -41,7 +41,7 @@ Match case.
 - The contraction list is closed: an `'s` contraction not on it (`one's`, `John's` meaning "John is") reads as a
   possessive. Adding one is a one-line change to the list.
 - **Book format:** `\n` in a `tags:` value is still an escape for a line break (§4.1). Read from a file, it's a
-  **repair**: the tag gets a space, and its owner gets a notice (`This scene's tags held line breaks, which were changed
+  **repair**: the tag gets a space, and its owner gets a notice (`This scene's tags had line breaks, so they were changed
   to spaces.`, or the filed copy's equivalent).
   - In `book.md`, the scene's notice makes the book open read-only as repaired, with its original kept (ADR 0024).
   - In `Archive/index.md`, ADR 0024 doesn't apply. The filed copy's notice follows the archive index's own rule: a
