@@ -1,0 +1,2 @@
+new line - [line] between
+preserved line - [line] kept

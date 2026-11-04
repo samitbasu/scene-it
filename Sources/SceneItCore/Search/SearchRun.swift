@@ -9,7 +9,7 @@ struct SearchRun {
     private let unitCount: Int
     private var interval: Duration
     private var cursor = 0
-    private var unitsSearched = 0
+    private(set) var unitsSearched = 0
     /// Per keyword, how many of the units searched contain it.
     private var unitsContaining: [Int]
     private var matches: [UnitMatch] = []
@@ -31,9 +31,8 @@ struct SearchRun {
     ///
     /// Each update ranks every match so far, so the interval doubles after each one: the
     /// intermediate rankings then cost at most about as much as the final one.
-    mutating func advance() -> SearchUpdate? {
-        let clock = ContinuousClock()
-        let deadline = clock.now + interval
+    mutating func advance(on clock: some Clock<Duration> = ContinuousClock()) -> SearchUpdate? {
+        let deadline = clock.now.advanced(by: interval)
         while cursor < index.units.count {
             guard !Task.isCancelled else { return nil }
             search(index.units[cursor], at: cursor)

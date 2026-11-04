@@ -29,10 +29,6 @@ private enum SceneSection {
     case body, notes, comments, marks, unparsed
 }
 
-private enum SceneList {
-    case story, boneyard
-}
-
 private final class SceneDraft {
     let title: String
     var section = SceneSection.metadata
@@ -46,13 +42,13 @@ private final class SceneDraft {
     var markLines: [LogicalLine] = []
     var entries: [Positioned] = []
     var changed: [CharacterChange] = []
-    let list: SceneList
+    let part: FilePart
     var paragraphs: (body: [Paragraph], notes: [Paragraph]) = ([], [])
     var comments: [Comment] = []
 
-    init(title: String, list: SceneList) {
+    init(title: String, part: FilePart) {
         self.title = title
-        self.list = list
+        self.part = part
     }
 }
 
@@ -67,7 +63,7 @@ private final class Reader {
     private var format: Int?
     /// Outside any scene, whether the lines are in a book-level `### Unparsed` section.
     private var inBookUnparsed = false
-    private var inBoneyard = false
+    private var part = FilePart.story
     private var scenes: [SceneDraft] = []
     private var current: SceneDraft?
     private var paragraph: [[UInt8]] = []
@@ -123,11 +119,15 @@ private final class Reader {
         switch kind {
         case .heading(2, let name):
             endScene()
-            current = SceneDraft(title: Inline.readTitle(name), list: inBoneyard ? .boneyard : .story)
+            current = SceneDraft(title: Inline.readTitle(name), part: part)
             startsAPart = true
-        case .heading(1, let name) where !inBoneyard && Lexical.equalsIgnoringCase(name, "boneyard"):
+        case .heading(1, let name):
+            guard let next = FilePart(heading: name), next > part else {
+                startsAPart = false
+                break
+            }
             endScene()
-            inBoneyard = true
+            part = next
             inBookUnparsed = false
             startsAPart = true
         default:
@@ -352,8 +352,7 @@ private final class Reader {
     func finish(windows1252ByteCount: Int, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
         var used = Set(scenes.compactMap(\.id))
         var kept: Set<SceneID> = []
-        var story: [BookScene] = []
-        var boneyard: [BookScene] = []
+        var book = Book(title: title ?? BookFormat.untitled)
         var newInScenes: [ErrorEntry] = []
         var firstReasonInScenes: ErrorReason?
         for draft in scenes {
@@ -379,19 +378,14 @@ private final class Reader {
                 id: id, modified: draft.modified ?? opened, title: SceneTitle(draft.title), tags: draft.tags,
                 body: draft.paragraphs.body, notes: draft.paragraphs.notes, comments: draft.comments,
                 errors: entries.map(\.entry) + notices.map(\.entry))
-            switch draft.list {
-            case .story: story.append(scene)
-            case .boneyard: boneyard.append(scene)
-            }
+            book[keyPath: draft.part.scenes].append(scene)
         }
         var notices: [RepairNotice] = []
         if windows1252ByteCount > 0 { notices.append(.invalidUTF8(byteCount: windows1252ByteCount)) }
         if title == nil { notices.append(.missingTitle) }
         notices += RepairNotice.format(format) + RepairNotice.characters(bookChanged)
         let entries = Positioned.inFileOrder(bookEntries)
-        let book = Book(
-            title: title ?? BookFormat.untitled, scenes: story, boneyard: boneyard,
-            errors: entries.map(\.entry) + notices.map(\.entry))
+        book.errors = entries.map(\.entry) + notices.map(\.entry)
         return ParsedBook(
             book: book, declaredFormat: format.map(FormatVersion.init),
             newEntries: Positioned.new(entries) + notices.map(\.entry) + newInScenes,
