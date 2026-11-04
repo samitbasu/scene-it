@@ -10,16 +10,22 @@ let package = Package(
     name: "SceneItCore",
     platforms: [.macOS(.v26)],
     products: [
-        .library(name: "SceneItCore", targets: ["SceneItCore"])
+        .library(name: "SceneItCore", targets: ["SceneItCore"]),
+        // Helpers both test targets share; only test targets may depend on it.
+        .library(name: "SceneItTestSupport", targets: ["SceneItTestSupport"]),
     ],
     targets: [
         .target(
             name: "SceneItCore",
             swiftSettings: strictSettings
         ),
+        .target(
+            name: "SceneItTestSupport",
+            swiftSettings: strictSettings
+        ),
         .testTarget(
             name: "SceneItCoreTests",
-            dependencies: ["SceneItCore"],
+            dependencies: ["SceneItCore", "SceneItTestSupport"],
             path: "Tests",
             sources: ["SceneItCoreTests"],
             resources: [.copy("Corpus")],

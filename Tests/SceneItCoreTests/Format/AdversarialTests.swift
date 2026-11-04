@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SceneItTestSupport
 import Testing
 
 @testable import SceneItCore

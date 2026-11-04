@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import Synchronization
 import Testing
 
