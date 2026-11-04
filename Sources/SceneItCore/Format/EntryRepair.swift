@@ -104,7 +104,7 @@ private enum EntryRepairTrial {
         case (.book, .frontMatter):
             return frontMatter(line, title: book.title, remaining: remaining)
         case (.scene(let id), .metadata), (.scene(let id), .comments), (.scene(let id), .marks):
-            guard var scene = book.scene(id) else { return .failure(.line) }
+            guard var scene = book.anyScene(id) else { return .failure(.line) }
             scene.errors = remaining
             return self.scene(scene, line: line, tag: ref.entry.tag, in: book)
         default:
@@ -143,7 +143,7 @@ private enum EntryRepairTrial {
         case .frontMatter, .line, .notice:
             return .failure(.line)
         }
-        let others = (book.scenes + book.boneyard).filter { $0.id != scene.id }.map {
+        let others = book.everyScene.filter { $0.id != scene.id }.map {
             BookScene(id: $0.id, modified: $0.modified, title: "")
         }
         var parsed = parse(

@@ -135,23 +135,17 @@ import Testing
         return bases
     }
 
-    private enum List {
-        case story, boneyard
+    /// The book's scenes in file order, each with the part it's in.
+    private static func placed(_ book: Book) -> [(part: FilePart, scene: BookScene)] {
+        FilePart.allCases.flatMap { part in book[keyPath: part.scenes].map { (part, $0) } }
     }
 
-    /// The book's scenes in file order, each with the list it's in.
-    private static func placed(_ book: Book) -> [(list: List, scene: BookScene)] {
-        book.scenes.map { (List.story, $0) } + book.boneyard.map { (List.boneyard, $0) }
-    }
-
-    /// How many lines are a `# Boneyard` heading, as §1.8 recognizes one.
-    private static func boneyardHeadings(_ bytes: [UInt8]) -> Int {
-        BookParser.lines(CharacterPolicy.fileText(BookTextDecoder.decode(Data(bytes)).text).bytes).count {
+    /// The `# Boneyard` and `# Deleted` heading lines, as §1.8 and §1.9 recognize them, in order.
+    private static func partHeadings(_ bytes: [UInt8]) -> [FilePart] {
+        BookParser.lines(CharacterPolicy.fileText(BookTextDecoder.decode(Data(bytes)).text).bytes).compactMap
+        {
             line in
-            if case .heading(1, let name) = Lexical.kind(of: line) {
-                return Lexical.equalsIgnoringCase(name, "boneyard")
-            }
-            return false
+            if case .heading(1, let name) = Lexical.kind(of: line) { FilePart(heading: name) } else { nil }
         }
     }
 
@@ -159,13 +153,19 @@ import Testing
     /// from moving between the lists, the spec lets that damage reach an untouched scene in
     /// exactly two ways (§6):
     /// - an earlier scene took its id, so it gets a fresh one and a notice (§2.2);
-    /// - an earlier `# Boneyard` made the real one a second Boneyard heading, which is a
-    ///   `[line]` entry of the scene it ends (§1.8).
+    /// - an earlier `# Boneyard` or `# Deleted` made a real one out of order, which is a
+    ///   `[line]` entry of the scene it ends (§1.8, §1.9).
     private static func isUndamaged(_ candidate: BookScene, original: BookScene) -> Bool {
         guard candidate != original else { return true }
         var restored = candidate
-        restored.errors.removeAll {
-            $0.tag == .line && Lexical.equalsIgnoringCase($0.payload.utf8, "# boneyard")
+        restored.errors.removeAll { entry in
+            entry.tag == .line
+                && FilePart.allCases.contains { part in
+                    part.heading.map {
+                        Lexical.equalsIgnoringCase(entry.payload.utf8, "# " + $0.lowercased())
+                    }
+                        ?? false
+                }
         }
         if let notice = restored.errors.last, notice.tag == .notice,
             notice.payload.hasPrefix("This scene's id \(original.id) was already used")
@@ -205,14 +205,14 @@ import Testing
                         affected.formUnion([index - 1, index])
                     }
                 }
-                // Adding, removing or breaking a `# Boneyard` line moves scenes between the
-                // lists (§6's locality exceptions); otherwise each keeps its list.
-                let listsMayChange = Self.boneyardHeadings(bytes) != Self.boneyardHeadings(original)
+                // Adding, removing or breaking a `# Boneyard` or `# Deleted` line moves scenes
+                // between the parts (§6's locality exceptions); otherwise each keeps its part.
+                let partsMayChange = Self.partHeadings(bytes) != Self.partHeadings(original)
                 var next = 0
-                for (index, (list, scene)) in placedScenes.enumerated() where !affected.contains(index) {
+                for (index, (part, scene)) in placedScenes.enumerated() where !affected.contains(index) {
                     checked += 1
                     let found = afterScenes[next...].firstIndex { candidate in
-                        (listsMayChange || candidate.list == list)
+                        (partsMayChange || candidate.part == part)
                             && Self.isUndamaged(candidate.scene, original: scene)
                     }
                     #expect(
@@ -223,7 +223,7 @@ import Testing
                 }
             }
         }
-        #expect(mutatedFiles == 4000)
+        #expect(mutatedFiles == 4500)
         #expect(checked > 10_000, "precondition: the property was exercised (\(checked) scenes)")
     }
 }

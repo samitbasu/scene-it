@@ -69,7 +69,7 @@ public struct SceneWordCounts: Hashable, Sendable {
 
     public init(_ book: Book) {
         counts = [:]
-        for scene in book.scenes + book.boneyard { recount(scene) }
+        for scene in book.visibleScenes { recount(scene) }
     }
 
     /// Counts `scene` again, after its body changed or it was added.

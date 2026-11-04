@@ -25,7 +25,7 @@ import Testing
             var generator = BookGenerator(seed: seed ^ fuzzSalt)
             books.append(generator.book())
         }
-        let scenes = books.flatMap { $0.scenes + $0.boneyard }
+        let scenes = books.flatMap(\.everyScene)
         let runs = scenes.flatMap { $0.body + $0.notes }.flatMap(\.runs)
         #expect(Set(runs.flatMap(\.styles)) == Set(TextStyle.allCases))
         #expect(runs.contains { $0.comments.count >= 2 }, "overlapping comments")
@@ -37,6 +37,9 @@ import Testing
             })
         #expect(Set(scenes.flatMap(\.errors).map(\.tag)) == Set(ErrorTag.allCases))
         #expect(books.contains { !$0.errors.isEmpty } && books.contains { !$0.boneyard.isEmpty })
+        #expect(
+            books.contains { !$0.deleted.isEmpty }
+                && books.contains { $0.boneyard.isEmpty && !$0.deleted.isEmpty })
         #expect(runs.contains { $0.text.hasPrefix("- ") || $0.text.hasPrefix("#") })
     }
 
