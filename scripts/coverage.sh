@@ -21,7 +21,7 @@ for arg in "$@"; do
 done
 
 # Instrumentation slows code unevenly, so the suites that compare timings would fail spuriously.
-readonly timing_suites=(ScalingTests PerformanceTests)
+readonly timing_suites=(ScalingTests PerformanceTests SearchPerformanceTests)
 readonly out=build/coverage
 readonly core_html="$out/core-html"
 readonly app_bundle="$out/app.xcresult"

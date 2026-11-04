@@ -184,8 +184,8 @@ scripts/coverage.sh --core-only   # SceneItCore only (about 1.5 minutes)
 scripts/coverage.sh --open        # then open the SceneItCore HTML report
 ```
 
-1. `swift test --enable-code-coverage`, skipping `ScalingTests` and `PerformanceTests`: they
-   compare timings, which instrumentation distorts. Then `xcrun llvm-cov` over the
+1. `swift test --enable-code-coverage`, skipping `ScalingTests`, `PerformanceTests` and
+   `SearchPerformanceTests`: they compare timings, which instrumentation distorts. Then `xcrun llvm-cov` over the
    SceneItCore test binary (found through `swift build --show-bin-path`) and the profile
    `swift test --show-codecov-path` names, leaving out `Tests/` and `.build/`: a summary and
    an HTML report.

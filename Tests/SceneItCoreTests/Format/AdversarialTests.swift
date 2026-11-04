@@ -160,35 +160,10 @@ import Testing
 }
 
 /// The paths the review found quadratic, now linear: doubling the input must not much
-/// more than double the time. The bounds are generous (3× plus slack, with retries) so they
-/// don't flake under load.
+/// more than double the time (`expectLinear`).
 @Suite(.serialized) struct ScalingTests {
     private static let head =
         "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n\n"
-
-    /// Times both sizes, interleaved so a burst of load from other suites hits both, and
-    /// keeps the fastest of three of each. A comparison gets three attempts: noise passes on
-    /// a retry, but a quadratic path (4×) fails every one.
-    private func expectLinear(
-        _ what: String, sizes: (Int, Int), sourceLocation: SourceLocation = #_sourceLocation,
-        _ work: (Int) -> () -> Void
-    ) {
-        let (smallWork, largeWork) = (work(sizes.0), work(sizes.1))
-        var attempts: [(Duration, Duration)] = []
-        for _ in 0..<3 {
-            var small: [Duration] = []
-            var large: [Duration] = []
-            for _ in 0..<3 {
-                small.append(ContinuousClock().measure(smallWork))
-                large.append(ContinuousClock().measure(largeWork))
-            }
-            attempts.append((small.min()!, large.min()!))
-            if large.min()! < small.min()! * 3 + .milliseconds(30) { return }
-        }
-        Issue.record(
-            "\(what) grew faster than linearly: \(sizes.0) vs \(sizes.1) took \(attempts)",
-            sourceLocation: sourceLocation)
-    }
 
     private static func commentFile(count: Int) -> Data {
         let body = String(repeating: "abcdefghij ", count: count)
@@ -207,42 +182,42 @@ import Testing
     }
 
     @Test func aParagraphWithManyRuns() {
-        expectLinear("serialize", sizes: (4000, 8000)) { count in
+        expectLinear("serialize", doubling: 4000) { count in
             let book = parse(
                 Data((Self.head + String(repeating: "wo*rd* ~~x~~ \\_ ", count: count) + "\n").utf8)
             ).book
             return { _ = BookFormat.serialize(book) }
         }
-        expectLinear("parse", sizes: (4000, 8000)) { count in
+        expectLinear("parse", doubling: 4000) { count in
             let data = Data((Self.head + String(repeating: "wo*rd* ~~x~~ \\_ ", count: count) + "\n").utf8)
             return { _ = parse(data) }
         }
     }
 
     @Test func manyComments() {
-        expectLinear("parse", sizes: (1500, 3000)) { count in
+        expectLinear("parse", doubling: 1500) { count in
             let data = Self.commentFile(count: count)
             return { _ = parse(data) }
         }
-        expectLinear("serialize", sizes: (3000, 6000)) { count in
+        expectLinear("serialize", doubling: 3000) { count in
             let book = parse(Self.commentFile(count: count)).book
             return { _ = BookFormat.serialize(book) }
         }
     }
 
     @Test func overlappingWideComments() {
-        expectLinear("parse", sizes: (15, 30)) { count in
+        expectLinear("parse", doubling: 15) { count in
             let data = Self.wideCommentFile(count: count)
             return { _ = parse(data) }
         }
-        expectLinear("serialize", sizes: (30, 60)) { count in
+        expectLinear("serialize", doubling: 30) { count in
             let book = parse(Self.wideCommentFile(count: count)).book
             return { _ = BookFormat.serialize(book) }
         }
     }
 
     @Test func longFreeText() {
-        expectLinear("serialize", sizes: (200_000, 400_000)) { count in
+        expectLinear("serialize", doubling: 200_000) { count in
             let text = String(repeating: "a\\b, \"c\" ", count: count / 10)
             var scene = plainScene(body: [[Run("x", comments: [CommentID(rawValue: "c")])]])
             scene.comments = [
@@ -257,14 +232,14 @@ import Testing
     /// Merging many neighbouring pieces of the same format admits the text once, not once
     /// per piece.
     @Test func manyPiecesOfOneFormat() {
-        expectLinear("RunCodec.body(from:)", sizes: (5000, 10_000)) { count in
+        expectLinear("RunCodec.body(from:)", doubling: 5000) { count in
             let text = NSMutableAttributedString(string: String(repeating: "word ", count: count))
             for piece in stride(from: 0, to: count, by: 2) {
                 text.addAttribute(.underlineStyle, value: 1, range: NSRange(location: piece * 5, length: 5))
             }
             return { _ = RunCodec.body(from: text) }
         }
-        expectLinear("verifiedSerialization", sizes: (5000, 10_000)) { count in
+        expectLinear("verifiedSerialization", doubling: 5000) { count in
             let book = Book(
                 title: "T", scenes: [plainScene(body: [Paragraph((0..<count).map { _ in Run("word ") })])])
             return { _ = try? BookFormat.verifiedSerialization(of: book) }
@@ -272,7 +247,7 @@ import Testing
     }
 
     @Test func manyScenes() {
-        expectLinear("parse", sizes: (5000, 10_000)) { count in
+        expectLinear("parse", doubling: 5000) { count in
             let scenes = (0..<count).map { "## S\($0)\nid: s\($0)\nmodified: 2026-01-01T00:00:00Z\n\nx\n" }
             let data = Data(("---\ntitle: T\nformat: 2\n---\n\n" + scenes.joined(separator: "\n")).utf8)
             return { _ = parse(data) }

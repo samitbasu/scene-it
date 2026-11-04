@@ -50,3 +50,13 @@ func foundTexts(_ units: [SearchUnit], _ text: String, _ options: SearchOptions 
 {
     try await hits(finalUpdate(units, text, options)).map(\.unit.text)
 }
+
+/// What a search finally reports, run on the calling thread, so that timing it measures the
+/// engine and not the scheduling of `next()`.
+func searchedToCompletion(_ index: KeywordSearch, _ query: SearchQuery) -> SearchUpdate {
+    var run = SearchRun(index: index, query: query)
+    while true {
+        let update = run.advance()!
+        if update.progress == .complete { return update }
+    }
+}
