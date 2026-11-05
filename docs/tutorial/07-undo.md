@@ -239,6 +239,14 @@ also refreshes on `NSWindow.didUpdateNotification`, which AppKit posts after eve
 window handles. The tests, which have no events, call `window.update()` after moving the
 focus, as AppKit would.
 
+**Lifetimes.** Every observer captures the router `weak`, and the router holds the window and
+the observed manager `weak` too. It removes the manager's observers whenever it switches
+managers, and both sets in its `isolated deinit`. Because `didUpdateNotification` runs the router
+after nearly every event, a crash anywhere in Swift concurrency tends to show up here first. The
+crash in #120 (`swift_task_isMainExecutor` under `UndoRouter.observe`) wasn't the router's
+fault: an Objective-C exception had unwound a task a moment earlier ([chapter 5
+§10](05-appkit-interop-textkit2.md), ADR 0026).
+
 **A test quirk.** With `groupsByEvent`, a group opened outside an event never closes in a
 test, and the window won't validate Edit → Undo for an open group. The router's `undo()`
 calls `UndoManager.undo()`, which closes it first, so the tests drive the router directly.

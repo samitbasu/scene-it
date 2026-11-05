@@ -652,13 +652,22 @@ ASCII text. The cause was in the harness: a helper compared strings with Swift's
 compares *canonical equivalence* (`é` equals `e` + U+0301 at a different length), then indexed
 the shorter `NSAttributedString` past its end. That raised an Objective-C `NSRangeException`.
 An Objective-C exception unwinds through Swift frames without running any Swift cleanup, and
-here it unwound through the concurrency runtime's job runner up to `NSApplication`'s handler,
-which caught it and carried on. The runner never restored the thread's record of the current
-executor, which was left pointing into a dead stack frame; the next isolation check read
-whatever had since been written there. The test now compares code units, and runs each step
-from `RunLoop.main.perform`, as an event's handling runs, so an exception there behaves as it
-would in the app. Since [ADR 0026](../decisions/0026-crash-on-exceptions.md) the app
-itself stops at once on such an exception instead of carrying on.
+here it unwound through the concurrency runtime's job runner up to HIToolbox's handler around
+the run loop, which caught it and carried on. The runner never restored the thread's record of
+the current task and executor, which was left pointing into a dead stack frame; the next
+isolation check read whatever had since been written there. Think of a Rust `Drop` guard
+skipped by a `longjmp`: the guard's `drop` was what restored the thread-local. The test now
+compares code units, and runs each step from `RunLoop.main.perform`, as an event's handling
+runs, so an exception there doesn't unwind a task.
+
+It happened again in #120, where the crash surfaced in `UndoRouter`, an innocent bystander.
+`NSApplicationCrashOnExceptions` ([ADR 0026](../decisions/0026-crash-on-exceptions.md)) doesn't
+help here: only AppKit's own event-dispatch handlers read it, and HIToolbox's doesn't. So the app
+also arms `UnwoundTaskTrap`, a run-loop observer that stops the app at once if a task is
+"current" while no job runner frame is on the stack. That state is only reachable by such an
+unwind. The trap can't be tested by causing one: the test host would be corrupt. Its tests
+check that it's armed and that it stays quiet inside jobs, outside them, and in a run loop
+nested inside a job.
 
 ## 11. The notes: one editor, two texts
 
