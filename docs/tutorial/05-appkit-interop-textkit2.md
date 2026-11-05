@@ -663,9 +663,9 @@ runs, so an exception there doesn't unwind a task.
 It happened again in #120, where the crash surfaced in `UndoRouter`, an innocent bystander.
 `NSApplicationCrashOnExceptions` ([ADR 0026](../decisions/0026-crash-on-exceptions.md)) doesn't
 help here: only AppKit's own event-dispatch handlers read it, and HIToolbox's doesn't. So the app
-also arms `UnwoundTaskTrap`, a run-loop observer that stops the app at once if a task is
-"current" while no job runner frame is on the stack. That state is only reachable by such an
-unwind. The trap can't be tested by causing one: the test host would be corrupt. Its tests
+also arms `UnwoundTaskTrap`, a run-loop observer that stops the app at the next run-loop
+activity if a task is "current" while no job runner frame is on the stack. Only a non-local exit
+from a job (an exception, a `longjmp`) leaves that state. The trap can't be tested by causing one: the test host would be corrupt. Its tests
 check that it's armed and that it stays quiet inside jobs, outside them, and in a run loop
 nested inside a job.
 
