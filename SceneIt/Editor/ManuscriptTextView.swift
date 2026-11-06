@@ -42,11 +42,12 @@ final class ManuscriptTextView: SceneTextView {
     /// invalidated (it keeps the fragment, in the same frame), so the paragraphs would go on
     /// showing their old underlines until something else redrew them (the owner's bug, #25). The
     /// views that draw them are marked, over the paragraphs' drawing surfaces only.
-    /// A paragraph off screen has no drawing to keep; it's drawn as it scrolls in.
+    /// No paragraph is skipped for being off screen: TextKit keeps the views it drew paragraphs
+    /// in past the visible edge (its viewport's overdraw, and after a scroll), and a paragraph
+    /// with no view of its own costs only the intersections below.
     private func redraw(_ ranges: [NSTextRange]) {
         guard !ranges.isEmpty, let layout = textLayoutManager else { return }
         let origin = textContainerOrigin
-        let visible = visibleRect
         var paragraphs: Set<ObjectIdentifier> = []
         var surfaces: [NSRect] = []
         for range in ranges {
@@ -61,8 +62,7 @@ final class ManuscriptTextView: SceneTextView {
                 // with it were drawn, outside the paragraph's surface now.
                 var surface = fragment.renderingSurfaceBounds.union(CGRect(origin: .zero, size: frame.size))
                 surface.size.height += ParagraphRole.doubleSpacingGap
-                let placed = surface.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y)
-                if placed.intersects(visible) { surfaces.append(placed) }
+                surfaces.append(surface.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y))
                 return true
             }
         }

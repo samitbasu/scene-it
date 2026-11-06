@@ -208,6 +208,61 @@ struct CommentsPanelTests {
         }
     }
 
+    /// A paragraph scrolled just past the visible edge keeps the view TextKit drew it in. A
+    /// change to its comment while it's there shows once the paragraph is scrolled back in, not
+    /// the drawing kept from before.
+    @Test func aRecolorJustPastTheVisibleEdgeShowsWhenScrolledIn() async throws {
+        let filler = Array(
+            repeating: Paragraph([Run("The fog came in behind the radio and stayed until noon.")]), count: 40)
+        try await withPage([scene("Long", filler + letterScene, .withTooEarly)]) { harness in
+            let page = harness.page
+            let offset = (harness.storage.string as NSString).range(of: "letter").location
+            let letter = NSRange(location: offset, length: 6)
+            let layout = try #require(page.textLayoutManager)
+            let content = try #require(layout.textContentManager)
+            let from = try #require(
+                content.location(layout.documentRange.location, offsetBy: letter.location))
+            @MainActor func placed() -> NSRect {
+                var frame = NSRect.zero
+                layout.enumerateTextLayoutFragments(from: from, options: [.ensuresLayout]) {
+                    frame = $0.layoutFragmentFrame
+                    return false
+                }
+                return frame.offsetBy(dx: page.textContainerOrigin.x, dy: page.textContainerOrigin.y)
+            }
+            @MainActor func quiet() async {
+                await eventually {
+                    !subviewTree(of: harness.window.contentView).contains(where: \.needsDisplay)
+                }
+            }
+            page.scrollRangeToVisible(letter)
+            await quiet()
+            try await harness.settle(drawing: .purple, under: letter)
+            #expect(page.editor?.recolor(noted, to: .blue) == true)
+            await eventually { (try? harness.lastDrawnColors(under: letter)) == [.blue] }
+            try #require(try harness.lastDrawnColors(under: letter) == [.blue], "precondition: drawn blue")
+
+            // Its top 20 pt below the visible bottom.
+            page.scroll(NSPoint(x: page.visibleRect.minX, y: placed().minY - 20 - page.visibleRect.height))
+            await quiet()
+            try #require(!placed().intersects(page.visibleRect), "precondition: past the visible edge")
+            let kept = subviewTree(of: page).filter {
+                $0 !== page && $0 !== page.commentButton && $0.layer != nil
+                    && page.convert($0.bounds, from: $0).intersects(placed())
+            }
+            try #require(!kept.isEmpty, "precondition: TextKit keeps a view for it there")
+
+            harness.window.makeFirstResponder(page)
+            try harness.undoOnThePage()
+            #expect(harness.book.book.scene(harness.book.openScene)?.comment(noted)?.color == .purple)
+            // AppKit draws only what's visible: the kept view draws again as it scrolls back in.
+
+            page.scrollRangeToVisible(letter)
+            try #require(placed().intersects(page.visibleRect), "precondition: scrolled back in")
+            try await harness.expectDrawn(.purple, not: .blue, under: letter)
+        }
+    }
+
     /// Opening another scene ends a card's edit in the scene it was typed in, as one step.
     @Test func switchingScenesCommitsTheEditToItsScene() async throws {
         let second = scene("Two", [[Run("Elsewhere.")]])
@@ -536,6 +591,9 @@ extension PageHarness {
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
         await eventually({ (try? lastDrawnColors(under: range)) == [color] }, sourceLocation: sourceLocation)
+        await eventually(
+            { !subviewTree(of: window.contentView).contains(where: \.needsDisplay) },
+            sourceLocation: sourceLocation)
         #expect(
             try pagePixels(under: range, of: color) > 0, "in the new color", sourceLocation: sourceLocation)
         #expect(
