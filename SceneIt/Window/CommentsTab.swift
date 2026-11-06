@@ -139,7 +139,7 @@ private struct CommentList: View {
     private func card(_ card: CommentCards.Card, selected: CommentID?) -> some View {
         CommentCard(
             book: book, formatting: formatting, editors: editors, scene: scene, card: card,
-            detached: cards.detached.contains { $0.id == card.id }, isSelected: card.id == selected
+            isSelected: card.id == selected
         )
         .id(card.id)
     }
@@ -166,11 +166,9 @@ private struct DetachedHeader: View {
             Text(CommentWording.detached)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            if CommentPanelCandidates.detachedHeader == .withHint {
-                Text(CommentWording.detachedHelp)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            Text(CommentWording.detachedHelp)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
         .padding(.top, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,26 +184,9 @@ private struct CommentCard: View {
     let editors: SceneEditors
     let scene: SceneID
     let card: CommentCards.Card
-    let detached: Bool
     let isSelected: Bool
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
-
-    private var menuOpen: Bool {
-        editors.comments.isMenuOpen(of: card.id, in: scene)
-    }
-
-    private var menuBinding: Binding<Bool> {
-        Binding(
-            get: { editors.comments.isMenuOpen(of: card.id, in: scene) },
-            set: { open in
-                if open {
-                    editors.comments.openMenu(of: card.id, in: scene)
-                } else if menuOpen {
-                    editors.comments.closeMenu()
-                }
-            })
-    }
 
     private var color: Color {
         Color(nsColor: card.comment.color.nsColor)
@@ -248,40 +229,17 @@ private struct CommentCard: View {
             if isSelected { shape.inset(by: -2).strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 2) }
         }
         .overlay(alignment: .topTrailing) {
-            if editable, hovering || isSelected || menuOpen {
-                Button {
-                    menuBinding.wrappedValue.toggle()
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 22, height: 18)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 4).fill(
-                                menuOpen ? Color.primary.opacity(0.08) : .clear))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            if editable, hovering || isSelected {
+                CommentMenuButton(
+                    book: book, formatting: formatting, editors: editors, scene: scene, comment: card.id
+                )
+                .frame(width: 22, height: 18)
                 .padding(4)
-                .help(CommentWording.optionsHelp)
-                .accessibilityLabel(CommentWording.options)
-                .popover(isPresented: anchored(.button), arrowEdge: .bottom) { menu }
             }
         }
-        .popover(isPresented: anchored(.card), arrowEdge: .bottom) { menu }
         .contentShape(shape)
         .onTapGesture { editors.comments.open(card.id, in: scene) }
         .onHover { hovering = $0 }
-    }
-
-    private var menu: some View {
-        CommentMenu(formatting: formatting, editors: editors, comment: card.comment, detached: detached) {
-            editors.comments.closeMenu()
-        }
-    }
-
-    /// The menu's binding where it hangs from `anchor`; never open elsewhere.
-    private func anchored(_ anchor: CommentPanelCandidates.MenuAnchor) -> Binding<Bool> {
-        CommentPanelCandidates.menuAnchor == anchor ? menuBinding : .constant(false)
     }
 
     private var shape: RoundedRectangle {
@@ -289,121 +247,7 @@ private struct CommentCard: View {
     }
 
     private var selectedFill: Color {
-        isSelected && CommentPanelCandidates.selectedCard == .tinted
-            ? Color.accentColor.opacity(0.06) : WindowMetrics.Comments.cardFill
-    }
-}
-
-/// The ⋯ menu (PLAN §8.1): the seven colors, the comment's own ringed, then Dismiss, which ⌫
-/// also does while the menu is open; a detached comment can also be re-anchored to the page's
-/// selection.
-private struct CommentMenu: View {
-    let formatting: EditorFormatting
-    let editors: SceneEditors
-    let comment: Comment
-    let detached: Bool
-    let close: () -> Void
-
-    var body: some View {
-        let page = editors.page.editor
-        VStack(alignment: .leading, spacing: 4) {
-            Text(CommentWording.colorLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-            HStack(spacing: 0) {
-                ForEach(PaletteColor.allCases, id: \.self) { color in
-                    let name = WindowWording.paletteName(color)
-                    Button {
-                        page.recolor(comment.id, to: color)
-                        close()
-                    } label: {
-                        Swatch(ink: .text(color), ringed: color == comment.color)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(name)
-                    .accessibilityLabel(name)
-                }
-            }
-            .padding(.horizontal, 2)
-            Divider().padding(.vertical, 2)
-            if detached {
-                MenuRow(title: CommentWording.reanchor, key: nil) {
-                    formatting.commentablePage?.reanchor(comment.id)
-                    close()
-                }
-                .disabled(formatting.commentablePage == nil)
-            }
-            MenuRow(title: CommentWording.dismiss, key: "\u{232B}", action: dismiss)
-        }
-        .padding(6)
-        .frame(width: WindowMetrics.Comments.menuWidth)
-        .background(DeleteKey(action: dismiss))
-    }
-}
-
-extension CommentMenu {
-    private func dismiss() {
-        editors.page.editor.dismiss(comment.id)
-        close()
-    }
-}
-
-/// Answers ⌫ and ⌦ with no modifiers in its window, the ⋯ menu's popover, as the window
-/// offers key equivalents to every view in it.
-private struct DeleteKey: NSViewRepresentable {
-    let action: () -> Void
-
-    func makeNSView(context: Context) -> KeyView {
-        KeyView()
-    }
-
-    func updateNSView(_ view: KeyView, context: Context) {
-        view.action = action
-    }
-
-    final class KeyView: NSView {
-        var action: (() -> Void)?
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
-            guard event.type == .keyDown, modifiers.isEmpty, Self.deleteKeys.contains(event.keyCode),
-                let action
-            else { return super.performKeyEquivalent(with: event) }
-            action()
-            return true
-        }
-
-        /// Delete and Forward Delete, by their key codes, which no keyboard layout moves.
-        private static let deleteKeys: Set<UInt16> = [51, 117]
-    }
-}
-
-/// A row of the ⋯ menu, highlighted under the pointer as a menu's items are.
-private struct MenuRow: View {
-    let title: String
-    let key: String?
-    let action: () -> Void
-    @State private var hovering = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Text(title)
-                Spacer()
-                if let key { Text(key).foregroundStyle(.secondary) }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 4).fill(
-                    hovering && isEnabled ? Color.primary.opacity(0.08) : .clear))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        isSelected ? Color.accentColor.opacity(0.06) : WindowMetrics.Comments.cardFill
     }
 }
 
@@ -600,7 +444,8 @@ extension WindowMetrics {
         static let barWidth: CGFloat = 4
         static let cornerRadius: CGFloat = 6
         static let textSize: CGFloat = 13
-        static let menuWidth: CGFloat = 196
+        /// The line after a color's name in the ⋯ menu.
+        static let menuSample = CGSize(width: 24, height: 5)
         static let line = Color(red: 0xD9 / 255, green: 0xD7 / 255, blue: 0xD1 / 255)
         static let cardFill = Color.white
     }
@@ -609,11 +454,8 @@ extension WindowMetrics {
 /// The looks the owner is choosing between (#25), until they pick; then the pick stays and
 /// this goes.
 enum CommentPanelCandidates {
-    enum DetachedHeader { case label, withHint }
-    enum SelectedCard { case ring, tinted }
-    enum MenuAnchor { case card, button }
+    /// "Red" or "red" in the ⋯ menu.
+    enum ColorLabel { case capitalized, lowercase }
 
-    static var detachedHeader = DetachedHeader.withHint
-    static var selectedCard = SelectedCard.ring
-    static var menuAnchor = MenuAnchor.card
+    static var colorLabel = ColorLabel.capitalized
 }

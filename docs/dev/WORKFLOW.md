@@ -47,6 +47,9 @@ gh pr list                                                    # all open PRs
 - Never log manuscript text.
 
 ## Safety rules for agents (non-negotiable)
+- **Never use Swift Testing exit tests** (`#expect(processExitsWith:)`, `#require(processExitsWith:)`). In the app-hosted tests the
+  child process launches as the real app, against the owner's real Application Support, recents and books (#120). `check.sh`
+  enforces this (`exit-test-guard`). A test that needs a crash must crash inside the test host, never in a child process.
 - **Never synthesize input** (System Events keystrokes or clicks, `osascript` UI scripting, `cliclick`, CGEvent posting).
   It can reach whatever app is frontmost, including the owner's browser or mail, and the screen may be locked.
   Verify UI through app-hosted tests (XCTest/XCUITest driving our own process) and by reading our own logs or files. If a check needs a human,

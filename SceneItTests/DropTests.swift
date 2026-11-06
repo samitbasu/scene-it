@@ -83,7 +83,9 @@ enum Dragged: CaseIterable {
 }
 
 /// Runs `body` from the run loop, as an event's handling runs, so an Objective-C exception in
-/// AppKit stops the app there (ADR 0026) instead of unwinding through a Swift task.
+/// AppKit doesn't unwind a Swift task. HIToolbox still swallows it, `done.resume()` never runs,
+/// and the test hangs on the continuation until its time limit, but Swift concurrency is left
+/// intact (ADR 0026).
 @MainActor
 func onTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in

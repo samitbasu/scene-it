@@ -35,7 +35,6 @@ extension CommentWording {
     public static let quoteGap = " \u{2026} "
     public static let options = "Comment Options"
     public static let optionsHelp = "Color and dismiss"
-    public static let colorLabel = "Color"
     public static let dismiss = "Dismiss"
     public static let reanchor = "Re-anchor to Selection"
     public static let detached = "Detached"

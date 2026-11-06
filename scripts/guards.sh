@@ -7,6 +7,7 @@ readonly source_guards=(
     textkit1-guard:forbid_textkit1
     logging-guard:forbid_unchecked_logging
     trap-message-guard:forbid_interpolated_traps
+    exit-test-guard:forbid_exit_tests
 )
 
 # forbid_all <path>…: runs every source guard, reporting all their hits.
@@ -66,4 +67,10 @@ forbid_interpolated_traps() {
     # A trap's message is copied verbatim into crash reports, which are sent to us.
     forbid_pattern 'trap messages must be static: crash reports include them verbatim' \
         '\b(fatalError|precondition|preconditionFailure|assert|assertionFailure)\(.*\\\(' -- "$@"
+}
+
+forbid_exit_tests() {
+    # An exit test's child process launches as the real app against the owner's data (#120).
+    forbid_pattern 'exit tests are forbidden: the child runs the real app against real data (issue 120)' \
+        'processExitsWith|exitsWith:|ExitTest\b' -- "$@"
 }

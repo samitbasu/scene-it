@@ -48,8 +48,12 @@ Two consequences shape the code:
   `reinsert(entry, at: index, in: owner)`, never "put the scene back as it was", so undoing a
   deletion keeps whatever the writer typed in that scene since (ErrorEntryEditTests,
   `undoingADeleteKeepsWhatWasTypedSince`). A snapshot would silently revert the typing.
-- **The target is held strongly until the action runs or is cleared,** like an `Rc` captured
-  in the closure. `withTarget:` also lets `removeAllActions(withTarget:)` find them.
+- **The target is *not* retained,** unlike an `Rc` captured in the closure: the manager keeps
+  a bare pointer to it, and the closure is handed that pointer when it runs. Register against
+  an object that outlives the history (the book, which owns the managers), never a throwaway
+  one: #118 registered a comment's removal against a fresh `NSObject`, so the action called
+  into freed memory on Undo and crashed (#119). `withTarget:` also lets
+  `removeAllActions(withTarget:)` find a target's actions.
 
 ## 2. Groups
 
@@ -72,6 +76,11 @@ inverse on the same page history. Within one group:
 | Dismiss | the text's id off; restore the comment | the comment comes back, then the id | the same, the other way round |
 
 `removeComments` puts a comment back at its old index, so the panel's order survives an undo.
+
+Edit → New Comment is enabled only when there's a selection a comment can cover (ADR 0037). A
+SwiftUI menu item re-evaluates `.disabled(...)` only when observed state changes, so the page
+computes that on each selection change and hands it to `EditorFormatting` with the selection's
+formats (`Active.comments`), the same observable value the Format menu reads.
 
 With `groupsByEvent` (on by default), the manager opens a group at the first registration in
 an event and closes it when the run loop finishes that event. So one Delete click is one
@@ -229,6 +238,14 @@ clears a scene's history when its text is replaced) and a change of focus. A KVO
 also refreshes on `NSWindow.didUpdateNotification`, which AppKit posts after every event the
 window handles. The tests, which have no events, call `window.update()` after moving the
 focus, as AppKit would.
+
+**Lifetimes.** Every observer captures the router `weak`, and the router holds the window and
+the observed manager `weak` too. It removes the manager's observers whenever it switches
+managers, and both sets in its `isolated deinit`. Because `didUpdateNotification` runs the router
+after nearly every event, a crash anywhere in Swift concurrency tends to show up here first. The
+crash in #120 (`swift_task_isMainExecutor` under `UndoRouter.observe`) wasn't the router's
+fault: an Objective-C exception had unwound a task a moment earlier ([chapter 5
+§10](05-appkit-interop-textkit2.md), ADR 0026).
 
 **A test quirk.** With `groupsByEvent`, a group opened outside an event never closes in a
 test, and the window won't validate Edit → Undo for an open group. The router's `undo()`

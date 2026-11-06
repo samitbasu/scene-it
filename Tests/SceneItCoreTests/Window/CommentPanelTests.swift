@@ -163,18 +163,4 @@ struct CommentSelectionOpeningTests {
         selection.deselect()
         #expect(!selection.takeOpening(first, in: scene))
     }
-
-    @Test func oneMenuIsOpenAtMostAndGoesWithTheSelection() {
-        let selection = CommentSelection()
-        selection.openMenu(of: first, in: scene)
-        selection.openMenu(of: second, in: scene)
-        #expect(!selection.isMenuOpen(of: first, in: scene))
-        #expect(selection.isMenuOpen(of: second, in: scene))
-        #expect(!selection.isMenuOpen(of: second, in: SceneID(rawValue: "other")))
-        selection.closeMenu()
-        #expect(!selection.isMenuOpen(of: second, in: scene))
-        selection.openMenu(of: first, in: scene)
-        selection.deselect()
-        #expect(!selection.isMenuOpen(of: first, in: scene))
-    }
 }

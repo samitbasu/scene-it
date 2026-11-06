@@ -61,15 +61,15 @@ struct CommentOperationTests {
         }
     }
 
-    /// With nothing selected, the word at the caret (PLAN §8.1); then typing at either edge of it
-    /// stays out of the comment.
-    @Test func withNoSelectionTheWordAtTheCaretIsCommentedAndTypingBesideItIsNot() async throws {
+    /// Typing at either edge of a comment just made on a selection stays out of it.
+    @Test func typingBesideANewCommentIsNotCommented() async throws {
         try await withPage([scene("One", Self.plain)]) { harness in
             let editor = try #require(harness.page.editor)
-            harness.focusPage(at: Self.letter.upperBound)
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(Self.letter)
             let id = try #require(editor.newComment())
             #expect(harness.body().first?.runs[1] == Run("letter", color: .red, comments: [id]))
-            #expect(harness.page.selectedRange() == NSRange(location: Self.letter.upperBound, length: 0))
+            harness.focusPage(at: Self.letter.upperBound)
             harness.page.insertText("s", replacementRange: harness.page.selectedRange())
             harness.focusPage(at: Self.letter.location)
             harness.page.insertText("a ", replacementRange: harness.page.selectedRange())
@@ -82,15 +82,44 @@ struct CommentOperationTests {
         }
     }
 
+    /// ADR 0037: with no selection, or one of only line breaks, there's nothing to comment.
     @Test func nothingToCommentMakesNoComment() async throws {
         try await withPage([scene("One", [[Run("The letter.")], [], [Run("Dawn.")]])]) { harness in
             let editor = try #require(harness.page.editor)
-            harness.focusPage(at: 12)
-            #expect(editor.newComment() == nil, "an empty line has no word")
+            harness.focusPage(at: 6)
+            #expect(editor.newComment() == nil, "a caret inside a word")
             harness.page.setSelectedRange(NSRange(location: 11, length: 2))
             #expect(editor.newComment() == nil, "line breaks carry no comment")
             #expect(harness.book.book.scenes.first?.comments.isEmpty == true)
-            #expect(harness.page.undoManager?.canUndo == false)
+            harness.page.setSelectedRange(NSRange(location: 3, length: 1))
+            #expect(editor.newComment() != nil, "a selection of only a space may be commented")
+            #expect(harness.book.book.scenes.first?.comments.count == 1)
+        }
+    }
+
+    /// An undo manager doesn't retain its targets (#119): a new comment's undo crashed once the
+    /// object it was registered against was freed. Undo and redo again and again, freeing and
+    /// reusing memory in between, so a freed target would be called.
+    @Test func aNewCommentUndoesAndRedoesLongAfterItWasMade() async throws {
+        try await withPage([scene("One", Self.plain)]) { harness in
+            let editor = try #require(harness.page.editor)
+            let undo = try #require(harness.page.undoManager)
+            let scene = try #require(harness.book.openScene)
+            harness.window.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(Self.letter)
+            let id = try #require(await asAnEvent(undo) { editor.newComment() })
+            let made = try #require(harness.book.book.scene(scene)?.comments.first)
+            for round in 0..<20 {
+                churnTheHeap()
+                undo.undo()
+                #expect(harness.body() == Self.plain, "round \(round)")
+                #expect(harness.book.book.scene(scene)?.comments.isEmpty == true, "round \(round)")
+                churnTheHeap()
+                undo.redo()
+                #expect(harness.book.book.scene(scene)?.comments == [made], "round \(round)")
+                #expect(Paragraph.commentIDs(in: harness.body()) == [id], "round \(round)")
+            }
+            #expect(harness.pageMirrorsModel)
         }
     }
 
@@ -309,6 +338,15 @@ private func asAnEvent<T>(_ undo: UndoManager, _ body: @escaping @MainActor () -
     return box.value!
 }
 
+/// Allocates and frees many small objects, so memory freed earlier is reused and overwritten.
+private func churnTheHeap() {
+    autoreleasepool {
+        var objects: [NSObject] = (0..<20_000).map { _ in NSObject() }
+        objects += (0..<5_000).map { NSString(format: "churn %d", $0) }
+        objects.removeAll()
+    }
+}
+
 @MainActor
 private final class ResultBox<T> {
     var value: T?
@@ -412,18 +450,18 @@ extension BookStoreIntegrationTests {
         #expect(sharing.map(\.title) == [CommentWording.newComment])
     }
 
-    /// Enabled with the page focused and editable; disabled in the notes, the title field and
-    /// under a sheet, where Cmd+Shift+M reaches no other item and changes nothing.
+    /// Enabled with the page focused, editable and holding a selection; disabled with only a
+    /// caret or only line breaks selected, in the notes, the title field and under a sheet, where
+    /// Cmd+Shift+M reaches no other item and changes nothing.
     @Test func newCommentIsEnabledOnlyOnAnEditablePageWithTheFocus() async throws {
-        var commented = scene("One", [[Run("The letter waited.")]])
+        var commented = scene("One", [[Run("The letter waited.")], [], [Run("Dawn.")]])
         commented.notes = [[Run("Notes.")]]
         try await withPage([commented], books: .shared) { harness in
             let tab = harness.preferences.rightPanelTab
             defer { harness.preferences.showRightPanelTab(tab) }
-            harness.focusPage(at: 5)
-            await eventually { harness.formatting.page != nil }
-            await eventually { newCommentItem()?.isEnabled == false }
-            #expect(newCommentItem()?.isEnabled == false, "a caret isn't a selection (#25)")
+            harness.focusPage(at: 6)
+            await eventually { harness.formatting.selection(in: .body) != nil }
+            #expect(newCommentItem()?.isEnabled == false, "no selection: nothing to comment")
             harness.page.setSelectedRange(NSRange(location: 4, length: 6))
             await eventually { newCommentItem()?.isEnabled == true }
             try perform(try #require(newCommentItem()))
@@ -435,6 +473,10 @@ extension BookStoreIntegrationTests {
                 _ = NSApp.mainMenu?.performKeyEquivalent(with: try commandShiftM(in: harness.window))
                 #expect(harness.book.book == before)
             }
+            harness.page.setSelectedRange(NSRange(location: 18, length: 2))
+            await eventually { newCommentItem()?.isEnabled == false }
+            try pressingItChangesNothing()
+
             let notes = try await harness.showNotes()
             harness.focusNotes(notes, at: 0)
             notes.setSelectedRange(NSRange(location: 0, length: 5))

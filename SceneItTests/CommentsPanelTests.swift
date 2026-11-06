@@ -92,24 +92,65 @@ struct CommentsPanelTests {
         }
     }
 
-    /// ⌫ while the ⋯ menu is open dismisses the comment, its underline with it; undo restores both.
-    @Test func backspaceInTheOpenMenuDismissesAndUndoRestores() async throws {
+    /// The ⋯ menu, as its control builds it: the seven colors in palette order, the comment's
+    /// own checked, then Dismiss on ⌫; Re-anchor only on a detached card.
+    @Test func theMenuListsTheColorsCheckedThenDismiss() async throws {
         try await withPanel { harness in
-            let editor = try #require(harness.page.editor)
             let scene = try #require(harness.book.openScene)
-            editor.comments.select(noted, in: scene)
-            editor.comments.openMenu(of: noted, in: scene)
-            await eventually { harness.popover != nil }
-            let popover = try #require(harness.popover)
+            let menu = try await harness.menu(of: noted, in: scene)
+            #expect(menu.items.prefix(7).map(CommentMenu.color(of:)) == PaletteColor.allCases)
+            #expect(
+                menu.items.prefix(7).map {
+                    $0.attributedTitle?.string.hasPrefix(WindowWording.paletteName(.red))
+                }
+                    == PaletteColor.allCases.map { $0 == .red })
+            #expect(
+                menu.items.prefix(7).map(\.state) == PaletteColor.allCases.map { $0 == .purple ? .on : .off })
+            #expect(menu.items[7].isSeparatorItem)
+            #expect(menu.items.dropFirst(8).map(\.title) == [CommentWording.dismiss])
+            let dismiss = try #require(menu.items.last)
+            #expect(dismiss.keyEquivalent == "\u{8}" && dismiss.keyEquivalentModifierMask.isEmpty)
+            #expect(harness.page.editor?.comments.comment(in: scene) == noted, "opening it selects the card")
+
+            let detached = try await harness.menu(of: gone, in: scene)
+            #expect(
+                detached.items.dropFirst(8).map(\.title) == [CommentWording.reanchor, CommentWording.dismiss])
+            #expect(detached.items[8].isEnabled == false, "no selection on the page to re-anchor to")
+        }
+    }
+
+    @Test func choosingAColorRecolorsAsOneUndoableStep() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            let menu = try await harness.menu(of: noted, in: scene)
+            let red = try #require(menu.items.first { CommentMenu.color(of: $0) == .red })
+            try perform(red)
+            #expect(harness.book.book.scene(scene)?.comments.first?.color == .red)
+            #expect(harness.preferences.lastCommentColor == .red, "the next comment's color")
+            let pageUndo = harness.book.pageUndo(for: scene)
+            #expect(pageUndo.undoActionName == CommentWording.recolorUndoName)
+            pageUndo.undo()
+            #expect(harness.book.book.scene(scene)?.comments.first?.color == .purple)
+            let again = try await harness.menu(of: noted, in: scene)
+            #expect(again.items.first { $0.state == .on }.flatMap(CommentMenu.color(of:)) == .purple)
+        }
+    }
+
+    /// ⌫ while the menu is open chooses Dismiss: the comment and its underline go; undo restores
+    /// both.
+    @Test func backspaceInTheMenuDismissesAndUndoRestores() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            let menu = try await harness.menu(of: noted, in: scene)
             let backspace = try #require(
                 NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                    windowNumber: popover.windowNumber, context: nil, characters: "\u{7F}",
-                    charactersIgnoringModifiers: "\u{7F}", isARepeat: false, keyCode: 51))
-            #expect(popover.performKeyEquivalent(with: backspace))
+                    windowNumber: harness.window.windowNumber, context: nil, characters: "\u{8}",
+                    charactersIgnoringModifiers: "\u{8}", isARepeat: false, keyCode: 51))
+            #expect(menu.performKeyEquivalent(with: backspace))
             #expect(harness.book.book.scene(scene)?.comments.map(\.id) == [early, gone])
             #expect(harness.storage.ranges(commentedBy: noted).isEmpty)
-            await eventually { harness.popover == nil && harness.card(noted) == nil }
+            await eventually { harness.card(noted) == nil }
 
             let pageUndo = harness.book.pageUndo(for: scene)
             #expect(pageUndo.undoActionName == CommentWording.dismissUndoName)
@@ -120,13 +161,29 @@ struct CommentsPanelTests {
         }
     }
 
+    /// A detached card's Re-anchor puts the comment on the page's selection.
+    @Test func reanchorPutsADetachedCommentOnTheSelection() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            harness.page.window?.makeFirstResponder(harness.page)
+            harness.page.setSelectedRange(NSRange(location: 5, length: 4))
+            await eventually { harness.formatting.commentablePage != nil }
+            let menu = try await harness.menu(of: gone, in: scene)
+            let reanchor = try #require(menu.items.first { $0.title == CommentWording.reanchor })
+            #expect(reanchor.isEnabled)
+            try perform(reanchor)
+            #expect(harness.storage.ranges(commentedBy: gone) == [NSRange(location: 5, length: 4)])
+            #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.reanchorUndoName)
+        }
+    }
+
     /// The owner's rule: a new comment needs a selection. The + button, the floating button and
     /// Edit → New Comment all ask `EditorFormatting.commentablePage`; the floating button shows
     /// only while it answers, and a new comment's card takes the focus.
     @Test func aNewCommentNeedsASelectionAndOpensItsCard() async throws {
         try await withPanel { harness in
             harness.focusPage(at: 2)
-            await eventually { harness.formatting.page != nil }
+            await eventually { harness.formatting.selection(in: .body) != nil }
             #expect(harness.formatting.commentablePage == nil, "a caret isn't enough")
             #expect(harness.page.commentButton.isHidden)
 
@@ -190,8 +247,18 @@ extension PageHarness {
         book.book.scene(book.openScene)?.comments.first { $0.id == comment }?.text
     }
 
-    /// The ⋯ menu's popover window, while it's up.
-    var popover: NSWindow? {
-        NSApp.windows.first { $0 !== window && $0.isVisible && $0.className.contains("Popover") }
+    /// The menu `comment`'s ⋯ control opens, built by the control as a click builds it; the
+    /// card is selected first, as the control shows only on a selected or hovered card.
+    func menu(of comment: CommentID, in scene: SceneID) async throws -> NSMenu {
+        page.editor?.comments.select(comment, in: scene)
+        await eventually { menuControl(of: comment) != nil }
+        let control = try #require(menuControl(of: comment))
+        return try #require(control.makeMenu?() ?? nil)
+    }
+
+    func menuControl(of comment: CommentID) -> CommentMenuButton.Control? {
+        subviewTree(of: window.contentView).compactMap { $0 as? CommentMenuButton.Control }.first {
+            $0.comment == comment
+        }
     }
 }

@@ -93,7 +93,7 @@ Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
 runs, in order, stopping at the first failure:
 
-1. `scripts/test-guards.sh` (below): checks that the source guards in steps 2–4 reject
+1. `scripts/test-guards.sh` (below): checks that the source guards in steps 2–5 reject
    and accept what they should.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
@@ -104,19 +104,21 @@ runs, in order, stopping at the first failure:
 4. **Trap-message guard:** fails on string interpolation (`\(`) on the same line as
    `fatalError(`, `precondition(`, `preconditionFailure(`, `assert(` or `assertionFailure(`.
    Crash reports, which problem reports include verbatim, quote these messages.
+5. **Exit-test guard:** fails on `processExitsWith`, `exitsWith:` or `ExitTest`. A Swift
+   Testing exit test's child process launches as the real app, against the owner's real data (#120).
 
-   Steps 2–4 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
+   Steps 2–5 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
    ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
    for each hit.
-5. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
-6. `swift test` (SceneItCore unit tests; build output in `.build/`).
-7. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
+6. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
+7. `swift test` (SceneItCore unit tests; build output in `.build/`).
+8. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests. Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 
-Each step has a wall-clock limit: 5 minutes for steps 1–5, 15 for `swift test`, 45 for
+Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
 check.sh kills two sets of processes: the step's own process tree, and any process that runs
@@ -136,7 +138,7 @@ and the path of the samples. Only when the xcodebuild step fails, each failing t
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
 **Products:** one log per step in `build/check/` (`guard-tests.log`, `textkit1-guard.log`,
-`logging-guard.log`, `trap-message-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
+`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
 `build/DerivedData/Build/Products/Debug/Scene It.app`. All of `build/` except
 `build/release/` (see release.sh) can be deleted at any time. Run this before every commit; nothing lands on `main`
@@ -295,11 +297,13 @@ render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)
 the Notes tab (`underlines-notes`), each as `@1x.png`, `@2x.png` and `-vs-mockup.png`.
 
 `commentsPanel` renders the Comments tab (#25, `CommentsPanelRenders.swift`) into a `comments/`
-subfolder: cards with one selected, the ⋯ menu (the popover's content where it stands, on a
-drawn stand-in for its chrome, which a material draws wrongly offscreen), `#red` filtering, an
-unknown color, the Detached group, a card being edited, the floating Comment button and the
-empty state, each beside mockup 02, 03 or 04, with a `-panel@2x.png` close-up of the panel. To
-render only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
+subfolder: cards with one selected, the floating Comment button, the ⋯ menu on an anchored and
+a detached card, `#red ferry` and an unknown color, a card being edited and the empty state,
+each beside mockup 02, 03 or 04, with a `-panel@2x.png` close-up of the panel. An open `NSMenu`
+can't be captured, so the ⋯ menu is the card's real menu, at its real size and place, drawn by
+`MenuStandIn`: the items' titles, line samples, check mark, separator, key equivalent and enabled
+state are the menu's own; the chrome, row heights and insets approximate macOS 26's. To render
+only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 
 ### `scripts/release.sh`: build a distributable app
 

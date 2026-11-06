@@ -19,35 +19,14 @@ public enum CommentEdit: Hashable, Sendable {
 }
 
 extension NSAttributedString {
-    /// What a comment made on `selection` covers (PLAN §8.1): the selected ranges holding more
-    /// than line breaks, which carry no comment (book format §4.2); or, with nothing selected,
-    /// the word at the caret. Empty when that's nothing.
+    /// What a comment made on `selection` covers (PLAN §8.1, ADR 0037): the selected ranges
+    /// holding more than line breaks, which carry no comment (book format §4.2). Empty when that's
+    /// nothing, as with no selection.
     public func commentRanges(selecting selection: [NSRange]) -> [NSRange] {
-        let selected = selection.filter { $0.length > 0 }
-        guard !selected.isEmpty else {
-            return selection.first.flatMap { word(at: $0.location) }.map { [$0] } ?? []
-        }
         let string = string as NSString
-        return selected.filter { range in
+        return selection.filter { range in
             (range.location..<range.upperBound).contains { !string.isLineBreak(at: $0) }
         }
-    }
-
-    /// The word the caret at `caret` is in, or else the one it follows, past any punctuation
-    /// that closes it ("end.", "dogs'", a closing quote): the word as a double click selects it.
-    private func word(at caret: Int) -> NSRange? {
-        let string = string as NSString
-        func isWordCharacter(_ index: Int) -> Bool {
-            Unicode.Scalar(string.character(at: index)).map(CharacterSet.alphanumerics.contains) ?? false
-        }
-        func isSpace(_ index: Int) -> Bool {
-            Unicode.Scalar(string.character(at: index)).map(CharacterSet.whitespacesAndNewlines.contains)
-                ?? true
-        }
-        if caret < length, isWordCharacter(caret) { return doubleClick(at: caret) }
-        var index = min(caret, length) - 1
-        while index >= 0, !isWordCharacter(index), !isSpace(index) { index -= 1 }
-        return index >= 0 && isWordCharacter(index) ? doubleClick(at: index) : nil
     }
 
     /// The stretches of the text `comment` covers, in order.

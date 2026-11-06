@@ -15,23 +15,7 @@ public final class CommentSelection {
     /// (PLAN §8.1: the new card opens with the cursor in it).
     public private(set) var opening: Selected?
 
-    /// The comment whose card's ⋯ menu is open: one at most.
-    public private(set) var menu: Selected?
-
     public init() {}
-
-    public func openMenu(of comment: CommentID, in scene: SceneID) {
-        menu = Selected(scene: scene, comment: comment)
-    }
-
-    public func closeMenu() {
-        menu = nil
-    }
-
-    /// Whether `comment`'s menu is the one open.
-    public func isMenuOpen(of comment: CommentID, in scene: SceneID) -> Bool {
-        menu?.scene == scene && menu?.comment == comment
-    }
 
     /// Selects `comment` and asks its card to take the keyboard focus.
     public func open(_ comment: CommentID, in scene: SceneID) {
@@ -59,7 +43,6 @@ public final class CommentSelection {
     public func deselect() {
         selected = nil
         opening = nil
-        menu = nil
     }
 
     /// Deselects `scene`'s selected comment if the scene no longer has it (an undo took it away).
