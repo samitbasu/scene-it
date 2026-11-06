@@ -42,34 +42,37 @@ final class ManuscriptTextView: SceneTextView {
     /// invalidated (it keeps the fragment, in the same frame), so the paragraphs would go on
     /// showing their old underlines until something else redrew them (the owner's bug, #25). The
     /// views that draw them are marked, over the paragraphs' drawing surfaces only.
+    /// A paragraph off screen has no drawing to keep; it's drawn as it scrolls in.
     private func redraw(_ ranges: [NSTextRange]) {
         guard !ranges.isEmpty, let layout = textLayoutManager else { return }
         let origin = textContainerOrigin
+        let visible = visibleRect
+        var paragraphs: Set<ObjectIdentifier> = []
         var surfaces: [NSRect] = []
         for range in ranges {
             layout.enumerateTextLayoutFragments(from: range.location, options: []) { fragment in
                 guard fragment.rangeInElement.location.compare(range.endLocation) == .orderedAscending else {
                     return false
                 }
+                // One comment's runs often share a paragraph.
+                guard paragraphs.insert(ObjectIdentifier(fragment)).inserted else { return true }
                 let frame = fragment.layoutFragmentFrame
                 // With the room below the last line, where underlines a dismissed comment took
                 // with it were drawn, outside the paragraph's surface now.
                 var surface = fragment.renderingSurfaceBounds.union(CGRect(origin: .zero, size: frame.size))
                 surface.size.height += ParagraphRole.doubleSpacingGap
-                surfaces.append(surface.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y))
+                let placed = surface.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y)
+                if placed.intersects(visible) { surfaces.append(placed) }
                 return true
             }
         }
+        guard !surfaces.isEmpty else { return }
         for view in subviewTree(of: self) where view !== self && view !== commentButton {
             for surface in surfaces {
                 let local = view.convert(surface, from: self).intersection(view.bounds)
                 if !local.isEmpty { view.setNeedsDisplay(local) }
             }
         }
-    }
-
-    private func subviewTree(of view: NSView) -> [NSView] {
-        [view] + view.subviews.flatMap(subviewTree)
     }
 
     /// A click on commented text, or on its underlines, selects its comment (PLAN §8.1), once

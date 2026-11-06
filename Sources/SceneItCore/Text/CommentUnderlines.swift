@@ -233,10 +233,9 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
     private let underliner: CommentUnderliner
     private let drawn = Mutex<[CommentUnderline]>([])
 
-    /// The underlines this fragment drew the last time it was drawn, in its paragraph's
-    /// character offsets: what its paragraph shows on the page, since TextKit keeps the drawing
-    /// until it draws it again.
-    public var lastDrawn: [CommentUnderline] {
+    /// The underlines this fragment last drew, in its paragraph's offsets: evidence for tests of
+    /// what the page shows, since TextKit keeps a paragraph's drawing until it draws it again.
+    var lastDrawn: [CommentUnderline] {
         drawn.withLock(\.self)
     }
 

@@ -4,6 +4,7 @@ import SceneItTestSupport
 import Testing
 
 @testable import SceneIt
+@testable import SceneItCore
 
 private let early = CommentID(rawValue: "01JC4K0000000000000000EARL")
 private let gone = CommentID(rawValue: "01JC4K0000000000000000GONE")
@@ -172,6 +173,38 @@ struct CommentsPanelTests {
             try await harness.settle(drawing: .purple, under: letter)
             #expect(editor.recolor(noted, to: .blue))
             try await harness.expectDrawn(.blue, not: .purple, under: letter)
+        }
+    }
+
+    /// A comment recolored while its paragraph is off screen shows the new color when it's
+    /// scrolled into view.
+    @Test func aRecolorOffScreenShowsWhenScrolledIn() async throws {
+        let filler = Array(
+            repeating: Paragraph([Run("The fog came in behind the radio and stayed until noon.")]), count: 40)
+        try await withPage([scene("Long", filler + letterScene, .withTooEarly)]) { harness in
+            let offset = (harness.storage.string as NSString).range(of: "letter").location
+            let letter = NSRange(location: offset, length: 6)
+            try #require(harness.storage.ranges(commentedBy: noted) == [letter], "precondition")
+            harness.page.scrollRangeToVisible(NSRange(location: 0, length: 0))
+            let layout = try #require(harness.page.textLayoutManager)
+            func letterFrame() throws -> NSRect {
+                let content = try #require(layout.textContentManager)
+                let from = try #require(
+                    content.location(layout.documentRange.location, offsetBy: letter.location))
+                var frame = NSRect.zero
+                layout.enumerateTextLayoutFragments(from: from, options: [.ensuresLayout]) {
+                    frame = $0.layoutFragmentFrame
+                    return false
+                }
+                return frame
+            }
+            try #require(
+                !(try letterFrame()).intersects(harness.page.visibleRect), "precondition: off screen")
+            #expect(harness.page.editor?.recolor(noted, to: .green) == true)
+            harness.page.scrollRangeToVisible(letter)
+            try #require(
+                (try letterFrame()).intersects(harness.page.visibleRect), "precondition: scrolled in")
+            try await harness.expectDrawn(.green, not: .purple, under: letter)
         }
     }
 
@@ -481,31 +514,28 @@ extension PageHarness {
             .color
     }
 
-    /// Waits until the page has drawn `range`'s underline in `color` and then gone quiet, so a
-    /// redraw seen after that was asked for, not left over from the window's first passes.
+    /// Waits until the page has drawn `range`'s underline in `color` and its window has nothing
+    /// left to draw, so a redraw seen after that was asked for, not left over from the window's
+    /// first passes.
     func settle(drawing color: PaletteColor, under range: NSRange) async throws {
-        await eventually { (try? lastDrawnColors(under: range)) == [color] }
-        try await Task.sleep(for: .milliseconds(500))
-        try #require(try lastDrawnColors(under: range) == [color], "precondition: drawn in \(color)")
+        await eventually {
+            (try? lastDrawnColors(under: range)) == [color]
+                && !subviewTree(of: window.contentView).contains(where: \.needsDisplay)
+        }
     }
 
-    /// The page shows `range`'s underline in `color`, and none in `old`, within a second, with
-    /// nothing else happening, as an idle app has it.
+    /// The page shows `range`'s underline in `color`, and none in `old`.
     ///
-    /// Two checks: what the paragraph last drew (`CommentUnderlineFragment.lastDrawn`), which
-    /// is what the page shows, since TextKit 2 keeps each paragraph's drawing in a layer until it
+    /// Two checks: what the paragraph last drew (`CommentUnderlineFragment.lastDrawn`), which is
+    /// what the page shows, since TextKit 2 keeps each paragraph's drawing in a layer until it
     /// draws it again; and then the pixels that drawing gives. The pixels alone can't tell a
-    /// stale paragraph: rendering the layers to read them draws the paragraphs afresh.
+    /// stale paragraph: `shown()` renders the layers by drawing them afresh. So nothing may
+    /// sample pixels between a change and the first check.
     func expectDrawn(
         _ color: PaletteColor, not old: PaletteColor, under range: NSRange,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
-        for _ in 0..<40 where try lastDrawnColors(under: range) != [color] {
-            try await Task.sleep(for: .milliseconds(25))
-        }
-        #expect(
-            try lastDrawnColors(under: range) == [color], "the paragraph was drawn again",
-            sourceLocation: sourceLocation)
+        await eventually({ (try? lastDrawnColors(under: range)) == [color] }, sourceLocation: sourceLocation)
         #expect(
             try pagePixels(under: range, of: color) > 0, "in the new color", sourceLocation: sourceLocation)
         #expect(
@@ -532,10 +562,10 @@ extension PageHarness {
         return colors
     }
 
-    /// What the window shows now, at 2x: its layers' contents as they were last drawn, with no
-    /// view asked to draw again. TextKit 2 draws each paragraph into a layer of its own and keeps
-    /// it, so a paragraph that wasn't redrawn shows here as it was, as it does on screen;
-    /// `cacheDisplay` would draw it afresh and hide that.
+    /// The window drawn at 2x by rendering its layer-backed views' layers. That draws each layer
+    /// afresh from the model, not the drawing it keeps (a probe showed a recolor in its pixels
+    /// with no run-loop turn and no layer marked for display): it gives the colors a draw gives
+    /// now, so it can't show a stale paragraph, and it refreshes `lastDrawn` as it draws.
     func shown() throws -> NSBitmapImageRep {
         let frameView = try #require(window.contentView?.superview)
         let size = frameView.bounds.size
@@ -603,7 +633,9 @@ extension PageHarness {
         }
     }
 
-    /// The color the stripe at `card`'s left shows now.
+    /// The color the stripe at `card`'s left shows now. It renders the window, the page's
+    /// paragraphs too (`shown()`), so it's sampled before a change or after its `lastDrawn` check,
+    /// never between.
     func stripeColor(of card: CommentTextView) throws -> NSColor? {
         let text = card.convert(card.bounds, to: nil)
         return pixels(of: try shown(), in: NSRect(x: text.minX - 12, y: text.midY, width: 0.5, height: 0.5))

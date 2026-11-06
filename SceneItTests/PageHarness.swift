@@ -6,12 +6,6 @@ import Testing
 
 @testable import SceneIt
 
-/// `view` and everything under it.
-func subviewTree(of view: NSView?) -> [NSView] {
-    guard let view else { return [] }
-    return [view] + view.subviews.flatMap(subviewTree)
-}
-
 let noted = CommentID(rawValue: "01JC4K00000000000000000NTD")
 let tooEarly = Comment(
     id: noted, color: .purple, text: "Too early?",

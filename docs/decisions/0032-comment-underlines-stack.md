@@ -65,6 +65,13 @@ reaches into the spacing below it only if it's commented.
 ## Alternatives
 - **A light wash behind commented text, plus one underline for the selected comment.** Simpler to draw, but the wash hides
   the writer's own highlight colors.
+- **Other ways to redraw a paragraph after a comment change (#25), each tried and none repainting it:**
+  - `NSTextLayoutManager.invalidateRenderingAttributes(for:)` over the whole document;
+  - `setNeedsDisplay` on the text view's visible rect: the paragraphs draw in views of their own, under it;
+  - `textViewportLayoutController.layoutViewport()` after the invalidation.
+
+  In each case the paragraph went on showing its last drawing, 300 to 500 ms later. Marking the views that draw the
+  paragraphs, over the changed paragraphs' surfaces only, is the one that did.
 
 ## Consequences
 - Every comment stays visible on the page, overlaps included, and the writer's highlights stay readable.
