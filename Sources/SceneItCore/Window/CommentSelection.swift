@@ -8,25 +8,36 @@ public final class CommentSelection {
     public struct Selected: Hashable, Sendable {
         public let scene: SceneID
         public let comment: CommentID
+        public fileprivate(set) var card: Card
+    }
+
+    /// Where the selected comment's card stands with the keyboard focus.
+    public enum Card: Hashable, Sendable {
+        /// Shown selected.
+        case shown
+        /// To take the keyboard focus when the panel next shows it: a comment just made, or a
+        /// card clicked (PLAN §8.1: the new card opens with the cursor in it).
+        case opening
     }
 
     public private(set) var selected: Selected?
-    /// A comment just made, whose card takes the keyboard focus when the panel next shows it
-    /// (PLAN §8.1: the new card opens with the cursor in it).
-    public private(set) var opening: Selected?
 
     public init() {}
 
     /// Selects `comment` and asks its card to take the keyboard focus.
     public func open(_ comment: CommentID, in scene: SceneID) {
-        select(comment, in: scene)
-        opening = selected
+        selected = Selected(scene: scene, comment: comment, card: .opening)
+    }
+
+    /// Whether `comment`'s card is to take the keyboard focus.
+    public func isOpening(_ comment: CommentID, in scene: SceneID) -> Bool {
+        selected == Selected(scene: scene, comment: comment, card: .opening)
     }
 
     /// Whether `comment`'s card should take the focus now; asked once, it's answered once.
     public func takeOpening(_ comment: CommentID, in scene: SceneID) -> Bool {
-        guard opening == Selected(scene: scene, comment: comment) else { return false }
-        opening = nil
+        guard isOpening(comment, in: scene) else { return false }
+        selected?.card = .shown
         return true
     }
 
@@ -35,14 +46,14 @@ public final class CommentSelection {
         selected?.scene == scene ? selected?.comment : nil
     }
 
+    /// Selects `comment`, its card shown selected; a card already opening for it stays so.
     public func select(_ comment: CommentID, in scene: SceneID) {
-        selected = Selected(scene: scene, comment: comment)
-        if opening != selected { opening = nil }
+        guard self.comment(in: scene) != comment else { return }
+        selected = Selected(scene: scene, comment: comment, card: .shown)
     }
 
     public func deselect() {
         selected = nil
-        opening = nil
     }
 
     /// Deselects `scene`'s selected comment if the scene no longer has it (an undo took it away).

@@ -51,15 +51,38 @@ final class ManuscriptTextView: SceneTextView {
 
     /// At the end of the selection while the page can take a new comment
     /// (`EditorFormatting.commentablePage`), and not while a selection is being dragged out.
-    private(set) lazy var commentButton: NSView = {
-        let button = NSHostingView(
-            rootView: FloatingCommentButton { [weak self] in
-                self?.editor?.formatting.commentablePage?.newCommentInItsCard()
-            })
+    private(set) lazy var commentButton: CommentButton = {
+        let button = CommentButton { [weak self] in
+            self?.editor?.formatting.commentablePage?.newCommentInItsCard()
+        }
         button.isHidden = true
         addSubview(button)
         return button
     }()
+
+    /// The button before the text, wherever it shows, so a press on it never reaches the text
+    /// view, which would collapse the selection and hide the button before its click.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if !commentButton.isHidden, commentButton.frame.contains(convert(point, from: superview)) {
+            return commentButton
+        }
+        return super.hitTest(point)
+    }
+
+    /// The text view sets the I-beam as the pointer moves; over the button, it's the button's.
+    override func mouseMoved(with event: NSEvent) {
+        guard !isOverCommentButton(event) else { return NSCursor.pointingHand.set() }
+        super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard !isOverCommentButton(event) else { return NSCursor.pointingHand.set() }
+        super.cursorUpdate(with: event)
+    }
+
+    private func isOverCommentButton(_ event: NSEvent) -> Bool {
+        !commentButton.isHidden && commentButton.frame.contains(convert(event.locationInWindow, from: nil))
+    }
     private var isStillSelecting = false
 
     override func setSelectedRanges(
@@ -82,7 +105,7 @@ final class ManuscriptTextView: SceneTextView {
             if !commentButton.isHidden { commentButton.isHidden = true }
             return
         }
-        let size = commentButton.fittingSize
+        let size = commentButton.intrinsicContentSize
         let page = pageRect
         let x = min(max(end.maxX + 4, page.minX), page.maxX - size.width)
         let frame = NSRect(origin: NSPoint(x: x, y: end.maxY + 2), size: size)
@@ -159,27 +182,5 @@ enum CommentPress {
     /// comment.
     static func selectsComment(leaving selection: NSRange) -> Bool {
         selection.length == 0
-    }
-}
-
-/// The 💬 Comment pill the page shows at the end of a selection (mockup 02).
-private struct FloatingCommentButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(CommentWording.commentButton)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.black)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(.white))
-                .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.7)))
-                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                .padding(3)
-        }
-        .buttonStyle(.plain)
-        .help(CommentWording.commentButtonHelp)
-        .accessibilityLabel(CommentWording.newComment)
     }
 }

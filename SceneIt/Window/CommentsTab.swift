@@ -52,17 +52,22 @@ struct CommentsTab: View {
                 }
             if book.isEditable {
                 Button {
-                    formatting.commentablePage?.newCommentInItsCard()
+                    Self.addComment(through: formatting)
                 } label: {
                     Image(systemName: "plus").frame(width: 14, height: 14)
                 }
                 .disabled(formatting.commentablePage == nil)
-                .help(CommentWording.newCommentHelp)
+                .help(CommentWording.newCommentHelp(KeyboardShortcut.newComment.spelled))
                 .accessibilityLabel(CommentWording.newComment)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    /// The + button's action: New Comment on the page's selection, its card opened.
+    static func addComment(through formatting: EditorFormatting) {
+        formatting.commentablePage?.newCommentInItsCard()
     }
 }
 
@@ -186,14 +191,14 @@ private struct CommentCard: View {
     let card: CommentCards.Card
     let isSelected: Bool
     @State private var hovering = false
-    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.self) private var environment
 
     private var color: Color {
         Color(nsColor: card.comment.color.nsColor)
     }
 
     var body: some View {
-        let editable = book.isEditable && isEnabled
+        let editability = SceneTextEditor.Editability(book, in: environment)
         HStack(spacing: 0) {
             Rectangle().fill(color).frame(width: WindowMetrics.Comments.barWidth)
             VStack(alignment: .leading, spacing: 4) {
@@ -229,7 +234,7 @@ private struct CommentCard: View {
             if isSelected { shape.inset(by: -2).strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 2) }
         }
         .overlay(alignment: .topTrailing) {
-            if editable, hovering || isSelected {
+            if editability == .editable, hovering || isSelected {
                 CommentMenuButton(
                     book: book, formatting: formatting, editors: editors, scene: scene, comment: card.id
                 )
@@ -282,6 +287,7 @@ private struct CommentTextEditor: NSViewRepresentable {
         view.onChange = { [weak coordinator] in coordinator?.typed($0) }
         view.onFocus = { [weak coordinator] in coordinator?.focused() }
         view.onResign = { [weak coordinator] in coordinator?.commit() }
+        view.onFinish = { [weak coordinator] in coordinator?.finish() }
         coordinator.view = view
         let center = NotificationCenter.default
         center.addObserver(
@@ -299,10 +305,13 @@ private struct CommentTextEditor: NSViewRepresentable {
         coordinator.target = (book, editors, scene, comment)
         view.comment = comment
         view.history = coordinator.history
-        let editable = book.isEditable && context.environment.isEnabled
+        let editable = SceneTextEditor.Editability(book, in: context.environment) == .editable
+        // As the title field does: a book that stops taking edits ends the edit under way, and
+        // the card shows the model's text.
+        if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
         if view.isEditable != editable { view.isEditable = editable }
         if coordinator.original == nil, view.string != text { view.string = text }
-        if let opening = editors.comments.opening, opening.comment == comment, opening.scene == scene {
+        if editors.comments.isOpening(comment, in: scene) {
             DispatchQueue.main.async { [weak view, editors, scene, comment] in
                 guard let view, editors.comments.takeOpening(comment, in: scene) else { return }
                 view.takeFocusAtEnd()
@@ -312,8 +321,7 @@ private struct CommentTextEditor: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: CommentTextView, context: Context) -> CGSize?
     {
-        let width = proposal.width ?? WindowMetrics.panelWidth
-        return CGSize(width: width, height: view.height(fitting: width))
+        view.size(fitting: proposal)
     }
 
     static func dismantleNSView(_ view: CommentTextView, coordinator: Coordinator) {
@@ -321,6 +329,7 @@ private struct CommentTextEditor: NSViewRepresentable {
         view.onChange = nil
         view.onFocus = nil
         view.onResign = nil
+        view.onFinish = nil
     }
 
     final class Coordinator: NSObject {
@@ -332,12 +341,13 @@ private struct CommentTextEditor: NSViewRepresentable {
         /// The comment's text before this edit's first change; `nil` while nothing's typed.
         private(set) var original: String?
 
+        /// The comment as the model has it.
+        private var modelComment: Comment? {
+            target.flatMap { $0.book.book.scene($0.scene)?.comment($0.comment) }
+        }
+
         func typed(_ text: String) {
-            guard let target,
-                let comment = target.book.book.scene(target.scene)?.comments.first(where: {
-                    $0.id == target.comment
-                })
-            else { return }
+            guard let target, let comment = modelComment else { return }
             if original == nil { original = comment.text }
             target.book.draftText(text, ofComment: target.comment, in: target.scene)
         }
@@ -348,23 +358,30 @@ private struct CommentTextEditor: NSViewRepresentable {
             target.editors.page.editor.selectText(ofComment: target.comment)
         }
 
-        /// The edit, as one step on the page's undo.
+        /// The edit, as one step on the page's undo, in the scene it was typed in; typing on the
+        /// page after it is a step of its own.
         func commit() {
             history.removeAllActions()
             guard let original, let target, let view else { return }
             self.original = nil
-            target.editors.page.editor.setText(view.string, ofComment: target.comment, since: original)
+            target.editors.page.textView.breakUndoCoalescing()
+            target.book.setText(view.string, ofComment: target.comment, in: target.scene, since: original)
+        }
+
+        /// Esc, or a menu action that needs the edit done first: the focus goes back to the page,
+        /// so Undo there undoes the edit.
+        func finish() {
+            guard let target, let view, view.window?.firstResponder === view else { return }
+            target.editors.page.textView.takeFocus()
+            if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
         }
 
         /// An undo or redo of the comment's text can bring back the very text SwiftUI last handed
         /// the view, which then sees no change to show, so the text is taken from the model here.
         @objc func historyChanged(_ notification: Notification) {
-            guard original == nil, let target, let view,
-                let text = target.book.book.scene(target.scene)?.comments.first(where: {
-                    $0.id == target.comment
-                })?
-                .text, view.string != text
-            else { return }
+            guard original == nil, let view, let text = modelComment?.text, view.string != text else {
+                return
+            }
             view.string = text
         }
 
@@ -381,6 +398,7 @@ private struct CommentTextEditor: NSViewRepresentable {
 final class CommentTextView: AdmittingTextView {
     var onFocus: (() -> Void)?
     var onResign: (() -> Void)?
+    var onFinish: (() -> Void)?
     /// The comment whose text this is.
     var comment: CommentID?
 
@@ -425,16 +443,23 @@ final class CommentTextView: AdmittingTextView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        window?.makeFirstResponder(nil)
+        finishEditing()
     }
 
-    /// How tall the text is, laid out `width` wide; never less than a line.
-    func height(fitting width: CGFloat) -> CGFloat {
+    /// Ends the edit under way, the focus going back to the page.
+    func finishEditing() {
+        onFinish?()
+    }
+
+    /// The text laid out as wide as `proposal` offers (the panel's width if it offers none),
+    /// and as tall as it then is; never less than a line.
+    func size(fitting proposal: ProposedViewSize) -> CGSize {
+        let width = proposal.width ?? WindowMetrics.panelWidth
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
-        let line = (font ?? .systemFont(ofSize: NSFont.systemFontSize)).boundingRectForFont.height
-        guard let layout = textLayoutManager else { return line }
+        let line = ceil((font ?? .systemFont(ofSize: NSFont.systemFontSize)).boundingRectForFont.height)
+        guard let layout = textLayoutManager else { return CGSize(width: width, height: line) }
         layout.ensureLayout(for: layout.documentRange)
-        return max(ceil(layout.usageBoundsForTextContainer.height), ceil(line))
+        return CGSize(width: width, height: max(ceil(layout.usageBoundsForTextContainer.height), line))
     }
 }
 
@@ -449,13 +474,4 @@ extension WindowMetrics {
         static let line = Color(red: 0xD9 / 255, green: 0xD7 / 255, blue: 0xD1 / 255)
         static let cardFill = Color.white
     }
-}
-
-/// The looks the owner is choosing between (#25), until they pick; then the pick stays and
-/// this goes.
-enum CommentPanelCandidates {
-    /// "Red" or "red" in the ⋯ menu.
-    enum ColorLabel { case capitalized, lowercase }
-
-    static var colorLabel = ColorLabel.capitalized
 }

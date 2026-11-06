@@ -349,13 +349,12 @@ final class SceneTextEditor: NSObject {
         return true
     }
 
-    /// Gives the open scene's comment `id` the text `text`, as one change on the page's undo
-    /// from `original`, the text it had before its card's drafts (`OpenBook.draftText`).
+    /// Gives the open scene's comment `id` the text `text`, as one change on the page's undo.
     @discardableResult
-    func setText(_ text: String, ofComment id: CommentID, since original: String? = nil) -> Bool {
+    func setText(_ text: String, ofComment id: CommentID) -> Bool {
         guard let commenting else { return false }
         commenting.view.breakUndoCoalescing()
-        return book.setText(text, ofComment: id, in: commenting.scene, since: original)
+        return book.setText(text, ofComment: id, in: commenting.scene)
     }
 
     /// Selects the text the open scene's comment `id` covers on the page, and scrolls its start
@@ -387,6 +386,11 @@ final class SceneTextEditor: NSObject {
         commenting.view.breakUndoCoalescing()
         guard book.recolor(id, in: commenting.scene, to: color) else { return false }
         preferences.rememberCommentColor(color)
+        // The underline shows the color at once, whatever has the focus, without waiting for
+        // SwiftUI to update the page (the owner's bug A, #25).
+        if let page = commenting.view as? ManuscriptTextView {
+            page.commentPalette = CommentPalette(book.book.scene(commenting.scene)?.comments ?? [])
+        }
         return true
     }
 

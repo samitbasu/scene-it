@@ -123,6 +123,30 @@ struct CommentEditTests {
         }
     }
 
+    /// The review's case (#25): type, recolor, type, commit, then undo twice. Each inverse
+    /// restores its own field alone, so the original text and color both come back, and the
+    /// half-typed draft never does.
+    @Test func undoingAnEditAndARecolorDuringItRestoresTheOriginal() async throws {
+        try await withComments { book, scene in
+            let undo = book.pageUndo(for: scene)
+            #expect(book.draftText("Too early? Or", ofComment: noted, in: scene))
+            step(book, scene) { #expect(book.recolor(noted, in: scene, to: .green)) }
+            #expect(book.draftText("Too early? Or late?", ofComment: noted, in: scene))
+            step(book, scene) {
+                #expect(book.setText("Too early? Or late?", ofComment: noted, in: scene, since: "Too early?"))
+            }
+            undo.undo()
+            #expect(book.book.scene(scene)?.comment(noted)?.text == "Too early?")
+            #expect(
+                book.book.scene(scene)?.comment(noted)?.color == .green, "the edit's undo leaves the color")
+            undo.undo()
+            #expect(book.book.scene(scene)?.comment(noted) == comment(noted, "Too early?", .purple))
+            undo.redo()
+            undo.redo()
+            #expect(book.book.scene(scene)?.comment(noted) == comment(noted, "Too early? Or late?", .green))
+        }
+    }
+
     @Test func anEditThatEndsWhereItBeganRegistersNothing() async throws {
         try await withComments { book, scene in
             #expect(book.draftText("Too", ofComment: noted, in: scene))

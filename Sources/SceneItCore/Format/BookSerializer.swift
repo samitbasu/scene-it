@@ -132,66 +132,9 @@ enum BookSerializer {
     }
 }
 
-/// A body or notes as the serializer addresses it: the plain text (§3.6) and where each run
-/// sits in it.
-private struct WrittenText {
-    private let plain: [Unicode.Scalar]
-    /// In text order; consecutive runs are separated only by paragraph breaks, if anything.
-    private let runs: [(range: Range<Int>, run: Run)]
-
-    init(_ paragraphs: [Paragraph]) {
-        var plain: [Unicode.Scalar] = []
-        var runs: [(Range<Int>, Run)] = []
-        for (index, paragraph) in paragraphs.enumerated() {
-            if index > 0 { plain.append("\n") }
-            for run in paragraph.runs {
-                let start = plain.count
-                plain += run.text.unicodeScalars
-                runs.append((start..<plain.count, run))
-            }
-        }
-        self.plain = plain
-        self.runs = runs
-    }
-
-    /// The maximal ranges of runs satisfying `predicate`. Two such runs with only
-    /// paragraph breaks between them share a range (§4.2).
-    func ranges(where predicate: (Run) -> Bool) -> [Range<Int>] {
-        var ranges: [Range<Int>] = []
-        var open: Range<Int>?
-        for (range, run) in runs where !range.isEmpty {
-            if predicate(run) {
-                open = open.map { $0.lowerBound..<range.upperBound } ?? range
-            } else if let finished = open {
-                ranges.append(finished)
-                open = nil
-            }
-        }
-        if let open { ranges.append(open) }
-        return ranges
-    }
-
-    /// Every comment's maximal ranges (as `ranges(where:)` would find them), in one pass.
-    func commentRanges() -> [CommentID: [Range<Int>]] {
-        var ranges: [CommentID: [Range<Int>]] = [:]
-        var lastRun: [CommentID: Int] = [:]
-        var number = 0
-        for (range, run) in runs where !range.isEmpty {
-            for id in run.comments {
-                if lastRun[id] == number - 1, let open = ranges[id]?.popLast() {
-                    ranges[id, default: []].append(open.lowerBound..<range.upperBound)
-                } else {
-                    ranges[id, default: []].append(range)
-                }
-                lastRun[id] = number
-            }
-            number += 1
-        }
-        return ranges
-    }
-
+extension WrittenText {
     /// §4.3.
-    func quote(_ range: Range<Int>) -> String {
-        "\"" + FieldEscaping.quoted.escape(String(String.UnicodeScalarView(plain[range]))) + "\""
+    fileprivate func quote(_ range: Range<Int>) -> String {
+        "\"" + FieldEscaping.quoted.escape(text(range)) + "\""
     }
 }

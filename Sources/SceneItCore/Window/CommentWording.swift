@@ -16,10 +16,15 @@ extension CommentWording {
     public static let searchHelp =
         "Type words to match comment text, and #color (e.g. #green, #grey) to filter by color"
     public static let clearSearch = "Clear Search"
-    public static let newCommentHelp = "New comment on the selected text (Cmd+Shift+M)"
+    /// The + button's help; `shortcut` is New Comment's, spelled "Cmd+Shift+M".
+    public static func newCommentHelp(_ shortcut: String) -> String {
+        "New comment on the selected text (\(shortcut))"
+    }
     /// The floating button at the end of a selection on the page.
     public static let commentButton = "\u{1F4AC} Comment"
-    public static let commentButtonHelp = "Comment on the selection (Cmd+Shift+M)"
+    public static func commentButtonHelp(_ shortcut: String) -> String {
+        "Comment on the selection (\(shortcut))"
+    }
     /// Before the chips of the colors the search filters by.
     public static let showing = "Showing"
     public static func unknownColors(_ tokens: [String]) -> String {

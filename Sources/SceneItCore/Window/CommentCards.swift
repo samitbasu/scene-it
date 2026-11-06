@@ -13,39 +13,23 @@ public struct CommentCards: Hashable, Sendable {
     public let anchored: [Card]
     public let detached: [Card]
 
+    /// The comments' ranges and quotes are `book.md`'s (`WrittenText`), and which are detached
+    /// is `BookScene.isDetached`.
     public init(_ scene: BookScene) {
-        var pieces: [CommentID: [String]] = [:]
-        var starts: [CommentID: Int] = [:]
-        /// Where the last run each comment covers ended, to tell a continuing stretch from a new one.
-        var ends: [CommentID: Int] = [:]
-        var offset = 0
-        for (index, paragraph) in scene.body.enumerated() {
-            if index > 0 { offset += 1 }
-            let paragraphStart = offset
-            for run in paragraph.runs {
-                for id in run.comments {
-                    if starts[id] == nil { starts[id] = offset }
-                    let end = ends[id]
-                    // Across a line break, which carries no comment, the stretch goes on.
-                    let joining: String? =
-                        end == offset ? "" : end == paragraphStart - 1 && offset == paragraphStart ? " " : nil
-                    if let joining, let last = pieces[id]?.popLast() {
-                        pieces[id]?.append(last + joining + run.text)
-                    } else {
-                        pieces[id, default: []].append(run.text)
-                    }
-                    ends[id] = offset + run.text.utf16.count
-                }
-                offset += run.text.utf16.count
-            }
+        let body = WrittenText(scene.body)
+        let ranges = body.commentRanges()
+        func quote(_ id: CommentID) -> String {
+            (ranges[id] ?? []).map { body.text($0).replacingOccurrences(of: "\n", with: " ") }
+                .joined(separator: CommentWording.quoteGap)
         }
         let order = Dictionary(uniqueKeysWithValues: scene.comments.enumerated().map { ($1.id, $0) })
-        anchored = scene.comments.filter { starts[$0.id] != nil }
-            .sorted { (starts[$0.id]!, order[$0.id]!) < (starts[$1.id]!, order[$1.id]!) }
-            .map {
-                Card(comment: $0, quote: (pieces[$0.id] ?? []).joined(separator: CommentWording.quoteGap))
-            }
-        detached = scene.comments.filter { starts[$0.id] == nil }.map { Card(comment: $0, quote: "") }
+        func start(_ comment: Comment) -> (Int, Int) {
+            (ranges[comment.id]?.first?.lowerBound ?? 0, order[comment.id] ?? 0)
+        }
+        anchored = scene.comments.filter { !scene.isDetached($0.id) }
+            .sorted { start($0) < start($1) }
+            .map { Card(comment: $0, quote: quote($0.id)) }
+        detached = scene.comments.filter { scene.isDetached($0.id) }.map { Card(comment: $0, quote: "") }
     }
 
     private init(anchored: [Card], detached: [Card]) {

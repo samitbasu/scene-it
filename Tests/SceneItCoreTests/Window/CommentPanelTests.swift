@@ -48,6 +48,13 @@ struct CommentQueryTests {
         #expect(!query.matches(comment("c", .blue, "The ferry again.")))
     }
 
+    /// One rule with `book.md`'s (`PaletteColor(named:)`): any ASCII case, and nothing else.
+    @Test func colorNamesAreCaseInsensitiveInASCIIOnly() {
+        #expect(CommentQuery("#RED #Grey").colors == [.red, .gray])
+        #expect(CommentQuery("#blac\u{212A}").unknownColors == ["#blac\u{212A}".lowercased()])
+        #expect(PaletteColor(named: "PINK") == .pink)
+    }
+
     @Test func everyPaletteColorIsRecognizedBlackIncluded() {
         for color in PaletteColor.allCases {
             #expect(CommentQuery("#\(color.rawValue)").colors == [color])
@@ -94,6 +101,7 @@ struct CommentCardsTests {
 
     @Test func anchoredCardsAreInTextOrderAndTiesKeepTheScenesOrder() {
         let cards = CommentCards(Self.scene)
+        for card in cards.anchored { #expect(!Self.scene.isDetached(card.id), "precondition: anchored") }
         #expect(cards.anchored.map(\.id.rawValue) == ["late", "early", "both", "tie"])
         // "both" starts before "tie" (at "She "); were they to start together, the list order decides.
         let together = BookScene(
@@ -126,6 +134,20 @@ struct CommentCardsTests {
         let split = CommentCards(pieces)
         #expect(split.anchored.first?.quote == "End" + CommentWording.quoteGap + "Again")
         #expect(split.anchored.last?.quote == "Last line", "only a line break between: one stretch")
+    }
+
+    /// As `book.md` writes it (one range, §4.2): only paragraph breaks between, an empty
+    /// paragraph included, is one stretch.
+    @Test func aStretchGoesOnAcrossAnEmptyParagraph() throws {
+        let scene = BookScene(
+            id: SceneID(rawValue: "e"), modified: Self.scene.modified, title: "Four",
+            body: [[Run("A", comments: ids("z"))], [], [Run("B", comments: ids("z"))]],
+            comments: [comment("z", .red, "")])
+        #expect(CommentCards(scene).anchored.map(\.quote) == ["A  B"])
+        let written = String(
+            decoding: try BookFormat.verifiedSerialization(of: Book(title: "T", scenes: [scene])),
+            as: UTF8.self)
+        #expect(written.contains("| c0-4 |"), "book.md agrees: one range")
     }
 
     @Test func filteringKeepsTheOrderAndTheGroups() {

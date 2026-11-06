@@ -12,27 +12,22 @@ public struct CommentQuery: Hashable, Sendable {
         var words: [String] = []
         var colors: [PaletteColor] = []
         var unknown: [String] = []
-        for token in text.lowercased().split(whereSeparator: \.isWhitespace).map(String.init) {
+        for token in text.split(whereSeparator: \.isWhitespace).map(String.init) {
             guard token.hasPrefix("#") else {
-                words.append(token)
+                words.append(token.lowercased())
                 continue
             }
-            let name = String(token.dropFirst())
+            let name = token.dropFirst()
             if name.isEmpty { continue }
-            if let color = Self.color(named: name) {
+            if let color = PaletteColor(named: name.utf8) {
                 if !colors.contains(color) { colors.append(color) }
-            } else if !unknown.contains(token) {
-                unknown.append(token)
+            } else if !unknown.contains(token.lowercased()) {
+                unknown.append(token.lowercased())
             }
         }
         self.words = words
         self.colors = colors
         self.unknownColors = unknown
-    }
-
-    /// The palette color `name` (lowercased, without `#`) means; `grey` is `gray`.
-    public static func color(named name: String) -> PaletteColor? {
-        name == "grey" ? .gray : PaletteColor(rawValue: name)
     }
 
     /// Whether the query asks for nothing, so every comment matches.

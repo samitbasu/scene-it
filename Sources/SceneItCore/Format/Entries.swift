@@ -61,7 +61,7 @@ enum Entries {
         guard Lexical.isValidID(commentID.rawValue.utf8), !context.commentIDs.contains(commentID) else {
             return .failure(.commentID)
         }
-        guard let palette = paletteColor(color) else { return .failure(.paletteName) }
+        guard let palette = PaletteColor(named: color) else { return .failure(.paletteName) }
         guard let timestamp = Timestamp(Lexical.string(created)) else { return .failure(.timestamp) }
         func made(_ text: ArraySlice<UInt8>, _ ranges: [TextRange]) -> Result<ParsedComment, EntryProblem> {
             let text = Lexical.string(Lexical.fieldUnescaped(Lexical.withoutLeadingSpaces(text)))
@@ -89,7 +89,7 @@ enum Entries {
         guard let kindField = fields.next(), let rangeField = fields.next() else { return .failure(.fields) }
         let words = kindField.split(separator: Lexical.space)
         guard words.count == 2 else { return .failure(.fields) }
-        guard let name = paletteColor(words[1]) else { return .failure(.paletteName) }
+        guard let name = PaletteColor(named: words[1]) else { return .failure(.paletteName) }
         let kind: MarkKind
         if Lexical.equalsIgnoringCase(words[0], "color") {
             kind = .color(TextColor(name))
@@ -127,12 +127,6 @@ enum Entries {
             )
         }
         return (ErrorEntry(.line, Lexical.string(line)), .new)
-    }
-
-    /// Palette names are case-insensitive, and `grey` is `gray`.
-    static func paletteColor(_ name: some Collection<UInt8>) -> PaletteColor? {
-        let lowered = String(decoding: Lexical.lowercased(name), as: UTF8.self)
-        return lowered == "grey" ? .gray : PaletteColor(rawValue: lowered)
     }
 
     /// A range list (§4.2): `c<start>-<end>` or `notes c<start>-<end>`, separated by commas.

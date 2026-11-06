@@ -11,8 +11,22 @@ struct CommentCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .textEditing) {
             Button(CommentWording.newComment) { formatting.commentablePage?.newCommentInItsCard() }
-                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .keyboardShortcut(.newComment)
                 .disabled(formatting.commentablePage == nil)
         }
+    }
+}
+
+extension KeyboardShortcut {
+    /// New Comment's (ADR 0037), which its menu item has and the panel's buttons name.
+    static let newComment = KeyboardShortcut("m", modifiers: [.command, .shift])
+
+    /// As the app's help spells shortcuts: "Cmd+Shift+M".
+    var spelled: String {
+        let names: [(EventModifiers, String)] = [
+            (.command, "Cmd"), (.control, "Ctrl"), (.option, "Option"), (.shift, "Shift"),
+        ]
+        let held = names.filter { modifiers.contains($0.0) }.map(\.1)
+        return (held + [key.character.uppercased()]).joined(separator: "+")
     }
 }

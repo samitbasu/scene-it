@@ -1,5 +1,6 @@
 import AppKit
 import SceneItCore
+import SceneItTestSupport
 import SwiftUI
 import Testing
 
@@ -98,13 +99,9 @@ extension WindowRenders {
 
             let letter = CommentID(rawValue: "c1")
             let dream = CommentID(rawValue: "c5")
-            for label in [CommentPanelCandidates.ColorLabel.capitalized, .lowercase] {
-                CommentPanelCandidates.colorLabel = label
-                try await state(
-                    "menu-\(label)", "The \u{22EF} menu (\(label) names; stand-in drawing, see README)",
-                    beside: Self.commentMenuMockup, menu: letter, clickLetter)
-            }
-            CommentPanelCandidates.colorLabel = .capitalized
+            try await state(
+                "menu", "The \u{22EF} menu (a stand-in drawing of the real menu, see README)",
+                beside: Self.commentMenuMockup, menu: letter, clickLetter)
             try await state(
                 "menu-detached", "A detached card's \u{22EF} menu, text selected on the page",
                 beside: Self.commentMenuMockup, menu: dream
@@ -124,11 +121,13 @@ extension WindowRenders {
             // Last on this scene: what it types stays in the book.
             try await state("card-editing", "Typing in a card: its text on the page is selected") { window in
                 Self.editorOfPage(window)?.comments.open(CommentID(rawValue: "c4"), in: scene)
-                try await Task.sleep(for: .milliseconds(300))
-                let card = try #require(
+                @MainActor func focusedCard() -> CommentTextView? {
                     subviewTree(of: window.contentView).compactMap { $0 as? CommentTextView }.first {
                         $0.window?.firstResponder === $0
-                    }, "precondition: a card has the focus")
+                    }
+                }
+                await eventually { focusedCard() != nil }
+                let card = try #require(focusedCard(), "precondition: a card has the focus")
                 card.insertText(" Or at the engine?", replacementRange: card.selectedRange())
             }
 
