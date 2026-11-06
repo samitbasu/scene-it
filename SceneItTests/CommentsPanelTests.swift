@@ -128,7 +128,8 @@ struct CommentsPanelTests {
             let scene = try #require(harness.book.openScene)
             let card = try await harness.typeInCard(noted, " Or")
             try #require(harness.underlineColor(of: letterRange) == .purple, "precondition")
-            try #require(harness.stripeColor(of: card)?.isClose(to: .purple) == true, "precondition")
+            try await harness.settle(drawing: .purple, under: letterRange)
+            try #require(try harness.stripeColor(of: card)?.isClose(to: .purple) == true, "precondition")
             // As the ⋯ control opens it: choosing waits until the menu has closed.
             await eventually { harness.menuControl(of: noted) != nil }
             let control = try #require(harness.menuControl(of: noted))
@@ -139,11 +140,38 @@ struct CommentsPanelTests {
             #expect(harness.book.book.scene(scene)?.comment(noted)?.color == .red)
             #expect(harness.underlineColor(of: letterRange) == .red, "the page's underline at once")
             #expect(harness.window.firstResponder === card, "no change of focus")
-            await eventually { harness.underlineColor(of: letterRange) == .red }
-            await eventually { harness.stripeColor(of: card)?.isClose(to: .red) == true }
+            try await harness.expectDrawn(.red, not: .purple, under: letterRange)
+            await eventually { (try? harness.stripeColor(of: card))??.isClose(to: .red) == true }
             let checked = try await harness.menu(of: noted, in: scene).items.first { $0.state == .on }
             #expect(checked.flatMap(CommentMenu.color(of:)) == .red)
             #expect(harness.window.firstResponder === card)
+        }
+    }
+
+    /// Undoing and redoing a recolor redraws the underline on the page each time.
+    @Test func undoAndRedoOfARecolorRedrawTheUnderline() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            let menu = try await harness.menu(of: noted, in: scene)
+            try await harness.settle(drawing: .purple, under: letterRange)
+            try perform(try #require(menu.items.first { CommentMenu.color(of: $0) == .green }))
+            try await harness.expectDrawn(.green, not: .purple, under: letterRange)
+            harness.focusPage(at: 0)
+            try harness.undoOnThePage()
+            try await harness.expectDrawn(.purple, not: .green, under: letterRange)
+            try harness.undo.redo()
+            try await harness.expectDrawn(.green, not: .purple, under: letterRange)
+        }
+    }
+
+    /// A recolor from elsewhere than the menu (the page editor's own call) redraws the underline.
+    @Test func aRecolorFromAnywhereRedrawsTheUnderline() async throws {
+        try await withPage([scene("One", letterScene, .withTooEarly)]) { harness in
+            let letter = NSRange(location: 4, length: 6)
+            let editor = try #require(harness.page.editor)
+            try await harness.settle(drawing: .purple, under: letter)
+            #expect(editor.recolor(noted, to: .blue))
+            try await harness.expectDrawn(.blue, not: .purple, under: letter)
         }
     }
 
@@ -453,14 +481,133 @@ extension PageHarness {
             .color
     }
 
-    /// The color drawn in the stripe at `card`'s left, sampled from the window as it draws now.
-    func stripeColor(of card: CommentTextView) -> NSColor? {
-        guard let frameView = window.contentView?.superview else { return nil }
+    /// Waits until the page has drawn `range`'s underline in `color` and then gone quiet, so a
+    /// redraw seen after that was asked for, not left over from the window's first passes.
+    func settle(drawing color: PaletteColor, under range: NSRange) async throws {
+        await eventually { (try? lastDrawnColors(under: range)) == [color] }
+        try await Task.sleep(for: .milliseconds(500))
+        try #require(try lastDrawnColors(under: range) == [color], "precondition: drawn in \(color)")
+    }
+
+    /// The page shows `range`'s underline in `color`, and none in `old`, within a second, with
+    /// nothing else happening, as an idle app has it.
+    ///
+    /// Two checks: what the paragraph last drew (`CommentUnderlineFragment.lastDrawn`), which
+    /// is what the page shows, since TextKit 2 keeps each paragraph's drawing in a layer until it
+    /// draws it again; and then the pixels that drawing gives. The pixels alone can't tell a
+    /// stale paragraph: rendering the layers to read them draws the paragraphs afresh.
+    func expectDrawn(
+        _ color: PaletteColor, not old: PaletteColor, under range: NSRange,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        for _ in 0..<40 where try lastDrawnColors(under: range) != [color] {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(
+            try lastDrawnColors(under: range) == [color], "the paragraph was drawn again",
+            sourceLocation: sourceLocation)
+        #expect(
+            try pagePixels(under: range, of: color) > 0, "in the new color", sourceLocation: sourceLocation)
+        #expect(
+            try pagePixels(under: range, of: old) == 0, "none left in the old", sourceLocation: sourceLocation
+        )
+    }
+
+    /// The colors of the underlines the page last drew under `range`'s characters.
+    func lastDrawnColors(under range: NSRange) throws -> [PaletteColor] {
+        let layout = try #require(page.textLayoutManager)
+        let content = try #require(layout.textContentManager)
+        let start = layout.documentRange.location
+        let from = try #require(content.location(start, offsetBy: range.location))
+        let to = try #require(content.location(from, offsetBy: range.length))
+        var colors: [PaletteColor] = []
+        layout.enumerateTextLayoutFragments(from: from, options: []) { fragment in
+            guard fragment.rangeInElement.location.compare(to) == .orderedAscending else { return false }
+            let paragraph = content.offset(from: start, to: fragment.rangeInElement.location)
+            let within = NSRange(location: range.location - paragraph, length: range.length)
+            colors += ((fragment as? CommentUnderlineFragment)?.lastDrawn ?? [])
+                .filter { ($0.range.intersection(within)?.length ?? 0) > 0 }.map(\.color)
+            return true
+        }
+        return colors
+    }
+
+    /// What the window shows now, at 2x: its layers' contents as they were last drawn, with no
+    /// view asked to draw again. TextKit 2 draws each paragraph into a layer of its own and keeps
+    /// it, so a paragraph that wasn't redrawn shows here as it was, as it does on screen;
+    /// `cacheDisplay` would draw it afresh and hide that.
+    func shown() throws -> NSBitmapImageRep {
+        let frameView = try #require(window.contentView?.superview)
+        let size = frameView.bounds.size
+        let rep = WindowRenders.blankBitmap(width: Int(size.width) * 2, height: Int(size.height) * 2)
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep)).cgContext
+        context.scaleBy(x: 2, y: 2)
+        // Each outermost layer-backed view's layer tree, where the view stands in the window.
+        @MainActor func hasLayeredAncestor(_ view: NSView) -> Bool {
+            var ancestor = view.superview
+            while let current = ancestor, current !== frameView {
+                if current.layer != nil { return true }
+                ancestor = current.superview
+            }
+            return false
+        }
+        let layered = subviewTree(of: frameView).filter { $0.layer != nil && !$0.isHiddenOrHasHiddenAncestor }
+        try #require(!layered.isEmpty, "precondition: some views draw into layers")
+        for view in layered where !hasLayeredAncestor(view) {
+            guard let layer = view.layer else { continue }
+            let frame = view.convert(view.bounds, to: nil)
+            context.saveGState()
+            context.translateBy(x: frame.minX, y: frame.minY)
+            if layer.isGeometryFlipped || view.isFlipped {
+                context.translateBy(x: 0, y: frame.height)
+                context.scaleBy(x: 1, y: -1)
+            }
+            layer.render(in: context)
+            context.restoreGState()
+        }
+        return rep
+    }
+
+    /// The pixels of `shown` in `rect`, in window coordinates.
+    func pixels(of shown: NSBitmapImageRep, in rect: NSRect) -> [NSColor] {
+        let height = window.contentView?.superview?.bounds.height ?? 0
+        var colors: [NSColor] = []
+        for x in stride(from: Int(rect.minX * 2), to: Int(rect.maxX * 2), by: 1) {
+            for y in stride(from: Int((height - rect.maxY) * 2), to: Int((height - rect.minY) * 2), by: 1) {
+                if let color = shown.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) { colors.append(color) }
+            }
+        }
+        return colors
+    }
+
+    /// How many of the page's pixels under `range`'s text, its underlines' room included, are
+    /// `color`, as the window shows them now.
+    func pagePixels(under range: NSRange, of color: PaletteColor) throws -> Int {
+        let layout = try #require(page.textLayoutManager)
+        let content = try #require(layout.textContentManager)
+        let start = layout.documentRange.location
+        let from = try #require(content.location(start, offsetBy: range.location))
+        let to = try #require(content.location(from, offsetBy: range.length))
+        let textRange = try #require(NSTextRange(location: from, end: to))
+        var frames: [NSRect] = []
+        layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            frames.append(frame)
+            return true
+        }
+        let origin = page.textContainerOrigin
+        let shown = try shown()
+        return frames.reduce(0) { count, frame in
+            let below = frame.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: 1, dy: 0)
+            let room = NSRect(x: below.minX, y: below.minY, width: below.width, height: below.height + 12)
+            return count + pixels(of: shown, in: page.convert(room, to: nil)).count { $0.isClose(to: color) }
+        }
+    }
+
+    /// The color the stripe at `card`'s left shows now.
+    func stripeColor(of card: CommentTextView) throws -> NSColor? {
         let text = card.convert(card.bounds, to: nil)
-        let rep = WindowRenders.bitmap(of: frameView, scale: 1)
-        let x = Int(text.minX) - 12
-        let y = Int(frameView.bounds.height - text.midY)
-        return rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+        return pixels(of: try shown(), in: NSRect(x: text.minX - 12, y: text.midY, width: 0.5, height: 0.5))
+            .first
     }
 
     /// The menu `comment`'s ⋯ control opens, built by the control as a click builds it; the

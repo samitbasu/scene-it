@@ -56,7 +56,11 @@ places the caret.
 
 ## Redrawing
 A change to the comments (a recolour, a comment added or taken away) lays out again only the paragraphs those comments
-cover, which redraws them; a paragraph's drawing surface reaches into the spacing below it only if it's commented.
+cover, and the page then marks those paragraphs, and nothing else, to be drawn again. Laying them out isn't enough:
+TextKit 2 draws each paragraph into a view of its own and keeps that drawing when only the fragment's layout is
+invalidated, so a recolour arriving through an undo, a redo or SwiftUI's update of the page showed the old colour
+until something else redrew the paragraph (#25, found in the owner's trial build). A paragraph's drawing surface
+reaches into the spacing below it only if it's commented.
 
 ## Alternatives
 - **A light wash behind commented text, plus one underline for the selected comment.** Simpler to draw, but the wash hides

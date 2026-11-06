@@ -231,6 +231,14 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
     /// TextKit keeps a fragment when its layout is invalidated, so it reads the palette from
     /// here each time rather than keeping the one it was made with.
     private let underliner: CommentUnderliner
+    private let drawn = Mutex<[CommentUnderline]>([])
+
+    /// The underlines this fragment drew the last time it was drawn, in its paragraph's
+    /// character offsets: what its paragraph shows on the page, since TextKit keeps the drawing
+    /// until it draws it again.
+    public var lastDrawn: [CommentUnderline] {
+        drawn.withLock(\.self)
+    }
 
     init(_ element: NSTextElement, range: NSTextRange?, underliner: CommentUnderliner) {
         self.underliner = underliner
@@ -256,6 +264,8 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
 
     /// One underline where it's drawn: `rect` is where it is before it meets the pixels.
     struct PlacedUnderline {
+        /// The characters it's under, in the paragraph.
+        let span: NSRange
         let rect: CGRect
         let baseline: CGFloat
         let level: Int
@@ -287,6 +297,7 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
                 let to = line.locationForCharacter(at: span.upperBound).x
                 rects.append(
                     PlacedUnderline(
+                        span: span,
                         rect: CGRect(
                             x: line.typographicBounds.minX + from,
                             y: baseline(of: line) + UnderlineStyle.top(of: underline.level),
@@ -368,6 +379,7 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
         guard let first = textLineFragments.first else { return }
         let step = DeviceStep(of: context, at: point.y + baseline(of: first))
         let underlines = underlineRects(at: step)
+        drawn.withLock { $0 = underlines.map { CommentUnderline($0.span, level: $0.level, color: $0.color) } }
         guard !underlines.isEmpty else { return }
         context.saveGState()
         for underline in underlines {
@@ -404,26 +416,29 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
 public final class CommentUnderliner: NSObject, NSTextLayoutManagerDelegate, Sendable {
     private let state = Mutex(CommentPalette.empty)
 
-    /// Draws `palette`'s comments from now on. Only the paragraphs whose comments changed are
-    /// laid out again, which draws them again.
-    public func show(_ palette: CommentPalette, laidOutBy layout: NSTextLayoutManager?) {
+    /// Draws `palette`'s comments from now on. The text whose comments changed is laid out
+    /// again; returns it, for the view to draw again, since TextKit keeps a paragraph's drawing
+    /// when only its fragment's layout changes.
+    @discardableResult
+    public func show(_ palette: CommentPalette, laidOutBy layout: NSTextLayoutManager?) -> [NSTextRange] {
         let changed = state.withLock { current in
             let changed = current.changes(to: palette)
             current = palette
             return changed
         }
-        guard !changed.isEmpty, let layout else { return }
-        invalidate(changed, in: layout)
+        guard !changed.isEmpty, let layout else { return [] }
+        return invalidate(changed, in: layout)
     }
 
     public var palette: CommentPalette {
         state.withLock(\.self)
     }
 
-    private func invalidate(_ comments: Set<CommentID>, in layout: NSTextLayoutManager) {
+    private func invalidate(_ comments: Set<CommentID>, in layout: NSTextLayoutManager) -> [NSTextRange] {
         guard let content = layout.textContentManager as? NSTextContentStorage,
             let text = content.attributedString
-        else { return }
+        else { return [] }
+        var invalidated: [NSTextRange] = []
         let start = layout.documentRange.location
         text.enumerateAttribute(.comments, in: NSRange(location: 0, length: text.length)) { value, run, _ in
             guard !CommentPalette.ids(in: value).isDisjoint(with: comments),
@@ -432,7 +447,9 @@ public final class CommentUnderliner: NSObject, NSTextLayoutManagerDelegate, Sen
                 let range = NSTextRange(location: from, end: to)
             else { return }
             layout.invalidateLayout(for: range)
+            invalidated.append(range)
         }
+        return invalidated
     }
 
     public func textLayoutManager(
