@@ -80,9 +80,8 @@ final class SceneTextEditor: NSObject {
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
         guard let view = textView else { return }
-        if let page = view as? ManuscriptTextView {
-            let comments = book.book.scene(scene)?.comments ?? []
-            page.commentPalette = CommentPalette(comments)
+        if view is ManuscriptTextView {
+            let comments = showComments(of: scene)
             self.comments.forget(allBut: Set(comments.map(\.id)), in: scene)
         }
         let text = modelText(of: scene) ?? []
@@ -101,6 +100,14 @@ final class SceneTextEditor: NSObject {
         if let range = pendingReveal.take(showing: scene) {
             select(range, in: view)
         }
+    }
+
+    /// Underlines `scene`'s comments on the page as the model has them; returns them.
+    @discardableResult
+    private func showComments(of scene: SceneID) -> [Comment] {
+        let comments = book.book.scene(scene)?.comments ?? []
+        (textView as? ManuscriptTextView)?.commentPalette = CommentPalette(comments)
+        return comments
     }
 
     /// Selects `range` of `scene`'s text, scrolled into view and with the focus, when the view
@@ -386,11 +393,8 @@ final class SceneTextEditor: NSObject {
         commenting.view.breakUndoCoalescing()
         guard book.recolor(id, in: commenting.scene, to: color) else { return false }
         preferences.rememberCommentColor(color)
-        // The underline shows the color at once, whatever has the focus, without waiting for
-        // SwiftUI to update the page (the owner's bug A, #25).
-        if let page = commenting.view as? ManuscriptTextView {
-            page.commentPalette = CommentPalette(book.book.scene(commenting.scene)?.comments ?? [])
-        }
+        // In this turn: SwiftUI updates the page on a later pass (the owner's bug A, #25).
+        showComments(of: commenting.scene)
         return true
     }
 

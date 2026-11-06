@@ -135,7 +135,9 @@ struct CommentMenuButton: NSViewRepresentable {
                 .init(
                     recolor: { page.recolor(id, to: $0) },
                     dismiss: {
-                        // A card's edit under way is one step, before the dismiss's.
+                        // A card's edit under way is committed first. Both land in this
+                        // event's undo group, so one undo takes back the dismiss and the edit
+                        // together, and the comment returns with the text it had before.
                         (button?.window?.firstResponder as? CommentTextView)?.finishEditing()
                         page.dismiss(id)
                     },

@@ -14,6 +14,9 @@ final class CommentButton: NSButton {
         self.onPress = action
         super.init(frame: .zero)
         isBordered = false
+        // With Full Keyboard Access a click would focus the button first, taking the focus off
+        // the page, whose selection is what the button comments.
+        refusesFirstResponder = true
         title = CommentWording.commentButton
         toolTip = CommentWording.commentButtonHelp(KeyboardShortcut.newComment.spelled)
         setAccessibilityLabel(CommentWording.newComment)

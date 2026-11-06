@@ -295,6 +295,33 @@ struct CommentsPanelTests {
         }
     }
 
+    /// As the ⋯ control opens the menu: a Dismiss chosen while it's open waits until it closes;
+    /// a menu closed with nothing chosen does nothing.
+    @Test func theMenusChoiceRunsOnlyOnceItHasClosed() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            harness.page.editor?.comments.select(noted, in: scene)
+            await eventually { harness.menuControl(of: noted) != nil }
+            let control = try #require(harness.menuControl(of: noted))
+            let before = harness.book.book
+
+            _ = try #require(control.openingMenu())
+            control.runChosen()
+            #expect(harness.book.book == before, "cancelled: nothing runs")
+            #expect(!harness.book.pageUndo(for: scene).canUndo)
+
+            let menu = try #require(control.openingMenu())
+            try perform(try #require(menu.items.first { $0.title == CommentWording.dismiss }))
+            #expect(harness.book.book.scene(scene)?.comment(noted) != nil, "not while it's open")
+            control.runChosen()
+            #expect(harness.book.book.scene(scene)?.comment(noted) == nil)
+            #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.dismissUndoName)
+            control.runChosen()
+            #expect(
+                harness.book.pageUndo(for: scene).undoActionName == CommentWording.dismissUndoName, "once")
+        }
+    }
+
     /// A detached card's Re-anchor puts the comment on the page's selection.
     @Test func reanchorPutsADetachedCommentOnTheSelection() async throws {
         try await withPanel { harness in
@@ -367,6 +394,8 @@ struct CommentsPanelTests {
             #expect(
                 harness.window.contentView?.hitTest(corner) === button, "its whole frame, not just the pill")
             #expect(button.acceptsFirstMouse(for: nil))
+            #expect(button.refusesFirstResponder, "a click never takes the focus off the page")
+            #expect(!button.canBecomeKeyView)
             #expect(
                 button.trackingAreas.contains { $0.options.contains(.cursorUpdate) && $0.owner === button })
 
