@@ -410,9 +410,11 @@ struct CommentsPanelTests {
             #expect(harness.book.book.scene(scene)?.comment(noted) == tooEarly)
             #expect(harness.storage.ranges(commentedBy: noted) == [letterRange])
 
-            try harness.undo.redo()
+            #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.dismissUndoName)
+            try harness.redoOnThePage()
             #expect(harness.book.book.scene(scene)?.comment(noted) == nil, "redo dismisses it again")
             #expect(harness.storage.ranges(commentedBy: noted).isEmpty)
+            #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.dismissUndoName)
             try harness.undoOnThePage()
             #expect(harness.book.book.scene(scene)?.comment(noted) == tooEarly, "still never the draft")
         }
@@ -428,6 +430,7 @@ struct CommentsPanelTests {
             await eventually { harness.card(noted) != nil }
             try #require(harness.card(noted) != nil, "precondition: the card is shown")
             let menu = try await harness.menu(of: noted, in: scene)
+            try #require(try harness.lastDrawnColors(under: letterRange) == [.purple], "precondition: drawn")
             try perform(try #require(menu.items.first { $0.title == CommentWording.dismiss }))
             #expect(harness.book.book.scene(scene)?.comment(noted) == nil)
             await eventually { harness.card(noted) == nil }
@@ -435,6 +438,7 @@ struct CommentsPanelTests {
 
             harness.focusPage(at: 0)
             #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.dismissUndoName)
+            try #require(try harness.lastDrawnColors(under: letterRange) == [], "precondition: none drawn")
             try harness.undoOnThePage()
             #expect(
                 harness.book.book.scene(scene)?.comments.map(\.id) == [noted, early, gone], "in its place")
@@ -445,7 +449,8 @@ struct CommentsPanelTests {
             try await harness.expectDrawn(.purple, under: letterRange)
 
             #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.dismissUndoName)
-            try harness.undo.redo()
+            try #require(try harness.lastDrawnColors(under: letterRange) == [.purple], "precondition: drawn")
+            try harness.redoOnThePage()
             #expect(harness.book.book.scene(scene)?.comment(noted) == nil)
             #expect(harness.storage.ranges(commentedBy: noted).isEmpty)
             #expect(harness.pageMirrorsModel)
@@ -509,11 +514,14 @@ struct CommentsPanelTests {
             let menu = try await harness.menu(of: gone, in: scene)
             let reanchor = try #require(menu.items.first { $0.title == CommentWording.reanchor })
             #expect(reanchor.isEnabled)
+            await eventually { (try? harness.lastDrawnColors(under: came)) == [] }
+            try #require(try harness.lastDrawnColors(under: came) == [], "precondition: none drawn")
             try perform(reanchor)
             #expect(harness.storage.ranges(commentedBy: gone) == [came])
             #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.reanchorUndoName)
             try await harness.expectDrawn(.pink, under: came)
 
+            try #require(try harness.lastDrawnColors(under: came) == [.pink], "precondition: drawn")
             try harness.undoOnThePage()
             #expect(harness.storage.ranges(commentedBy: gone).isEmpty)
             #expect(harness.book.book.scene(scene)?.isDetached(gone) == true, "kept, detached")
@@ -522,7 +530,8 @@ struct CommentsPanelTests {
             #expect(harness.card(gone) != nil, "its card stays")
 
             #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.reanchorUndoName)
-            try harness.undo.redo()
+            try #require(try harness.lastDrawnColors(under: came) == [], "precondition: none drawn")
+            try harness.redoOnThePage()
             #expect(harness.storage.ranges(commentedBy: gone) == [came])
             #expect(harness.pageMirrorsModel)
             try await harness.expectDrawn(.pink, under: came)
@@ -610,15 +619,18 @@ extension BookStoreIntegrationTests {
     }
 }
 
-/// The panel's book in the window, with the Comments tab showing; the tab is put back after.
+/// The panel's book in the window, with the Comments tab showing; the panel is put back after.
 @MainActor
 private func withPanel(
     holdingTheLock: Bool = false, books: BookController = BookController(role: .testHost),
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withPage([panelBook()], holdingTheLock: holdingTheLock, books: books) { harness in
-        let tab = harness.preferences.rightPanelTab
-        defer { harness.preferences.showRightPanelTab(tab) }
+        let (panel, tab) = (harness.preferences.rightPanel, harness.preferences.rightPanelTab)
+        defer {
+            harness.preferences.setRightPanel(panel)
+            harness.preferences.showRightPanelTab(tab)
+        }
         harness.preferences.reveal(.comments)
         try await body(harness)
     }
@@ -643,6 +655,8 @@ private func expectNewCommentUndoesAndRedoes(
         harness.page.setSelectedRange(came)
         await eventually { harness.formatting.commentablePage === harness.page.editor }
         try #require(!harness.book.pageUndo(for: scene).canUndo, "precondition: nothing to undo")
+        await eventually { (try? harness.lastDrawnColors(under: came)) == [] }
+        try #require(try harness.lastDrawnColors(under: came) == [], "precondition: none drawn")
 
         try await make(harness)
         let made = try #require(harness.book.book.scene(scene)?.comments.last)
@@ -654,6 +668,7 @@ private func expectNewCommentUndoesAndRedoes(
 
         harness.focusPage(at: 0)
         #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.newComment)
+        try #require(try harness.lastDrawnColors(under: came) == [.blue], "precondition: drawn")
         try harness.undoOnThePage()
         #expect(harness.book.book.scene(scene)?.comment(made.id) == nil)
         #expect(harness.storage.ranges(commentedBy: made.id).isEmpty)
@@ -663,7 +678,8 @@ private func expectNewCommentUndoesAndRedoes(
         try await harness.expectUndrawn(.blue, under: came)
 
         #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.newComment)
-        try harness.undo.redo()
+        try #require(try harness.lastDrawnColors(under: came) == [], "precondition: none drawn")
+        try harness.redoOnThePage()
         #expect(harness.book.book.scene(scene)?.comment(made.id) == made)
         #expect(harness.storage.ranges(commentedBy: made.id) == [came])
         #expect(harness.pageMirrorsModel)
@@ -704,6 +720,12 @@ extension PageHarness {
         try undo.undo()
     }
 
+    /// Edit → Redo with the page focused, through the window's router as the toolbar does it.
+    func redoOnThePage() throws {
+        try #require(window.firstResponder === page, "precondition: the page has the focus")
+        try undo.redo()
+    }
+
     /// The color the page underlines `range` in, at the first level.
     func underlineColor(of range: NSRange) -> PaletteColor? {
         page.commentPalette.underlines(of: storage, depth: 5).first { $0.range == range && $0.level == 0 }?
@@ -736,7 +758,9 @@ extension PageHarness {
             { !subviewTree(of: window.contentView).contains(where: \.needsDisplay) },
             sourceLocation: sourceLocation)
         #expect(
-            try pagePixels(under: range, of: color) > 0, "in the new color", sourceLocation: sourceLocation)
+            try pagePixels(under: range, of: color) > 0,
+            old == nil ? "drawn in the color" : "in the new color",
+            sourceLocation: sourceLocation)
         if let old {
             #expect(
                 try pagePixels(under: range, of: old) == 0, "none left in the old",
@@ -744,9 +768,9 @@ extension PageHarness {
         }
     }
 
-    /// The page shows no underline under `range`, so none in `old`, the color it had. As with
-    /// `expectDrawn`, what the paragraph last drew is checked before any pixel is sampled; and an
-    /// empty `lastDrawn` is a redraw only if the paragraph drew an underline there before.
+    /// The page shows no underline under `range`, so none in `old`, the color it had: every
+    /// paragraph there has drawn since TextKit made it, and drew none. As with `expectDrawn`,
+    /// that's checked before any pixel is sampled.
     func expectUndrawn(
         _ old: PaletteColor, under range: NSRange, sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
@@ -757,20 +781,26 @@ extension PageHarness {
         #expect(try pagePixels(under: range, of: old) == 0, "no underline", sourceLocation: sourceLocation)
     }
 
-    /// The colors of the underlines the page last drew under `range`'s characters.
-    func lastDrawnColors(under range: NSRange) throws -> [PaletteColor] {
+    /// The colors of the underlines the page last drew under `range`'s characters; `nil` while a
+    /// paragraph there hasn't drawn since TextKit made it, or there's no paragraph there.
+    func lastDrawnColors(under range: NSRange) throws -> [PaletteColor]? {
         let layout = try #require(page.textLayoutManager)
         let content = try #require(layout.textContentManager)
         let start = layout.documentRange.location
         let from = try #require(content.location(start, offsetBy: range.location))
         let to = try #require(content.location(from, offsetBy: range.length))
-        var colors: [PaletteColor] = []
+        var colors: [PaletteColor]?
         layout.enumerateTextLayoutFragments(from: from, options: []) { fragment in
             guard fragment.rangeInElement.location.compare(to) == .orderedAscending else { return false }
+            guard let drawn = (fragment as? CommentUnderlineFragment)?.lastDrawn else {
+                colors = nil
+                return false
+            }
             let paragraph = content.offset(from: start, to: fragment.rangeInElement.location)
             let within = NSRange(location: range.location - paragraph, length: range.length)
-            colors += ((fragment as? CommentUnderlineFragment)?.lastDrawn ?? [])
-                .filter { ($0.range.intersection(within)?.length ?? 0) > 0 }.map(\.color)
+            colors =
+                (colors ?? [])
+                + drawn.filter { ($0.range.intersection(within)?.length ?? 0) > 0 }.map(\.color)
             return true
         }
         return colors

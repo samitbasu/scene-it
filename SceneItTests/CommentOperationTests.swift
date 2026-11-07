@@ -290,6 +290,7 @@ struct CommentOperationTests {
             undo.redo()
             #expect(harness.book.book.scene(scene)?.comments.isEmpty == true)
             #expect(harness.body() == letterScene.map(\.uncommented))
+            #expect(harness.pageMirrorsModel)
         }
     }
 

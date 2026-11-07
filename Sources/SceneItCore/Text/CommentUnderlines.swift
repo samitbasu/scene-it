@@ -231,11 +231,12 @@ public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Se
     /// TextKit keeps a fragment when its layout is invalidated, so it reads the palette from
     /// here each time rather than keeping the one it was made with.
     private let underliner: CommentUnderliner
-    private let drawn = Mutex<[CommentUnderline]>([])
+    private let drawn = Mutex<[CommentUnderline]?>(nil)
 
-    /// The underlines this fragment last drew, in its paragraph's offsets: evidence for tests of
-    /// what the page shows, since TextKit keeps a paragraph's drawing until it draws it again.
-    var lastDrawn: [CommentUnderline] {
+    /// The underlines this fragment last drew, in its paragraph's offsets, or `nil` before it has
+    /// drawn: evidence for tests of what the page shows, since TextKit keeps a paragraph's
+    /// drawing until it draws it again, and makes a new fragment when the text changes.
+    var lastDrawn: [CommentUnderline]? {
         drawn.withLock(\.self)
     }
 
