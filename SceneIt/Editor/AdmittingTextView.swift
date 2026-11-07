@@ -102,8 +102,6 @@ final class AdmittingTextField: NSTextField {
         isSelectable = true
         isBezeled = true
         drawsBackground = true
-        // The field sets its own on its field editor as editing begins.
-        isAutomaticTextCompletionEnabled = false
         self.lineBreakMode = lineBreakMode
         cell?.usesSingleLineMode = true
         cell?.wraps = false

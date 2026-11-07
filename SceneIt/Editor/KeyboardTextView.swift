@@ -8,64 +8,90 @@ import AppKit
 class KeyboardTextView: NSTextView {
     // MARK: No automatic text changes (#127)
 
-    /// Turns off AppKit's own state for every automatic change, which it reads from the
-    /// writer's system settings as the view is made and may consult without the getters below.
-    /// Every subclass's setup calls this.
+    /// What text checking may do: mark spelling and grammar. Every other type changes the
+    /// writer's words for them (correction, replacement, quotes, dashes, links, data,
+    /// capitalization, a period for a double space).
+    static let checkedTypes: NSTextCheckingTypes =
+        NSTextCheckingResult.CheckingType.spelling.rawValue
+        | NSTextCheckingResult.CheckingType.grammar.rawValue
+
+    /// Turns off what AppKit turned on from the writer's System Settings as the view was made.
+    /// Every subclass's setup calls this; after it, the overrides below keep them off.
     func leaveTheWritersWordsAlone() {
-        super.isAutomaticSpellingCorrectionEnabled = false
-        super.isAutomaticTextReplacementEnabled = false
-        super.isAutomaticTextCompletionEnabled = false
-        super.smartInsertDeleteEnabled = false
-        super.isAutomaticQuoteSubstitutionEnabled = false
-        super.isAutomaticDashSubstitutionEnabled = false
-        super.isAutomaticLinkDetectionEnabled = false
-        super.isAutomaticDataDetectionEnabled = false
-        super.inlinePredictionType = .no
+        enabledTextCheckingTypes = super.enabledTextCheckingTypes
+        isAutomaticSpellingCorrectionEnabled = false
+        isAutomaticTextReplacementEnabled = false
+        isAutomaticQuoteSubstitutionEnabled = false
+        isAutomaticDashSubstitutionEnabled = false
+        isAutomaticLinkDetectionEnabled = false
+        isAutomaticDataDetectionEnabled = false
+        isAutomaticTextCompletionEnabled = false
+        smartInsertDeleteEnabled = false
+        inlinePredictionType = .no
+    }
+
+    /// Spelling correction, text replacement, smart quotes and dashes, and link and data
+    /// detection are bits of this. Their own switches below set those bits without coming
+    /// through here, so each is held off as well.
+    override var enabledTextCheckingTypes: NSTextCheckingTypes {
+        get { super.enabledTextCheckingTypes }
+        set { super.enabledTextCheckingTypes = newValue & Self.checkedTypes }
+    }
+
+    /// Where AppKit applies what a check found: only its spelling and grammar marks get through.
+    override func handleTextCheckingResults(
+        _ results: [NSTextCheckingResult], forRange range: NSRange, types checkingTypes: NSTextCheckingTypes,
+        options: [NSSpellChecker.OptionKey: Any] = [:], orthography: NSOrthography, wordCount: Int
+    ) {
+        super.handleTextCheckingResults(
+            results.filter { $0.resultType.rawValue & Self.checkedTypes != 0 }, forRange: range,
+            types: checkingTypes & Self.checkedTypes, options: options, orthography: orthography,
+            wordCount: wordCount)
     }
 
     override var isAutomaticSpellingCorrectionEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticSpellingCorrectionEnabled }
+        set { super.isAutomaticSpellingCorrectionEnabled = false }
     }
 
     override var isAutomaticTextReplacementEnabled: Bool {
-        get { false }
-        set {}
-    }
-
-    override var isAutomaticTextCompletionEnabled: Bool {
-        get { false }
-        set {}
-    }
-
-    override var smartInsertDeleteEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticTextReplacementEnabled }
+        set { super.isAutomaticTextReplacementEnabled = false }
     }
 
     override var isAutomaticQuoteSubstitutionEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticQuoteSubstitutionEnabled }
+        set { super.isAutomaticQuoteSubstitutionEnabled = false }
     }
 
     override var isAutomaticDashSubstitutionEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticDashSubstitutionEnabled }
+        set { super.isAutomaticDashSubstitutionEnabled = false }
     }
 
     override var isAutomaticLinkDetectionEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticLinkDetectionEnabled }
+        set { super.isAutomaticLinkDetectionEnabled = false }
     }
 
     override var isAutomaticDataDetectionEnabled: Bool {
-        get { false }
-        set {}
+        get { super.isAutomaticDataDetectionEnabled }
+        set { super.isAutomaticDataDetectionEnabled = false }
+    }
+
+    override var isAutomaticTextCompletionEnabled: Bool {
+        get { super.isAutomaticTextCompletionEnabled }
+        set { super.isAutomaticTextCompletionEnabled = false }
+    }
+
+    override var smartInsertDeleteEnabled: Bool {
+        get { super.smartInsertDeleteEnabled }
+        set { super.smartInsertDeleteEnabled = false }
     }
 
     override var inlinePredictionType: NSTextInputTraitType {
-        get { .no }
-        set {}
+        get { super.inlinePredictionType }
+        set { super.inlinePredictionType = .no }
     }
 
     /// Their actions, from a menu or the Substitutions panel, pass this view by.

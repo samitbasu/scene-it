@@ -465,24 +465,35 @@ Two subtleties:
   (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
 - **Nothing changes a word as it's typed** (#127). A fresh `NSTextView` takes its automatic
   changes from System Settings: spelling correction (a word is replaced when you type the space
-  after it), text replacement (`omw` becomes `On my way!`), completion, inline prediction (the
-  grey suggestion ahead of the caret), smart quotes and dashes, link and data detection, and
-  smart copy/paste (spaces adjusted around a paste or a deleted word). `KeyboardTextView` turns
-  them off for good, the way it does Writing Tools: each property is overridden to read off and
-  ignore being set, so nothing can switch one back on.
+  after it), text replacement (`omw` becomes `On my way!`), smart quotes and dashes, link and data
+  detection, capitalization, a period for a double space, completion, inline prediction (the grey
+  suggestion ahead of the caret), and smart copy/paste (spaces adjusted around a paste or a deleted
+  word).
+
+  Most of these are one mechanism, *text checking*: as you type, AppKit asks `NSSpellChecker` to
+  check the text for the types in `enabledTextCheckingTypes` (a bit mask), and hands what it finds
+  to `handleTextCheckingResults(_:forRange:types:options:orthography:wordCount:)`, which underlines
+  a misspelling or replaces the text for a correction. `KeyboardTextView` overrides both: the mask
+  keeps only `.spelling` and `.grammar`, and only results of those types are passed on. So
+  spelling is still *checked* (the red underlines); it's only never *corrected*.
 
   ```swift
-      override var isAutomaticSpellingCorrectionEnabled: Bool {
-          get { false }
-          set {}
+      override var enabledTextCheckingTypes: NSTextCheckingTypes {
+          get { super.enabledTextCheckingTypes }
+          set { super.enabledTextCheckingTypes = newValue & Self.checkedTypes }
       }
   ```
 
-  An override changes what Swift and Objective-C callers see, but AppKit may read its own stored
-  state without calling the getter, so `leaveTheWritersWordsAlone()` also sets each one off on
-  `super` when the view is set up (`SceneTextView.configure`, `AdmittingTextView`'s initializer).
-  Spelling is still *checked* (`isContinuousSpellCheckingEnabled`, the red underlines); it's
-  only never *corrected*. Print and Word export smarten quotes on the way out (ADR 0022).
+  The switches such as `isAutomaticSpellingCorrectionEnabled` are bits of that mask, but setting
+  one turns its bit on directly, without calling the overridden setter (a hosted test caught this).
+  That's the trap with overriding an Objective-C class: you only see the calls that go through
+  dynamic dispatch, not the ones the class makes to its own storage. So each switch is overridden
+  too, with a setter that always sets it off on `super`. Completion, smart copy/paste and inline
+  prediction aren't checking types, and are held off the same way. The getters aren't overridden,
+  so they show what AppKit actually holds, and that's what the tests check.
+  `leaveTheWritersWordsAlone()` runs those setters once as the view is set up
+  (`SceneTextView.configure`, `AdmittingTextView`'s initializer), to undo what AppKit read from
+  System Settings. Print and Word export smarten quotes on the way out (ADR 0022).
 
   The menus offered these too: Edit > Substitutions, Correct Spelling Automatically, and the same
   items in a text view's right-click menu. `AutomaticTextChanges.actions` is the one list of their
@@ -493,8 +504,9 @@ Two subtleties:
   `AutomaticTextChanges.keepOutOfTheMainMenu()`, which hides them in the Edit menu. SwiftUI
   builds the main menu and may build it again, so the items are *hidden*, not removed (SwiftUI's
   bookkeeping still matches the menu). Hiding runs again after items are added and whenever a
-  menu opens. A submenu left with nothing else (Substitutions) is hidden whole, along with any
-  separators that are left with nothing on one side.
+  menu opens. A submenu that offered one and is left with nothing else (Substitutions) is hidden
+  whole. Separators left with nothing on one side are hidden too, and shown again if items come
+  back on both sides.
 
 ## 6. `typingAttributes`
 

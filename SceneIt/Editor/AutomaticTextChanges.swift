@@ -37,10 +37,10 @@ enum AutomaticTextChanges {
                 item.isHidden = true
             } else if let submenu = item.submenu {
                 hide(in: submenu)
-                if !submenu.items.contains(where: offersOther) { item.isHidden = true }
+                if offersOne(item), !submenu.items.contains(where: offersOther) { item.isHidden = true }
             }
         }
-        hideStrandedSeparators(in: menu)
+        placeSeparators(in: menu)
     }
 
     /// Keeps them out of the main menu, which SwiftUI builds and may build again: once items
@@ -75,17 +75,36 @@ enum AutomaticTextChanges {
         !item.isHidden && !item.isSeparatorItem && !isAutomatic(item)
     }
 
-    /// Hides a separator with no shown item between it and the menu's start or end, or the
-    /// shown separator before it.
-    private static func hideStrandedSeparators(in menu: NSMenu) {
+    /// The separators this hid as stranded, which it shows again if they're needed again.
+    private static let strandedSeparators = NSHashTable<NSMenuItem>.weakObjects()
+
+    /// Hides each separator with no shown item between it and the menu's start or end, or the
+    /// shown separator before it, and shows again each it hid that no longer is. Separators
+    /// hidden by anyone else stay as they are.
+    private static func placeSeparators(in menu: NSMenu) {
         var lastShown: NSMenuItem?
-        for item in menu.items where !item.isHidden {
-            if item.isSeparatorItem, lastShown?.isSeparatorItem != false {
-                item.isHidden = true
-            } else {
+        for item in menu.items {
+            if item.isSeparatorItem, !item.isHidden || strandedSeparators.contains(item) {
+                if lastShown?.isSeparatorItem != false {
+                    strand(item)
+                } else {
+                    unstrand(item)
+                    lastShown = item
+                }
+            } else if !item.isHidden {
                 lastShown = item
             }
         }
-        if let last = lastShown, last.isSeparatorItem { last.isHidden = true }
+        if let last = lastShown, last.isSeparatorItem { strand(last) }
+    }
+
+    private static func strand(_ separator: NSMenuItem) {
+        separator.isHidden = true
+        strandedSeparators.add(separator)
+    }
+
+    private static func unstrand(_ separator: NSMenuItem) {
+        separator.isHidden = false
+        strandedSeparators.remove(separator)
     }
 }

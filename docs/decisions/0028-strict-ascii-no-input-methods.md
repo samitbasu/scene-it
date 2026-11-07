@@ -47,15 +47,22 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   plain text instead), so marked text can't arise. Writing Tools is off on them too (`writingToolsBehavior` is always
   `.none`): it rewrites text through paths the veto might not see. The page and the title both veto a change the policy
   would alter and make the admitted one instead, as one undoable change; the page also reloads from the model if any edit
-  ever leaves a character the policy doesn't admit. The Errors tab's fix field (a SwiftUI `TextField`) keeps its input method:
-  what it holds is admitted when the fix is applied.
+  ever leaves a character the policy doesn't admit. The Errors tab's fix field was a SwiftUI `TextField` that kept its input
+  method until #127, which made it an `AdmittingTextField`: its line goes into the manuscript, so it's typed as the
+  manuscript is (see below).
 - **Automatic text changes are off (#127):** the writer's words are changed only by the writer. Every manuscript editor
-  (`KeyboardTextView`) has automatic spelling correction, text replacement, text completion, smart copy/paste
-  (`smartInsertDeleteEnabled`), smart quotes and dashes, link and data detection and inline prediction off for good:
-  each property reads off and ignores being set, as `writingToolsBehavior` does, and the editors don't answer the
-  actions that would turn one on. Continuous spell checking (the underlines) stays on. The owner's call: the menus
-  don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the editors' context menus hide
-  every item with one of its actions, which takes away Correct Spelling Automatically, the whole Substitutions
-  submenu (Show Substitutions, Smart Copy/Paste, Smart Quotes, Smart Dashes, Smart Links, Data Detectors, Text
-  Replacement) and, in the context menu, its one-shot Replace Quotes, Replace Dashes, Add Links and Replace Text.
-  Show Spelling and Grammar, Check Document Now, Check Spelling While Typing and Check Grammar With Spelling stay.
+  (`KeyboardTextView`) checks spelling and grammar and does nothing else to the text. Its `enabledTextCheckingTypes`,
+  which AppKit's text checking consults, never holds anything but those two bits, and `handleTextCheckingResults`, where
+  AppKit applies what a check found, passes on only spelling and grammar results. That turns off spelling correction,
+  text replacement, smart quotes and dashes, link and data detection, and System Settings' "Capitalize words
+  automatically" and "Add period with double-space". Each switch for these (`isAutomaticSpellingCorrectionEnabled` and
+  the rest set their bit without going through `enabledTextCheckingTypes`), text completion, smart copy/paste
+  (`smartInsertDeleteEnabled`) and inline prediction are held off: setting one sets it off. The editors don't answer
+  the actions that would turn one on. Continuous spell checking (the underlines) stays on.
+  The owner's call: the menus don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the
+  editors' context menus hide every item with one of its actions, which takes away Correct Spelling Automatically, the
+  whole Substitutions submenu (Show Substitutions, Smart Copy/Paste, Smart Quotes, Smart Dashes, Smart Links, Data
+  Detectors, Text Replacement) and, in the context menu, its one-shot Replace Quotes, Replace Dashes, Add Links and
+  Replace Text. Show Spelling and Grammar, Check Document Now, Check Spelling While Typing and Check Grammar With
+  Spelling stay. The Errors tab's fix field is an `AdmittingTextField` too, so the same holds there, and its line is
+  held to the manuscript's characters as it's typed: no accents by dead keys or press-and-hold, no input methods.

@@ -168,13 +168,7 @@ private struct ErrorRow: View {
     @ViewBuilder private var payloadOrEditor: some View {
         if let fix {
             VStack(alignment: .trailing, spacing: 6) {
-                TextField(
-                    ErrorsWording.fix,
-                    text: Binding(get: { fix.draft }, set: { self.fix?.draft = $0 }), axis: .vertical
-                )
-                .font(.system(size: 11, design: .monospaced))
-                .textFieldStyle(.roundedBorder)
-                .labelsHidden()
+                FixTextField(text: Binding(get: { fix.draft }, set: { self.fix?.draft = $0 }))
                 if let note = fix.note {
                     Text(note)
                         .font(.caption)
@@ -199,6 +193,57 @@ private struct ErrorRow: View {
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .textBackgroundColor)))
         }
+    }
+}
+
+/// A fix's line, in an `AdmittingTextField`: what's typed is held to the manuscript's characters
+/// (ADR 0028) and nothing changes it automatically (#127). It wraps at the row's width and grows
+/// with its text.
+struct FixTextField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> AdmittingTextField {
+        let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        let field = AdmittingTextField(string: text, editor: editor, lineBreakMode: .byWordWrapping)
+        field.cell?.usesSingleLineMode = false
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
+        field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        field.bezelStyle = .roundedBezel
+        field.setAccessibilityLabel(ErrorsWording.fix)
+        return field
+    }
+
+    func updateNSView(_ field: AdmittingTextField, context: Context) {
+        field.editor?.onChange = { [weak field] in
+            text = $0
+            field?.invalidateIntrinsicContentSize()
+        }
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    static func dismantleNSView(_ field: AdmittingTextField, coordinator: ()) {
+        field.editor?.onChange = nil
+    }
+
+    /// As wide as offered, and as tall as `text` wraps to at that width. While the field is being
+    /// edited its cell still holds the text from before, so a cell of the same look measures
+    /// `text`. (Not a copy of the field's own: `NSCell.copy` copies the editor reference without
+    /// retaining it.)
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: AdmittingTextField, context: Context)
+        -> CGSize?
+    {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        let cell = NSTextFieldCell(textCell: text)
+        cell.font = field.font
+        cell.wraps = true
+        cell.isBezeled = true
+        cell.bezelStyle = field.bezelStyle
+        let height = cell.cellSize(
+            forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
+        )
+        .height
+        return CGSize(width: width, height: ceil(height))
     }
 }
 

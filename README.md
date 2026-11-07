@@ -320,6 +320,11 @@ Spelling and Grammar submenu open beside it. The items are the real menus' items
 run menu validation, so no check marks appear. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/menus\(\)`.
 
+`fixField` renders the Errors tab's fix field (#127, `FixFieldRenders.swift`) into the same `menus/`
+subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` it was, above the
+`AdmittingTextField` it is now, holding the same long line at the panel's width. To render only this, add
+`-only-testing:SceneItTests/WindowRenders/fixField\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile
