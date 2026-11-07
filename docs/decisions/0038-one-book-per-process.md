@@ -16,8 +16,8 @@ life. Nothing can outlive a book that is never closed while the process runs.
 ## Decision
 1. **Close Book quits Scene It.** It takes exactly the path Quit takes (`applicationShouldTerminate`), with its
    prompts when a save can't complete: Retry / Cancel / Quit Anyway only by explicit choice. Cancel keeps the
-   book open and the app running. Closing the main window (the red button, or Cmd+W, which is Close Book's
-   shortcut) does the same.
+   book open and the app running. Closing the book's window (the red button, or Cmd+W, which is Close Book's
+   shortcut while that window is key) does the same.
 2. **While a book is open, nothing switches it.**
    - File → New Book… and Open Book… are disabled. (Scene It has no Open Recent menu; Recent Books are in the
      start state only.)
@@ -31,23 +31,36 @@ life. Nothing can outlive a book that is never closed while the process runs.
 
 ## How it's built
 - `BookStore.session` is one enum: `choosing` → `open(OpenBook)` → `ended` (or `choosing` → `ended`). Only
-  `install` moves to `open`, and only from `choosing` (`.first`) or for the open book itself (`.replacing`);
-  only quitting, or a lost book, moves to `ended`. `open` and `create` outside `choosing` return `.refused`
+  `install` moves to `open`, and the type of what it installs says from where: `.chosen(URL)` only from
+  `choosing`; `.again(book)`, the open book's own package read again (Open Anyway, ADR 0018's Open Other
+  Version); `.myVersion(copy, replacing: book)`, ADR 0018's Open My Version, which opens the writer's copy in
+  place of an original that can't be read (`.notAFile`): the same manuscript, and the writer's only version of
+  it. Only quitting, or a lost book, moves to `ended`. `open` and `create` outside `choosing` return `.refused`
   without reading anything.
-- Within `open`, the book is replaced only by itself read again: Open Anyway (ADR 0020) and ADR 0018's Open
-  Other Version. When the original can't be read (`.notAFile`), Open My Version opens the writer's copy in its
-  place, as before: it is the same manuscript, and the writer's only version of it.
-- If ADR 0018's reopen fails after my version was saved as a copy, the process has no book left. The session
-  ends and the app quits (`bookLost`), after the alert naming the copy. The next launch reopens the copy, the
-  most recent book.
-- Close Book and the close button call `BookController.closeBook()`, which sends `AppRequest.quit`; the app
-  answers with `NSApp.terminate`. The test host records the request instead.
-- The test host stands in for many launches: `BookController.startOver()` makes a fresh store once a session
-  has ended. The app never calls it.
+- Only a chosen book that won't load is forgotten from Recent Books. A book read again, or the writer's copy,
+  stays there when it won't load.
+- **A lost book.** If ADR 0018's reopen (the original, or the writer's copy) fails after the writer's version
+  was saved as a copy, the process has no book left. The session ends, the writer is told what happened, where
+  their version is, and that Scene It will quit (`OneBookWording.bookLost`), and then the app quits. The copy
+  stays first in Recent Books, so the next launch reopens it.
+- **One quit path.** Close Book and the close button call `BookController.closeBook()`, which sends
+  `AppRequest.quit`; the app answers with `NSApp.terminate`, so they ask exactly what Quit asks. The request is
+  carried out from a run-loop source (`perform(_:with:afterDelay: 0)`), never in the sender's own turn:
+  `terminate` with `.terminateLater` runs a nested run loop until the quit path, a main-actor task, replies,
+  and that task couldn't start while the sender's job was still running. For the same reason the store calls
+  `bookLost` only after its operation has returned (`isBusy` is false), never inside it. The test host records
+  the request where the app would call `terminate`.
+- **⌘W is Close Book only in the book's window.** When another window is key (the crash report, say), ⌘W
+  closes that window as usual. The book's window is the one whose close button `MainWindow` routes to Close
+  Book; a book forwarded to the running instance brings that same window forward.
+- **The start state** (open for the owner, a one-line switch, `BookController.startStateClosing`): the close
+  button quits; File → Close Book is disabled.
+- The test host stands in for many launches: `BookController.startOver()`, compiled only in Debug, makes a
+  fresh store once a session has ended. The app never calls it.
 
 ## Wording (drafts, for the owner's pick)
-All candidates are in `OneBookWording`; each pick is one line (`closeItem`, `refusal`). Renders:
-`OneBookRenders.swift` (see README).
+All candidates are in `OneBookWording`; each pick is one line (`closeItem`, `refusal`, `bookLost`,
+`severalBooks`). Renders: `OneBookRenders.swift` (see README).
 - Menu item: **Close Book** (current) or **Close Book and Quit**.
 - Refusal alert, OK only:
   - `cantOpenWhileOpen`: "“Other Book” can't be opened while “My Novel” is open." / "Close “My Novel” first
@@ -55,6 +68,18 @@ All candidates are in `OneBookWording`; each pick is one line (`closeItem`, `ref
   - `oneBookAtATime`: "“My Novel” is open." / "Scene It works on one book at a time. To open “Other Book”,
     choose File → Close Book, which quits Scene It, then open “Other Book” again."
   - `closeFirst`: "Close “My Novel” first." / "Choose File → Close Book, then open “Other Book” again."
+- Lost book, OK only, after the load failure's own text ("Your version was saved as …", the problem, the
+  backups):
+  - `quitLast`: the load failure's title; the message ends "Scene It will quit now. Open it again to choose a
+    book."
+  - `quitInTitle`: "Scene It couldn't open “My Novel”, so it will quit."
+- Several books asked for at once in the start state (the first opens):
+  - `addedToRecents` (the wording before this ADR, current): "“A” is open. These books were added to Recent
+    Books instead: “B”, “C”."
+  - `closeToOpenTheOthers`: "“A” is open. “B” and “C” are in Recent Books: to open one, choose File → Close
+    Book, which quits Scene It, then open it again."
+  - `forNextTime`: "Only “A” was opened." / "Scene It opens one book at a time. “B” and “C” are in Recent
+    Books for next time."
 
 ## Not chosen
 - **Find and fix the leak, keep switching in place** (0021). It can't be proven fixed, and any later view that

@@ -285,8 +285,11 @@ The store's state is one enum, so "no book", "a book" and "done" can't be mixed 
 `session` is `private(set)`, and only three places assign it: `install` (a loaded book becomes
 the session's), `prepareToQuit` / `closeForTermination` (`.ended`), and the ADR 0018 path when the
 other version won't open (`.ended`, then `bookLost`, which the app answers by quitting).
-`install` checks its precondition: `.first` only while `.choosing`, `.replacing(old)` only
-for the open book, which is how Open Anyway and Open Other Version read the same package again.
+What `install` installs is a `Target` whose case says where it comes from: `.chosen(url)`, only
+while `.choosing`; `.again(book)`, the open book's own package read again (Open Anyway, Open
+Other Version), so it can't name another path; `.myVersion(copy, replacing: book)`, ADR 0018's
+copy in place of an unreadable original. Only a `.chosen` book that won't load is forgotten from
+Recent Books.
 Asked to open any other book while one is open, the store opens nothing, reads nothing, and
 tells the writer why (`OneBookWording.refusal`). Asked for the open book again, it does nothing.
 The view and the menus derive from the same enum: `MainWindow` switches on `session`, and New
@@ -472,16 +475,26 @@ File → Close Book and the window's red close button don't close anything thems
 with `NSApp.terminate(nil)`: AppKit's own quit, which arrives at `applicationShouldTerminate`
 above. So there is one path, with one set of questions, and Cancel leaves the window and its
 book exactly as they were. (Close Book takes Cmd+W: replacing SwiftUI's `.saveItem` group
-removed its own Close.) The close button is an `NSButton` whose target and action
-`CloseButtonQuits` points at `closeBook()` once the window exists; SwiftUI's own window
-delegate never sees the click.
+removed its own Close. From any window but the book's, Cmd+W just closes that window.) The close
+button is an `NSButton` whose target and action `CloseButtonQuits` points at `closeBook()` once
+the window exists; SwiftUI's own window delegate never sees the click, and the routed button is
+also how the app tells its book window from any other.
 
-`AppRequests` is a protocol so the test host can record requests instead of quitting the
-process the tests run in: the hosted tests choose File → Close Book through the real menu
-(and click the real close button) and check that exactly one `.quit` was asked for. That's
-the general move for an effect you can't let a test perform: make it a value, and test the
-value. (In Rust you'd return an enum from the decision function and keep the side effect in
-`main`.)
+**When** the quit starts matters. With `.terminateLater`, `terminate` doesn't return: it spins a
+nested run loop until `reply(toApplicationShouldTerminate:)`. The reply comes from a main-actor
+`Task`, and the main actor is the main queue, which isn't drained while the job that called
+`terminate` is still on the stack. Call `terminate` straight from a menu action or a store
+operation and the app hangs. So `AppRequests.send(.quit)` schedules it with
+`perform(_:with:afterDelay: 0)`: a run-loop source, which fires once the current job has
+returned. (A Rust analogy: calling `block_on` from inside the executor's own task.) For the same
+reason the store calls `bookLost` only after its operation has finished.
+
+`AppRequests` carries requests out through a closure: AppKit in the app, a recorder in the test
+host. The deferral is the same code in both, so the hosted tests choose File → Close Book through
+the real menu (and click the real close button), check that nothing happened in the action's own
+turn, then wait for one `.quit`, recorded with the store idle. That's the general move for an
+effect you can't let a test perform: make it a value, and test the value. (In Rust you'd return
+an enum from the decision function and keep the side effect in `main`.)
 
 ### `.commands`
 

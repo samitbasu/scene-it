@@ -44,7 +44,7 @@ struct CloseButtonQuits: NSViewRepresentable {
     }
 
     final class Router: NSView {
-        private let books: BookController
+        let books: BookController
 
         init(books: BookController) {
             self.books = books

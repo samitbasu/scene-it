@@ -61,6 +61,87 @@ public enum OneBookWording {
         }
     }
 
+    // MARK: The book is lost (ADR 0018 → ADR 0038)
+
+    /// After Open Other Version saved the writer's version as a copy, nothing would open in its
+    /// place, so Scene It quits once this is dismissed.
+    public enum BookLost: CaseIterable, Sendable {
+        /// The load failure's own title; the quit comes last, after the backups.
+        case quitLast
+        /// The quit is in the title; the load failure's message follows.
+        case quitInTitle
+    }
+
+    /// The owner's pick for the alert.
+    public static let bookLost = BookLost.quitLast
+
+    public static func bookLost(_ error: LoadError, myVersion copy: URL) -> Notice {
+        bookLost(bookLost, error, myVersion: copy)
+    }
+
+    public static func bookLost(_ wording: BookLost, _ error: LoadError, myVersion copy: URL) -> Notice {
+        let failed = StoreWording.loadFailed(error, myEditsSavedAs: copy)
+        let name = quoted(StoreWording.bookName(error.package))
+        switch wording {
+        case .quitLast:
+            return Notice(
+                title: failed.title,
+                message: failed.message + "\n\nScene It will quit now. Open it again to choose a book.")
+        case .quitInTitle:
+            return Notice(title: "Scene It couldn't open \(name), so it will quit.", message: failed.message)
+        }
+    }
+
+    // MARK: Several books asked for at once
+
+    /// Finder or a launch asked for several books while the process had none: the first opens,
+    /// the rest go to Recent Books, which the start state shows only after a relaunch.
+    public enum SeveralBooks: CaseIterable, Sendable {
+        /// The wording before ADR 0038.
+        case addedToRecents
+        /// Says how to get to the others: close (quit), then open Scene It again.
+        case closeToOpenTheOthers
+        /// Short: the others are kept for next time.
+        case forNextTime
+    }
+
+    /// The owner's pick for the notice (still the wording from before ADR 0038).
+    public static let severalBooks = SeveralBooks.addedToRecents
+
+    /// `open` is the book that opened, if one did.
+    public static func severalBooks(open: URL?, addedToRecents others: [URL]) -> Notice {
+        severalBooks(severalBooks, open: open, addedToRecents: others)
+    }
+
+    public static func severalBooks(_ wording: SeveralBooks, open: URL?, addedToRecents others: [URL])
+        -> Notice
+    {
+        let names = joined(others.map { quoted(StoreWording.bookName($0)) })
+        let listed = others.map { quoted(StoreWording.bookName($0)) }.joined(separator: ", ")
+        let title = "Scene It opens one book at a time."
+        guard let open else {
+            return Notice(title: title, message: "These books were added to Recent Books instead: \(listed).")
+        }
+        let openName = quoted(StoreWording.bookName(open))
+        switch wording {
+        case .addedToRecents:
+            return Notice(
+                title: title,
+                message: "\(openName) is open. These books were added to Recent Books instead: \(listed).")
+        case .closeToOpenTheOthers:
+            return Notice(
+                title: title,
+                message: "\(openName) is open. \(names) \(others.count == 1 ? "is" : "are") in Recent Books: "
+                    + "to open one, choose File → \(closeBookMenuItem), which quits Scene It, then open it again."
+            )
+        case .forNextTime:
+            return Notice(
+                title: "Only \(openName) was opened.",
+                message: "Scene It opens one book at a time. \(names) \(others.count == 1 ? "is" : "are") "
+                    + "in Recent Books for next time.")
+        }
+    }
+
     /// "“A”", "“A” and “B”", "“A”, “B” and “C”".
     private static func joined(_ names: [String]) -> String {
         guard let last = names.last, names.count > 1 else { return names.first ?? "" }

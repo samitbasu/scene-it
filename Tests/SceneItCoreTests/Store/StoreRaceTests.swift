@@ -40,6 +40,17 @@ private final class Gate: Sendable {
 
 private let copyName = "Novel (my edits).sceneit"
 
+/// Records each `bookLost` call, with whether the store was still inside an operation then.
+@MainActor
+private final class LossProbe {
+    var store: TestStore?
+    private(set) var storeWasBusy: [Bool] = []
+
+    var lost: @MainActor () -> Void {
+        { [unowned self] in storeWasBusy.append(store?.isBusy ?? true) }
+    }
+}
+
 /// A saved book "Novel" whose `book.md` another program then replaced, with one scene.
 @MainActor
 private func changedBook(
@@ -141,9 +152,9 @@ struct StoreRaceTests {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
-            var lost = 0
-            let store = makeStore(
-                in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: { lost += 1 })
+            let probe = LossProbe()
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: probe.lost)
+            probe.store = store
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Before the change")
@@ -158,19 +169,64 @@ struct StoreRaceTests {
 
             book.write("Mine")
             store.saveNow()
-            await eventually { lost > 0 }
+            await eventually { !probe.storeWasBusy.isEmpty }
 
-            #expect(lost == 1)
+            #expect(probe.storeWasBusy == [false], "told once, after the store's operation ended")
             guard case .ended = store.session else {
                 Issue.record("the session is \(store.session)")
                 return
             }
             #expect(book.status == .closed)
-            #expect(prompts.notices.last?.title == "Scene It couldn't open “Novel”.")
+            let copy = folder.appending(path: copyName)
+            let notice = try #require(prompts.notices.last)
+            #expect(notice.title == "Scene It couldn't open “Novel”.")
+            #expect(notice.message.hasPrefix("Your version was saved as “Novel (my edits)”."))
+            #expect(notice.message.hasSuffix("Scene It will quit now. Open it again to choose a book."))
+            #expect(try bookOnDisk(copy).scenes.count == 2)
+            #expect(store.recentBooks.first?.canonicalPath == copy.canonicalPath, "my version reopens next")
+        }
+    }
+
+    /// The `.notAFile` branch: when my version won't open in place of the original either, it
+    /// still stays in Recent Books, and the alert names it.
+    @Test func whenMyVersionWontOpenEitherItStaysInRecentBooksAndTheSessionEnds() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let probe = LossProbe()
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: probe.lost)
+            probe.store = store
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Mine")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            try FileManager.default.removeItem(at: url.appending(path: "book.md"))
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "book.md"), withIntermediateDirectories: false)
+            let copy = folder.appending(path: copyName)
+            let copyBook = copy.appending(path: "book.md")
+            fileSystem.before(.lock("\(copyName)/.lock")) {
+                fileSystem.before(.lock("\(copyName)/.lock")) {
+                    try? FileManager.default.removeItem(at: copyBook)
+                    try? FileManager.default.createDirectory(at: copyBook, withIntermediateDirectories: false)
+                }
+            }
+
+            book.write("More of mine")
+            store.saveNow()
+            await eventually { !probe.storeWasBusy.isEmpty }
+
+            #expect(probe.storeWasBusy == [false])
+            guard case .ended = store.session else {
+                Issue.record("the session is \(store.session)")
+                return
+            }
+            let notice = try #require(prompts.notices.last)
+            #expect(notice.title == "Scene It couldn't open “Novel (my edits)”.")
+            #expect(notice.message.hasPrefix("Your version was saved as “Novel (my edits)”."))
             #expect(
-                prompts.notices.last?.message.hasPrefix("Your version was saved as “Novel (my edits)”.")
-                    == true)
-            #expect(try bookOnDisk(folder.appending(path: copyName)).scenes.count == 2)
+                store.recentBooks.map(\.canonicalPath) == [copy.canonicalPath], "the original is forgotten")
         }
     }
 

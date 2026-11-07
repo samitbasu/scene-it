@@ -33,6 +33,12 @@ public final class BookStore<C: Clock<Duration>> {
         if case .choosing = session { true } else { false }
     }
 
+    /// An operation is running. Nothing the store hands control to (`bookLost`, the app's quit)
+    /// may run while this holds: it couldn't start one of its own until it ended.
+    public var isBusy: Bool {
+        if case .running = operation { true } else { false }
+    }
+
     @ObservationIgnored private let clock: C
     @ObservationIgnored private let fileSystem: any FileSystem
     @ObservationIgnored private let mirror: BackupMirror
@@ -88,7 +94,7 @@ public final class BookStore<C: Clock<Duration>> {
     public func open(_ url: URL) async -> OpenOutcome {
         await exclusively {
             if let refusal = await refusal(of: [url]) { return refusal }
-            return await load(url, onLockRecord: .respect, as: .first)
+            return await load(.chosen(url), onLockRecord: .respect)
         }
     }
 
@@ -99,7 +105,7 @@ public final class BookStore<C: Clock<Duration>> {
         guard let first = books.first else { return nil }
         return await exclusively {
             if let refusal = await refusal(of: books) { return refusal }
-            let outcome = await load(first, onLockRecord: .respect, as: .first)
+            let outcome = await load(.chosen(first), onLockRecord: .respect)
             let others = Array(books.dropFirst())
             guard !others.isEmpty else { return outcome }
             Log.store.info("asked to open several books; opened the first", ["count": .count(books.count)])
@@ -111,7 +117,7 @@ public final class BookStore<C: Clock<Duration>> {
             for book in others.reversed() { remember(book) }
             if isOpen { remember(first) }
             await prompts.tell(
-                StoreWording.oneBookAtATime(open: isOpen ? first : nil, addedToRecents: others))
+                OneBookWording.severalBooks(open: isOpen ? first : nil, addedToRecents: others))
             return outcome
         }
     }
@@ -162,31 +168,43 @@ public final class BookStore<C: Clock<Duration>> {
                 await prompts.tell(StoreWording.createFailed(error))
                 return .failed(error)
             }
-            await install(loaded, from: url, as: .first)
+            await install(loaded, as: .chosen(url))
             return .created
         }
     }
 
-    /// Where a loaded book goes: it's the process's first, or it replaces the open one with
-    /// itself read again (or, after ADR 0018's Open My Version, with the writer's copy).
-    private enum Installing {
-        case first
-        case replacing(OpenBook<C>)
+    /// What to read, and where it goes. Only the first book is chosen by path: every later one
+    /// replaces the open book with itself read again, or (ADR 0018's Open My Version) with the
+    /// writer's own copy of it.
+    private enum Target {
+        case chosen(URL)
+        /// The open book's own package, read again (Open Anyway, Open Other Version).
+        case again(OpenBook<C>)
+        /// ADR 0018: the writer's copy, in place of an original that can't be read.
+        case myVersion(URL, replacing: OpenBook<C>)
+
+        var url: URL {
+            switch self {
+            case .chosen(let url), .myVersion(let url, _): url
+            case .again(let book): book.layout.root
+            }
+        }
     }
 
-    private func load(
-        _ url: URL, onLockRecord policy: LockRecordPolicy, as installing: Installing,
-        myEditsSavedAs copy: URL? = nil
-    ) async -> OpenOutcome {
+    /// A book that won't load is told and forgotten only when it was chosen; a replacement
+    /// that won't load is the caller's to tell, and stays in Recent Books.
+    private func load(_ target: Target, onLockRecord policy: LockRecordPolicy) async -> OpenOutcome {
         let loaded: LoadedBook
         do throws(LoadError) {
-            loaded = try await Self.load(url, policy, parseDefaults, fileSystem)
+            loaded = try await Self.load(target.url, policy, parseDefaults, fileSystem)
         } catch {
-            await prompts.tell(StoreWording.loadFailed(error, myEditsSavedAs: copy))
-            forget(url)
+            if case .chosen(let url) = target {
+                await prompts.tell(StoreWording.loadFailed(error))
+                forget(url)
+            }
             return .failed(error)
         }
-        let book = await install(loaded, from: url, as: installing)
+        let book = await install(loaded, as: target)
         switch loaded.opened {
         case .editing:
             return .opened
@@ -195,7 +213,9 @@ public final class BookStore<C: Clock<Duration>> {
             case .keepReadOnly:
                 return .openedReadOnly(reason)
             case .openAnyway(let record):
-                return await load(url, onLockRecord: .openAnyway(record), as: .replacing(book))
+                let again = await load(.again(book), onLockRecord: .openAnyway(record))
+                if case .failed(let error) = again { await prompts.tell(StoreWording.loadFailed(error)) }
+                return again
             case .makeEditable:
                 switch await makeEditableExclusively() {
                 case .editable: return .opened
@@ -283,20 +303,19 @@ public final class BookStore<C: Clock<Duration>> {
     /// The only way a book becomes the session's. A replaced book is detached in this turn,
     /// so it refuses edits before anything else runs.
     @discardableResult
-    private func install(_ loaded: LoadedBook, from url: URL, as installing: Installing) async -> OpenBook<C>
-    {
+    private func install(_ loaded: LoadedBook, as target: Target) async -> OpenBook<C> {
         let book = OpenBook(loaded.opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
         let replaced: BookWriter?
-        switch installing {
-        case .first:
+        switch target {
+        case .chosen:
             precondition(isChoosing, "a process has one book (ADR 0038)")
             replaced = nil
-        case .replacing(let old):
+        case .again(let old), .myVersion(_, replacing: let old):
             precondition(old === current, "only the open book is replaced")
             replaced = old.detach()
         }
         session = .open(book)
-        remember(url)
+        remember(target.url)
         await replaced?.release()
         return book
     }
@@ -337,19 +356,30 @@ public final class BookStore<C: Clock<Duration>> {
 
     // MARK: Changed on disk (ADR 0018)
 
+    /// Calls `bookLost` only once the operation is over, so whatever it starts (quitting) never
+    /// runs inside it and never waits for it.
     func askAboutExternalChange(in book: OpenBook<C>) async {
-        await exclusively {
-            guard book === current, case .paused(let paused) = book.autosave?.state else { return }
+        let resolution = await exclusively { () -> ExternalChangeResolution in
+            guard book === current, case .paused(let paused) = book.autosave?.state else { return .kept }
             let name = StoreWording.myEditsFileName(
                 title: book.book.title, original: book.layout.root, attempt: 1)
             let alert = StoreWording.externalChangeAlert(paused.error, myEditsName: name)
             switch await prompts.ask(alert) {
             case .keepMyVersion:
                 book.keepMyVersion()
+                return .kept
             case .openOtherVersion:
-                await openOtherVersion(of: book, after: paused.error)
+                return await openOtherVersion(of: book, after: paused.error)
             }
         }
+        if resolution == .lost { bookLost() }
+    }
+
+    private enum ExternalChangeResolution {
+        /// A book is open: the same one, or the version the writer chose.
+        case kept
+        /// My version was saved as a copy, but nothing could be opened in its place.
+        case lost
     }
 
     /// How many times the copy is saved while the writer keeps typing; the last pass refuses edits.
@@ -358,10 +388,13 @@ public final class BookStore<C: Clock<Duration>> {
     /// Saves my version as a new package, then releases the original's lock and reopens the
     /// original from disk, or, when the original can't be read (`.notAFile`), opens the copy.
     /// If the copy can't be saved, it's removed, nothing else changes, and autosave stays paused.
+    /// If what's opened in its place won't load, the session ends (ADR 0038).
     ///
     /// Typing continues while the copy is written, so the copy is saved again until it holds
     /// exactly the open book, and the book is closed in the same main-actor turn as that check.
-    private func openOtherVersion(of book: OpenBook<C>, after error: SaveError) async {
+    private func openOtherVersion(of book: OpenBook<C>, after error: SaveError) async
+        -> ExternalChangeResolution
+    {
         let original = book.layout.root
         let title = book.book.title
         let copy: BookWriter
@@ -372,7 +405,7 @@ public final class BookStore<C: Clock<Duration>> {
                 fileSystem: fileSystem, mirror: mirror)
         } catch {
             await prompts.tell(StoreWording.copyFailed(.create(error)))
-            return
+            return .kept
         }
         var pass = 1
         while true {
@@ -384,7 +417,7 @@ public final class BookStore<C: Clock<Duration>> {
                 book.setEdits(.accepted)
                 await copy.discardCopy()
                 await prompts.tell(StoreWording.copyFailed(.save(error)))
-                return
+                return .kept
             }
             if book.book == mine { break }
             pass += 1
@@ -398,16 +431,15 @@ public final class BookStore<C: Clock<Duration>> {
         let reopened: OpenOutcome
         if case .externallyModified(.notAFile) = error {
             forget(original)
-            reopened = await load(copyURL, onLockRecord: .respect, as: .replacing(book))
+            reopened = await load(.myVersion(copyURL, replacing: book), onLockRecord: .respect)
             if case .opened = reopened { await prompts.tell(StoreWording.openedMyVersion(copyURL)) }
         } else {
-            reopened = await load(
-                original, onLockRecord: .respect, as: .replacing(book), myEditsSavedAs: copyURL)
+            reopened = await load(.again(book), onLockRecord: .respect)
         }
-        if case .failed = reopened {
-            session = .ended
-            bookLost()
-        }
+        guard case .failed(let failure) = reopened else { return .kept }
+        session = .ended
+        await prompts.tell(OneBookWording.bookLost(failure, myVersion: copyURL))
+        return .lost
     }
 
     // MARK: Quitting

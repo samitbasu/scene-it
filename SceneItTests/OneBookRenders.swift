@@ -36,6 +36,21 @@ extension BookStoreIntegrationTests {
                 try OneBookRenders.write(
                     try await OneBookRenders.alert(notice), name: "refusal-\(wording)", to: output)
             }
+
+            let lost = try OneBookRenders.loadError(in: folder, named: "My Novel")
+            let copy = folder.appending(path: "My Novel (my edits).sceneit")
+            for wording in OneBookWording.BookLost.allCases {
+                let notice = OneBookWording.bookLost(wording, lost, myVersion: copy)
+                try OneBookRenders.write(
+                    try await OneBookRenders.alert(notice), name: "book-lost-\(wording)", to: output)
+            }
+
+            let others = ["The Lighthouse", "Other Book"].map { folder.appending(path: "\($0).sceneit") }
+            for wording in OneBookWording.SeveralBooks.allCases {
+                let notice = OneBookWording.severalBooks(wording, open: url, addedToRecents: others)
+                try OneBookRenders.write(
+                    try await OneBookRenders.alert(notice), name: "several-books-\(wording)", to: output)
+            }
             expectNoQuestions()
         }
     }
@@ -136,6 +151,25 @@ enum OneBookRenders {
     static func write(_ renders: WindowRenders.Renders, name: String, to folder: URL) throws {
         try WindowRenders.png(renders.single).write(to: folder.appending(path: "\(name)@1x.png"))
         try WindowRenders.png(renders.double).write(to: folder.appending(path: "\(name)@2x.png"))
+    }
+
+    /// The error opening a package whose `book.md` is a folder, with a backup listed.
+    static func loadError(in folder: URL, named name: String) throws -> LoadError {
+        let lost = folder.appending(path: "lost", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: lost, withIntermediateDirectories: false)
+        let url = lost.appending(path: "\(name).sceneit", directoryHint: .isDirectory)
+        _ = try BookPackage.create(at: url, title: name)
+        let book = url.appending(path: "book.md")
+        try FileManager.default.copyItem(at: book, to: url.appending(path: "book.md.bak1"))
+        try FileManager.default.removeItem(at: book)
+        try FileManager.default.createDirectory(at: book, withIntermediateDirectories: false)
+        do {
+            _ = try BookPackage.open(at: url)
+        } catch {
+            return error
+        }
+        Issue.record("precondition: the package doesn't open")
+        throw CancellationError()
     }
 
     /// "Close Book and Quit" → "close-book-and-quit".

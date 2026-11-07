@@ -14,9 +14,9 @@ extension BookController {
         return outcome
     }
 
-    /// The requests made since the last call (the test host's `RecordedRequests`).
-    func takeRequests() -> [AppRequest] {
-        (requests as? RecordedRequests)?.take() ?? []
+    /// The requests carried out since the last call (the test host's `RecordedRequests`).
+    func takeRequests() -> [RecordedRequests.Carried] {
+        recorded?.take() ?? []
     }
 }
 

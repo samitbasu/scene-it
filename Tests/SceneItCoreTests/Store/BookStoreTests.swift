@@ -404,6 +404,41 @@ struct BookStoreTests {
         }
     }
 
+    /// The book read again for Open Anyway is the open book: one that won't load leaves it open,
+    /// read-only, and in Recent Books.
+    @Test func anOpenAnywayThatWontLoadKeepsTheReadOnlyBookAndItsRecentEntry() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Shared.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.override(locality: .network)
+            _ = try BookPackage.create(at: url, title: "Shared", fileSystem: fileSystem)
+            let other = LockRecord(
+                host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
+                since: Date(timeIntervalSince1970: 1_800_000_000))
+            try other.encoded().write(to: url.appending(path: ".lock"))
+            let prompts = ScriptedPrompts([ReadOnlyChoice.openAnyway(other)])
+            prompts.holding = true
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+
+            let opening = Task { await store.open(url) }
+            await eventually { prompts.titles.count == 1 }
+            let readOnly = try #require(store.current)
+            try #require(!readOnly.isEditable, "precondition: read-only behind the alert")
+            let book = url.appending(path: "book.md")
+            try FileManager.default.removeItem(at: book)
+            try FileManager.default.createDirectory(at: book, withIntermediateDirectories: false)
+            prompts.releaseHeld()
+
+            guard case .failed = await opening.value else {
+                Issue.record("precondition: the book read again doesn't load")
+                return
+            }
+            #expect(store.current === readOnly)
+            #expect(store.recentBooks.map(\.canonicalPath) == [url.canonicalPath])
+            #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Shared”."])
+        }
+    }
+
     // MARK: Quitting
 
     @Test func quittingSavesReleasesAndTerminates() async throws {
