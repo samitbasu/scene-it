@@ -225,20 +225,31 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// What's typed in a fix's field reaches the row's draft, which Apply applies, and SwiftUI
-    /// updating the field between keystrokes leaves the typing and the caret alone.
+    /// What's typed in a fix's field reaches the row's draft, which Apply applies, across
+    /// SwiftUI updating the field between keystrokes.
     @Test func aFixsFieldPassesWhatsTypedToTheDraft() async throws {
         try await withFixField { field, editor, draft, window in
             editor.setSelectedRange(NSRange(location: 7, length: 5))
-            let updates = draft.updates
             editor.insertText("purp", replacementRange: editor.selectedRange())
             #expect(draft.text == "- c1 | purp")
-            await eventually { draft.updates > updates }
-            #expect(draft.updates > updates, "precondition: SwiftUI updated the field since the typing")
+            await nextUpdate(of: editor)
             editor.insertText("le", replacementRange: editor.selectedRange())
             #expect(editor.string == "- c1 | purple")
             #expect(editor.selectedRange() == NSRange(location: 13, length: 0))
             #expect(draft.text == "- c1 | purple")
+        }
+    }
+
+    /// While the writer edits a fix, a change to the draft from elsewhere doesn't replace what
+    /// they're typing or move the caret.
+    @Test func aFixBeingEditedKeepsItsTypingWhenTheDraftChangesElsewhere() async throws {
+        try await withFixField { field, editor, draft, window in
+            editor.setSelectedRange(NSRange(location: 7, length: 5))
+            editor.insertText("purp", replacementRange: editor.selectedRange())
+            draft.text = "- c1 | changed elsewhere"
+            await nextUpdate(of: editor)
+            #expect(editor.string == "- c1 | purp")
+            #expect(editor.selectedRange() == NSRange(location: 11, length: 0))
         }
     }
 
@@ -250,9 +261,11 @@ struct AutomaticTextChangeTests {
             #expect(editor.undoManager?.canUndo == true, "precondition: the typing can be undone")
             #expect(editor.undoManager !== window.undoManager)
             #expect(window.undoManager?.canUndo != true, "the window's history holds nothing of it")
+            #expect(window.firstResponder === editor, "precondition: the fix is being edited")
             draft.shown = false
             await eventually { field.window == nil }
             #expect(field.currentEditor() == nil, "the editing ended")
+            #expect(window.firstResponder !== editor, "the window doesn't keep the fix's editor")
             #expect(window.undoManager?.canUndo != true)
         }
     }
@@ -327,26 +340,20 @@ struct AutomaticTextChangeTests {
 /// The fix's draft, as a row of the Errors tab holds it, and whether the row shows the field.
 @MainActor
 @Observable
-final class FixDraft {
+private final class FixDraft {
     var text = "- c1 | mauve"
     var shown = true
-    @ObservationIgnored var updates = 0
 }
 
 /// A row's fix: the draft's text, which SwiftUI updates the row for as it changes, and its field.
-struct FixHost: View {
+private struct FixHost: View {
     let draft: FixDraft
 
     var body: some View {
         VStack {
             Text(draft.text)
             if draft.shown {
-                FixTextField(
-                    text: Binding(
-                        get: {
-                            draft.updates += 1
-                            return draft.text
-                        }, set: { draft.text = $0 }))
+                FixTextField(text: Binding(get: { draft.text }, set: { draft.text = $0 }))
             }
         }
     }
@@ -354,7 +361,7 @@ struct FixHost: View {
 
 /// A fix's field in a window of its own, editing `FixDraft`'s text, with its editor focused.
 @MainActor
-func withFixField(
+private func withFixField(
     _ body: (AdmittingTextField, AdmittingTextView, FixDraft, NSWindow) async throws -> Void
 ) async throws {
     let draft = FixDraft()
@@ -369,6 +376,13 @@ func withFixField(
     #expect(window.makeFirstResponder(field))
     let editor = try #require(field.currentEditor() as? AdmittingTextView)
     try await body(field, editor, draft, window)
+}
+
+/// Waits for SwiftUI to update the fix's field, which hands its editor a new `onChange`.
+@MainActor
+private func nextUpdate(of editor: AdmittingTextView) async {
+    editor.onChange = nil
+    await eventually { editor.onChange != nil }
 }
 
 /// Every editor of the book's text, each named: the page, the title's own editor while it edits,

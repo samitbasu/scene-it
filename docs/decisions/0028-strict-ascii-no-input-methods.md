@@ -52,14 +52,16 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   manuscript is (see below).
 - **Automatic text changes are off (#127):** the writer's words are changed only by the writer. Every manuscript editor
   (`KeyboardTextView`) checks spelling and grammar and does nothing else to the text. Its `enabledTextCheckingTypes`,
-  which AppKit's text checking consults, never holds anything but those two bits and the language (`.orthography`), and
-  `handleTextCheckingResults`, where AppKit applies what a check found, passes on only results of those types. That turns off spelling correction,
-  text replacement, smart quotes and dashes, link and data detection, and System Settings' "Capitalize words
-  automatically" and "Add period with double-space". Each switch for these (`isAutomaticSpellingCorrectionEnabled` and
-  the rest set their bit without going through `enabledTextCheckingTypes`), text completion, smart copy/paste
-  (`smartInsertDeleteEnabled`) and inline prediction are held off: setting one sets it off. The editors don't answer
-  the actions that would turn one on. Continuous spell checking (the underlines) stays on.
-  The owner's call: the menus don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the
+  which AppKit's text checking consults, never holds anything but those two bits and the language (`.orthography`),
+  and `handleTextCheckingResults`, where AppKit applies what a check found, passes on only results of those types.
+  That turns off spelling correction, text replacement, smart quotes and dashes, and link and data detection (a hosted
+  test checks every type at once and the page's text is unchanged). The same filter is expected to stop System
+  Settings' "Capitalize words automatically" and "Add period with double-space", but those appear only as real keys
+  are typed, which no test can do. Not observed by hand yet (the owner checks them in a trial build of #127).
+  Each switch for these (`isAutomaticSpellingCorrectionEnabled` and the rest set their bit without going through
+  `enabledTextCheckingTypes`), text completion, smart copy/paste (`smartInsertDeleteEnabled`) and inline prediction
+  are held off: setting one sets it off. The editors don't answer the actions that would turn one on. Continuous spell
+  checking (the underlines) stays on. The owner's call: the menus don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the
   editors' context menus hide every item with one of its actions, which takes away Correct Spelling Automatically, the
   whole Substitutions submenu (Show Substitutions, Smart Copy/Paste, Smart Quotes, Smart Dashes, Smart Links, Data
   Detectors, Text Replacement) and, in the context menu, its one-shot Replace Quotes, Replace Dashes, Add Links and

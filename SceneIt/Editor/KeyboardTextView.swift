@@ -10,7 +10,8 @@ class KeyboardTextView: NSTextView {
 
     /// What text checking may do: tell the language, and mark spelling and grammar. Every other
     /// type changes the writer's words for them (correction, replacement, quotes, dashes, links,
-    /// data, capitalization).
+    /// data). Capitalization and a period for a double space are expected to be among them, but
+    /// arise only from real keystrokes and are unverified (ADR 0028).
     static let checkedTypes: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.orthography.rawValue
         | NSTextCheckingResult.CheckingType.spelling.rawValue
@@ -39,7 +40,8 @@ class KeyboardTextView: NSTextView {
         set { super.enabledTextCheckingTypes = newValue & Self.checkedTypes }
     }
 
-    /// Where AppKit applies what a check found: only its spelling and grammar marks get through.
+    /// Where AppKit applies what a check found: only its language, spelling and grammar results get
+    /// through.
     override func handleTextCheckingResults(
         _ results: [NSTextCheckingResult], forRange range: NSRange, types checkingTypes: NSTextCheckingTypes,
         options: [NSSpellChecker.OptionKey: Any] = [:], orthography: NSOrthography, wordCount: Int

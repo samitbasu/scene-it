@@ -476,7 +476,10 @@ Two subtleties:
   a misspelling or replaces the text for a correction. `KeyboardTextView` overrides both: the mask
   keeps only `.orthography` (which language it is), `.spelling` and `.grammar`, and only results
   of those types are passed on. So
-  spelling is still *checked* (the red underlines); it's only never *corrected*.
+  spelling is still *checked* (the red underlines); it's only never *corrected*. Capitalizing a
+  sentence's first word and a period for a double space are expected to be stopped the same way,
+  but AppKit makes them only as real keys are typed, so no test can show it; they're still to be
+  checked by hand (ADR 0028).
 
   ```swift
       override var enabledTextCheckingTypes: NSTextCheckingTypes {
