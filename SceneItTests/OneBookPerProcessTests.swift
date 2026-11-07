@@ -91,7 +91,6 @@ extension BookStoreIntegrationTests {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             try #require(books.store.isChoosing, "precondition: the start screen")
-            try #require(BookController.startScreenCommandW == .quits, "precondition: the current pick")
             let startClose = OneBookWording.startScreenCloseMenuItem
             await eventually {
                 fileItem(StoreWording.newBookMenuItem)?.isEnabled == true
@@ -185,11 +184,10 @@ extension BookStoreIntegrationTests {
         #expect(mainWindow()?.isVisible == true, "the window stays until the quit goes through")
     }
 
-    @Test func commandWOnTheStartScreenQuitsAsTheSwitchSays() async throws {
+    @Test func commandWOnTheStartScreenQuits() async throws {
         let books = BookController.shared
         _ = books.takeRequests()
         try #require(books.store.isChoosing, "precondition: the start screen")
-        try #require(BookController.startScreenCommandW == .quits, "precondition: the current pick")
         let item = try #require(fileItem(OneBookWording.startScreenCloseMenuItem))
 
         try perform(item)
@@ -416,7 +414,6 @@ extension BookStoreIntegrationTests {
     /// The whole close decision, for each state and source.
     @Test func closeActionsFollowTheStateAndTheSource() async throws {
         try await withTemporaryFolder { folder in
-            try #require(BookController.startScreenCommandW == .quits, "precondition: the current pick")
             let books = BookController(role: .testHost)
             let other = NSWindow(
                 contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)

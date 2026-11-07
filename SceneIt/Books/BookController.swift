@@ -9,15 +9,6 @@ typealias AppBookStore = BookStore<ContinuousClock>
 final class BookController {
     static let shared = BookController(role: .current)
 
-    /// What ⌘W does on the start screen, where the window's close button quits: the owner's
-    /// to decide (ADR 0038).
-    enum StartScreenCommandW {
-        case quits
-        case nothing
-    }
-
-    static let startScreenCommandW = StartScreenCommandW.quits
-
     let store: AppBookStore
     /// The close a press started, until it has finished: any press meanwhile does nothing, even
     /// one decided before the store reached `closing` (while another operation held it).
@@ -124,11 +115,7 @@ final class BookController {
         switch store.session {
         case .open: return .closeBook
         case .closing: return .nothing
-        case .choosing: break
-        }
-        switch (source, Self.startScreenCommandW) {
-        case (.closeButton, _), (.menu, .quits): return .quit
-        case (.menu, .nothing): return .nothing
+        case .choosing: return .quit
         }
     }
 
@@ -165,16 +152,9 @@ final class BookController {
         store.openBook?.canBeMadeEditable == true
     }
 
-    /// File → Close Book's title: on the start screen it's the item ⌘W chooses there.
+    /// File → Close Book's title: on the start screen, where it quits, it says so.
     var closeItemTitle: String {
         store.isChoosing ? OneBookWording.startScreenCloseMenuItem : OneBookWording.closeBookMenuItem
-    }
-
-    var isCloseItemEnabled: Bool {
-        switch Self.startScreenCommandW {
-        case .quits: true
-        case .nothing: !store.isChoosing
-        }
     }
 
     enum CloseTarget: Equatable {

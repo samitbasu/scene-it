@@ -22,7 +22,6 @@ struct BookCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button(books.closeItemTitle) { books.press(.menu(keyWindow: NSApp.keyWindow)) }
                 .keyboardShortcut("w")
-                .disabled(!books.isCloseItemEnabled)
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }
                 .keyboardShortcut("s")
                 .disabled(choosing)

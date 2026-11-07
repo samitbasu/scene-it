@@ -2,8 +2,8 @@
 
 **Status:** Accepted (2026-11-06, the owner's decisions on #88; revised 2026-11-07 after the owner's hand test).
 Supersedes [0021](0021-one-book-at-a-time.md) on switching books in place; amends
-[0020](0020-instance-and-book-locks.md) on books forwarded to the running instance. Wording drafts await the
-owner's pick (below).
+[0020](0020-instance-and-book-locks.md) on books forwarded to the running instance. The owner chose the
+wording on 2026-11-07 (below).
 
 ## Context
 #88 was a suspected leak: after a book was closed in a hosted window, its `OpenBook` and editors stayed in
@@ -23,9 +23,8 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
 2. **Close Book returns to the start screen** in the same process. File → Close Book, ⌘W while the book's
    window is key, and the window's red close button all save first, asking when a save can't finish (Retry /
    Cancel / Close Anyway; Cancel keeps the book open), then release the book and show the start screen.
-3. **Closing the start screen quits Scene It.** Its red close button quits, through Quit's own path. Whether
-   ⌘W does too on the start screen is the owner's open question, a one-line switch
-   (`BookController.startScreenCommandW`), currently "quits".
+3. **Closing the start screen quits Scene It.** Its red close button and ⌘W both quit, through Quit's own path;
+   there the File menu item reads "Close Window and Quit" (the owner's pick, 2026-11-07).
 4. **To switch books:** Close Book, then choose on the start screen.
 
 ## How it's built
@@ -76,33 +75,20 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   outlives the book for a while, held by AppKit (a block `-[NSView _commonAwake]` registers with the
   notification center, and AppKit's `previousKeyViews` table); it no longer reaches the book.
 
-## Wording (drafts, for the owner's pick)
-All candidates are in `OneBookWording`; each pick is one line (`startScreenCloseItem`, `refusal`,
-`createRefusal`, `bookLost`, `severalBooks`). The menu item is "Close Book". Renders: `OneBookRenders.swift` (see README).
-- ⌘W's item on the start screen: **Close Book** (current) or **Close Window and Quit**.
-- Refusal alert, OK only:
-  - `cantOpenWhileOpen`: "“Other Book” can't be opened while “My Novel” is open." / "Close “My Novel” first
-    (File → Close Book), then open “Other Book” again."
-  - `oneBookAtATime`: "“My Novel” is open." / "Scene It works on one book at a time. To open “Other Book”,
-    choose File → Close Book, then open “Other Book” again."
-  - `closeFirst`: "Close “My Novel” first." / "Choose File → Close Book, then open “Other Book” again."
-- New book refused (the panel was up when another book opened), OK only:
-  - `wasntCreated` (current): "“Untitled” wasn't created, because “My Novel” is open." / "Close “My Novel”
-    first (File → Close Book), then choose File → New Book… again."
-  - `closeFirst`: "Close “My Novel” first." / "“Untitled” wasn't created. Choose File → Close Book, then choose
-    File → New Book… again."
-- Lost book, OK only, after the load failure's own text ("Your version was saved as …", the problem, the
-  backups):
-  - `recentBooksLast` (current): the load failure's title; the message ends "“My Novel (my edits)” is first in
-    Recent Books."
-  - `closedInTitle`: "Scene It couldn't open “My Novel”, so it closed the book."
-- Several books asked for at once on the start screen (the first opens):
-  - `addedToRecents` (the wording before this ADR, current): "“A” is open. These books were added to Recent
-    Books instead: “B”, “C”."
-  - `closeToOpenTheOthers`: "“A” is open. “B” and “C” are in Recent Books: to open one, choose File → Close
-    Book, then choose it there."
-  - `inRecentBooks`: "Only “A” was opened." / "Scene It opens one book at a time. “B” and “C” are in Recent
-    Books."
+## Wording (the owner's picks, 2026-11-07)
+All in `OneBookWording`; the alerts have only an OK button. Renders: `OneBookRenders.swift` (see README).
+- File menu: **Close Book** with a book open; **Close Window and Quit** on the start screen.
+- Another book asked for while one is open: "“Other Book” can't be opened while “My Novel” is open." /
+  "Close “My Novel” first (File → Close Book), then open “Other Book” again."
+- New Book refused: "“Untitled” wasn't created, because “My Novel” is open." / "Close “My Novel” first
+  (File → Close Book), then choose File → New Book… again."
+- Lost book: the load failure's own text ("Your version was saved as …", the problem, the backups), ending
+  "“My Novel (my edits)” is first in Recent Books."
+- Several books asked for at once on the start screen (the first opens): "Scene It opens one book at a time." /
+  "“A” is open. “B” and “C” are in Recent Books: to open one, choose File → Close Book, then choose it there."
+- Not chosen: shorter refusals ("Close “My Novel” first."), a lost-book title saying the book was closed, the
+  pre-ADR several-books wording ("added to Recent Books instead"), "Close Book" on the start screen too, and ⌘W
+  doing nothing there.
 
 ## Not chosen
 - **Close Book quits Scene It (one book per process).** Accepted on 2026-11-06 and implemented, then rejected

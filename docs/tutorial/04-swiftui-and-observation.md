@@ -488,7 +488,7 @@ turn as the final synchronous check that nothing is unsaved, then releases the l
 File → Close Book (Cmd+W) and the window's red close button lead to the store's `closeBook()`,
 which saves first, asking (Retry / Cancel / Close Anyway) when it can't, then releases the book;
 the window stays and shows the start screen. On the start screen, the red button quits Scene It,
-and so does Cmd+W unless the owner picks otherwise (`BookController.startScreenCommandW`).
+and so does Cmd+W, whose menu item reads "Close Window and Quit" there.
 (Replacing SwiftUI's `.saveItem` group removed its own Close, so Cmd+W is ours. From any window
 but the main one, Cmd+W just closes that window.) The close button is an `NSButton` whose target
 and action `MainWindowCloseButton` points at `press(.closeButton)` once the window exists; SwiftUI's

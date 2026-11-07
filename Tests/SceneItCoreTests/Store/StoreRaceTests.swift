@@ -454,7 +454,8 @@ struct StoreRaceTests {
                 prompts.notices == [
                     Notice(
                         title: "Scene It opens one book at a time.",
-                        message: "“A” is open. These books were added to Recent Books instead: “B”, “C”.")
+                        message: "“A” is open. “B” and “C” are in Recent Books: to open one, choose "
+                            + "File → Close Book, then choose it there.")
                 ])
         }
     }

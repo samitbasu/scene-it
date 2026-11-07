@@ -5,12 +5,12 @@ import Testing
 
 @testable import SceneIt
 
-/// Renders ADR 0038's wording candidates for the owner's pick into `close-to-start/` under the
-/// render folder: the File menu (its real items and states, drawn by `MenuStandIn` under a
-/// stand-in menu bar, since an open menu can't be captured) with a book open and on the start
-/// screen, once per start-screen ⌘W label; the start screen after a close; and, as the app's own
-/// `NSAlert`, every wording of the refusal, lost-book and several-books alerts. They drive the
-/// app's own menus and window, so they run with the other tests of the app's store.
+/// Renders ADR 0038's menus, start screen and alerts into `close-to-start/` under the render
+/// folder, for look reviews: the File menu (its real items and states, drawn by `MenuStandIn`
+/// under a stand-in menu bar, since an open menu can't be captured) with a book open and on the
+/// start screen; the start screen after a close; and, as the app's own `NSAlert`, the refusal,
+/// new-book refusal, lost-book and several-books alerts. They drive the app's own menus and
+/// window, so they run with the other tests of the app's store.
 extension BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func oneBookPerProcessRenders() async throws {
         let output = try #require(renderFolder).appending(path: "close-to-start", directoryHint: .isDirectory)
@@ -26,11 +26,8 @@ extension BookStoreIntegrationTests {
 
             #expect(await books.store.closeBook() == .left)
             await eventually { OneBookRenders.fileMenu().items.first?.isEnabled == true }
-            for item in OneBookWording.StartScreenCloseItem.allCases {
-                try OneBookRenders.write(
-                    OneBookRenders.fileMenu(closeItem: OneBookWording.label(item)),
-                    name: "file-menu-start-screen-\(item)", to: output)
-            }
+            try OneBookRenders.write(OneBookRenders.fileMenu(), name: "file-menu-start-screen", to: output)
+
             // A controller of its own, so Recent Books holds only this render's books.
             let closing = BookController(role: .testHost)
             let start = folder.appending(path: "Start", directoryHint: .isDirectory)
@@ -45,32 +42,18 @@ extension BookStoreIntegrationTests {
                 to: output)
 
             let other = folder.appending(path: "Other Book.sceneit")
-            for wording in OneBookWording.Refusal.allCases {
-                let notice = OneBookWording.refusal(wording, of: [other], whileOpen: url)
-                try OneBookRenders.write(
-                    try await OneBookRenders.alert(notice), name: "refusal-\(wording)", to: output)
-            }
-
             let untitled = folder.appending(path: "Untitled.sceneit")
-            for wording in OneBookWording.CreateRefusal.allCases {
-                let notice = OneBookWording.createRefusal(wording, of: untitled, whileOpen: url)
-                try OneBookRenders.write(
-                    try await OneBookRenders.alert(notice), name: "create-refusal-\(wording)", to: output)
-            }
-
             let lost = try OneBookRenders.loadError(in: folder, named: "My Novel")
             let copy = folder.appending(path: "My Novel (my edits).sceneit")
-            for wording in OneBookWording.BookLost.allCases {
-                let notice = OneBookWording.bookLost(wording, lost, myVersion: copy)
-                try OneBookRenders.write(
-                    try await OneBookRenders.alert(notice), name: "book-lost-\(wording)", to: output)
-            }
-
             let others = ["The Lighthouse", "Other Book"].map { folder.appending(path: "\($0).sceneit") }
-            for wording in OneBookWording.SeveralBooks.allCases {
-                let notice = OneBookWording.severalBooks(wording, open: url, addedToRecents: others)
-                try OneBookRenders.write(
-                    try await OneBookRenders.alert(notice), name: "several-books-\(wording)", to: output)
+            let alerts: [(String, Notice)] = [
+                ("refusal", OneBookWording.refusal(of: [other], whileOpen: url)),
+                ("create-refusal", OneBookWording.createRefusal(of: untitled, whileOpen: url)),
+                ("book-lost", OneBookWording.bookLost(lost, myVersion: copy)),
+                ("several-books", OneBookWording.severalBooks(open: url, addedToRecents: others)),
+            ]
+            for (name, notice) in alerts {
+                try OneBookRenders.write(try await OneBookRenders.alert(notice), name: name, to: output)
             }
             expectNoQuestions()
         }
@@ -83,8 +66,8 @@ enum OneBookRenders {
     static let margin: CGFloat = 40
 
     /// A copy of the app's File menu, updated as AppKit does before showing it, with only its
-    /// visible items; `closeItem` retitles the ⌘W item.
-    static func fileMenu(closeItem: String? = nil) -> NSMenu {
+    /// visible items.
+    static func fileMenu() -> NSMenu {
         let file = menuItem(titled: StoreWording.newBookMenuItem, in: NSApp.mainMenu)?.menu ?? NSMenu()
         file.delegate?.menuNeedsUpdate?(file)
         file.update()
@@ -92,7 +75,6 @@ enum OneBookRenders {
         copy.autoenablesItems = false
         for item in file.items where !item.isHidden {
             let duplicate = item.copy() as! NSMenuItem
-            if item.keyEquivalent == "w", let closeItem { duplicate.title = closeItem }
             copy.addItem(duplicate)
         }
         return copy
