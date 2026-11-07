@@ -329,7 +329,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     ) {
         let undo = pageUndo(for: scene)
         undo.registerUndo(withTarget: self, handler: inverse)
-        if let name { undo.setActionName(name) }
+        // An undo or redo keeps the name of the step it takes back: an inverse run later in it
+        // would rename a dismiss that committed an edit first "Edit Comment".
+        if let name, !undo.isUndoing, !undo.isRedoing { undo.setActionName(name) }
     }
 
     /// The undo history of `scene`'s page or notes (PLAN §8.6), each its own, kept while the
