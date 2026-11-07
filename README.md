@@ -306,10 +306,10 @@ state are the menu's own; the chrome, row heights and insets approximate macOS 2
 only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders the wording candidates into a
-`close-quits/` subfolder, at 1× and 2×: the File menu in the start state (`file-menu-start-state`) and with a
-book open, once per Close Book label (`file-menu-book-open-close-book`,
-`file-menu-book-open-close-book-and-quit`), each a `MenuStandIn` drawing of the real File menu under a
-stand-in menu bar; and, as the app's own `NSAlert`, each wording of the refusal alert (`refusal-<candidate>`),
+`close-to-start/` subfolder, at 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the
+start screen once per ⌘W label (`file-menu-start-screen-<candidate>`), each a `MenuStandIn` drawing of the
+real File menu under a stand-in menu bar; the start screen after a close (`start-screen-after-close`, 1440 ×
+900 pt); and, as the app's own `NSAlert`, each wording of the refusal alert (`refusal-<candidate>`),
 of the lost-book alert (`book-lost-<candidate>`) and of the several-books notice (`several-books-<candidate>`).
 It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to render only these, use
 `-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.

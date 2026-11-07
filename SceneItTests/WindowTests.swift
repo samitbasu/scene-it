@@ -40,7 +40,7 @@ struct SceneTitleFieldTests {
             #expect(book.status == .unsaved)
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.title == "The ferry at dawn")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -69,7 +69,7 @@ struct SceneTitleFieldTests {
                 replacementRange: NSRange(location: NSNotFound, length: 0))
             #expect(!editor.hasMarkedText())
             #expect(book.book.scene(scene)?.title == "Cafe \"Renee\" [?]")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -120,7 +120,7 @@ struct SceneTitleFieldTests {
             .filter { $0.hasPrefix("book.md.original-") }
             #expect(originals.count == 1)
             #expect(try originals.map { try Data(contentsOf: url.appending(path: $0)) } == [damaged])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -144,7 +144,7 @@ struct SceneTitleFieldTests {
             let fields = textFields(in: window.contentView)
             try #require(!fields.isEmpty)
             #expect(fields.allSatisfy { !$0.isEditable || !$0.isEnabled })
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             withExtendedLifetime(holder) {}
         }
     }
@@ -197,7 +197,7 @@ extension BookStoreIntegrationTests {
             try perform(try #require(toggleRightPanel))
             #expect(books.preferences.rightPanel == before)
 
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             await eventually { toggleRightPanel?.isEnabled == false }
             expectNoQuestions()
         }

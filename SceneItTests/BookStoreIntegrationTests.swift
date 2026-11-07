@@ -76,11 +76,10 @@ struct BookStoreIntegrationTests {
             #expect(snapshots.contains { $0.hasPrefix("book-") })
 
             let saved = book.book
-            #expect(await BookController.shared.quitAndRelaunch() == .left)
-            let relaunched = BookController.shared.store
-            #expect(await relaunched.open(url) == .opened)
-            #expect(relaunched.current?.book == saved)
-            #expect(await BookController.shared.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
+            #expect(await store.open(url) == .opened)
+            #expect(store.current?.book == saved)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -101,7 +100,7 @@ struct BookStoreIntegrationTests {
             #expect(book.status == .saving, "the menu started the save in its own turn")
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.title == "Saved by the menu")
-            #expect(await BookController.shared.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -116,7 +115,7 @@ struct BookStoreIntegrationTests {
             let store = BookController.shared.store
             await eventually { store.current?.layout.root.canonicalPath == url.canonicalPath }
             #expect(store.current?.isEditable == true)
-            #expect(await BookController.shared.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -137,7 +136,7 @@ struct BookStoreIntegrationTests {
             #expect(store.current?.layout.root.canonicalPath == urls[0].canonicalPath)
             #expect(headless.takeTitles() == ["Scene It opens one book at a time."])
             #expect(store.recentBooks.prefix(2).map(\.canonicalPath) == urls.map(\.canonicalPath))
-            #expect(await BookController.shared.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -167,7 +166,7 @@ struct BookStoreIntegrationTests {
             prompts.answer()
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 }

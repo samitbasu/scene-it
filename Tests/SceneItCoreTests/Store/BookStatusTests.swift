@@ -106,13 +106,19 @@ private func state(after events: [AutosaveEvent]) -> Scheduler.State {
     #expect(ReadOnlyWording.alert(for: .lockUnavailable(rotationFailure)).choices == [.keepReadOnly])
 }
 
-@Test func theQuitAlertSaysWhatQuittingLoses() {
-    let quit = QuitWording.alert(for: .saveFailed(diskFull))
-    #expect(quit.choices == [.retry, .cancel, .quitAnyway])
+@Test func closingABookWordsTheQuitAlertForClosing() {
+    let quit = QuitWording.alert(for: .saveFailed(diskFull), leaving: .quit)
+    let close = QuitWording.alert(for: .saveFailed(diskFull), leaving: .closeBook)
+    #expect(quit.choices == close.choices)
     #expect(quit.buttons.map(\.label) == ["Retry", "Cancel", "Quit Anyway"])
+    #expect(close.buttons.map(\.label) == ["Retry", "Cancel", "Close Anyway"])
     #expect(
         quit.message
             == "The disk is full. If you quit now, the changes you made since the last save will be lost.")
+    #expect(
+        close.message
+            == "The disk is full. If you close this book now, the changes you made since the last save will be lost."
+    )
 }
 
 @Test func theCrashAlertMentionsASaveOnlyFromTheCrashedSession() {

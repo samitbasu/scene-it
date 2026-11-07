@@ -1,16 +1,34 @@
 import Foundation
 
-/// The words of ADR 0038 (one book per process; Close Book quits), with every candidate the
-/// owner is choosing between. Drafts: each pick is the one line marked below.
+/// The words of ADR 0038 (one book at a time; Close Book returns to the start screen), with
+/// every candidate the owner is choosing between. Drafts: each pick is the one line marked below.
 public enum OneBookWording {
-    /// The File menu item that closes the book, and so quits.
-    public enum CloseItem: CaseIterable, Sendable {
+    public static let closeBookMenuItem = "Close Book"
+
+    // MARK: ⌘W on the start screen
+
+    /// The File menu item ⌘W chooses on the start screen, where it quits Scene It (if the owner
+    /// keeps ⌘W there at all: `BookController.startScreenCommandW`).
+    public enum StartScreenCloseItem: CaseIterable, Sendable {
+        /// The same item as with a book open.
         case closeBook
-        case closeBookAndQuit
+        /// Says what it does there.
+        case quitFromStartScreen
     }
 
-    /// The owner's pick for the menu item.
-    public static let closeItem = CloseItem.closeBook
+    /// The owner's pick for the item.
+    public static let startScreenCloseItem = StartScreenCloseItem.closeBook
+
+    public static var startScreenCloseMenuItem: String { label(startScreenCloseItem) }
+
+    public static func label(_ item: StartScreenCloseItem) -> String {
+        switch item {
+        case .closeBook: closeBookMenuItem
+        case .quitFromStartScreen: "Close Window and Quit"
+        }
+    }
+
+    // MARK: Another book while one is open
 
     /// The alert shown when Finder or another launch asks for another book while one is open.
     public enum Refusal: CaseIterable, Sendable {
@@ -25,15 +43,6 @@ public enum OneBookWording {
     /// The owner's pick for the alert.
     public static let refusal = Refusal.cantOpenWhileOpen
 
-    public static var closeBookMenuItem: String { label(closeItem) }
-
-    public static func label(_ item: CloseItem) -> String {
-        switch item {
-        case .closeBook: "Close Book"
-        case .closeBookAndQuit: "Close Book and Quit"
-        }
-    }
-
     public static func refusal(of requested: [URL], whileOpen open: URL) -> Notice {
         refusal(refusal, of: requested, whileOpen: open)
     }
@@ -47,13 +56,12 @@ public enum OneBookWording {
         case .cantOpenWhileOpen:
             return Notice(
                 title: "\(names) can't be opened while \(openName) is open.",
-                message: "Close \(openName) first (\(menuPath)). Scene It will quit; open it again to "
-                    + "choose another book.")
+                message: "Close \(openName) first (\(menuPath)), then open \(names) again.")
         case .oneBookAtATime:
             return Notice(
                 title: "\(openName) is open.",
                 message: "Scene It works on one book at a time. To open \(names), choose \(menuPath), "
-                    + "which quits Scene It, then open \(names) again.")
+                    + "then open \(names) again.")
         case .closeFirst:
             return Notice(
                 title: "Close \(openName) first.",
@@ -64,45 +72,49 @@ public enum OneBookWording {
     // MARK: The book is lost (ADR 0018 → ADR 0038)
 
     /// After Open Other Version saved the writer's version as a copy, nothing would open in its
-    /// place, so Scene It quits once this is dismissed.
+    /// place, so the start screen shows, with the copy first in Recent Books.
     public enum BookLost: CaseIterable, Sendable {
-        /// The load failure's own title; the quit comes last, after the backups.
-        case quitLast
-        /// The quit is in the title; the load failure's message follows.
-        case quitInTitle
+        /// The load failure's own title; the message ends by pointing at Recent Books.
+        case recentBooksLast
+        /// The title says the book was closed; the load failure's message follows.
+        case closedInTitle
     }
 
     /// The owner's pick for the alert.
-    public static let bookLost = BookLost.quitLast
+    public static let bookLost = BookLost.recentBooksLast
 
     public static func bookLost(_ error: LoadError, myVersion copy: URL) -> Notice {
         bookLost(bookLost, error, myVersion: copy)
     }
 
+    /// When `error` is about `copy` itself, the copy is named once, as the book that won't open.
     public static func bookLost(_ wording: BookLost, _ error: LoadError, myVersion copy: URL) -> Notice {
-        let failed = StoreWording.loadFailed(error, myEditsSavedAs: copy)
+        let copyFailed = error.package.canonicalPath == copy.canonicalPath
+        let failed = StoreWording.loadFailed(error, myEditsSavedAs: copyFailed ? nil : copy)
         let name = quoted(StoreWording.bookName(error.package))
+        let copyName = quoted(StoreWording.bookName(copy))
         switch wording {
-        case .quitLast:
+        case .recentBooksLast:
             return Notice(
                 title: failed.title,
-                message: failed.message + "\n\nScene It will quit now. Open it again to choose a book.")
-        case .quitInTitle:
-            return Notice(title: "Scene It couldn't open \(name), so it will quit.", message: failed.message)
+                message: failed.message + "\n\n\(copyName) is first in Recent Books.")
+        case .closedInTitle:
+            return Notice(
+                title: "Scene It couldn't open \(name), so it closed the book.", message: failed.message)
         }
     }
 
     // MARK: Several books asked for at once
 
-    /// Finder or a launch asked for several books while the process had none: the first opens,
-    /// the rest go to Recent Books, which the start state shows only after a relaunch.
+    /// Finder or a launch asked for several books in the start state: the first opens, the rest
+    /// go to Recent Books, which the start screen shows once the open book is closed.
     public enum SeveralBooks: CaseIterable, Sendable {
         /// The wording before ADR 0038.
         case addedToRecents
-        /// Says how to get to the others: close (quit), then open Scene It again.
+        /// Says how to get to the others: close the open book, then choose one.
         case closeToOpenTheOthers
-        /// Short: the others are kept for next time.
-        case forNextTime
+        /// Short: the others are kept in Recent Books.
+        case inRecentBooks
     }
 
     /// The owner's pick for the notice (still the wording from before ADR 0038).
@@ -123,6 +135,7 @@ public enum OneBookWording {
             return Notice(title: title, message: "These books were added to Recent Books instead: \(listed).")
         }
         let openName = quoted(StoreWording.bookName(open))
+        let are = others.count == 1 ? "is" : "are"
         switch wording {
         case .addedToRecents:
             return Notice(
@@ -131,14 +144,12 @@ public enum OneBookWording {
         case .closeToOpenTheOthers:
             return Notice(
                 title: title,
-                message: "\(openName) is open. \(names) \(others.count == 1 ? "is" : "are") in Recent Books: "
-                    + "to open one, choose File → \(closeBookMenuItem), which quits Scene It, then open it again."
-            )
-        case .forNextTime:
+                message: "\(openName) is open. \(names) \(are) in Recent Books: to open one, choose "
+                    + "File → \(closeBookMenuItem), then choose it there.")
+        case .inRecentBooks:
             return Notice(
                 title: "Only \(openName) was opened.",
-                message: "Scene It opens one book at a time. \(names) \(others.count == 1 ? "is" : "are") "
-                    + "in Recent Books for next time.")
+                message: "Scene It opens one book at a time. \(names) \(are) in Recent Books.")
         }
     }
 

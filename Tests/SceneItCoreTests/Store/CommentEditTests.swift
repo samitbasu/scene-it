@@ -238,7 +238,7 @@ struct CommentEditTests {
             #expect(!book.removeComments([loose], from: held.id))
             #expect(book.book == before)
             #expect(!book.pageUndo(for: held.id).canUndo)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             withExtendedLifetime(holder) {}
         }
     }

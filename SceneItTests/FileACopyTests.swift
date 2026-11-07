@@ -82,7 +82,7 @@ struct FileACopyTests {
             #expect(attributes[.immutable] as? Bool == true)
             #expect(book.archive.copies.map(\.tags) == [["draft 4"]])
             #expect(book.archive.copies.map(\.note) == ["Before the ending rewrite"])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             let headless = try #require(books.prompts as? HeadlessPrompts)
             #expect(headless.takeTitles() == [], "a complete filing raises no alert")
         }
@@ -110,7 +110,7 @@ struct FileACopyTests {
             #expect(flow.draft?.pendingTag == "draft", "and so does redo")
             TagTextField.dismantleNSView(field, coordinator: tags)
             flow.cancel()
-            #expect(await books.store.prepareToQuit() == .left)
+            #expect(await books.store.closeBook() == .left)
         }
     }
 
@@ -138,7 +138,7 @@ struct FileACopyTests {
             #expect(flow.toast == nil)
             #expect((books.prompts as? HeadlessPrompts)?.takeTitles() == ["Scene It couldn't file a copy."])
             flow.cancel()
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -276,7 +276,7 @@ struct FileACopyTests {
                     draft: .constant(FilingDraft(today: CalendarDay(.now, in: .current)))))
             #expect(fieldsMatch(tags), "and so does the tag field")
             #expect(tags.cell?.isScrollable == true)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -396,7 +396,7 @@ struct FileACopyTests {
             #expect(
                 try FileManager.default.contentsOfDirectory(
                     atPath: PackageLayout(root: url).archive.path(percentEncoded: false)) == ["index.md"])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             _ = holder
         }
     }
@@ -449,7 +449,7 @@ struct FileACopyTests {
             #expect(after == before, "the scene is unchanged")
             #expect(filing.draft?.pendingTag == "", "the dialog's typing was undone")
             filing.cancel()
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 }

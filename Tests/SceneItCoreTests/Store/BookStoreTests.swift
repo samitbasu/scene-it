@@ -200,11 +200,12 @@ struct BookStoreTests {
                 == "Draft Two (my edits).sceneit")
     }
 
-    // MARK: ADR 0038: one book per process
+    // MARK: ADR 0038: one book at a time; Close Book returns to the start state
 
     @Test func anotherBookIsRefusedUnreadAndTheWriterIsTold() async throws {
         try await withTemporaryFolder { folder in
-            let other = try await createClosedBook("Other", in: folder)
+            let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: other, title: "Other")
             let broken = folder.appending(path: "Broken.sceneit")
             try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: false)
             let prompts = ScriptedPrompts()
@@ -250,34 +251,56 @@ struct BookStoreTests {
         }
     }
 
-    @Test func onceTheBookIsClosedNothingOpensAgain() async throws {
+    @Test func closingTheBookSavesReleasesItAndReturnsToTheStartState() async throws {
         try await withTemporaryFolder { folder in
-            let other = try await createClosedBook("Other", in: folder)
+            let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: other, title: "Other")
             let prompts = ScriptedPrompts()
             let store = makeStore(in: folder, prompts: prompts)
             let url = try await createBook("Novel", in: folder, store: store)
-            #expect(await store.prepareToQuit() == .left)
-            guard case .ended = store.session else {
-                Issue.record("the session is \(store.session)")
-                return
-            }
+            let book = try #require(store.current)
+            book.write("Unsaved when the book is closed")
+            try #require(book.hasUnsavedEdits, "precondition: something to save")
 
-            #expect(await store.open(url) == .refused)
-            #expect(await store.open(other) == .refused)
-            #expect(await store.create(at: folder.appending(path: "New.sceneit")) == .refused)
-            #expect(store.current == nil)
-            #expect(!store.isChoosing)
-            #expect(prompts.notices.isEmpty, "quitting, so nobody is told")
+            #expect(await store.closeBook() == .left)
+
+            #expect(store.isChoosing)
+            #expect(book.status == .closed)
+            #expect(try bookOnDisk(url) == book.book)
+            #expect(try BookPackage.open(at: url).editable != nil, "its lock was released")
+            #expect(await store.open(other) == .opened, "the start state opens another book")
+            #expect(prompts.titles.isEmpty)
         }
     }
 
-    @Test func quittingFromTheStartStateEndsTheSession() async throws {
+    @Test func closeAsksWhenSavingFailsAndCancelKeepsTheBookOpen() async throws {
         try await withTemporaryFolder { folder in
-            let store = makeStore(in: folder)
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([QuitAlertChoice.cancel])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Unsaved")
+            fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.md"), cause: .noSpace))
+
+            #expect(await store.closeBook() == .stayed)
+            #expect(store.current === book)
+            #expect(book.isEditable)
+            #expect(prompts.labels == [["Retry", "Cancel", "Close Anyway"]])
+
+            prompts.answer([QuitAlertChoice.quitAnyway])
+            #expect(await store.closeBook() == .left)
             #expect(store.isChoosing)
-            #expect(await store.prepareToQuit() == .left)
-            #expect(!store.isChoosing)
-            #expect(await store.create(at: folder.appending(path: "New.sceneit")) == .refused)
+        }
+    }
+
+    @Test func closingFromTheStartStateDoesNothing() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            #expect(await store.closeBook() == .left)
+            #expect(store.isChoosing)
+            #expect(prompts.titles.isEmpty)
         }
     }
 

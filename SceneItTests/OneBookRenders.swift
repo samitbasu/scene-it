@@ -5,30 +5,44 @@ import Testing
 
 @testable import SceneIt
 
-/// Renders ADR 0038's wording candidates for the owner's pick into `close-quits/` under the
+/// Renders ADR 0038's wording candidates for the owner's pick into `close-to-start/` under the
 /// render folder: the File menu (its real items and states, drawn by `MenuStandIn` under a
-/// stand-in menu bar, since an open menu can't be captured), with each Close Book label, and
-/// the refusal alert, the app's own `NSAlert`, in each wording. They drive the app's own menus,
-/// so they run with the other tests of the app's store.
+/// stand-in menu bar, since an open menu can't be captured) with a book open and on the start
+/// screen, once per start-screen ⌘W label; the start screen after a close; and, as the app's own
+/// `NSAlert`, every wording of the refusal, lost-book and several-books alerts. They drive the
+/// app's own menus and window, so they run with the other tests of the app's store.
 extension BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func oneBookPerProcessRenders() async throws {
-        let output = try #require(renderFolder).appending(path: "close-quits", directoryHint: .isDirectory)
+        let output = try #require(renderFolder).appending(path: "close-to-start", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try await withTemporaryFolder { folder in
             let books = BookController.shared
-            try #require(books.store.isChoosing, "precondition: the start state")
-            try OneBookRenders.write(OneBookRenders.fileMenu(), name: "file-menu-start-state", to: output)
+            try #require(books.store.isChoosing, "precondition: the start screen")
 
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
             await eventually { OneBookRenders.fileMenu().items.first?.isEnabled == false }
-            for item in OneBookWording.CloseItem.allCases {
+            try OneBookRenders.write(OneBookRenders.fileMenu(), name: "file-menu-book-open", to: output)
+
+            #expect(await books.store.closeBook() == .left)
+            await eventually { OneBookRenders.fileMenu().items.first?.isEnabled == true }
+            for item in OneBookWording.StartScreenCloseItem.allCases {
                 try OneBookRenders.write(
                     OneBookRenders.fileMenu(closeItem: OneBookWording.label(item)),
-                    name: "file-menu-book-open-\(OneBookRenders.slug(OneBookWording.label(item)))", to: output
-                )
+                    name: "file-menu-start-screen-\(item)", to: output)
             }
-            #expect(await books.quitAndRelaunch() == .left)
+            // A controller of its own, so Recent Books holds only this render's books.
+            let closing = BookController(role: .testHost)
+            let start = folder.appending(path: "Start", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: start, withIntermediateDirectories: false)
+            for name in ["The Lighthouse", "My Novel"] {
+                let book = start.appending(path: "\(name).sceneit", directoryHint: .isDirectory)
+                #expect(await closing.store.create(at: book) == .created)
+                #expect(await closing.store.closeBook() == .left)
+            }
+            try OneBookRenders.write(
+                try await WindowRenders.render(MainWindow(books: closing)), name: "start-screen-after-close",
+                to: output)
 
             let other = folder.appending(path: "Other Book.sceneit")
             for wording in OneBookWording.Refusal.allCases {
@@ -62,7 +76,7 @@ enum OneBookRenders {
     static let margin: CGFloat = 40
 
     /// A copy of the app's File menu, updated as AppKit does before showing it, with only its
-    /// visible items; `closeItem` retitles Close Book.
+    /// visible items; `closeItem` retitles the ⌘W item.
     static func fileMenu(closeItem: String? = nil) -> NSMenu {
         let file = menuItem(titled: StoreWording.newBookMenuItem, in: NSApp.mainMenu)?.menu ?? NSMenu()
         file.delegate?.menuNeedsUpdate?(file)
@@ -71,7 +85,7 @@ enum OneBookRenders {
         copy.autoenablesItems = false
         for item in file.items where !item.isHidden {
             let duplicate = item.copy() as! NSMenuItem
-            if item.title == OneBookWording.closeBookMenuItem, let closeItem { duplicate.title = closeItem }
+            if item.keyEquivalent == "w", let closeItem { duplicate.title = closeItem }
             copy.addItem(duplicate)
         }
         return copy
@@ -170,10 +184,5 @@ enum OneBookRenders {
         }
         Issue.record("precondition: the package doesn't open")
         throw CancellationError()
-    }
-
-    /// "Close Book and Quit" → "close-book-and-quit".
-    static func slug(_ label: String) -> String {
-        label.lowercased().split(separator: " ").joined(separator: "-")
     }
 }

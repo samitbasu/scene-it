@@ -137,7 +137,7 @@ struct ErrorsTabTests {
             let shown = selectableTexts(in: window)
             #expect(shown.contains(brokenComment), "\(shown)")
             #expect(shown.contains(strayLine), "\(shown)")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -171,7 +171,7 @@ struct ErrorsTabTests {
             await eventually { books.preferences.rightPanelTab == .comments }
             // The window re-renders on a later turn, later still on a busy machine.
             await eventually { !selectableTexts(in: window).contains(strayLine) }
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -216,7 +216,7 @@ struct ErrorsTabTests {
             #expect(book.status == .unsaved, "the deletion reached autosave")
             book.errorsUndo.undo()
             #expect(book.book.errorCount == 2)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -288,22 +288,20 @@ struct ErrorsTabTests {
             #expect(window.firstResponder === page, "Esc goes back to the page")
             window.update()
             #expect(router.manager === book.pageUndo(for: scene), "and Undo to the page's history")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
     @Test func theBannerShowsForTheReadOnlyReasonsAboutTheBooksContent() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
+            let store = books.store
             @MainActor func banner() throws -> some View {
                 ReadOnlyBanner(
-                    book: try #require(books.store.current), store: books.store,
-                    preferences: books.preferences)
+                    book: try #require(store.current), store: store, preferences: books.preferences)
             }
 
-            guard
-                case .openedReadOnly(.repairedOnOpen) = await books.store.open(
-                    try package(damaged, in: folder))
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(try package(damaged, in: folder))
             else {
                 Issue.record("precondition: the book opens repaired and read-only")
                 return
@@ -314,12 +312,12 @@ struct ErrorsTabTests {
                 defer { window.close() }
                 #expect(bannerKeyViews(in: window).count == 2, "Show Repairs and Make Editable…")
             }
-            #expect(await books.store.makeEditable() == .editable)
+            #expect(await store.makeEditable() == .editable)
             try #expect(height(of: banner()) == 0, "gone once the book is editable")
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
 
             #expect(
-                await books.store.open(try package(newerText, named: "Newer", in: folder))
+                await store.open(try package(newerText, named: "Newer", in: folder))
                     == .openedReadOnly(.newerFormat(FormatVersion(3))))
             try #expect(height(of: banner()) > 30)
             do {
@@ -327,13 +325,13 @@ struct ErrorsTabTests {
                 defer { window.close() }
                 #expect(bannerKeyViews(in: window).isEmpty, "a newer book can't be made editable here")
             }
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
 
             let held = folder.appending(path: "Held.sceneit", directoryHint: .isDirectory)
             let holder = try BookPackage.create(at: held, title: "Held")
-            #expect(await books.store.open(held) == .openedReadOnly(.openElsewhere))
+            #expect(await store.open(held) == .openedReadOnly(.openElsewhere))
             try #expect(height(of: banner()) == 0, "the status bar and the alert cover a lock")
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             withExtendedLifetime(holder) {}
         }
     }
@@ -359,23 +357,24 @@ extension BookStoreIntegrationTests {
     @Test func makeEditableIsInTheFileMenuOnlyForARepairedBook() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
-            try #require(books.store.current == nil)
+            let store = books.store
+            try #require(store.current == nil)
             #expect(makeEditableItem != nil)
             await eventually { makeEditableItem?.isEnabled == false }
 
             let repaired = try package(damaged, in: folder)
-            guard case .openedReadOnly(.repairedOnOpen) = await books.store.open(repaired) else {
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
                 Issue.record("precondition: the book opens repaired and read-only")
                 return
             }
             await eventually { makeEditableItem?.isEnabled == true }
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             let newer = try package(newerText, named: "Newer", in: folder)
-            #expect(await books.store.open(newer) == .openedReadOnly(.newerFormat(FormatVersion(3))))
+            #expect(await store.open(newer) == .openedReadOnly(.newerFormat(FormatVersion(3))))
             await eventually { makeEditableItem?.isEnabled == false }
 
-            #expect(await books.quitAndRelaunch() == .left)
-            guard case .openedReadOnly(.repairedOnOpen) = await books.store.open(repaired) else {
+            #expect(await store.closeBook() == .left)
+            guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
                 Issue.record("precondition: the book opens repaired and read-only again")
                 return
             }
@@ -384,13 +383,13 @@ extension BookStoreIntegrationTests {
             #expect(headless.takeTitles() == Array(repeating: ReadOnlyWording.readOnlyTitle, count: 3))
             try perform(try #require(makeEditableItem))
             await eventually { headless.titles == [ReadOnlyWording.makeEditableTitle] }
-            let book = try #require(books.store.current)
+            let book = try #require(store.current)
             #expect(!book.isEditable, "it asks first, and the test host answers Keep Read-Only")
             #expect(headless.takeTitles() == [ReadOnlyWording.makeEditableTitle])
 
-            #expect(await books.store.makeEditable() == .editable)
+            #expect(await store.makeEditable() == .editable)
             await eventually { makeEditableItem?.isEnabled == false }
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }

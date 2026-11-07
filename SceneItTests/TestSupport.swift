@@ -5,15 +5,6 @@ import Testing
 @testable import SceneIt
 
 extension BookController {
-    /// Quits this session through the store's quit path and, once it has ended, starts the next,
-    /// as relaunching would: a session never opens a second book (ADR 0038).
-    @discardableResult
-    func quitAndRelaunch() async -> AppBookStore.LeaveOutcome {
-        let outcome = await store.prepareToQuit()
-        if outcome == .left { startOver() }
-        return outcome
-    }
-
     /// The requests carried out since the last call (the test host's `RecordedRequests`).
     func takeRequests() -> [RecordedRequests.Carried] {
         recorded?.take() ?? []

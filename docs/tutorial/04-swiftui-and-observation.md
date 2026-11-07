@@ -16,7 +16,7 @@ scene list in the Scenes sheet (#28). The page itself is an AppKit text view, th
 
 | File | What it holds |
 | --- | --- |
-| [`Store/BookStore.swift`](../../Sources/SceneItCore/Store/BookStore.swift) | the process's one book (ADR 0038): open, create, refuse another, quit, ADR 0018's two choices |
+| [`Store/BookStore.swift`](../../Sources/SceneItCore/Store/BookStore.swift) | one book at a time (ADR 0038): open, create, refuse another, close, quit, ADR 0018's two choices |
 | [`Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | the open book: the `Book` value, edits, the autosave driver, the status |
 | [`Store/BookWriter.swift`](../../Sources/SceneItCore/Store/BookWriter.swift) | the package and backup keeper, used only off the main actor |
 | [`Store/BookStatus.swift`](../../Sources/SceneItCore/Store/BookStatus.swift) | the status bar's one enum, as a pure function of autosave and backups |
@@ -238,7 +238,7 @@ Each piece from chapters 03 and 03a has one place where the store uses it:
 | `ExternalChangePolicy` (ch. 03 §7) | passed through from the scheduler's `SaveRequest`; the store keeps no overwrite flag |
 | book lock, `OpenedBook.readOnly` (ch. 03 §12) | a read-only book gets no driver and no writer, so it has nothing to save with |
 | `AutosaveDriver` (ch. 03a) | one per editable book; `OpenBook` is its weakly held saver |
-| `prepareToQuit` / `QuitWording` (ch. 03a §5) | `OpenBook.settle(asking:)`, for quitting, which Close Book and closing the window are too |
+| `prepareToQuit` / `QuitWording` (ch. 03a §5) | `OpenBook.settle(before:asking:)`, for quitting and for Close Book |
 
 The read-only rule is enforced by shape, not by checks. `OpenBook.access` is
 
@@ -257,34 +257,32 @@ system ever saw was the attempt to take the lock.
 `Edits` is `.accepted` or `.refused`. A writable book refuses edits only briefly, during the
 last pass of "Open Other Version" (§5), so nothing typed can miss the copy.
 
-### One book per process (ADR 0038)
+### One book at a time, never switched in place (ADR 0038)
 
-A process has one book for its whole life. It launches into the start state (or straight into
-a book Finder asked for, or the last one), and once a book is open it stays this process's
-book until Scene It quits. Close Book *is* Quit. To work on another book the writer quits and
-opens Scene It again.
+A book is chosen on the start screen, and Close Book goes back there; while a book is open,
+nothing else opens. New Book… and Open Book… are greyed, and a book Finder or a second launch
+sends is refused with an alert. Switching books is "Close Book, then choose".
 
-The rule came from a suspected leak (#88): after closing a book in place, something kept the
-old `OpenBook` and its editors alive, and no cycle could be found. Rather than prove a negative
-about every view SwiftUI might still hold, the owner made the situation impossible: if a book is
-never closed while the process lives, nothing can outlive it. (Rust readers: it's the
-difference between auditing every `Rc` for a cycle and making the value `'static`.)
+This came from a suspected leak (#88): closing a book in place could leave the old `OpenBook`
+and its editors alive. The older design (ADR 0021) swapped one book for another inside the
+window, so their lifetimes overlapped. Now there is always a start screen between two books.
+(The first answer to #88 was stricter: one book per *process*, with Close Book quitting. The
+owner's hand test found the dead end: launch reopens the last book, so the start screen, the
+only place to choose another, was never reachable.)
 
-The store's state is one enum, so "no book", "a book" and "done" can't be mixed up:
+The store's state is one enum, so "no book" and "a book" can't be confused:
 
 ```swift
     public enum Session {
-        /// Launched without a book: the start state, the only one a book can be opened from.
+        /// The start state, the only one a book can be opened or created from.
         case choosing
         case open(OpenBook<C>)
-        /// Quitting, or the book was lost (`bookLost`); nothing opens again.
-        case ended
     }
 ```
 
-`session` is `private(set)`, and only three places assign it: `install` (a loaded book becomes
-the session's), `prepareToQuit` / `closeForTermination` (`.ended`), and the ADR 0018 path when the
-other version won't open (`.ended`, then `bookLost`, which the app answers by quitting).
+`session` is `private(set)`. A book becomes the session's only through `install`, and goes
+back to `.choosing` only through leaving (`closeBook` or `prepareToQuit`, which share one
+`leave`), `closeForTermination`, or the ADR 0018 path when the other version won't open.
 What `install` installs is a `Target` whose case says where it comes from: `.chosen(url)`, only
 while `.choosing`; `.again(book)`, the open book's own package read again (Open Anyway, Open
 Other Version), so it can't name another path; `.myVersion(copy, replacing: book)`, ADR 0018's
@@ -294,6 +292,16 @@ Asked to open any other book while one is open, the store opens nothing, reads n
 tells the writer why (`OneBookWording.refusal`). Asked for the open book again, it does nothing.
 The view and the menus derive from the same enum: `MainWindow` switches on `session`, and New
 Book… and Open Book… are enabled only while `isChoosing`.
+
+**Proving the release.** A hosted test closes a book in the app's real window and checks, through
+`weak` references, that the `OpenBook` and the page's editor are gone. Two traps made earlier
+attempts flaky. The test host's outermost autorelease pool is never drained, so anything
+autoreleased in the test's own turns (even the `subviews` arrays a lookup walks) lives forever;
+the test does its lookups, and runs its run-loop turns, inside `autoreleasepool {}` of its own.
+And the page's `NSTextView` itself outlives the book for a while, held by AppKit (a notification
+block registered in `-[NSView _commonAwake]`, and its `previousKeyViews` table), so the test
+doesn't assert on it: its editor is `weak`, so it no longer reaches the book. (`leaks
+--traceTree=<address> <pid>` on the paused test host is what showed those paths.)
 
 ### Doing one thing at a time
 
@@ -360,8 +368,8 @@ which `save` throws; the new `Task` is queued behind it.
   existing name is the collision check, so there's no race), closes the book, which `await`s
   the release of the original's lock, then reads the original again in its place. Both
   versions survive. If the original can't be read at all (`.notAFile`), the copy is opened
-  instead. If the book to open then won't load, the process has no book left: the session ends
-  and the app quits (ADR 0038), and the next launch reopens the copy from Recent Books.
+  instead. If the book to open then won't load, no book is left open: the start screen shows
+  (ADR 0038), with the copy first in Recent Books.
 
 The copy is written off the main actor, and the writer can keep typing meanwhile. Snapshot
 once and close afterwards, and the typing in between is lost. So the store saves the copy,
@@ -392,10 +400,11 @@ the last pass the book refuses edits, which disables the editor (`isEditable` is
 so that pass is guaranteed to be the final one. A copy that can't be saved is removed rather
 than left as an empty "(my edits)" book that looks like the writer's version.
 
-The same care applies to Quit Anyway. When the writer quits without saving, a save may be
-stuck on a failing disk. The store doesn't `await` that book's release, which waits for the
-save: quitting would hang on it. It lets the writer release the lock unless a save is still
-running (`releaseUnlessSaving`), and the process exit drops it anyway.
+The same care applies to Close Anyway and Quit Anyway. When the writer leaves without saving, a
+save may be stuck on a failing disk. The store doesn't `await` that book's release, which waits
+for the save: it would hold every later operation, quitting included. Closing starts the release
+in the background; quitting releases the lock unless a save is still running
+(`releaseUnlessSaving`), and the process exit drops it anyway.
 
 Every path that lets go of a book does it in two steps: `OpenBook.detach()`, which is
 synchronous and makes the book refuse edits from then on, then the (asynchronous) release of
@@ -416,7 +425,7 @@ which SwiftUI creates for you from a type you name:
 struct SceneItApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// One window, holding the process's one book (ADR 0038).
+    /// One window, holding one book at a time (ADR 0038).
     var body: some Scene {
         Window(StoreWording.windowTitle, id: "main") {
             MainWindow(books: .shared)
@@ -468,33 +477,32 @@ chooses Quit Anyway or Cancel. Before it returns `true`, it detaches the book in
 turn as the final synchronous check that nothing is unsaved, then releases the lock.
 `applicationWillTerminate` releases anything left, without waiting.
 
-### Close Book is Quit (ADR 0038)
+### Closing: the book, then the app (ADR 0038)
 
-File → Close Book and the window's red close button don't close anything themselves. Both call
-`BookController.closeBook()`, which sends one request, `AppRequest.quit`, and the app answers it
-with `NSApp.terminate(nil)`: AppKit's own quit, which arrives at `applicationShouldTerminate`
-above. So there is one path, with one set of questions, and Cancel leaves the window and its
-book exactly as they were. (Close Book takes Cmd+W: replacing SwiftUI's `.saveItem` group
-removed its own Close. From any window but the book's, Cmd+W just closes that window.) The close
-button is an `NSButton` whose target and action `CloseButtonQuits` points at `closeBook()` once
-the window exists; SwiftUI's own window delegate never sees the click, and the routed button is
-also how the app tells its book window from any other.
+File → Close Book (Cmd+W) and the window's red close button lead to the store's `closeBook()`,
+which saves first, asking (Retry / Cancel / Close Anyway) when it can't, then releases the book;
+the window stays and shows the start screen. On the start screen, the red button quits Scene It,
+and so does Cmd+W unless the owner picks otherwise (`BookController.startScreenCommandW`).
+(Replacing SwiftUI's `.saveItem` group removed its own Close, so Cmd+W is ours. From any window
+but the main one, Cmd+W just closes that window.) The close button is an `NSButton` whose target
+and action `MainWindowCloseButton` points at `closeMainWindow()` once the window exists; SwiftUI's
+own window delegate never sees the click, and the routed button is also how the app tells its
+main window from any other.
 
-**When** the quit starts matters. With `.terminateLater`, `terminate` doesn't return: it spins a
+**When** a quit starts matters. With `.terminateLater`, `terminate` doesn't return: it spins a
 nested run loop until `reply(toApplicationShouldTerminate:)`. The reply comes from a main-actor
 `Task`, and the main actor is the main queue, which isn't drained while the job that called
-`terminate` is still on the stack. Call `terminate` straight from a menu action or a store
+`terminate` is still on the stack. Call `terminate` straight from a button's action or a store
 operation and the app hangs. So `AppRequests.send(.quit)` schedules it with
 `perform(_:with:afterDelay: 0)`: a run-loop source, which fires once the current job has
-returned. (A Rust analogy: calling `block_on` from inside the executor's own task.) For the same
-reason the store calls `bookLost` only after its operation has finished.
+returned. (A Rust analogy: calling `block_on` from inside the executor's own task.)
 
 `AppRequests` carries requests out through a closure: AppKit in the app, a recorder in the test
-host. The deferral is the same code in both, so the hosted tests choose File → Close Book through
-the real menu (and click the real close button), check that nothing happened in the action's own
-turn, then wait for one `.quit`, recorded with the store idle. That's the general move for an
-effect you can't let a test perform: make it a value, and test the value. (In Rust you'd return
-an enum from the decision function and keep the side effect in `main`.)
+host. The deferral is the same code in both, so the hosted tests click the start screen's real
+close button, check that nothing happened in the click's own turn, then wait for one `.quit`,
+recorded with the store idle. That's the general move for an effect you can't let a test
+perform: make it a value, and test the value. (In Rust you'd return an enum from the decision
+function and keep the side effect in `main`.)
 
 ### `.commands`
 

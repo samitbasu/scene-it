@@ -362,7 +362,7 @@ extension BookStoreIntegrationTests {
 
             window.makeFirstResponder(nil)
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }

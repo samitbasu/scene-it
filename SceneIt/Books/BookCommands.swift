@@ -2,9 +2,8 @@ import SceneItCore
 import SwiftUI
 
 /// File → New Book…, Open Book…, Close Book, Save, Make Editable… and File a Copy…, in place of
-/// SwiftUI's New Window, Close and Save. New and Open are offered only while the process is
-/// still choosing its book, and Close Book quits (ADR 0038); from any window but the book's, ⌘W
-/// closes that window.
+/// SwiftUI's New Window, Close and Save. New and Open are offered only on the start screen, and
+/// Close Book returns there (ADR 0038); from any window but the main one, ⌘W closes that window.
 struct BookCommands: Commands {
     let books: BookController
     @FocusedValue(\.filingFlow) private var filing
@@ -20,9 +19,9 @@ struct BookCommands: Commands {
                 .disabled(!choosing)
         }
         CommandGroup(replacing: .saveItem) {
-            Button(OneBookWording.closeBookMenuItem) { books.closeFromMenu() }
+            Button(books.closeItemTitle) { Task { await books.closeFromMenu() } }
                 .keyboardShortcut("w")
-                .disabled(!books.isCloseBookEnabled)
+                .disabled(!books.isCloseItemEnabled)
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }
                 .keyboardShortcut("s")
             Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }

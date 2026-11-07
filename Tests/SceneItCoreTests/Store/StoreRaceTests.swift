@@ -40,17 +40,6 @@ private final class Gate: Sendable {
 
 private let copyName = "Novel (my edits).sceneit"
 
-/// Records each `bookLost` call, with whether the store was still inside an operation then.
-@MainActor
-private final class LossProbe {
-    var store: TestStore?
-    private(set) var storeWasBusy: [Bool] = []
-
-    var lost: @MainActor () -> Void {
-        { [unowned self] in storeWasBusy.append(store?.isBusy ?? true) }
-    }
-}
-
 /// A saved book "Novel" whose `book.md` another program then replaced, with one scene.
 @MainActor
 private func changedBook(
@@ -146,15 +135,13 @@ struct StoreRaceTests {
         }
     }
 
-    /// ADR 0038: with the original unreadable after my version was saved, the process has no
-    /// book left, so the session ends (and the app quits) rather than showing the start state.
-    @Test func whenTheOtherVersionWontOpenTheSessionEndsAndTheBookIsLost() async throws {
+    /// ADR 0038: with the original unreadable after my version was saved, no book is left open,
+    /// so the start state shows, with my version first in Recent Books.
+    @Test func whenTheOtherVersionWontOpenTheStartStateShowsWithMyVersionFirst() async throws {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
-            let probe = LossProbe()
-            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: probe.lost)
-            probe.store = store
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Before the change")
@@ -169,10 +156,9 @@ struct StoreRaceTests {
 
             book.write("Mine")
             store.saveNow()
-            await eventually { !probe.storeWasBusy.isEmpty }
+            await eventually { store.isChoosing }
 
-            #expect(probe.storeWasBusy == [false], "told once, after the store's operation ended")
-            guard case .ended = store.session else {
+            guard case .choosing = store.session else {
                 Issue.record("the session is \(store.session)")
                 return
             }
@@ -181,7 +167,7 @@ struct StoreRaceTests {
             let notice = try #require(prompts.notices.last)
             #expect(notice.title == "Scene It couldn't open “Novel”.")
             #expect(notice.message.hasPrefix("Your version was saved as “Novel (my edits)”."))
-            #expect(notice.message.hasSuffix("Scene It will quit now. Open it again to choose a book."))
+            #expect(notice.message.hasSuffix("“Novel (my edits)” is first in Recent Books."))
             #expect(try bookOnDisk(copy).scenes.count == 2)
             #expect(store.recentBooks.first?.canonicalPath == copy.canonicalPath, "my version reopens next")
         }
@@ -189,13 +175,11 @@ struct StoreRaceTests {
 
     /// The `.notAFile` branch: when my version won't open in place of the original either, it
     /// still stays in Recent Books, and the alert names it.
-    @Test func whenMyVersionWontOpenEitherItStaysInRecentBooksAndTheSessionEnds() async throws {
+    @Test func whenMyVersionWontOpenEitherItStaysInRecentBooksAndTheStartStateShows() async throws {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
-            let probe = LossProbe()
-            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: probe.lost)
-            probe.store = store
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Mine")
@@ -215,16 +199,15 @@ struct StoreRaceTests {
 
             book.write("More of mine")
             store.saveNow()
-            await eventually { !probe.storeWasBusy.isEmpty }
+            await eventually { store.isChoosing }
 
-            #expect(probe.storeWasBusy == [false])
-            guard case .ended = store.session else {
+            guard case .choosing = store.session else {
                 Issue.record("the session is \(store.session)")
                 return
             }
             let notice = try #require(prompts.notices.last)
             #expect(notice.title == "Scene It couldn't open “Novel (my edits)”.")
-            #expect(notice.message.hasPrefix("Your version was saved as “Novel (my edits)”."))
+            #expect(!notice.message.contains("Your version was saved as"), "the copy is named once")
             #expect(
                 store.recentBooks.map(\.canonicalPath) == [copy.canonicalPath], "the original is forgotten")
         }

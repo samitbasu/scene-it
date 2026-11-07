@@ -42,7 +42,7 @@ struct MakeEditableTests {
             let saved = try #require(calls.firstIndex(of: .writeTemporary("Novel.sceneit/book.md")))
             #expect(
                 kept < locked && locked < saved, "the original is safe before the lock and the first save")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             #expect(try originals(url) == [original])
         }
     }
@@ -81,7 +81,7 @@ struct MakeEditableTests {
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.body == [[Run("Now allowed")]])
             #expect(await store.makeEditable() == .notRepaired, "it's editable already")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -109,7 +109,7 @@ struct MakeEditableTests {
             let asked = prompts.titles.count
             #expect(await store.confirmMakeEditable() == .notRepaired)
             #expect(prompts.titles.count == asked, "no question once it's editable")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 

@@ -1337,11 +1337,10 @@ same class the scene title uses. `FilingDraft` admits again on every assignment,
 can't hold what `index.md` won't keep.
 
 The dialog's contents are the open book's `filingDraft`, so leaving the book sees them:
-quitting (which Close Book and closing the window are, ADR 0038) calls
-`OpenBook.confirmLeaving` once, before saving, which asks "Quit without filing the copy?"
-when tags or a note are typed, with Cancel as the default. Choosing to leave doesn't clear the
-draft: it goes with the book only if the book is really left, so a save that then fails, and
-the writer's Cancel, loses nothing. The book window's first responder stays the page while the sheet is up, so
+quitting and closing the book each call `OpenBook.confirmLeaving` once, before saving, which
+asks "Quit without filing the copy?" (or "Close…") when tags or a note are typed, with Cancel
+as the default. Choosing to leave doesn't clear the draft: it goes with the book only if the
+book is really left, so a save that then fails, and the writer's Cancel, loses nothing. The book window's first responder stays the page while the sheet is up, so
 `UndoStack` takes a `dialog` input: while one is attached, Undo acts only on a text field in
 it, never on what's behind.
 

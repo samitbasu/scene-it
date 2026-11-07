@@ -2,8 +2,8 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// The one main window (ADR 0038): the start state until the process has its book, then the
-/// book. Closing it is Quit.
+/// The one main window (ADR 0038): the start screen, or the open book. Closing it with a book
+/// open closes the book; closing the start screen quits.
 struct MainWindow: View {
     let books: BookController
 
@@ -21,18 +21,17 @@ struct MainWindow: View {
                     formatting: books.formatting
                 )
                 .id(book.instanceID)
-            case .ended:
-                Color.clear
             }
         }
         .frame(minWidth: WindowMetrics.minimumSize.width, minHeight: WindowMetrics.minimumSize.height)
-        .background(CloseButtonQuits(books: books))
+        .background(MainWindowCloseButton(books: books))
     }
 }
 
-/// Points the window's close button at Close Book, which quits (ADR 0038), so closing the
-/// window asks what Quit asks and Cancel leaves the window and its book open.
-struct CloseButtonQuits: NSViewRepresentable {
+/// Points the window's close button at `BookController.closeMainWindow` (ADR 0038): with a book
+/// open it closes the book, asking what Close Book asks, and the window stays for the start
+/// screen; on the start screen it quits.
+struct MainWindowCloseButton: NSViewRepresentable {
     let books: BookController
 
     func makeNSView(context: Context) -> Router {
@@ -68,7 +67,7 @@ struct CloseButtonQuits: NSViewRepresentable {
         }
 
         @objc private func closeClicked(_ sender: Any?) {
-            books.closeBook()
+            Task { await books.closeMainWindow() }
         }
     }
 }

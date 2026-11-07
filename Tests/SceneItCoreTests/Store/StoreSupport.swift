@@ -52,11 +52,11 @@ func makeStore(
     in folder: URL, prompts: ScriptedPrompts = ScriptedPrompts(),
     memory: TransientBookMemory = TransientBookMemory(),
     fileSystem: any FileSystem = LocalFileSystem(), clock: ManualClock = ManualClock(),
-    parseDefaults: ParseDefaults = .system, bookLost: @escaping @MainActor () -> Void = {}
+    parseDefaults: ParseDefaults = .system
 ) -> TestStore {
     BookStore(
         clock: clock, fileSystem: fileSystem, mirror: BackupMirror(root: folder.appending(path: "Mirror")),
-        memory: memory, prompts: prompts, parseDefaults: parseDefaults, bookLost: bookLost)
+        memory: memory, prompts: prompts, parseDefaults: parseDefaults)
 }
 
 /// A fresh directory under the system temporary directory, removed when `body` returns.
@@ -100,16 +100,5 @@ extension OpenBook {
 func createBook(_ name: String, in folder: URL, store: TestStore) async throws -> URL {
     let url = folder.appending(path: "\(name).sceneit", directoryHint: .isDirectory)
     try #require(await store.create(at: url) == .created)
-    return url
-}
-
-/// Creates `name.sceneit` in `folder` in a session of its own, then quits it, as a book made in
-/// an earlier launch: a store never opens a second book (ADR 0038).
-@MainActor
-@discardableResult
-func createClosedBook(_ name: String, in folder: URL) async throws -> URL {
-    let store = makeStore(in: folder)
-    let url = try await createBook(name, in: folder, store: store)
-    try #require(await store.prepareToQuit() == .left)
     return url
 }

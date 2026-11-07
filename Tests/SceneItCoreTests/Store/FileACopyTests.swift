@@ -68,8 +68,9 @@ struct FileACopyTests {
 
     @Test func aReadOnlyBookCantFileACopy() async throws {
         try await withTemporaryFolder { folder in
-            let url = try await createClosedBook("Novel", in: folder)
             let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
             let holder = try #require(try BookPackage.open(at: url).editable)
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
             #expect(await store.fileACopy(as: Self.record) == .unavailable)
@@ -197,6 +198,7 @@ struct FileACopyTests {
     }
 
     static let quitTitle = "Quit without filing the copy?"
+    static let closeTitle = "Close without filing the copy?"
 
     @Test func quittingWithTypedTextAsksAndCancelKeepsTheBookAndTheDialog() async throws {
         try await withTemporaryFolder { folder in
@@ -210,7 +212,7 @@ struct FileACopyTests {
 
             #expect(prompts.titles == [Self.quitTitle])
             #expect(prompts.labels == [["Cancel", "Quit Anyway"]], "Cancel first: the default")
-            let alert = ArchiveWording.unfiledDraftAlert(Self.typedDraft().record)
+            let alert = ArchiveWording.unfiledDraftAlert(Self.typedDraft().record, leaving: .quit)
             #expect(alert.message.hasPrefix("The tags and note you typed haven't been filed."))
             #expect(alert.message.contains("\u{201C}half typ\u{201D}"), "the tag being typed is quoted")
             #expect(alert.message.contains("\u{201C}Before the ending\u{201D}"))
@@ -233,9 +235,31 @@ struct FileACopyTests {
         }
     }
 
-    /// Choosing Quit Anyway loses the typed text only if the book is really left: when the quit
+    @Test(arguments: [UnfiledDraftChoice.cancel, .leaveAnyway])
+    func closingTheBookWithTypedTextAsksOnce(_ choice: UnfiledDraftChoice) async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([choice])
+            let store = makeStore(in: folder, prompts: prompts)
+            try await createBook("Novel", in: folder, store: store)
+            store.current?.filingDraft = Self.typedDraft()
+
+            let outcome = await store.closeBook()
+
+            #expect(prompts.titles == [Self.closeTitle])
+            #expect(prompts.labels == [["Cancel", "Close Anyway"]])
+            #expect(outcome == (choice == .cancel ? .stayed : .left))
+            #expect((store.current != nil) == (choice == .cancel))
+        }
+    }
+
+    /// Choosing "… Anyway" loses the typed text only if the book is really left: when the leave
     /// then stops (a save fails and the writer cancels), the dialog still holds it.
-    @Test func quitAnywayThenStayingKeepsTheTypedText() async throws {
+    enum LeavePath: CaseIterable {
+        case quit, close
+    }
+
+    @Test(arguments: LeavePath.allCases)
+    func leaveAnywayThenStayingKeepsTheTypedText(_ path: LeavePath) async throws {
         try await withTemporaryFolder { folder in
             let prompts = ScriptedPrompts([UnfiledDraftChoice.leaveAnyway, QuitAlertChoice.cancel])
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
@@ -247,7 +271,8 @@ struct FileACopyTests {
 
             book.write("Unsaved, and the save will fail")
             fileSystem.inject(.fail(.writeTemporary("book.md")))
-            #expect(await store.prepareToQuit() == .stayed)
+            let outcome = path == .quit ? await store.prepareToQuit() : await store.closeBook()
+            #expect(outcome == .stayed)
             #expect(prompts.titles.count == 2, "asked about the dialog, then about the failed save")
             fileSystem.clearFault()
 
@@ -266,14 +291,14 @@ struct FileACopyTests {
             (noteOnly, "The note you typed hasn't been filed."),
             (both, "The tags and note you typed haven't been filed."),
         ] {
-            let message = ArchiveWording.unfiledDraftAlert(record).message
+            let message = ArchiveWording.unfiledDraftAlert(record, leaving: .quit).message
             #expect(message == sentence + ArchiveWording.typed(record), "\(sentence)")
         }
         var halfTyped = FilingDraft(today: day)
         halfTyped.pendingTag = "half typ"
         #expect(halfTyped.holdsTypedText)
         #expect(
-            ArchiveWording.unfiledDraftAlert(halfTyped.record).message
+            ArchiveWording.unfiledDraftAlert(halfTyped.record, leaving: .closeBook).message
                 .hasPrefix("The tags you typed haven't been filed."), "a tag still being typed counts as tags"
         )
     }
@@ -289,6 +314,9 @@ struct FileACopyTests {
             #expect(!draft.holdsTypedText, "precondition: blanks and the date aren't typed text")
             store.current?.filingDraft = draft
 
+            #expect(await store.closeBook() == .left)
+            try await createBook("Again", in: folder, store: store)
+            store.current?.filingDraft = draft
             #expect(await store.prepareToQuit() == .left)
 
             #expect(prompts.titles.isEmpty)
@@ -299,8 +327,9 @@ struct FileACopyTests {
 
     @Test func openingReconcilesTheArchiveAndSavesTheIndex() async throws {
         try await withTemporaryFolder { folder in
-            let url = try await createClosedBook("Novel", in: folder)
             let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
             let layout = PackageLayout(root: url)
             try Data(contentsOf: layout.book).write(to: Self.filedCopy(4, in: url))
             try Data("---\nformat: 2\n---\n\n## save0002.md\nfiled: 2026-09-14\ntags: gone\n".utf8)
@@ -331,8 +360,9 @@ struct FileACopyTests {
 
     @Test func openingReadOnlyReconcilesWithoutWriting() async throws {
         try await withTemporaryFolder { folder in
-            let url = try await createClosedBook("Novel", in: folder)
             let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
             let layout = PackageLayout(root: url)
             try Data(contentsOf: layout.book).write(to: Self.filedCopy(1, in: url))
             let index = try Data(contentsOf: layout.archiveIndex)

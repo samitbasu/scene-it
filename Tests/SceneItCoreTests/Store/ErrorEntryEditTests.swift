@@ -72,7 +72,7 @@ struct ErrorEntryEditTests {
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
             #expect(try bookOnDisk(url).errorCount == 2)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -87,7 +87,7 @@ struct ErrorEntryEditTests {
             #expect(book.repairError(comment, as: comment.entry.payload) == .kept(.comment(.quoteMismatch)))
             #expect(book.book.errorCount == 2, "precondition: the fix changed nothing")
             #expect(book.errorsUndo.undoActionName == ErrorsWording.deleteUndoName)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -115,7 +115,7 @@ struct ErrorEntryEditTests {
             book.errorsUndo.undo()
             #expect(book.book == before)
             #expect(book.status == .unsaved)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -132,7 +132,7 @@ struct ErrorEntryEditTests {
             #expect(try bookOnDisk(url).scenes[0].errors.first == ErrorEntry(.comments, edited))
             #expect(
                 book.repairError(try ref(.line, in: book), as: "x") == .refused, "a [line] can't be repaired")
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -151,7 +151,7 @@ struct ErrorEntryEditTests {
             book.errorsUndo.undo()
             #expect(book.openScene == old)
             #expect(book.book.scenes[0].id == old)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -196,7 +196,7 @@ struct ErrorEntryEditTests {
             #expect(redone.errors == repaired.errors)
             #expect(redone.notes == [[Run("Typed after the repair.")]] && redone.title == "Retitled")
             expectRoundTrip(book.book)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -219,7 +219,7 @@ struct ErrorEntryEditTests {
             #expect(book.book.scenes[0].errors == errors.filter { $0 != entry.entry })
             #expect(book.book.scenes[0].title == "Retitled")
             expectRoundTrip(book.book)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -234,7 +234,7 @@ struct ErrorEntryEditTests {
             #expect(book.book.scenes[0].tags.isEmpty)
             #expect(book.book.scenes[0].title == "Retitled")
             #expect(book.book.scenes[0].errors.contains(ErrorEntry(.metadata, "mood: grim")))
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
@@ -257,7 +257,7 @@ struct ErrorEntryEditTests {
             store.saveNow()
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes[0].comments.count == 1)
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 }

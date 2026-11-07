@@ -271,7 +271,7 @@ extension FormattingBarTests {
             #expect(book.book.scene(scene)?.body == [[Run("Words.")]])
             box.mode = .page
             await eventually { view.isEditable }
-            #expect(await books.store.prepareToQuit() == .left)
+            #expect(await books.store.closeBook() == .left)
         }
     }
 }
@@ -384,7 +384,7 @@ extension BookStoreIntegrationTests {
 
             window.makeFirstResponder(nil)
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
-            #expect(await books.quitAndRelaunch() == .left)
+            #expect(await store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -411,7 +411,7 @@ extension BookStoreIntegrationTests {
         #expect(shared.isEmpty, "\(shared)")
     }
 
-    @Test func quittingWithThePageFocusedDisablesTheMenu() async throws {
+    @Test func closingTheBookWithThePageFocusedDisablesTheMenu() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             let store = books.store
@@ -430,11 +430,10 @@ extension BookStoreIntegrationTests {
             #expect(view.window?.makeFirstResponder(view) == true)
             view.selectAll(nil)
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == true }
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
             await eventually { page() == nil }
             #expect(books.formatting.selection == nil, "nothing to format once the book is closed")
             await eventually { FormattingCommand.toggle(.bold).menuItem?.isEnabled == false }
-            books.startOver()
         }
     }
 }

@@ -68,10 +68,9 @@ struct NotesEditTests {
     /// repaired (ADR 0024), the comment is kept, detached, with a notice, and the notes carry no id.
     @Test func aCommentInTheNotesOfTheFileOpensAsARepair() async throws {
         try await withTemporaryFolder { folder in
-            let creator = makeStore(in: folder)
-            let url = try await createBook("Novel", in: folder, store: creator)
-            #expect(await creator.prepareToQuit() == .left)
             let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
             let file = [
                 "---", "title: Novel", "format: 2", "---", "", "## One", "id: s1",
                 "modified: 2026-01-01T00:00:00+00:00", "", "Body.", "", "### Notes", "Check the tides.", "",
@@ -92,7 +91,7 @@ struct NotesEditTests {
                 scene.errors == [
                     RepairNotice.commentInTheNotes(c1, quotes: ["the tides"], left: .detached).entry
                 ])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(await store.closeBook() == .left)
         }
     }
 
