@@ -217,17 +217,32 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Gives `scene`'s comment `id` the text `text` (as `CharacterPolicy` admits it), as one
-    /// change. `false`, changing nothing, if the book is read-only or there's no such comment.
+    /// change from `original`, the text it had before any `draftText` since; from its text now
+    /// when that's `nil`. `false`, changing nothing, if the book is read-only or there's no such
+    /// comment.
     @discardableResult
-    public func setText(_ text: String, ofComment id: CommentID, in scene: SceneID) -> Bool {
-        change(id, in: scene, named: CommentWording.editUndoName) { $0.text = text }
+    public func setText(
+        _ text: String, ofComment id: CommentID, in scene: SceneID, since original: String? = nil
+    ) -> Bool {
+        change(
+            id, in: scene, named: CommentWording.editUndoName, to: .text(text),
+            from: original.map(CommentField.text))
+    }
+
+    /// Gives `scene`'s comment `id` the text being typed into its card, so autosave keeps it,
+    /// with no undo step: `setText(_:ofComment:in:since:)` registers one for the whole edit
+    /// when the card is done. `false`, changing nothing, if the book is read-only or there's no
+    /// such comment.
+    @discardableResult
+    public func draftText(_ text: String, ofComment id: CommentID, in scene: SceneID) -> Bool {
+        change(id, in: scene, named: nil, to: .text(text))
     }
 
     /// Gives `scene`'s comment `id` the color `color`, as one change. `false`, changing
     /// nothing, if the book is read-only or there's no such comment.
     @discardableResult
     public func recolor(_ id: CommentID, in scene: SceneID, to color: PaletteColor) -> Bool {
-        change(id, in: scene, named: CommentWording.recolorUndoName) { $0.color = color }
+        change(id, in: scene, named: CommentWording.recolorUndoName, to: .color(color))
     }
 
     /// Dismisses `scene`'s comment `id` (PLAN §8.1): it's removed from the scene, and undoing
@@ -281,23 +296,31 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         driver.send(.edited)
     }
 
-    /// Changes `scene`'s comment `id` by `change`, registering the change back.
+    /// Gives `scene`'s comment `id` the field `new`, and registers under `name` the change of
+    /// that field alone back to `original`, or to what it is now; with no `name`, registers
+    /// nothing. An inverse changes only its own field, so undoing an edit of the text never
+    /// takes back a recolor made during it, nor the other way round.
     private func change(
-        _ id: CommentID, in scene: SceneID, named name: String, _ change: (inout Comment) -> Void
+        _ id: CommentID, in scene: SceneID, named name: String?, to new: CommentField,
+        from original: CommentField? = nil
     ) -> Bool {
         guard let driver = editingDriver, let place = place(of: scene),
             let index = book[keyPath: place.list][place.index].comments.firstIndex(where: { $0.id == id })
         else { return false }
-        let old = book[keyPath: place.list][place.index].comments[index]
-        var new = old
-        change(&new)
-        guard new != old else { return true }
-        book[keyPath: place.list][place.index].comments[index] = new
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
-            _ = $0.change(id, in: scene, named: name) { $0 = old }
+        let current = book[keyPath: place.list][place.index].comments[index]
+        let old = original ?? current[new]
+        var changed = current
+        changed[new] = new
+        if changed != current {
+            book[keyPath: place.list][place.index].comments[index] = changed
+            book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+            driver.send(.edited)
         }
-        driver.send(.edited)
+        if let name, old != changed[new] {
+            registerCommentUndo(in: scene, named: name) {
+                _ = $0.change(id, in: scene, named: name, to: old)
+            }
+        }
         return true
     }
 
@@ -707,4 +730,28 @@ extension Notification.Name {
     /// Posted by `OpenBook.select(_:)` just before another scene opens, with the book as its
     /// object.
     public static let openBookWillSwitchScene = Notification.Name("OpenBookWillSwitchScene")
+}
+
+/// One field of a comment the writer can change, with its value.
+private enum CommentField: Equatable {
+    case text(String)
+    case color(PaletteColor)
+}
+
+extension Comment {
+    /// The field of the same kind as `field`, as this comment has it; set, `field`'s value.
+    fileprivate subscript(field: CommentField) -> CommentField {
+        get {
+            switch field {
+            case .text: .text(text)
+            case .color: .color(color)
+            }
+        }
+        set {
+            switch newValue {
+            case .text(let text): self.text = text
+            case .color(let color): self.color = color
+            }
+        }
+    }
 }

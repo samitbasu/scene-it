@@ -16,6 +16,19 @@ public enum PaletteColor: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+extension PaletteColor {
+    /// The color `name` means, in any ASCII case; `grey` is `gray`. `book.md` (§4.4) and the
+    /// comments panel's search (PLAN §8.1) both read names through this.
+    public init?(named name: some Sequence<UInt8>) {
+        let lowered = String(decoding: Lexical.lowercased(name), as: UTF8.self)
+        self.init(rawValue: lowered == "grey" ? "gray" : lowered)
+    }
+
+    public init?(named name: String) {
+        self.init(named: name.utf8)
+    }
+}
+
 /// A run's text color. There is no `black`: a run without a color is black
 /// (decision 0013).
 public enum TextColor: String, CaseIterable, Hashable, Sendable {

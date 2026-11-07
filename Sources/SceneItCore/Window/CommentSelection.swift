@@ -8,19 +8,48 @@ public final class CommentSelection {
     public struct Selected: Hashable, Sendable {
         public let scene: SceneID
         public let comment: CommentID
+        public fileprivate(set) var card: Card
+    }
+
+    /// Where the selected comment's card stands with the keyboard focus.
+    public enum Card: Hashable, Sendable {
+        /// Shown selected.
+        case shown
+        /// To take the keyboard focus when the panel next shows it: a comment just made, or a
+        /// card clicked (PLAN §8.1: the new card opens with the cursor in it).
+        case opening
     }
 
     public private(set) var selected: Selected?
 
     public init() {}
 
+    /// Selects `comment` and asks its card to take the keyboard focus.
+    public func open(_ comment: CommentID, in scene: SceneID) {
+        selected = Selected(scene: scene, comment: comment, card: .opening)
+    }
+
+    /// Whether `comment`'s card is to take the keyboard focus.
+    public func isOpening(_ comment: CommentID, in scene: SceneID) -> Bool {
+        selected == Selected(scene: scene, comment: comment, card: .opening)
+    }
+
+    /// Whether `comment`'s card should take the focus now; asked once, it's answered once.
+    public func takeOpening(_ comment: CommentID, in scene: SceneID) -> Bool {
+        guard isOpening(comment, in: scene) else { return false }
+        selected?.card = .shown
+        return true
+    }
+
     /// The selected comment, if it's `scene`'s.
     public func comment(in scene: SceneID) -> CommentID? {
         selected?.scene == scene ? selected?.comment : nil
     }
 
+    /// Selects `comment`, its card shown selected; a card already opening for it stays so.
     public func select(_ comment: CommentID, in scene: SceneID) {
-        selected = Selected(scene: scene, comment: comment)
+        guard self.comment(in: scene) != comment else { return }
+        selected = Selected(scene: scene, comment: comment, card: .shown)
     }
 
     public func deselect() {

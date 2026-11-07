@@ -60,6 +60,11 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         self.errors = errors
     }
 
+    /// The scene's comment `id`, if it has it.
+    public func comment(_ id: CommentID) -> Comment? {
+        comments.first { $0.id == id }
+    }
+
     /// Whether no run in the body carries the comment.
     public func isDetached(_ comment: CommentID) -> Bool {
         !Paragraph.commentIDs(in: body).contains(comment)

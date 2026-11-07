@@ -80,9 +80,8 @@ final class SceneTextEditor: NSObject {
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
         guard let view = textView else { return }
-        if let page = view as? ManuscriptTextView {
-            let comments = book.book.scene(scene)?.comments ?? []
-            page.commentPalette = CommentPalette(comments)
+        if view is ManuscriptTextView {
+            let comments = showComments(of: scene)
             self.comments.forget(allBut: Set(comments.map(\.id)), in: scene)
         }
         let text = modelText(of: scene) ?? []
@@ -101,6 +100,14 @@ final class SceneTextEditor: NSObject {
         if let range = pendingReveal.take(showing: scene) {
             select(range, in: view)
         }
+    }
+
+    /// Underlines `scene`'s comments on the page as the model has them; returns them.
+    @discardableResult
+    private func showComments(of scene: SceneID) -> [Comment] {
+        let comments = book.book.scene(scene)?.comments ?? []
+        (textView as? ManuscriptTextView)?.commentPalette = CommentPalette(comments)
+        return comments
     }
 
     /// Selects `range` of `scene`'s text, scrolled into view and with the focus, when the view
@@ -357,6 +364,27 @@ final class SceneTextEditor: NSObject {
         return book.setText(text, ofComment: id, in: commenting.scene)
     }
 
+    /// Selects the text the open scene's comment `id` covers on the page, and scrolls its start
+    /// into view, leaving the focus where it is (PLAN §8.1: clicking a card).
+    func selectText(ofComment id: CommentID) {
+        guard part == .body, let view = textView, let storage = view.textStorage else { return }
+        let ranges = storage.ranges(commentedBy: id)
+        guard let first = ranges.first else { return }
+        view.selectedRanges = ranges.map(NSValue.init(range:))
+        view.scrollRangeToVisible(first)
+    }
+
+    /// New Comment from the panel's + button, the page's floating button or the Edit menu: the
+    /// comment (`newComment()`), with its card open in the Comments tab and the cursor in it
+    /// (PLAN §8.1).
+    @discardableResult
+    func newCommentInItsCard() -> CommentID? {
+        guard let scene, let id = newComment() else { return nil }
+        comments.open(id, in: scene)
+        preferences.reveal(.comments)
+        return id
+    }
+
     /// Recolors the open scene's comment `id`, as one change on the page's undo; the color
     /// becomes the next new comment's.
     @discardableResult
@@ -365,6 +393,8 @@ final class SceneTextEditor: NSObject {
         commenting.view.breakUndoCoalescing()
         guard book.recolor(id, in: commenting.scene, to: color) else { return false }
         preferences.rememberCommentColor(color)
+        // In this turn: SwiftUI updates the page on a later pass (the owner's bug A, #25).
+        showComments(of: commenting.scene)
         return true
     }
 
@@ -400,6 +430,7 @@ final class SceneTextEditor: NSObject {
     /// Shows the formats of the selection, or none while the text view can't be formatted.
     func showFormatting() {
         formatting.show(formattingSelection, commenting: commentTarget, from: self)
+        (textView as? ManuscriptTextView)?.placeCommentButton()
     }
 
     // MARK: Pasteboard (decision 0017)

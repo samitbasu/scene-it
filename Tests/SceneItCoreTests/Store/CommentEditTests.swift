@@ -99,6 +99,63 @@ struct CommentEditTests {
         }
     }
 
+    /// A card's typing (#25): each draft reaches the model, to be saved, with no undo step; the
+    /// edit then registers one step from the text it began with.
+    @Test func draftsKeepTheTypingAndTheEditIsOneStepFromTheOriginal() async throws {
+        try await withComments { book, scene in
+            let undo = book.pageUndo(for: scene)
+            for text in ["Too early?!", "Too early?! Or", "Too early?! Or late?"] {
+                #expect(book.draftText(text, ofComment: noted, in: scene))
+            }
+            #expect(book.book.scene(scene)?.comments.first?.text == "Too early?! Or late?")
+            #expect(book.hasUnsavedEdits)
+            #expect(!undo.canUndo, "drafts register nothing")
+            step(book, scene) {
+                #expect(
+                    book.setText("Too early?! Or late?", ofComment: noted, in: scene, since: "Too early?"))
+            }
+            #expect(undo.undoActionName == CommentWording.editUndoName)
+            undo.undo()
+            #expect(book.book.scene(scene)?.comments.first?.text == "Too early?")
+            #expect(!undo.canUndo, "one step for the whole edit")
+            undo.redo()
+            #expect(book.book.scene(scene)?.comments.first?.text == "Too early?! Or late?")
+        }
+    }
+
+    /// The review's case (#25): type, recolor, type, commit, then undo twice. Each inverse
+    /// restores its own field alone, so the original text and color both come back, and the
+    /// half-typed draft never does.
+    @Test func undoingAnEditAndARecolorDuringItRestoresTheOriginal() async throws {
+        try await withComments { book, scene in
+            let undo = book.pageUndo(for: scene)
+            #expect(book.draftText("Too early? Or", ofComment: noted, in: scene))
+            step(book, scene) { #expect(book.recolor(noted, in: scene, to: .green)) }
+            #expect(book.draftText("Too early? Or late?", ofComment: noted, in: scene))
+            step(book, scene) {
+                #expect(book.setText("Too early? Or late?", ofComment: noted, in: scene, since: "Too early?"))
+            }
+            undo.undo()
+            #expect(book.book.scene(scene)?.comment(noted)?.text == "Too early?")
+            #expect(
+                book.book.scene(scene)?.comment(noted)?.color == .green, "the edit's undo leaves the color")
+            undo.undo()
+            #expect(book.book.scene(scene)?.comment(noted) == comment(noted, "Too early?", .purple))
+            undo.redo()
+            undo.redo()
+            #expect(book.book.scene(scene)?.comment(noted) == comment(noted, "Too early? Or late?", .green))
+        }
+    }
+
+    @Test func anEditThatEndsWhereItBeganRegistersNothing() async throws {
+        try await withComments { book, scene in
+            #expect(book.draftText("Too", ofComment: noted, in: scene))
+            #expect(book.setText("Too early?", ofComment: noted, in: scene, since: "Too early?"))
+            #expect(book.book.scene(scene)?.comments.first?.text == "Too early?")
+            #expect(!book.pageUndo(for: scene).canUndo)
+        }
+    }
+
     @Test func anUnchangedTextOrColorRegistersNothing() async throws {
         try await withComments { book, scene in
             #expect(book.setText("Too early?", ofComment: noted, in: scene))
@@ -175,6 +232,7 @@ struct CommentEditTests {
             let before = book.book
             #expect(book.newComment(in: held.id, colored: .red) == nil)
             #expect(!book.setText("No", ofComment: noted, in: held.id))
+            #expect(!book.draftText("No", ofComment: noted, in: held.id))
             #expect(!book.recolor(noted, in: held.id, to: .red))
             #expect(!book.dismiss(loose, in: held.id))
             #expect(!book.removeComments([loose], from: held.id))

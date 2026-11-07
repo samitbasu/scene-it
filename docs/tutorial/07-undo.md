@@ -77,6 +77,36 @@ inverse on the same page history. Within one group:
 
 `removeComments` puts a comment back at its old index, so the panel's order survives an undo.
 
+**A comment's text: a draft, then one step** (#25). A card in the comments panel
+([chapter 07a](07a-the-comments-panel.md)) puts every keystroke into the model at once, so autosave
+has it, but with no undo step: `OpenBook.draftText` changes the comment and registers nothing.
+While the card has the focus, its own `UndoManager` undoes the typing. When the card loses the
+focus, the whole edit becomes one step on the page's history, back to the text the edit began
+with:
+
+```swift
+            target.editors.page.textView.breakUndoCoalescing()
+            target.book.setText(view.string, ofComment: target.comment, in: target.scene, since: original)
+```
+
+The step's inverse can't be "put the comment back as it was": the comment *as it was* holds
+whatever else changed meanwhile, such as a recolor from the card's ⋯ menu mid-edit, and undoing
+the edit would undo that too, or bring back a half-typed draft. So each inverse restores **its
+own field alone**. A `CommentField` names the field and its value, and `change` registers the
+change of that field back to its old value:
+
+```swift
+        let current = book[keyPath: place.list][place.index].comments[index]
+        let old = original ?? current[new]
+        var changed = current
+        changed[new] = new
+```
+
+`current[new]` reads the field of the same kind as `new` (a subscript on `Comment` keyed by a
+`CommentField`), and assigning through it sets only that field. In Rust you'd write the same
+with an enum and a `match` in a pair of methods; Swift lets a subscript take the enum and have
+both a getter and a setter, so the call sites read like indexing.
+
 Edit → New Comment is enabled only when there's a selection a comment can cover (ADR 0037). A
 SwiftUI menu item re-evaluates `.disabled(...)` only when observed state changes, so the page
 computes that on each selection change and hands it to `EditorFormatting` with the selection's
