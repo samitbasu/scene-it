@@ -98,7 +98,7 @@ struct DeleteFromBoneyardTests {
             #expect(!saved.contains("# Boneyard"))
             #expect(saved.hasSuffix(String(Self.deletedBlock.dropFirst("# Deleted\n\n".count))))
             #expect(saved.contains("# Deleted\n\n## The brother\nid: brother\n"))
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -121,7 +121,7 @@ struct DeleteFromBoneyardTests {
             store.saveNow()
             await eventually { book.status == .saved }
             #expect(try Data(contentsOf: url.layout.book) == Data(Self.text.utf8))
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -132,7 +132,7 @@ struct DeleteFromBoneyardTests {
             try #require(book.openScene == ferry, "precondition: the story's first scene is open")
             #expect(book.deleteFromBoneyard(Self.brother))
             #expect(book.openScene == ferry)
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -160,7 +160,7 @@ struct DeleteFromBoneyardTests {
             #expect(book.book.deleted.first?.id == Self.brother, "the Fix's own undo puts the old id back")
             book.structureUndo.undo()
             #expect(book.book.boneyard.map(\.id) == [Self.brother])
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -178,7 +178,7 @@ struct DeleteFromBoneyardTests {
                 book.book.boneyard.contains { $0.id == Self.brother }, "precondition: the scene is there")
             #expect(!book.deleteFromBoneyard(Self.brother))
             #expect(book.book.boneyard.contains { $0.id == Self.brother })
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 }

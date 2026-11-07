@@ -203,6 +203,15 @@ enum MenuStandIn {
     static let checkColumn: CGFloat = 22
     static let trailingInset: CGFloat = 14
 
+    /// "⌃⌥⇧⌘", in the order macOS shows them.
+    static func modifiers(_ mask: NSEvent.ModifierFlags) -> String {
+        [
+            (NSEvent.ModifierFlags.control, "\u{2303}"), (.option, "\u{2325}"), (.shift, "\u{21E7}"),
+            (.command, "\u{2318}"),
+        ]
+        .filter { mask.contains($0.0) }.map(\.1).joined()
+    }
+
     static func draw(_ menu: NSMenu, in rect: NSRect) {
         let chrome = NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9)
         NSGraphicsContext.saveGraphicsState()
@@ -248,7 +257,8 @@ enum MenuStandIn {
             }
             if !item.keyEquivalent.isEmpty {
                 let key = NSAttributedString(
-                    string: item.keyEquivalent == "\u{8}" ? "\u{232B}" : item.keyEquivalent.uppercased(),
+                    string: modifiers(item.keyEquivalentModifierMask)
+                        + (item.keyEquivalent == "\u{8}" ? "\u{232B}" : item.keyEquivalent.uppercased()),
                     attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
                 key.draw(
                     at: NSPoint(

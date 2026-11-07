@@ -114,8 +114,7 @@ func withPage(
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
         } else {
             holder = nil
-            #expect(await store.create(at: url) == .created)
-            #expect(await store.closeBook() == .left)
+            _ = try BookPackage.create(at: url, title: "Novel")
             try BookFormat.serialize(Book(title: "Novel", scenes: scenes, boneyard: boneyard)).write(
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
@@ -151,7 +150,7 @@ func withPage(
             formatting: books.formatting, preferences: books.preferences, modes: modes, search: search)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
-        #expect(await store.closeBook() == .left)
+        #expect(await books.quitAndRelaunch() == .left)
         withExtendedLifetime(holder) {}
     }
 }

@@ -2,7 +2,7 @@ import AppKit
 import SceneItCore
 
 /// Answers the store's questions with app-modal `NSAlert`s. App-modal rather than a sheet,
-/// because a question can arrive when the main window is closed.
+/// because a question can arrive with the main window minimized or behind another app's.
 final class AlertPrompts: StorePrompts {
     func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
         let index = Self.runAlert(
@@ -16,14 +16,19 @@ final class AlertPrompts: StorePrompts {
 
     /// The index of the button chosen; with no buttons, AppKit's own OK.
     private static func runAlert(title: String, message: String, buttons: [String]) -> Int {
+        let response = alert(title: title, message: message, buttons: buttons).runModal()
+        return response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+    }
+
+    /// The alert as the writer sees it; the renders draw this one too.
+    static func alert(title: String, message: String, buttons: [String]) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         for label in buttons {
             alert.addButton(withTitle: label)
         }
-        let response = alert.runModal()
-        return response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return alert
     }
 }
 

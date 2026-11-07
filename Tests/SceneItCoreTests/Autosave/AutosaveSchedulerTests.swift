@@ -290,10 +290,10 @@ func anExternalChangePausesAutosaveUntilResolved(error: SaveError, keepingMine: 
 }
 
 @Test func quitWordingOffersNoRetryWhilePausedAndNeverDefaultsToQuitting() {
-    let failed = QuitWording.alert(for: .saveFailed(diskFull), leaving: .quit)
+    let failed = QuitWording.alert(for: .saveFailed(diskFull))
     #expect(failed.choices == [.retry, .cancel, .quitAnyway])
     #expect(failed.message.hasPrefix("The disk is full."))
-    let paused = QuitWording.alert(for: .changedOnDisk(changedOnDisk), leaving: .quit)
+    let paused = QuitWording.alert(for: .changedOnDisk(changedOnDisk))
     #expect(paused.choices == [.cancel, .quitAnyway])
     for alert in [failed, paused] {
         #expect(alert.choices.first != .quitAnyway)

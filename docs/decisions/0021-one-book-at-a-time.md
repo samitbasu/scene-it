@@ -1,6 +1,6 @@
 # 0021 — One book open at a time
 
-**Status:** Accepted (2026-11-02). Settles a question PLAN §3 left open.
+**Status:** Accepted (2026-11-02). Settles a question PLAN §3 left open. **Partly superseded by [0038](0038-one-book-per-process.md)** (2026-11-06): a process now has one book for its whole life, so nothing below about opening, creating or receiving another book while one is open, or about returning to the start state after a close, applies; Close Book quits.
 
 Scene It has a single main window and one `BookStore`, holding at most one open book.
 Opening, creating, or receiving a forwarded book (ADR 0020 handoff) first **saves and closes**

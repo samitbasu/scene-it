@@ -305,6 +305,14 @@ can't be captured, so the ⋯ menu is the card's real menu, at its real size and
 state are the menu's own; the chrome, row heights and insets approximate macOS 26's. To render
 only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 
+`oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders the wording candidates into a
+`close-quits/` subfolder, at 1× and 2×: the File menu in the start state (`file-menu-start-state`) and with a
+book open, once per Close Book label (`file-menu-book-open-close-book`,
+`file-menu-book-open-close-book-and-quit`), each a `MenuStandIn` drawing of the real File menu under a
+stand-in menu bar; and the refusal alert, the app's own `NSAlert`, in each wording (`refusal-<candidate>`).
+It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to render only these, use
+`-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

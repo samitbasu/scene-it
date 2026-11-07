@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The one open book (ADR 0021): the in-memory `Book`, and, when it's editable, the autosave
+/// The process's one book (ADR 0038): the in-memory `Book`, and, when it's editable, the autosave
 /// driver and the writer that saves it. Views read it; every change goes through its methods,
 /// which tell autosave in the same main-actor turn.
 ///
@@ -645,12 +645,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
-    /// Before the writer leaves the book: if File a Copy's dialog holds typed text, asks whether
+    /// Before the writer quits: if File a Copy's dialog holds typed text, asks whether
     /// to leave it unfiled. The draft stays as it is either way; it goes with the book only if
-    /// the book really is left, so a leave that fails later (a save, the next book) loses nothing.
-    func confirmLeaving(_ leaving: Leaving, asking prompts: any StorePrompts) async -> LeaveConfirmation {
+    /// the book really is left, so a quit that fails later (a save) loses nothing.
+    func confirmLeaving(asking prompts: any StorePrompts) async -> LeaveConfirmation {
         guard let draft = filingDraft, draft.holdsTypedText else { return .leave }
-        switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record, leaving: leaving)) {
+        switch await prompts.ask(ArchiveWording.unfiledDraftAlert(draft.record)) {
         case .cancel: return .stay
         case .leaveAnyway: return .leave
         }
@@ -661,8 +661,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         case stay
     }
 
-    /// Saves before the writer leaves the book, asking whenever that would lose edits.
-    func settle(before leaving: Leaving, asking prompts: any StorePrompts) async -> Settled {
+    /// Saves before the writer quits, asking whenever that would lose edits.
+    func settle(asking prompts: any StorePrompts) async -> Settled {
         guard let driver = autosave else { return .saved }
         while true {
             let verdict: QuitVerdict
@@ -675,7 +675,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             case .terminate:
                 if driver.state.quitDecision == .settled(.terminate) { return .saved }
             case .askWriter(let problem):
-                switch await prompts.ask(QuitWording.alert(for: problem, leaving: leaving)) {
+                switch await prompts.ask(QuitWording.alert(for: problem)) {
                 case .retry, .wait: continue
                 case .quitAnyway: return .discarding
                 case .cancel: return .stay

@@ -1,6 +1,6 @@
 # 0020 — One app instance, one writer per book
 
-**Status:** Accepted (2026-11-01). Supersedes the "lock against a 2nd writer: not chosen" note in [0005](0005-backups.md).
+**Status:** Accepted (2026-11-01). Supersedes the "lock against a 2nd writer: not chosen" note in [0005](0005-backups.md). **Amended by [0038](0038-one-book-per-process.md)** (2026-11-06): a forwarded book is opened only if the running instance has no book yet; otherwise the instance comes forward and says the open book must be closed first (nothing, if it is the open book).
 
 ## Decision
 Two locks, both kernel-released `flock(2)` locks on open files, so a crash or power loss can never

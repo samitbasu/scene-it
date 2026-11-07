@@ -5,7 +5,7 @@ import SwiftUI
 struct SceneItApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// One window, holding at most one book (ADR 0021).
+    /// One window, holding the process's one book (ADR 0038).
     var body: some Scene {
         Window(StoreWording.windowTitle, id: "main") {
             MainWindow(books: .shared)

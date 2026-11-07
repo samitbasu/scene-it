@@ -64,18 +64,16 @@ public enum ArchiveWording {
 
     private static let couldntFile = "Scene It couldn't file a copy."
 
-    /// Asked before quitting or closing the book while the dialog holds typed text. Cancel is
-    /// first, so it's the default (Return); its label also answers Escape.
-    public static func unfiledDraftAlert(_ record: FilingRecord, leaving: Leaving) -> UnfiledDraftAlert {
-        let (verb, anyway) =
-            switch leaving {
-            case .quit: ("Quit", "Quit Anyway")
-            case .closeBook: ("Close", "Close Anyway")
-            }
-        return UnfiledDraftAlert(
-            title: "\(verb) without filing the copy?",
+    /// Asked before quitting while the dialog holds typed text. Cancel is first, so it's the
+    /// default (Return); its label also answers Escape.
+    public static func unfiledDraftAlert(_ record: FilingRecord) -> UnfiledDraftAlert {
+        UnfiledDraftAlert(
+            title: "Quit without filing the copy?",
             message: unfiled(record) + typed(record),
-            buttons: [.init(choice: .cancel, label: cancel), .init(choice: .leaveAnyway, label: anyway)])
+            buttons: [
+                .init(choice: .cancel, label: cancel),
+                .init(choice: .leaveAnyway, label: QuitWording.label(.quitAnyway)),
+            ])
     }
 
     /// What wasn't filed, as the writer typed it: tags (a tag still being typed counts), a

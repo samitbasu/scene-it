@@ -175,12 +175,11 @@ struct WindowRenders {
             let books = BookController(role: .testHost)
             let store = books.store
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
-            #expect(await store.create(at: url) == .created)
-            #expect(await store.closeBook() == .left)
+            _ = try BookPackage.create(at: url, title: "My Novel")
             try bytes.write(to: url.appending(path: "book.md"), options: .atomic)
             _ = await store.open(url)
             try await body(store, try #require(store.current), books.preferences)
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -217,14 +216,13 @@ struct WindowRenders {
             let books = BookController(role: .testHost)
             let store = books.store
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
-            #expect(await store.create(at: url) == .created)
-            #expect(await store.closeBook() == .left)
+            _ = try BookPackage.create(at: url, title: "My Novel")
             try BookFormat.serialize(sample).write(
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
             let book = try #require(store.current)
             try await body(store, book, books.preferences)
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 
@@ -234,7 +232,7 @@ struct WindowRenders {
             for name in ["The Lighthouse", "My Novel"] {
                 let url = folder.appending(path: "\(name).sceneit", directoryHint: .isDirectory)
                 #expect(await books.store.create(at: url) == .created)
-                #expect(await books.store.closeBook() == .left)
+                #expect(await books.quitAndRelaunch() == .left)
             }
             try await body(books)
         }

@@ -7,7 +7,7 @@ import SwiftUI
 /// title field has the focus (decision 0015), under a sheet, or in a read-only book. So at most
 /// one bar is active, the one beside that editor, and the menu acts on the same editor.
 ///
-/// One per window (ADR 0021), so the menu finds the editor without asking which window is key.
+/// One per window (ADR 0038), so the menu finds the editor without asking which window is key.
 @Observable
 final class EditorFormatting {
     let preferences: AppPreferences

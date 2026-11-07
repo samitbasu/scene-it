@@ -6,6 +6,16 @@ import Testing
 
 @testable import SceneIt
 
+/// Chooses Open Other Version when a save finds another program's version, and the default
+/// button anywhere else.
+private final class OpenOtherVersionPrompts: StorePrompts {
+    func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        alert.choices.first { ($0 as? ExternalChangeChoice) == .openOtherVersion } ?? alert.choices[0]
+    }
+
+    func tell(_ notice: Notice) async {}
+}
+
 /// Runs `body` from the run loop, as an event's handling runs, never inside a Swift task (see
 /// `PageFuzzTests`).
 @MainActor
@@ -171,21 +181,22 @@ struct EditorLifetimeTests {
         }
     }
 
-    /// Opening the same package again (as Open Anyway or Open Other Version do) makes a new
+    /// Reading the same package again (as Open Anyway or Open Other Version do) makes a new
     /// `OpenBook` at the same root, swapped in by the store in one turn, with the window still
     /// up: the window, with its editors and undo router, is made anew for it, so typing reaches
     /// the book that's open, not the one it replaced. (Keyed on the package root, the window
     /// kept its editors, bound to the old book, and this test fails.)
-    @Test func reopeningTheSameBookGivesTheWindowNewEditorsForTheNewBook() async throws {
+    @Test func readingTheBookAgainGivesTheWindowNewEditorsForTheNewBook() async throws {
         try await withTemporaryFolder { folder in
-            let url = folder.appending(path: "Held.sceneit", directoryHint: .isDirectory)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             let kept = scene("Kept", [[Run("Start.")]])
-            var holder: EditableBook? = try BookPackage.create(at: url, title: "Held")
-            _ = try holder?.package.save(Book(title: "Held", scenes: [kept]))
-            let books = BookController(role: .testHost)
+            _ = try BookPackage.create(at: url, title: "Novel")
+            try BookFormat.serialize(Book(title: "Novel", scenes: [kept])).write(
+                to: url.appending(path: "book.md"), options: .atomic)
+            let books = BookController(role: .testHost, prompts: OpenOtherVersionPrompts())
             let store = books.store
-            #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
-            let readOnly = try #require(store.current)
+            #expect(await store.open(url) == .opened)
+            let first = try #require(store.current)
 
             let size = WindowMetrics.defaultSize
             let controller = NSHostingController(rootView: MainWindow(books: books))
@@ -203,15 +214,19 @@ struct EditorLifetimeTests {
             }
             await eventually { page()?.string == "Start." }
             let before = try #require(page())
-            #expect(before.editor?.book === readOnly)
-            #expect(!before.isEditable, "precondition: read-only")
+            #expect(before.editor?.book === first)
 
-            holder = nil
-            #expect(await store.open(url) == .opened)
-            let editable = try #require(store.current)
-            #expect(editable !== readOnly, "precondition: a new OpenBook")
-            #expect(editable.layout.root == readOnly.layout.root, "precondition: at the same root")
-            await eventually { page().map { $0.editor?.book === editable && $0.isEditable } == true }
+            var theirs = kept
+            theirs.body = [[Run("Theirs.")]]
+            try BookFormat.serialize(Book(title: "Novel", scenes: [theirs])).write(
+                to: url.appending(path: "book.md"), options: .atomic)
+            first.replaceBody(of: kept.id, with: [[Run("Mine.")]])
+            store.saveNow()
+            await eventually { store.current !== first && store.current != nil }
+            let second = try #require(store.current)
+            #expect(second.layout.root.canonicalPath == url.canonicalPath, "precondition: at the same root")
+            #expect(second.isEditable, "precondition: editable")
+            await eventually { page().map { $0.editor?.book === second && $0.string == "Theirs." } == true }
             let after = try #require(page())
             #expect(after !== before, "a new window's editors")
             #expect(before.window == nil, "the old book's page left with its window")
@@ -219,14 +234,14 @@ struct EditorLifetimeTests {
 
             await inATurn {
                 window.makeFirstResponder(after)
-                after.setSelectedRange(NSRange(location: 6, length: 0))
+                after.setSelectedRange(NSRange(location: 7, length: 0))
                 after.insertText(" More.", replacementRange: after.selectedRange())
             }
-            #expect(editable.book.scene(kept.id)?.body == [[Run("Start. More.")]])
-            #expect(readOnly.book.scene(kept.id)?.body == [[Run("Start.")]])
-            await eventually { editable.status == .saved }
-            #expect(try bookOnDisk(url).scenes.first?.body == [[Run("Start. More.")]])
-            #expect(await store.closeBook() == .left)
+            #expect(second.book.scene(kept.id)?.body == [[Run("Theirs. More.")]])
+            #expect(first.book.scene(kept.id)?.body == [[Run("Mine.")]])
+            await eventually { second.status == .saved }
+            #expect(try bookOnDisk(url).scenes.first?.body == [[Run("Theirs. More.")]])
+            #expect(await store.prepareToQuit() == .left)
         }
     }
 

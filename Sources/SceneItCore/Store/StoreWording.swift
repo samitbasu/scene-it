@@ -87,7 +87,7 @@ public enum StoreWording {
                 + "can't be read.")
     }
 
-    /// Books asked for together, beyond the one opened (ADR 0021).
+    /// Books asked for together at launch, beyond the one opened (ADR 0038).
     public static func oneBookAtATime(open: URL?, addedToRecents others: [URL]) -> Notice {
         let opened = open.map { "“\(bookName($0))” is open. " } ?? ""
         return Notice(

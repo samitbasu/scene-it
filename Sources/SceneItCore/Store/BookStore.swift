@@ -1,16 +1,37 @@
 import Foundation
 import Observation
 
-/// Holds at most one open book (ADR 0021) and does everything that opens, creates, switches,
-/// saves or closes it, asking the writer through `StorePrompts` where a choice is needed.
+/// Holds this process's one book (ADR 0038) and does everything that opens, creates, saves or
+/// closes it, asking the writer through `StorePrompts` where a choice is needed.
 ///
 /// Its operations run one at a time: a second request (a book forwarded by another launch
 /// while an alert is up, say) waits for the first to finish.
 @MainActor
 @Observable
 public final class BookStore<C: Clock<Duration>> {
-    public private(set) var current: OpenBook<C>?
+    public private(set) var session = Session.choosing
     public private(set) var recentBooks: [URL]
+
+    /// A process has one book for its whole life (ADR 0038), so the session only moves forward:
+    /// `choosing` to `open` to `ended`, or `choosing` straight to `ended`. Within `open`, the
+    /// book is replaced only by itself read again (Open Anyway, Open Other Version) or, when
+    /// its original can't be read, by the writer's own version of it (ADR 0018).
+    public enum Session {
+        /// Launched without a book: the start state, the only one a book can be opened from.
+        case choosing
+        case open(OpenBook<C>)
+        /// Quitting, or the book was lost (`bookLost`); nothing opens again.
+        case ended
+    }
+
+    public var current: OpenBook<C>? {
+        if case .open(let book) = session { book } else { nil }
+    }
+
+    /// New Book, Open Book and the start state's recent books are offered only here.
+    public var isChoosing: Bool {
+        if case .choosing = session { true } else { false }
+    }
 
     @ObservationIgnored private let clock: C
     @ObservationIgnored private let fileSystem: any FileSystem
@@ -19,6 +40,7 @@ public final class BookStore<C: Clock<Duration>> {
     @ObservationIgnored private let prompts: any StorePrompts
     @ObservationIgnored private let parseDefaults: ParseDefaults
     @ObservationIgnored private var operation = Operation.idle
+    @ObservationIgnored private let bookLost: @MainActor () -> Void
 
     private enum Operation {
         case idle
@@ -28,8 +50,10 @@ public final class BookStore<C: Clock<Duration>> {
 
     public init(
         clock: C, fileSystem: any FileSystem = LocalFileSystem(), mirror: BackupMirror,
-        memory: any BookMemory, prompts: any StorePrompts, parseDefaults: ParseDefaults = .system
+        memory: any BookMemory, prompts: any StorePrompts, parseDefaults: ParseDefaults = .system,
+        bookLost: @escaping @MainActor () -> Void = {}
     ) {
+        self.bookLost = bookLost
         self.clock = clock
         self.parseDefaults = parseDefaults
         self.fileSystem = fileSystem
@@ -42,46 +66,72 @@ public final class BookStore<C: Clock<Duration>> {
     public enum OpenOutcome: Hashable, Sendable {
         case opened
         case openedReadOnly(ReadOnlyReason)
-        /// It's the book already open for editing.
+        /// It's this process's book already.
         case alreadyOpen
         case failed(LoadError)
-        /// The writer chose to stay in the current book.
-        case stayed
+        /// The process has (or had) another book (ADR 0038). The writer was told, unless it's quitting.
+        case refused
     }
 
     public enum CreateOutcome: Hashable, Sendable {
         case created
         case failed(CreateError)
-        case stayed
+        /// The process has (or had) a book already (ADR 0038).
+        case refused
     }
 
     // MARK: Opening and creating
 
-    /// Opens `url`, first saving and closing the current book. A book that won't load, or the
-    /// writer choosing to stay, leaves the current book open and untouched.
+    /// Opens `url` as this process's book. Once there is one, any other is refused, and the
+    /// writer is told why (ADR 0038).
     @discardableResult
     public func open(_ url: URL) async -> OpenOutcome {
-        await exclusively { await openExclusively(url, onLockRecord: .respect) }
+        await exclusively {
+            if let refusal = await refusal(of: [url]) { return refusal }
+            return await load(url, onLockRecord: .respect, as: .first)
+        }
     }
 
-    /// Books Finder or another launch asked for together. One book is open at a time
-    /// (ADR 0021): the first is opened, and the rest go to Recent Books, which the writer is told.
-    public func open(_ books: [URL]) async {
-        guard let first = books.first else { return }
-        await exclusively {
-            let outcome = await openExclusively(first, onLockRecord: .respect)
+    /// Books Finder or another launch asked for together. A process has one book (ADR 0038):
+    /// the first is opened, and the rest go to Recent Books, which the writer is told.
+    @discardableResult
+    public func open(_ books: [URL]) async -> OpenOutcome? {
+        guard let first = books.first else { return nil }
+        return await exclusively {
+            if let refusal = await refusal(of: books) { return refusal }
+            let outcome = await load(first, onLockRecord: .respect, as: .first)
             let others = Array(books.dropFirst())
-            guard !others.isEmpty else { return }
+            guard !others.isEmpty else { return outcome }
             Log.store.info("asked to open several books; opened the first", ["count": .count(books.count)])
             let isOpen: Bool =
                 switch outcome {
                 case .opened, .openedReadOnly, .alreadyOpen: true
-                case .failed, .stayed: false
+                case .failed, .refused: false
                 }
             for book in others.reversed() { remember(book) }
             if isOpen { remember(first) }
             await prompts.tell(
                 StoreWording.oneBookAtATime(open: isOpen ? first : nil, addedToRecents: others))
+            return outcome
+        }
+    }
+
+    /// Nil while the process is still choosing its book. Asked again for its own book alone,
+    /// the store does nothing; asked for any other, it tells the writer why not.
+    private func refusal(of books: [URL]) async -> OpenOutcome? {
+        switch session {
+        case .choosing:
+            return nil
+        case .ended:
+            Log.store.info("asked to open books after the book closed", ["count": .count(books.count)])
+            return .refused
+        case .open(let book):
+            let own = book.layout.root.canonicalPath
+            let others = books.filter { $0.canonicalPath != own }
+            guard !others.isEmpty else { return .alreadyOpen }
+            Log.store.info("refused other books while one is open", ["count": .count(others.count)])
+            await prompts.tell(OneBookWording.refusal(of: others, whileOpen: book.layout.root))
+            return .refused
         }
     }
 
@@ -96,55 +146,56 @@ public final class BookStore<C: Clock<Duration>> {
         await open(last)
     }
 
+    /// Creates a book as this process's book; refused once there is one (ADR 0038).
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {
         await exclusively {
-            let switched = await switchBooks(to: url) { () async -> Result<LoadedBook, CreateError> in
-                do throws(CreateError) {
-                    let title = url.deletingPathExtension().lastPathComponent
-                    return .success(try await Self.create(url, title: title, fileSystem))
-                } catch {
-                    return .failure(error)
-                }
+            guard isChoosing else {
+                Log.store.error("asked to create a book after the process had one")
+                return .refused
             }
-            switch switched {
-            case .switched: return .created
-            case .stayed: return .stayed
-            case .failed(let error):
+            let loaded: LoadedBook
+            do throws(CreateError) {
+                loaded = try await Self.create(
+                    url, title: url.deletingPathExtension().lastPathComponent, fileSystem)
+            } catch {
                 await prompts.tell(StoreWording.createFailed(error))
                 return .failed(error)
             }
+            await install(loaded, from: url, as: .first)
+            return .created
         }
     }
 
-    private func openExclusively(
-        _ url: URL, onLockRecord policy: LockRecordPolicy, myEditsSavedAs copy: URL? = nil
+    /// Where a loaded book goes: it's the process's first, or it replaces the open one with
+    /// itself read again (or, after ADR 0018's Open My Version, with the writer's copy).
+    private enum Installing {
+        case first
+        case replacing(OpenBook<C>)
+    }
+
+    private func load(
+        _ url: URL, onLockRecord policy: LockRecordPolicy, as installing: Installing,
+        myEditsSavedAs copy: URL? = nil
     ) async -> OpenOutcome {
-        if let current, current.isEditable, current.layout.root.canonicalPath == url.canonicalPath {
-            return .alreadyOpen
-        }
-        let switched = await switchBooks(to: url) { () async -> Result<LoadedBook, LoadError> in
-            do throws(LoadError) {
-                return .success(try await Self.load(url, policy, parseDefaults, fileSystem))
-            } catch {
-                return .failure(error)
-            }
-        }
-        switch switched {
-        case .stayed:
-            return .stayed
-        case .failed(let error):
+        let loaded: LoadedBook
+        do throws(LoadError) {
+            loaded = try await Self.load(url, policy, parseDefaults, fileSystem)
+        } catch {
             await prompts.tell(StoreWording.loadFailed(error, myEditsSavedAs: copy))
             forget(url)
             return .failed(error)
-        case .switched(.editing):
+        }
+        let book = await install(loaded, from: url, as: installing)
+        switch loaded.opened {
+        case .editing:
             return .opened
-        case .switched(.readOnly(_, let reason)):
+        case .readOnly(_, let reason):
             switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
             case .keepReadOnly:
                 return .openedReadOnly(reason)
             case .openAnyway(let record):
-                return await openExclusively(url, onLockRecord: .openAnyway(record))
+                return await load(url, onLockRecord: .openAnyway(record), as: .replacing(book))
             case .makeEditable:
                 switch await makeEditableExclusively() {
                 case .editable: return .opened
@@ -229,36 +280,25 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
-    private enum Switch<Failure: Error> {
-        case switched(OpenedBook)
-        case failed(Failure)
-        case stayed
-    }
-
-    /// ADR 0021: saves the current book, gets the next one, then swaps them in the same
-    /// main-actor turn as the last check that the current book's edits are all on disk. A next
-    /// book that can't be had, or the writer choosing to stay, leaves the current one open.
-    private func switchBooks<Failure>(
-        to url: URL, obtaining next: () async -> Result<LoadedBook, Failure>
-    ) async -> Switch<Failure> {
-        guard await confirmLeavingCurrent(.closeBook) == .leave else { return .stayed }
-        var settled = await settleCurrent(before: .closeBook)
-        guard settled != .stay else { return .stayed }
-        let loaded: LoadedBook
-        switch await next() {
-        case .success(let success): loaded = success
-        case .failure(let error): return .failed(error)
+    /// The only way a book becomes the session's. A replaced book is detached in this turn,
+    /// so it refuses edits before anything else runs.
+    @discardableResult
+    private func install(_ loaded: LoadedBook, from url: URL, as installing: Installing) async -> OpenBook<C>
+    {
+        let book = OpenBook(loaded.opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
+        let replaced: BookWriter?
+        switch installing {
+        case .first:
+            precondition(isChoosing, "a process has one book (ADR 0038)")
+            replaced = nil
+        case .replacing(let old):
+            precondition(old === current, "only the open book is replaced")
+            replaced = old.detach()
         }
-        let opened = loaded.opened
-        let book = OpenBook(opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
-        if settled == .saved { settled = await settleCurrent(before: .closeBook) }
-        guard settled != .stay else {
-            await book.detach()?.release()
-            return .stayed
-        }
-        await replaceCurrent(with: book, after: settled)
+        session = .open(book)
         remember(url)
-        return .switched(opened)
+        await replaced?.release()
+        return book
     }
 
     // MARK: Filing a copy (PLAN §7.1)
@@ -350,23 +390,27 @@ public final class BookStore<C: Clock<Duration>> {
             pass += 1
         }
         let writer = book.detach()
-        current = nil
         Log.store.info("saved my version of a changed book as a separate book", ["passes": .count(pass)])
         let copyURL = copy.layout.root
         remember(copyURL)
         await copy.release()
         await writer?.release()
+        let reopened: OpenOutcome
         if case .externallyModified(.notAFile) = error {
             forget(original)
-            if case .opened = await openExclusively(copyURL, onLockRecord: .respect) {
-                await prompts.tell(StoreWording.openedMyVersion(copyURL))
-            }
+            reopened = await load(copyURL, onLockRecord: .respect, as: .replacing(book))
+            if case .opened = reopened { await prompts.tell(StoreWording.openedMyVersion(copyURL)) }
         } else {
-            _ = await openExclusively(original, onLockRecord: .respect, myEditsSavedAs: copyURL)
+            reopened = await load(
+                original, onLockRecord: .respect, as: .replacing(book), myEditsSavedAs: copyURL)
+        }
+        if case .failed = reopened {
+            session = .ended
+            bookLost()
         }
     }
 
-    // MARK: Closing and quitting
+    // MARK: Quitting
 
     public enum LeaveOutcome: Hashable, Sendable {
         /// The book was saved (or the writer chose to discard its edits) and closed.
@@ -375,35 +419,27 @@ public final class BookStore<C: Clock<Duration>> {
         case stayed
     }
 
-    /// Saves and closes the open book.
-    @discardableResult
-    public func closeBook() async -> LeaveOutcome {
-        await exclusively {
-            guard await confirmLeavingCurrent(.closeBook) == .leave else { return .stayed }
-            let settled = await settleCurrent(before: .closeBook)
-            guard settled != .stay else { return .stayed }
-            await replaceCurrent(with: nil, after: settled)
-            return .left
-        }
-    }
-
-    /// The `applicationShouldTerminate` path: saves, asking the writer whenever quitting would
-    /// lose edits, then releases the book.
+    /// The `applicationShouldTerminate` path, which Close Book and closing the window take too
+    /// (ADR 0038): saves, asking the writer whenever quitting would lose edits, then releases
+    /// the book and ends the session.
     public func prepareToQuit() async -> LeaveOutcome {
         await exclusively {
-            guard let book = current else { return .left }
-            guard await book.confirmLeaving(.quit, asking: prompts) == .leave else { return .stayed }
-            switch await book.settle(before: .quit, asking: prompts) {
+            guard let book = current else {
+                session = .ended
+                return .left
+            }
+            guard await book.confirmLeaving(asking: prompts) == .leave else { return .stayed }
+            switch await book.settle(asking: prompts) {
             case .stay:
                 return .stayed
             case .saved:
                 let writer = book.detach()
-                current = nil
+                session = .ended
                 await writer?.release()
                 return .left
             case .discarding:
                 let writer = book.detach()
-                current = nil
+                session = .ended
                 writer?.releaseUnlessSaving()
                 return .left
             }
@@ -413,33 +449,10 @@ public final class BookStore<C: Clock<Duration>> {
     /// `applicationWillTerminate`: releases the book's lock now, unless a save is still running.
     public func closeForTermination() {
         current?.detach()?.releaseUnlessSaving()
-        current = nil
+        session = .ended
     }
 
     // MARK: Helpers
-
-    /// Asked once per leave, before any saving, however many times the leave settles.
-    private func confirmLeavingCurrent(_ leaving: Leaving) async -> OpenBook<C>.LeaveConfirmation {
-        await current?.confirmLeaving(leaving, asking: prompts) ?? .leave
-    }
-
-    private func settleCurrent(before leaving: Leaving) async -> OpenBook<C>.Settled {
-        await current?.settle(before: leaving, asking: prompts) ?? .saved
-    }
-
-    /// The old book is detached in this turn, so it refuses edits before anything else runs.
-    /// After the writer chose to discard edits, a save may be stuck, so its release isn't
-    /// awaited: waiting here would hold every later operation, quitting included.
-    private func replaceCurrent(with book: OpenBook<C>?, after settled: OpenBook<C>.Settled) async {
-        let old = current?.detach()
-        current = book
-        switch settled {
-        case .discarding:
-            if let old { Task { await old.release() } }
-        case .saved, .stay:
-            await old?.release()
-        }
-    }
 
     private func remember(_ book: URL) {
         updateRecentBooks { RecentBooks.remembering(book, in: $0) }

@@ -91,7 +91,7 @@ extension BookStoreIntegrationTests {
             try perform(try #require(viewItem(WindowWording.actualSize)))
             #expect(preferences.zoom == .standard)
 
-            #expect(await books.store.closeBook() == .left)
+            #expect(await books.quitAndRelaunch() == .left)
             expectNoQuestions()
         }
     }

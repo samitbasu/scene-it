@@ -22,23 +22,12 @@ public struct WriterAlert<Choice: Hashable & Sendable>: Hashable, Sendable {
 
 public typealias QuitAlert = WriterAlert<QuitAlertChoice>
 
-/// What the writer is doing that needs the book's edits saved first: quitting, or closing
-/// the book to open or create another (ADR 0021). The choices are the same; the words differ.
-public enum Leaving: Hashable, Sendable {
-    case quit
-    case closeBook
-}
-
-/// Every string in the alert shown when leaving a book would lose edits, in one place so the
-/// owner can review it as a whole. The owner approved the `.quit` wording; the `.closeBook`
-/// variants are drafts awaiting approval.
+/// Every string in the alert shown when quitting would lose edits, in one place so the owner
+/// can review it as a whole. Close Book and closing the window quit too (ADR 0038), so they
+/// share it. The owner approved this wording.
 public enum QuitWording {
-    public static func alert(for problem: QuitProblem, leaving: Leaving) -> QuitAlert {
-        let ifYouLeave =
-            switch leaving {
-            case .quit: "If you quit now"
-            case .closeBook: "If you close this book now"
-            }
+    public static func alert(for problem: QuitProblem) -> QuitAlert {
+        let ifYouLeave = "If you quit now"
         let (title, message, choices): (String, String, [QuitAlertChoice]) =
             switch problem {
             case .saveFailed(let error):
@@ -64,20 +53,18 @@ public enum QuitWording {
                 )
             }
         return QuitAlert(
-            title: title, message: message,
-            buttons: choices.map { .init(choice: $0, label: label($0, leaving: leaving)) })
+            title: title, message: message, buttons: choices.map { .init(choice: $0, label: label($0)) })
     }
 
     /// Also the title of ADR 0018's alert (`StoreWording.externalChangeAlert`).
     public static let changedOnDiskTitle = "This book was changed by another program."
 
-    public static func label(_ choice: QuitAlertChoice, leaving: Leaving) -> String {
-        switch (choice, leaving) {
-        case (.retry, _): "Retry"
-        case (.wait, _): "Wait"
-        case (.quitAnyway, .quit): "Quit Anyway"
-        case (.quitAnyway, .closeBook): "Close Anyway"
-        case (.cancel, _): "Cancel"
+    public static func label(_ choice: QuitAlertChoice) -> String {
+        switch choice {
+        case .retry: "Retry"
+        case .wait: "Wait"
+        case .quitAnyway: "Quit Anyway"
+        case .cancel: "Cancel"
         }
     }
 

@@ -93,7 +93,7 @@ struct SheetFocusTests {
                 #expect(takesTyping(body), "the body is usable again once the sheet closes")
                 #expect(takesTyping(notes), "the notes are usable again once the sheet closes")
             }
-            #expect(await books.store.closeBook() == .left)
+            #expect(await books.store.prepareToQuit() == .left)
         }
     }
 

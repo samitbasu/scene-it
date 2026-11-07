@@ -16,7 +16,7 @@ scene list in the Scenes sheet (#28). The page itself is an AppKit text view, th
 
 | File | What it holds |
 | --- | --- |
-| [`Store/BookStore.swift`](../../Sources/SceneItCore/Store/BookStore.swift) | at most one open book (ADR 0021): open, create, switch, quit, ADR 0018's two choices |
+| [`Store/BookStore.swift`](../../Sources/SceneItCore/Store/BookStore.swift) | the process's one book (ADR 0038): open, create, refuse another, quit, ADR 0018's two choices |
 | [`Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | the open book: the `Book` value, edits, the autosave driver, the status |
 | [`Store/BookWriter.swift`](../../Sources/SceneItCore/Store/BookWriter.swift) | the package and backup keeper, used only off the main actor |
 | [`Store/BookStatus.swift`](../../Sources/SceneItCore/Store/BookStatus.swift) | the status bar's one enum, as a pure function of autosave and backups |
@@ -238,7 +238,7 @@ Each piece from chapters 03 and 03a has one place where the store uses it:
 | `ExternalChangePolicy` (ch. 03 §7) | passed through from the scheduler's `SaveRequest`; the store keeps no overwrite flag |
 | book lock, `OpenedBook.readOnly` (ch. 03 §12) | a read-only book gets no driver and no writer, so it has nothing to save with |
 | `AutosaveDriver` (ch. 03a) | one per editable book; `OpenBook` is its weakly held saver |
-| `prepareToQuit` / `QuitWording` (ch. 03a §5) | `OpenBook.settle(before:asking:)`, for quitting and for switching books |
+| `prepareToQuit` / `QuitWording` (ch. 03a §5) | `OpenBook.settle(asking:)`, for quitting, which Close Book and closing the window are too |
 
 The read-only rule is enforced by shape, not by checks. `OpenBook.access` is
 
@@ -257,33 +257,40 @@ system ever saw was the attempt to take the lock.
 `Edits` is `.accepted` or `.refused`. A writable book refuses edits only briefly, during the
 last pass of "Open Other Version" (§5), so nothing typed can miss the copy.
 
-### Switching books (ADR 0021)
+### One book per process (ADR 0038)
 
-One book is open at a time. Opening or creating another saves and closes the current one,
-with the quit alert's choices (Retry / Cancel / Close Anyway). The order matters:
+A process has one book for its whole life. It launches into the start state (or straight into
+a book Finder asked for, or the last one), and once a book is open it stays this process's
+book until Scene It quits. Close Book *is* Quit. To work on another book the writer quits and
+opens Scene It again.
+
+The rule came from a suspected leak (#88): after closing a book in place, something kept the
+old `OpenBook` and its editors alive, and no cycle could be found. Rather than prove a negative
+about every view SwiftUI might still hold, the owner made the situation impossible: if a book is
+never closed while the process lives, nothing can outlive it. (Rust readers: it's the
+difference between auditing every `Rc` for a cycle and making the value `'static`.)
+
+The store's state is one enum, so "no book", "a book" and "done" can't be mixed up:
 
 ```swift
-        var settled = await settleCurrent(before: .closeBook)
-        guard settled != .stay else { return .stayed }
-        let opened: OpenedBook
-        switch await next() {
-        case .success(let success): opened = success
-        case .failure(let error): return .failed(error)
-        }
-        let book = OpenBook(opened, clock: clock, mirror: mirror, store: self)
-        if settled == .saved { settled = await settleCurrent(before: .closeBook) }
-        guard settled != .stay else {
-            await book.detach()?.release()
-            return .stayed
-        }
-        await replaceCurrent(with: book, after: settled)
+    public enum Session {
+        /// Launched without a book: the start state, the only one a book can be opened from.
+        case choosing
+        case open(OpenBook<C>)
+        /// Quitting, or the book was lost (`bookLost`); nothing opens again.
+        case ended
+    }
 ```
 
-Loading the next book is an `await`, and the writer can type into the current book while it
-runs. So the store settles a second time after the load. When everything is already saved,
-that second settle returns without suspending, and the swap happens in the same main-actor
-turn as its check, so no keystroke can fall between "saved" and "closed". A book that fails to
-load leaves the current one open and untouched.
+`session` is `private(set)`, and only three places assign it: `install` (a loaded book becomes
+the session's), `prepareToQuit` / `closeForTermination` (`.ended`), and the ADR 0018 path when the
+other version won't open (`.ended`, then `bookLost`, which the app answers by quitting).
+`install` checks its precondition: `.first` only while `.choosing`, `.replacing(old)` only
+for the open book, which is how Open Anyway and Open Other Version read the same package again.
+Asked to open any other book while one is open, the store opens nothing, reads nothing, and
+tells the writer why (`OneBookWording.refusal`). Asked for the open book again, it does nothing.
+The view and the menus derive from the same enum: `MainWindow` switches on `session`, and New
+Book… and Open Book… are enabled only while `isChoosing`.
 
 ### Doing one thing at a time
 
@@ -312,23 +319,20 @@ the app answers with `NSAlert`:
 ```swift
     /// The index of the button chosen; with no buttons, AppKit's own OK.
     private static func runAlert(title: String, message: String, buttons: [String]) -> Int {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        for label in buttons {
-            alert.addButton(withTitle: label)
-        }
-        let response = alert.runModal()
+        let response = alert(title: title, message: message, buttons: buttons).runModal()
         return response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }
 ```
+
+(`alert(title:message:buttons:)` builds the `NSAlert`; the renders for the owner's wording
+reviews draw that same alert offscreen.)
 
 `runModal()` is synchronous: it runs a nested event loop on the main thread until a button is
 pressed. Calling it from an `async` function on the main actor is fine (the main actor *is*
 the main thread), and the rest of the app keeps drawing because the nested loop processes
 events. The first button is the default (Return), and AppKit maps Escape to a button titled
-"Cancel". The alerts are app-modal rather than sheets, because a question can arrive when the
-main window is closed.
+"Cancel". The alerts are app-modal rather than sheets, because a question can arrive with the
+main window minimized or behind another app's (a book forwarded from Finder, say).
 
 ### ADR 0018: changed on disk
 
@@ -351,8 +355,10 @@ which `save` throws; the new `Task` is queued behind it.
 - **Open Other Version** saves my in-memory book as a new package next to the original,
   "<Title> (my edits).sceneit" (then "(my edits 2)", …: `BookPackage.create` refusing an
   existing name is the collision check, so there's no race), closes the book, which `await`s
-  the release of the original's lock, then reopens the original. Both versions survive. If the
-  original can't be read at all (`.notAFile`), the copy is opened instead.
+  the release of the original's lock, then reads the original again in its place. Both
+  versions survive. If the original can't be read at all (`.notAFile`), the copy is opened
+  instead. If the book to open then won't load, the process has no book left: the session ends
+  and the app quits (ADR 0038), and the next launch reopens the copy from Recent Books.
 
 The copy is written off the main actor, and the writer can keep typing meanwhile. Snapshot
 once and close afterwards, and the typing in between is lost. So the store saves the copy,
@@ -376,7 +382,6 @@ is closed in the same main-actor turn as the comparison that finds them equal:
             pass += 1
         }
         let writer = book.detach()
-        current = nil
 ```
 
 The loop is bounded: someone who never stops typing would otherwise keep it going forever. For
@@ -384,14 +389,14 @@ the last pass the book refuses edits, which disables the editor (`isEditable` is
 so that pass is guaranteed to be the final one. A copy that can't be saved is removed rather
 than left as an empty "(my edits)" book that looks like the writer's version.
 
-The same care applies to Close Anyway. When the writer leaves without saving, a save may be
+The same care applies to Quit Anyway. When the writer quits without saving, a save may be
 stuck on a failing disk. The store doesn't `await` that book's release, which waits for the
-save: it would hold every later operation, quitting included. It starts the release in the
-background instead.
+save: quitting would hang on it. It lets the writer release the lock unless a save is still
+running (`releaseUnlessSaving`), and the process exit drops it anyway.
 
 Every path that lets go of a book does it in two steps: `OpenBook.detach()`, which is
 synchronous and makes the book refuse edits from then on, then the (asynchronous) release of
-the writer it returns. The detach always happens in the same main-actor turn as `current`
+the writer it returns. The detach always happens in the same main-actor turn as `session`
 changing. A text field's setter can still fire on the old book before SwiftUI redraws, and
 an `await` between the two would let that edit land in a book nobody saves.
 
@@ -408,7 +413,7 @@ which SwiftUI creates for you from a type you name:
 struct SceneItApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// One window, holding at most one book (ADR 0021).
+    /// One window, holding the process's one book (ADR 0038).
     var body: some Scene {
         Window(StoreWording.windowTitle, id: "main") {
             MainWindow(books: .shared)
@@ -431,7 +436,9 @@ The delegate forwards to the store:
 
 - `application(_:open:)`: books from Finder, from the Open dialog of another app, and from a
   second launch handing off (ADR 0020). Books that arrive before launching finishes are
-  collected and opened once it has.
+  collected and opened once it has. Later ones go to `BookController.openForwarded`, which
+  brings the window forward and lets the store decide: opened only if the process has no book
+  yet, otherwise refused with an alert (nothing at all if it's the open book).
 - `applicationDidResignActive`: autosave's `.appDeactivated`.
 - `applicationShouldTerminate`: saving is async, but this must answer now. AppKit's answer is
   `.terminateLater`, then `reply(toApplicationShouldTerminate:)` when the decision is made:
@@ -458,22 +465,45 @@ chooses Quit Anyway or Cancel. Before it returns `true`, it detaches the book in
 turn as the final synchronous check that nothing is unsaved, then releases the lock.
 `applicationWillTerminate` releases anything left, without waiting.
 
+### Close Book is Quit (ADR 0038)
+
+File → Close Book and the window's red close button don't close anything themselves. Both call
+`BookController.closeBook()`, which sends one request, `AppRequest.quit`, and the app answers it
+with `NSApp.terminate(nil)`: AppKit's own quit, which arrives at `applicationShouldTerminate`
+above. So there is one path, with one set of questions, and Cancel leaves the window and its
+book exactly as they were. (Close Book takes Cmd+W: replacing SwiftUI's `.saveItem` group
+removed its own Close.) The close button is an `NSButton` whose target and action
+`CloseButtonQuits` points at `closeBook()` once the window exists; SwiftUI's own window
+delegate never sees the click.
+
+`AppRequests` is a protocol so the test host can record requests instead of quitting the
+process the tests run in: the hosted tests choose File → Close Book through the real menu
+(and click the real close button) and check that exactly one `.quit` was asked for. That's
+the general move for an effect you can't let a test perform: make it a value, and test the
+value. (In Rust you'd return an enum from the decision function and keep the side effect in
+`main`.)
+
 ### `.commands`
 
 Menus are declared like views. `CommandGroup(replacing:)` swaps one of SwiftUI's standard
 groups for ours:
 
 ```swift
+        let choosing = books.store.isChoosing
         CommandGroup(replacing: .newItem) {
             Button(StoreWording.newBookMenuItem) { Task { await books.newBook() } }
                 .keyboardShortcut("n")
+                .disabled(!choosing)
             Button(StoreWording.openBookMenuItem) { Task { await books.openBook() } }
                 .keyboardShortcut("o")
+                .disabled(!choosing)
         }
 ```
 
 A menu action is synchronous, so anything async starts a `Task`. In the app target that
 `Task` inherits the main actor (ADR 0011), so it can call the store without hopping.
+`.disabled` reads `isChoosing`, which Observation tracks like any view input, so the items
+grey out the moment a book opens.
 
 ### The window's state (#13)
 
@@ -482,8 +512,9 @@ What the window shows over a book is one enum, `WindowMode` (`page`, `scenes`, `
 choices keep illegal combinations out:
 
 - **No sheet without a book.** The mode is `@State` inside `BookWindow`, which only exists while
-  a book is open, and `MainWindow` gives it `.id(ObjectIdentifier(book))`. A new identity is a
-  new view, so switching books starts again at the page. It's the SwiftUI spelling of "this
+  a book is open, and `MainWindow` gives it `.id(book.instanceID)`. A new identity is a
+  new view, so a book read again (Open Anyway, Open Other Version) starts again at the page,
+  with new editors. It's the SwiftUI spelling of "this
   state is owned by that value".
 - **No second copy of "can I edit?".** Read-only is the book's own state (`OpenBook.isEditable`),
   so the window reads it instead of storing it again.

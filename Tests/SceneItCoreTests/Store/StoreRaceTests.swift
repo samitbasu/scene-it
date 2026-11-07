@@ -135,6 +135,45 @@ struct StoreRaceTests {
         }
     }
 
+    /// ADR 0038: with the original unreadable after my version was saved, the process has no
+    /// book left, so the session ends (and the app quits) rather than showing the start state.
+    @Test func whenTheOtherVersionWontOpenTheSessionEndsAndTheBookIsLost() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            var lost = 0
+            let store = makeStore(
+                in: folder, prompts: prompts, fileSystem: fileSystem, bookLost: { lost += 1 })
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Before the change")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            try writeExternally(try draft(7), to: url)
+            let original = url.appending(path: "book.md")
+            fileSystem.before(.exchange("\(copyName)/book.md")) {
+                try? FileManager.default.removeItem(at: original)
+                try? FileManager.default.createDirectory(at: original, withIntermediateDirectories: false)
+            }
+
+            book.write("Mine")
+            store.saveNow()
+            await eventually { lost > 0 }
+
+            #expect(lost == 1)
+            guard case .ended = store.session else {
+                Issue.record("the session is \(store.session)")
+                return
+            }
+            #expect(book.status == .closed)
+            #expect(prompts.notices.last?.title == "Scene It couldn't open “Novel”.")
+            #expect(
+                prompts.notices.last?.message.hasPrefix("Your version was saved as “Novel (my edits)”.")
+                    == true)
+            #expect(try bookOnDisk(folder.appending(path: copyName)).scenes.count == 2)
+        }
+    }
+
     @Test func aCopyThatCantBeSavedIsRemovedAndTheBookStaysOpen() async throws {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
@@ -221,15 +260,14 @@ struct StoreRaceTests {
         }
     }
 
-    // MARK: S1: Close Anyway past a stuck save never blocks later operations
+    // MARK: S1: Quit Anyway past a stuck save never waits for it
 
-    @Test func closeAnywayPastAStuckSaveLeavesTheStoreUsable() async throws {
+    @Test func quitAnywayPastAStuckSaveLeavesAtOnce() async throws {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
             let clock = ManualClock()
             let prompts = ScriptedPrompts([QuitAlertChoice.quitAnyway])
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, clock: clock)
-            let second = try await createBook("Second", in: folder, store: store)
             try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
             let gate = Gate()
@@ -237,13 +275,13 @@ struct StoreRaceTests {
             book.write("Stuck")
             await gate.waitForArrival()
 
-            async let switched = store.open(second)
+            async let quit = store.prepareToQuit()
             await eventually { book.autosave?.quitIsQueuedBehindASave == true }
             clock.advance(by: AutosavePolicy.quitGracePeriod)
-            #expect(await switched == .opened)
+            #expect(await quit == .left)
             #expect(prompts.titles == ["Scene It is still saving your book."])
-            #expect(prompts.labels == [["Wait", "Close Anyway"]])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(prompts.labels == [["Wait", "Quit Anyway"]])
+            #expect(store.current == nil)
             gate.open()
         }
     }
