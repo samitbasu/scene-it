@@ -477,9 +477,9 @@ Two subtleties:
   keeps only `.orthography` (which language it is), `.spelling` and `.grammar`, and only results
   of those types are passed on. So
   spelling is still *checked* (the red underlines); it's only never *corrected*. Capitalizing a
-  sentence's first word and a period for a double space are expected to be stopped the same way,
-  but AppKit makes them only as real keys are typed, so no test can show it; they're still to be
-  checked by hand (ADR 0028).
+  sentence's first word and a period for a double space are stopped the same way, but AppKit
+  makes them only as real keys are typed, so no test can show it; the owner checked them by hand
+  (ADR 0028).
 
   ```swift
       override var enabledTextCheckingTypes: NSTextCheckingTypes {
@@ -504,11 +504,14 @@ Two subtleties:
   selectors, and it's used three ways. `KeyboardTextView.responds(to:)` says no to them, so the
   responder chain passes the editor by: in Rust terms it's as if the trait object stopped
   implementing those methods at run time, which Objective-C's dynamic dispatch allows.
-  `menu(for:)` copies AppKit's context menu and hides those items. And `AppDelegate` installs
-  `AutomaticTextChanges.keepOutOfTheMainMenu()`, which hides them in the Edit menu. SwiftUI
+  `menu(for:)` copies AppKit's context menu and hides those items. That alone wasn't enough: a
+  real right-click still showed them, because AppKit goes on preparing a context menu after the
+  view hands it over (that's also when a misspelled word's guesses arrive). So the editors hide
+  them again in `willOpenMenu(_:with:)`, after AppKit's own, and `AppDelegate` installs
+  `AutomaticTextChanges.keepOutOfEveryMenu()`, which hides an automatic item as it's added to any
+  menu and goes over any menu as it begins tracking (opens). That covers the Edit menu too. SwiftUI
   builds the main menu and may build it again, so the items are *hidden*, not removed (SwiftUI's
-  bookkeeping still matches the menu). Hiding runs again after items are added and whenever a
-  menu opens. A submenu that offered one and is left with nothing else (Substitutions) is hidden
+  bookkeeping still matches the menu). A submenu that offered one and is left with nothing else (Substitutions) is hidden
   whole. Separators left with nothing on one side are hidden too, and shown again if items come
   back on both sides.
 

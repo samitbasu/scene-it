@@ -316,8 +316,11 @@ only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPer
 `menus` renders the Edit menu and the page's right-click menu (#127, `MenuRenders.swift`) into a
 `menus/` subfolder, as `edit-menu` and `page-context-menu`, at `@1x.png` and `@2x.png`, each with its
 Spelling and Grammar submenu open beside it. The items are the real menus' items as they show
-(the ones `AutomaticTextChanges` hides are left out), drawn by `MenuStandIn`. That drawing doesn't
-run menu validation, so no check marks appear. To render only these, add
+(the ones `AutomaticTextChanges` hides are left out), drawn by `MenuStandIn`. The context menu is the
+page's own, as its `menu(for:)` and `willOpenMenu(_:with:)` and the open notification leave it; what
+AppKit adds while it presents a real right-click (a misspelled word's guesses) can't be captured, so
+it isn't drawn. That drawing doesn't run menu validation, so no check marks appear. To render only
+these, add
 `-only-testing:SceneItTests/WindowRenders/menus\(\)`.
 
 `fixField` renders the Errors tab's fix field (#127, `FixFieldRenders.swift`) into the same `menus/`

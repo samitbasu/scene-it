@@ -10,8 +10,7 @@ class KeyboardTextView: NSTextView {
 
     /// What text checking may do: tell the language, and mark spelling and grammar. Every other
     /// type changes the writer's words for them (correction, replacement, quotes, dashes, links,
-    /// data). Capitalization and a period for a double space are expected to be among them, but
-    /// arise only from real keystrokes and are unverified (ADR 0028).
+    /// data, and, as real keys are typed, capitalization and a period for a double space).
     static let checkedTypes: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.orthography.rawValue
         | NSTextCheckingResult.CheckingType.spelling.rawValue
@@ -106,6 +105,12 @@ class KeyboardTextView: NSTextView {
         guard let menu = super.menu(for: event)?.copy() as? NSMenu else { return nil }
         AutomaticTextChanges.hide(in: menu)
         return menu
+    }
+
+    /// AppKit's own preparation of a context menu as it opens may add to it again.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        AutomaticTextChanges.hide(in: menu)
     }
 
     override var inputContext: NSTextInputContext? {

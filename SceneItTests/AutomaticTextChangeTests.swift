@@ -168,24 +168,86 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// Hiding items in one context menu leaves AppKit's own menu, and every other, alone.
-    @Test func aContextMenuSharesNoSubmenuWithAppKits() async throws {
-        try await withPage([scene("One", [[Run("Hello.")]])]) { page in
-            let first = try #require(page.page.menu(for: try rightClick(on: page.page)))
-            let second = try #require(page.page.menu(for: try rightClick(on: page.page)))
-            let appKits = allItems(of: NSTextView.defaultMenu ?? NSMenu()).compactMap(\.submenu)
-            let firsts = allItems(of: first).compactMap(\.submenu)
-            try #require(!firsts.isEmpty, "precondition: the menu has submenus")
-            for submenu in firsts {
-                #expect(!appKits.contains { $0 === submenu }, "\(submenu.title)")
-                #expect(
-                    !allItems(of: second).compactMap(\.submenu).contains { $0 === submenu },
-                    "\(submenu.title)")
+    /// A context menu as it opens, however AppKit built it and whatever it added since, shows no
+    /// automatic change, and keeps the spelling guesses and Ignore and Learn Spelling. (A real
+    /// right-click opens the menu in a modal tracking loop, which a test can't run; this posts
+    /// what that loop posts as it begins.)
+    @Test func aContextMenuOpeningShowsNoAutomaticChange() throws {
+        let menu = try Self.appKitsMenuAsItMayOpen()
+        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        try Self.expectNoAutomaticChangeButTheSpellingItems(in: menu)
+    }
+
+    /// Each editor goes over a context menu again as it opens, after AppKit's own preparation.
+    @Test func everyEditorHidesThemAsItsContextMenuOpens() async throws {
+        let plain = NSTextView(usingTextLayoutManager: true)
+        let untouched = try Self.appKitsMenuAsItMayOpen()
+        plain.willOpenMenu(untouched, with: try rightClick(on: plain))
+        #expect(
+            shownItems(of: untouched).contains(where: AutomaticTextChanges.isAutomatic),
+            "precondition: AppKit's own preparation leaves them showing")
+        try await withEditors { editors in
+            for (name, editor) in editors {
+                let menu = try Self.appKitsMenuAsItMayOpen()
+                editor.willOpenMenu(menu, with: try rightClick(on: editor))
+                try Self.expectNoAutomaticChangeButTheSpellingItems(in: menu, name)
             }
-            #expect(
-                allItems(of: NSTextView.defaultMenu ?? NSMenu()).filter(AutomaticTextChanges.isAutomatic)
-                    .allSatisfy { !$0.isHidden }, "AppKit's own menu is untouched")
         }
+        try await withFixField { _, editor, _, _ in
+            let menu = try Self.appKitsMenuAsItMayOpen()
+            editor.willOpenMenu(menu, with: try rightClick(on: editor))
+            try Self.expectNoAutomaticChangeButTheSpellingItems(in: menu, "the Errors tab's fix")
+        }
+    }
+
+    /// An automatic change added to any menu is hidden as it's added.
+    @Test func anItemAddedToAnyMenuIsHiddenAsItsAdded() {
+        let menu = NSMenu()
+        let toggle = menu.addItem(
+            withTitle: "Correct Spelling Automatically",
+            action: #selector(NSTextView.toggleAutomaticSpellingCorrection(_:)), keyEquivalent: "")
+        let other = menu.addItem(
+            withTitle: "Check Spelling While Typing",
+            action: #selector(NSTextView.toggleContinuousSpellChecking(_:)), keyEquivalent: "")
+        #expect(toggle.isHidden)
+        #expect(!other.isHidden)
+    }
+
+    static let guess = "the"
+
+    /// A copy of AppKit's own text menu with everything shown again, as AppKit might show it when
+    /// it opens, and a misspelled word's guess and Ignore and Learn Spelling at its top, as a
+    /// right-click on one adds them.
+    static func appKitsMenuAsItMayOpen() throws -> NSMenu {
+        let menu = try #require(NSTextView.defaultMenu?.copy() as? NSMenu, "AppKit's text menu")
+        for item in allItems(of: menu) { item.isHidden = false }
+        let spelling: [NSMenuItem] = [
+            NSMenuItem(title: guess, action: Selector(("_changeSpellingFromMenu:")), keyEquivalent: ""),
+            .separator(),
+            NSMenuItem(
+                title: "Ignore Spelling", action: #selector(NSTextView.ignoreSpelling(_:)), keyEquivalent: ""),
+            NSMenuItem(
+                title: "Learn Spelling", action: Selector(("_learnSpellingFromMenu:")), keyEquivalent: ""),
+            .separator(),
+        ]
+        for (index, item) in spelling.enumerated() { menu.insertItem(item, at: index) }
+        for item in allItems(of: menu) { item.isHidden = false }
+        #expect(
+            shownItems(of: menu).contains(where: AutomaticTextChanges.isAutomatic),
+            "precondition: the menu shows automatic changes")
+        return menu
+    }
+
+    static func expectNoAutomaticChangeButTheSpellingItems(in menu: NSMenu, _ name: String = "") throws {
+        let shown = shownItems(of: menu)
+        #expect(shown.filter(AutomaticTextChanges.isAutomatic).map(\.title) == [], "\(name)")
+        #expect(!shown.contains { $0.title == "Substitutions" }, "\(name)")
+        #expect(
+            Array(shown.prefix(4).map(\.title)) == [guess, "", "Ignore Spelling", "Learn Spelling"],
+            "\(name): the guesses, Ignore and Learn stay")
+        #expect(
+            shown.contains { $0.action == #selector(NSTextView.toggleContinuousSpellChecking(_:)) }, "\(name)"
+        )
     }
 
     /// The Errors tab's fix is a line of the manuscript, so it's edited as the manuscript is.

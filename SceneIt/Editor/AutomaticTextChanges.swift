@@ -43,20 +43,32 @@ enum AutomaticTextChanges {
         placeSeparators(in: menu)
     }
 
-    /// Keeps them out of the main menu, which SwiftUI builds and may build again: once items
-    /// stop being added (so a half-built menu's separators aren't judged), and before the menu
-    /// bar opens.
-    static func keepOutOfTheMainMenu() {
+    /// Keeps them out of every menu the app shows: the main menu, which SwiftUI builds and may
+    /// build again, and every context menu, however AppKit builds it. An item is hidden as it's
+    /// added to any menu; a menu is gone over as it opens; and the main menu once items stop
+    /// being added (so a half-built menu's separators aren't judged).
+    static func keepOutOfEveryMenu() {
         let center = NotificationCenter.default
-        center.addObserver(forName: NSMenu.didAddItemNotification, object: nil, queue: .main) { _ in
+        center.addObserver(forName: NSMenu.didAddItemNotification, object: nil, queue: .main) { note in
+            // Delivered on the main queue, where the menu lives.
+            nonisolated(unsafe) let note = note
             MainActor.assumeIsolated {
+                if let menu = note.object as? NSMenu, let index = note.userInfo?["NSMenuItemIndex"] as? Int,
+                    menu.items.indices.contains(index), isAutomatic(menu.items[index])
+                {
+                    menu.items[index].isHidden = true
+                }
                 guard !mainMenuPassPending else { return }
                 mainMenuPassPending = true
                 DispatchQueue.main.async { hideInMainMenu() }
             }
         }
-        center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { hideInMainMenu() }
+        center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
+            nonisolated(unsafe) let note = note
+            MainActor.assumeIsolated {
+                if let menu = note.object as? NSMenu, menu !== NSApp.mainMenu { hide(in: menu) }
+                hideInMainMenu()
+            }
         }
     }
 

@@ -21,6 +21,8 @@ extension WindowRenders {
                     modifierFlags: [], timestamp: 0, windowNumber: page.window.windowNumber, context: nil,
                     eventNumber: 0, clickCount: 1, pressure: 1))
             let menu = try #require(page.page.menu(for: event))
+            page.page.willOpenMenu(menu, with: event)
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
             try write(
                 Self.cascade(menu, opening: "Spelling and Grammar"), to: output, name: "page-context-menu")
         }

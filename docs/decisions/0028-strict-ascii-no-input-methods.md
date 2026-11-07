@@ -57,14 +57,16 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   That turns off spelling correction, text replacement, smart quotes and dashes, and link and data detection (a hosted
   test checks every type at once and the page's text is unchanged). The same filter is expected to stop System
   Settings' "Capitalize words automatically" and "Add period with double-space", but those appear only as real keys
-  are typed, which no test can do. Not observed by hand yet (the owner checks them in a trial build of #127).
+  are typed, which no test can do. Observed by hand by the owner on 2026-11-07 (trial build of #127): "teh " stays, a
+  lowercase sentence start stays lowercase, two spaces stay two spaces, and a text replacement doesn't expand.
   Each switch for these (`isAutomaticSpellingCorrectionEnabled` and the rest set their bit without going through
   `enabledTextCheckingTypes`), text completion, smart copy/paste (`smartInsertDeleteEnabled`) and inline prediction
   are held off: setting one sets it off. The editors don't answer the actions that would turn one on. Continuous spell
   checking (the underlines) stays on. The owner's call: the menus don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the
-  editors' context menus hide every item with one of its actions, which takes away Correct Spelling Automatically, the
+  editors' context menus hide every item with one of its actions (a context menu as it opens, since AppKit adds to it
+  after the view supplies it), which takes away Correct Spelling Automatically, the
   whole Substitutions submenu (Show Substitutions, Smart Copy/Paste, Smart Quotes, Smart Dashes, Smart Links, Data
   Detectors, Text Replacement) and, in the context menu, its one-shot Replace Quotes, Replace Dashes, Add Links and
   Replace Text. Show Spelling and Grammar, Check Document Now, Check Spelling While Typing and Check Grammar With
-  Spelling stay. The Errors tab's fix field is an `AdmittingTextField` too, so the same holds there, and its line is
+  Spelling stay, and so do a misspelled word's guesses and Ignore and Learn Spelling. The Errors tab's fix field is an `AdmittingTextField` too, so the same holds there, and its line is
   held to the manuscript's characters as it's typed: no accents by dead keys or press-and-hold, no input methods.
