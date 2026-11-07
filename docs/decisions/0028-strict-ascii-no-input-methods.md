@@ -52,8 +52,8 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   manuscript is (see below).
 - **Automatic text changes are off (#127):** the writer's words are changed only by the writer. Every manuscript editor
   (`KeyboardTextView`) checks spelling and grammar and does nothing else to the text. Its `enabledTextCheckingTypes`,
-  which AppKit's text checking consults, never holds anything but those two bits, and `handleTextCheckingResults`, where
-  AppKit applies what a check found, passes on only spelling and grammar results. That turns off spelling correction,
+  which AppKit's text checking consults, never holds anything but those two bits and the language (`.orthography`), and
+  `handleTextCheckingResults`, where AppKit applies what a check found, passes on only results of those types. That turns off spelling correction,
   text replacement, smart quotes and dashes, link and data detection, and System Settings' "Capitalize words
   automatically" and "Add period with double-space". Each switch for these (`isAutomaticSpellingCorrectionEnabled` and
   the rest set their bit without going through `enabledTextCheckingTypes`), text completion, smart copy/paste

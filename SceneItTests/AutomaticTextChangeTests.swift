@@ -10,7 +10,7 @@ import Testing
 /// an automatic change, no menu offers one, and nothing turns one back on. The toggle actions
 /// themselves are never sent: AppKit may record them in the app's defaults.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(4)))
+@Suite(.serialized, .timeLimit(.minutes(2)))
 struct AutomaticTextChangeTests {
     @Test func noEditorIsSetToChangeWordsAsTheyAreTyped() async throws {
         let plain = NSTextView(usingTextLayoutManager: true)
@@ -52,50 +52,41 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// What's typed on the page and then checked, as AppKit checks it, is marked, never changed,
-    /// even with every switch flipped back on. AppKit's own text view, checked the same way,
-    /// curls the quotes and links the address. Its autocorrection runs only on a real key's
-    /// space, so a checking pass is the path a test can drive; and since the character policy
-    /// would straighten curled quotes again, the link is what shows a change on the page.
-    @Test func textTypedOnThePageIsMarkedNotChanged() async throws {
-        let typed = " I saw teh omw, say \"hi\" at www.example.com "
+    /// Text checking asked for every type at once, applied at once, changes nothing on the page:
+    /// what it finds never gets past `handleTextCheckingResults`. AppKit's own text view, checked
+    /// the same way, curls the quotes, makes a dash, links the address and capitalizes "i".
+    /// (Capitalizing a sentence's first word and a period for a double space happen only as a
+    /// real key is typed, so no check makes them.)
+    @Test func checkingForEveryTypeChangesNothingOnThePage() async throws {
+        let text = "say \"hi\" at www.example.com -- i am here. hello there.  next word  word"
         let plain = NSTextView(usingTextLayoutManager: true)
-        plain.isAutomaticQuoteSubstitutionEnabled = true
-        plain.isAutomaticLinkDetectionEnabled = true
-        plain.insertText(typed, replacementRange: NSRange(location: 0, length: 0))
-        plain.checkTextInDocument(nil)
-        await eventually { plain.string != typed }
-        #expect(
-            plain.string.contains("\u{201C}hi\u{201D}"), "precondition: AppKit curls quotes where it's let")
-        #expect(links(in: plain) != [], "precondition: AppKit links an address where it's let")
+        plain.insertText(text, replacementRange: NSRange(location: 0, length: 0))
+        checkEverythingNow(plain)
+        #expect(plain.string.contains("\u{201C}hi\u{201D}"), "precondition: AppKit applies what it finds")
+        #expect(plain.string.contains(" I am"), "precondition: AppKit capitalizes i")
+        #expect(links(in: plain) != [], "precondition: AppKit links the address")
 
         try await withPage([scene("One", [[Run("Start.")]])]) { page in
-            turnOnEveryAutomaticChange(page.page)
             page.focusPage(at: 6)
-            page.page.insertText(typed, replacementRange: page.page.selectedRange())
-            let teh = (page.page.string as NSString).range(of: "teh")
-            // In a full run the spelling service, shared with every other test's editors, has
-            // left a check unanswered for more than `eventually`'s 30 s, so it's waited for
-            // longer and asked again now and then.
-            let clock = ContinuousClock()
-            let deadline = clock.now + .seconds(150)
-            var asked = clock.now - .seconds(10)
-            while clock.now < deadline,
-                !spellingMarks(in: page.page).contains(where: { NSIntersectionRange($0, teh).length > 0 })
-            {
-                if clock.now - asked >= .seconds(10) {
-                    page.page.checkTextInDocument(nil)
-                    asked = clock.now
-                }
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            #expect(
-                spellingMarks(in: page.page).contains { NSIntersectionRange($0, teh).length > 0 },
-                "precondition: the check ran and marked teh")
-            #expect(page.page.string == "Start." + typed)
+            page.page.insertText(" " + text, replacementRange: page.page.selectedRange())
+            checkEverythingNow(page.page)
+            #expect(page.page.string == "Start. " + text)
             #expect(links(in: page.page) == [])
+            #expect(page.body() == [[Run("Start. " + text)]])
             #expect(page.pageMirrorsModel)
         }
+    }
+
+    /// Checks all of `view`'s text for every type, whatever its switches say, and applies what's
+    /// found before returning. The two options are AppKit's own, undocumented: they're what
+    /// `checkTextInDocument` passes to check at once. Without them the check is asynchronous.
+    private func checkEverythingNow(_ view: NSTextView) {
+        view.checkText(
+            in: NSRange(location: 0, length: (view.string as NSString).length), types: .max,
+            options: [
+                NSSpellChecker.OptionKey(rawValue: "NSTextViewCheckTextSynchronously"): true,
+                NSSpellChecker.OptionKey(rawValue: "NSTextViewApplyTextCheckingNow"): true,
+            ])
     }
 
     private func links(in view: NSTextView) -> [NSRange] {
@@ -234,25 +225,36 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// What's typed in a fix's field reaches the row's draft, which Apply applies.
+    /// What's typed in a fix's field reaches the row's draft, which Apply applies, and SwiftUI
+    /// updating the field between keystrokes leaves the typing and the caret alone.
     @Test func aFixsFieldPassesWhatsTypedToTheDraft() async throws {
-        final class Draft {
-            var text = "- c1 | mauve"
+        try await withFixField { field, editor, draft, window in
+            editor.setSelectedRange(NSRange(location: 7, length: 5))
+            let updates = draft.updates
+            editor.insertText("purp", replacementRange: editor.selectedRange())
+            #expect(draft.text == "- c1 | purp")
+            await eventually { draft.updates > updates }
+            #expect(draft.updates > updates, "precondition: SwiftUI updated the field since the typing")
+            editor.insertText("le", replacementRange: editor.selectedRange())
+            #expect(editor.string == "- c1 | purple")
+            #expect(editor.selectedRange() == NSRange(location: 13, length: 0))
+            #expect(draft.text == "- c1 | purple")
         }
-        let draft = Draft()
-        let window = await hostOffscreen(
-            FixTextField(text: Binding(get: { draft.text }, set: { draft.text = $0 })),
-            size: CGSize(width: 300, height: 120)
-        ) { window in subviewTree(of: window.contentView).contains { $0 is AdmittingTextField } }
-        defer { window.close() }
-        let field = try #require(
-            subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first)
-        #expect(field.stringValue == "- c1 | mauve", "precondition: the field shows the draft")
-        #expect(window.makeFirstResponder(field))
-        let editor = try #require(field.currentEditor() as? AdmittingTextView)
-        editor.setSelectedRange(NSRange(location: 7, length: 5))
-        editor.insertText("purple", replacementRange: editor.selectedRange())
-        #expect(draft.text == "- c1 | purple")
+    }
+
+    /// Typing in a fix is undone in the fix, never through the window's history, where the
+    /// manuscript's edits are; and taking the fix away mid-edit (Apply, Cancel) ends the editing.
+    @Test func aFixsTypingHasItsOwnHistory() async throws {
+        try await withFixField { field, editor, draft, window in
+            editor.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+            #expect(editor.undoManager?.canUndo == true, "precondition: the typing can be undone")
+            #expect(editor.undoManager !== window.undoManager)
+            #expect(window.undoManager?.canUndo != true, "the window's history holds nothing of it")
+            draft.shown = false
+            await eventually { field.window == nil }
+            #expect(field.currentEditor() == nil, "the editing ended")
+            #expect(window.undoManager?.canUndo != true)
+        }
     }
 
     static let keptSpelling = [
@@ -294,12 +296,6 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// `root` and every accessibility element under it; SwiftUI's buttons may be elements only.
-    private static func accessibilityTree(of root: Any?) -> [NSAccessibilityProtocol] {
-        guard let element = root as? NSAccessibilityProtocol else { return [] }
-        return [element] + (element.accessibilityChildren() ?? []).flatMap(accessibilityTree)
-    }
-
     private func editMenu() throws -> NSMenu {
         try #require(
             NSApp.mainMenu?.items.lazy.compactMap(\.submenu).first { $0.title == "Edit" }, "the Edit menu")
@@ -326,6 +322,53 @@ struct AutomaticTextChangeTests {
         view.isAutomaticDataDetectionEnabled = true
         view.inlinePredictionType = .yes
     }
+}
+
+/// The fix's draft, as a row of the Errors tab holds it, and whether the row shows the field.
+@MainActor
+@Observable
+final class FixDraft {
+    var text = "- c1 | mauve"
+    var shown = true
+    @ObservationIgnored var updates = 0
+}
+
+/// A row's fix: the draft's text, which SwiftUI updates the row for as it changes, and its field.
+struct FixHost: View {
+    let draft: FixDraft
+
+    var body: some View {
+        VStack {
+            Text(draft.text)
+            if draft.shown {
+                FixTextField(
+                    text: Binding(
+                        get: {
+                            draft.updates += 1
+                            return draft.text
+                        }, set: { draft.text = $0 }))
+            }
+        }
+    }
+}
+
+/// A fix's field in a window of its own, editing `FixDraft`'s text, with its editor focused.
+@MainActor
+func withFixField(
+    _ body: (AdmittingTextField, AdmittingTextView, FixDraft, NSWindow) async throws -> Void
+) async throws {
+    let draft = FixDraft()
+    let view = FixHost(draft: draft)
+    let window = await hostOffscreen(view, size: CGSize(width: 300, height: 120)) { window in
+        subviewTree(of: window.contentView).contains { $0 is AdmittingTextField }
+    }
+    defer { window.close() }
+    let field = try #require(
+        subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first)
+    #expect(field.stringValue == "- c1 | mauve", "precondition: the field shows the draft")
+    #expect(window.makeFirstResponder(field))
+    let editor = try #require(field.currentEditor() as? AdmittingTextView)
+    try await body(field, editor, draft, window)
 }
 
 /// Every editor of the book's text, each named: the page, the title's own editor while it edits,
@@ -381,22 +424,4 @@ func allItems(of menu: NSMenu) -> [NSMenuItem] {
 /// The items of `menu` and its submenus that show when it opens.
 func shownItems(of menu: NSMenu) -> [NSMenuItem] {
     menu.items.filter { !$0.isHidden }.flatMap { [$0] + ($0.submenu.map(shownItems) ?? []) }
-}
-
-/// The ranges of `view`'s text marked as misspelled or ungrammatical.
-@MainActor
-func spellingMarks(in view: NSTextView) -> [NSRange] {
-    guard let layout = view.textLayoutManager, let content = layout.textContentManager else { return [] }
-    var marks: [NSRange] = []
-    layout.enumerateRenderingAttributes(from: layout.documentRange.location, reverse: false) {
-        _, attributes, range in
-        if attributes[.spellingState] != nil {
-            marks.append(
-                NSRange(
-                    location: content.offset(from: content.documentRange.location, to: range.location),
-                    length: content.offset(from: range.location, to: range.endLocation)))
-        }
-        return true
-    }
-    return marks
 }

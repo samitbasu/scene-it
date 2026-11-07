@@ -8,11 +8,12 @@ import AppKit
 class KeyboardTextView: NSTextView {
     // MARK: No automatic text changes (#127)
 
-    /// What text checking may do: mark spelling and grammar. Every other type changes the
-    /// writer's words for them (correction, replacement, quotes, dashes, links, data,
-    /// capitalization, a period for a double space).
+    /// What text checking may do: tell the language, and mark spelling and grammar. Every other
+    /// type changes the writer's words for them (correction, replacement, quotes, dashes, links,
+    /// data, capitalization).
     static let checkedTypes: NSTextCheckingTypes =
-        NSTextCheckingResult.CheckingType.spelling.rawValue
+        NSTextCheckingResult.CheckingType.orthography.rawValue
+        | NSTextCheckingResult.CheckingType.spelling.rawValue
         | NSTextCheckingResult.CheckingType.grammar.rawValue
 
     /// Turns off what AppKit turned on from the writer's System Settings as the view was made.

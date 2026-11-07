@@ -5,7 +5,8 @@ import Testing
 @testable import SceneIt
 
 /// The Errors tab's fix field (#127) as it was, a SwiftUI `TextField`, above the
-/// `AdmittingTextField` that replaces it, with the same long line at the panel's width, into a
+/// `AdmittingTextField` that replaces it, with the same long line at the panel's width, then both
+/// empty, showing their placeholder, into a
 /// `menus/` subfolder as `fix-field`.
 extension WindowRenders {
     @Test func fixField() async throws {
@@ -20,12 +21,18 @@ extension WindowRenders {
                 .labelsHidden()
             Text("After: AdmittingTextField").font(.caption)
             FixTextField(text: .constant(line))
+            Text("Empty, before and after").font(.caption)
+            TextField("Fix", text: .constant(""), axis: .vertical)
+                .font(.system(size: 11, design: .monospaced))
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+            FixTextField(text: .constant(""))
             Spacer()
         }
         .padding(22)
-        .frame(width: WindowMetrics.panelWidth, height: 260)
+        .frame(width: WindowMetrics.panelWidth, height: 360)
         .background(Color(nsColor: .windowBackgroundColor))
-        let window = await hostOffscreen(view, size: CGSize(width: WindowMetrics.panelWidth, height: 260)) {
+        let window = await hostOffscreen(view, size: CGSize(width: WindowMetrics.panelWidth, height: 360)) {
             window in subviewTree(of: window.contentView).contains { $0 is AdmittingTextField }
         }
         defer { window.close() }

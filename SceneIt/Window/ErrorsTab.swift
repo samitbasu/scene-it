@@ -202,14 +202,20 @@ private struct ErrorRow: View {
 struct FixTextField: NSViewRepresentable {
     @Binding var text: String
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> AdmittingTextField {
         let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        editor.history = context.coordinator.history
         let field = AdmittingTextField(string: text, editor: editor, lineBreakMode: .byWordWrapping)
         field.cell?.usesSingleLineMode = false
         field.cell?.wraps = true
         field.cell?.isScrollable = false
         field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         field.bezelStyle = .roundedBezel
+        field.placeholderString = ErrorsWording.fix
         field.setAccessibilityLabel(ErrorsWording.fix)
         return field
     }
@@ -219,31 +225,40 @@ struct FixTextField: NSViewRepresentable {
             text = $0
             field?.invalidateIntrinsicContentSize()
         }
-        if field.stringValue != text { field.stringValue = text }
+        if field.currentEditor() == nil, field.stringValue != text { field.stringValue = text }
     }
 
-    static func dismantleNSView(_ field: AdmittingTextField, coordinator: ()) {
+    /// Apply or Cancel took the fix away, perhaps mid-edit: the editing ends, and the field and
+    /// its editor let go of the draft and their history.
+    static func dismantleNSView(_ field: AdmittingTextField, coordinator: Coordinator) {
+        field.abortEditing()
         field.editor?.onChange = nil
+        field.editor?.history = nil
     }
 
-    /// As wide as offered, and as tall as `text` wraps to at that width. While the field is being
-    /// edited its cell still holds the text from before, so a cell of the same look measures
-    /// `text`. (Not a copy of the field's own: `NSCell.copy` copies the editor reference without
-    /// retaining it.)
+    /// As wide as offered, and as tall as `text` wraps to at that width; on one line, with no
+    /// width offered. While the field is being edited its cell still holds the text from
+    /// before, so a cell of the same look measures `text`. (Not a copy of the field's own:
+    /// `NSCell.copy` copies the editor reference without retaining it.)
     func sizeThatFits(_ proposal: ProposedViewSize, nsView field: AdmittingTextField, context: Context)
         -> CGSize?
     {
-        guard let width = proposal.width, width.isFinite else { return nil }
         let cell = NSTextFieldCell(textCell: text)
         cell.font = field.font
-        cell.wraps = true
         cell.isBezeled = true
         cell.bezelStyle = field.bezelStyle
+        guard let width = proposal.width, width.isFinite else { return cell.cellSize }
+        cell.wraps = true
         let height = cell.cellSize(
             forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
         )
         .height
         return CGSize(width: width, height: ceil(height))
+    }
+
+    /// The fix's own undo history, apart from the window's, where the manuscript's edits are.
+    final class Coordinator {
+        let history = UndoManager()
     }
 }
 

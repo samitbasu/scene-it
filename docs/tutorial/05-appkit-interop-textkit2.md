@@ -474,7 +474,8 @@ Two subtleties:
   check the text for the types in `enabledTextCheckingTypes` (a bit mask), and hands what it finds
   to `handleTextCheckingResults(_:forRange:types:options:orthography:wordCount:)`, which underlines
   a misspelling or replaces the text for a correction. `KeyboardTextView` overrides both: the mask
-  keeps only `.spelling` and `.grammar`, and only results of those types are passed on. So
+  keeps only `.orthography` (which language it is), `.spelling` and `.grammar`, and only results
+  of those types are passed on. So
   spelling is still *checked* (the red underlines); it's only never *corrected*.
 
   ```swift
@@ -489,8 +490,8 @@ Two subtleties:
   That's the trap with overriding an Objective-C class: you only see the calls that go through
   dynamic dispatch, not the ones the class makes to its own storage. So each switch is overridden
   too, with a setter that always sets it off on `super`. Completion, smart copy/paste and inline
-  prediction aren't checking types, and are held off the same way. The getters aren't overridden,
-  so they show what AppKit actually holds, and that's what the tests check.
+  prediction aren't checking types, and are held off the same way. Each overridden getter just
+  returns `super`'s value, so it shows what AppKit actually holds, and that's what the tests check.
   `leaveTheWritersWordsAlone()` runs those setters once as the view is set up
   (`SceneTextView.configure`, `AdmittingTextView`'s initializer), to undo what AppKit read from
   System Settings. Print and Word export smarten quotes on the way out (ADR 0022).
