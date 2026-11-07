@@ -69,6 +69,40 @@ public enum OneBookWording {
         }
     }
 
+    /// The alert shown when a book can't be created because another is open: a book from Finder
+    /// opened while the New Book panel was up.
+    public enum CreateRefusal: CaseIterable, Sendable {
+        /// What didn't happen is the title; the body says how to get there.
+        case wasntCreated
+        /// The shortest: the instruction is the title.
+        case closeFirst
+    }
+
+    /// The owner's pick for the alert.
+    public static let createRefusal = CreateRefusal.wasntCreated
+
+    public static func createRefusal(of requested: URL, whileOpen open: URL) -> Notice {
+        createRefusal(createRefusal, of: requested, whileOpen: open)
+    }
+
+    public static func createRefusal(_ wording: CreateRefusal, of requested: URL, whileOpen open: URL)
+        -> Notice
+    {
+        let openName = quoted(StoreWording.bookName(open))
+        let name = quoted(StoreWording.bookName(requested))
+        let again = "choose File → \(StoreWording.newBookMenuItem) again"
+        switch wording {
+        case .wasntCreated:
+            return Notice(
+                title: "\(name) wasn't created, because \(openName) is open.",
+                message: "Close \(openName) first (File → \(closeBookMenuItem)), then \(again).")
+        case .closeFirst:
+            return Notice(
+                title: "Close \(openName) first.",
+                message: "\(name) wasn't created. Choose File → \(closeBookMenuItem), then \(again).")
+        }
+    }
+
     // MARK: The book is lost (ADR 0018 → ADR 0038)
 
     /// After Open Other Version saved the writer's version as a copy, nothing would open in its

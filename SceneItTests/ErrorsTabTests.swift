@@ -362,6 +362,7 @@ extension BookStoreIntegrationTests {
             #expect(makeEditableItem != nil)
             await eventually { makeEditableItem?.isEnabled == false }
 
+            // A repaired book first, so the newer book's disabled item is an update the menu made.
             let repaired = try package(damaged, in: folder)
             guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
                 Issue.record("precondition: the book opens repaired and read-only")

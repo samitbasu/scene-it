@@ -20,10 +20,7 @@ private func fileItem(_ title: String) -> NSMenuItem? {
 /// The test host's main window: the app's own `Window` scene, showing `BookController.shared`.
 @MainActor
 private func mainWindow() -> NSWindow? {
-    NSApp.windows.first {
-        ($0.standardWindowButton(.closeButton)?.target as? MainWindowCloseButton.Router)?.books
-            === BookController.shared
-    }
+    BookController.shared.mainWindow
 }
 
 /// The quit AppKit would have been asked for, carried out a run-loop turn after the request,
@@ -170,6 +167,94 @@ extension BookStoreIntegrationTests {
 
         #expect(await books.quitCarriedOut() == [quitCarriedOut])
         expectNoQuestions()
+    }
+
+    @Test func theMainWindowsCloseButtonIsRoutedToTheApp() async throws {
+        await eventually { NSApp.windows.contains { $0.identifier?.rawValue.hasPrefix("main") == true } }
+        let window = try #require(
+            NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true },
+            "precondition: the app's own main window scene")
+        await eventually { window.standardWindowButton(.closeButton)?.target is MainWindowCloseButton.Router }
+        let button = try #require(window.standardWindowButton(.closeButton))
+        let router = try #require(button.target as? MainWindowCloseButton.Router)
+        #expect(router.books === BookController.shared)
+        #expect(button.action == NSSelectorFromString("closeClicked:"))
+        #expect(BookController.shared.mainWindow === window)
+    }
+
+    /// The Dock icon brings back a main window that isn't on screen, and leaves a visible one to
+    /// AppKit. (A controller and window of the test's own, so the app's window stays up: a
+    /// SwiftUI app with only a `Window` scene quits once no window is left.)
+    @Test func reopeningFromTheDockBringsBackTheMainWindow() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let size = WindowMetrics.defaultSize
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable],
+                backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = NSHostingController(rootView: MainWindow(books: books))
+            window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
+            window.orderFront(nil)
+            defer { window.close() }
+            await eventually { books.mainWindow != nil }
+            try #require(
+                books.mainWindow === window && window.isVisible, "precondition: its window, on screen")
+            #expect(books.reopenMainWindow(), "a visible window is AppKit's to handle")
+            #expect(books.takeRequests() == [])
+
+            window.orderOut(nil)
+            try #require(!window.isVisible, "precondition: off screen")
+            #expect(!books.reopenMainWindow())
+            #expect(books.takeRequests() == [.init(request: .bringForward(window), storeWasBusy: false)])
+            #expect(await books.store.closeBook() == .left)
+        }
+    }
+
+    /// ⌘W with another window key closes that window, through its own close, and leaves the
+    /// book alone.
+    @Test func closeBookWithAnotherWindowKeyClosesThatWindow() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let other = NSWindow(
+                contentRect: NSRect(x: -30000, y: -30000, width: 200, height: 100),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            other.isReleasedWhenClosed = false
+            other.orderFront(nil)
+            defer { other.close() }
+            try #require(other.isVisible, "precondition: on screen")
+
+            await books.closeFromMenu(keyWindow: other)
+
+            #expect(!other.isVisible, "closed")
+            #expect(books.store.current === book, "the book stays open")
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    /// The whole close decision, for each state and source.
+    @Test func closeActionsFollowTheStateAndTheSource() async throws {
+        try await withTemporaryFolder { folder in
+            try #require(BookController.startScreenCommandW == .quits, "precondition: the current pick")
+            let books = BookController(role: .testHost)
+            let other = NSWindow(
+                contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            #expect(books.closeAction(from: .closeButton) == .quit)
+            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .quit)
+            #expect(books.closeAction(from: .menu(keyWindow: other)) == .closeWindow(other))
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            #expect(books.closeAction(from: .closeButton) == .closeBook)
+            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
+            #expect(books.closeAction(from: .menu(keyWindow: other)) == .closeWindow(other))
+            #expect(await books.store.closeBook() == .left)
+        }
     }
 
     /// ⌘W acts on the main window only from it or a window it owns; any other key window just

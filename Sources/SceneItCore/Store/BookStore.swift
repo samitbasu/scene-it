@@ -77,7 +77,7 @@ public final class BookStore<C: Clock<Duration>> {
     public enum CreateOutcome: Hashable, Sendable {
         case created
         case failed(CreateError)
-        /// A book is open (ADR 0038).
+        /// A book is open (ADR 0038); the writer was told.
         case refused
     }
 
@@ -148,8 +148,9 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {
         await exclusively {
-            guard isChoosing else {
-                Log.store.error("asked to create a book while one is open")
+            if case .open(let book) = session {
+                Log.store.info("refused to create a book while one is open")
+                await prompts.tell(OneBookWording.createRefusal(of: url, whileOpen: book.layout.root))
                 return .refused
             }
             let loaded: LoadedBook
@@ -206,8 +207,9 @@ public final class BookStore<C: Clock<Duration>> {
                 return .openedReadOnly(reason)
             case .openAnyway(let record):
                 let again = await load(.again(book), onLockRecord: .openAnyway(record))
-                if case .failed(let error) = again { await prompts.tell(StoreWording.loadFailed(error)) }
-                return again
+                guard case .failed(let error) = again else { return again }
+                await prompts.tell(StoreWording.loadFailed(error))
+                return .openedReadOnly(reason)
             case .makeEditable:
                 switch await makeEditableExclusively() {
                 case .editable: return .opened
@@ -450,19 +452,29 @@ public final class BookStore<C: Clock<Duration>> {
     private func leave(_ leaving: Leaving) async -> LeaveOutcome {
         guard let book = current else { return .left }
         guard await book.confirmLeaving(leaving, asking: prompts) == .leave else { return .stayed }
-        let settled = await book.settle(before: leaving, asking: prompts)
-        guard settled != .stay else { return .stayed }
+        let departure: Departure
+        switch await book.settle(before: leaving, asking: prompts) {
+        case .stay: return .stayed
+        case .saved: departure = .saved
+        case .discarding: departure = .discarding
+        }
         let writer = book.detach()
         session = .choosing
-        switch (settled, leaving) {
+        switch (departure, leaving) {
         case (.discarding, .closeBook):
             if let writer { Task { await writer.release() } }
         case (.discarding, .quit):
             writer?.releaseUnlessSaving()
-        case (.saved, _), (.stay, _):
+        case (.saved, _):
             await writer?.release()
         }
         return .left
+    }
+
+    /// How a leave that goes ahead left the book's edits.
+    private enum Departure {
+        case saved
+        case discarding
     }
 
     /// `applicationWillTerminate`: releases the book's lock now, unless a save is still running.

@@ -24,6 +24,7 @@ struct BookCommands: Commands {
                 .disabled(!books.isCloseItemEnabled)
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }
                 .keyboardShortcut("s")
+                .disabled(choosing)
             Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
                 .disabled(books.store.current?.canBeMadeEditable != true)
             Button(ArchiveWording.menuItem) { filing?.begin() }

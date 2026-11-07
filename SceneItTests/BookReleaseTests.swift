@@ -15,7 +15,7 @@ private func drainARunLoopTurn() {
 }
 
 extension BookStoreIntegrationTests {
-    /// #88: closing a book in the app's own window releases the `OpenBook` and the page's editor,
+    /// #88: closing a book in the app's own window, through File → Close Book, releases the `OpenBook` and the page's editor,
     /// while the window stays up for the start screen. (The page's `NSTextView` itself outlives
     /// them for a while, held by AppKit: a block `-[NSView _commonAwake]` registers with the
     /// notification center, and AppKit's `previousKeyViews` table. It no longer reaches the
@@ -25,7 +25,7 @@ extension BookStoreIntegrationTests {
             let books = BookController.shared
             try #require(books.store.isChoosing, "precondition: the start screen")
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
-            #expect(await books.store.create(at: url) == .created)
+            try #require(await books.store.create(at: url) == .created)
             weak let book = books.store.current
             let scene = try #require(book?.addScene(after: nil))
             book?.replaceBody(of: scene, with: [[Run("Release me.")]])
@@ -42,12 +42,15 @@ extension BookStoreIntegrationTests {
             try #require(book != nil && editor != nil, "precondition: both alive while the book is open")
             try #require(editor?.book === book, "precondition: the editor is the open book's")
 
-            #expect(await books.store.closeBook() == .left)
-            await eventually { books.store.isChoosing && page() == nil }
+            let window = try #require(books.mainWindow, "precondition: the app's main window")
 
-            for _ in 0..<50 where book != nil || editor != nil {
+            await books.closeFromMenu(keyWindow: nil)
+            await eventually { books.store.isChoosing && page() == nil }
+            #expect(window.isVisible, "the window stays up for the start screen")
+
+            await eventually {
                 drainARunLoopTurn()
-                try await Task.sleep(for: .milliseconds(10))
+                return book == nil && editor == nil
             }
             #expect(book == nil, "the closed OpenBook was released")
             #expect(editor == nil, "the page's editor was released")

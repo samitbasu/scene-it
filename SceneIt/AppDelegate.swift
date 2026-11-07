@@ -80,6 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        books.reopenMainWindow()
+    }
+
     func applicationDidResignActive(_ notification: Notification) {
         books.store.appDeactivated()
     }

@@ -247,7 +247,9 @@ struct BookStoreTests {
             #expect(await store.create(at: second) == .refused)
             #expect(store.current === book)
             #expect(!FileManager.default.fileExists(atPath: second.path(percentEncoded: false)))
-            #expect(prompts.notices.isEmpty, "New Book is disabled, so there's nothing to explain")
+            #expect(
+                prompts.notices == [OneBookWording.createRefusal(of: second, whileOpen: book.layout.root)],
+                "New Book is disabled, but its panel may have been up when a book from Finder opened")
         }
     }
 
@@ -452,11 +454,10 @@ struct BookStoreTests {
             try FileManager.default.createDirectory(at: book, withIntermediateDirectories: false)
             prompts.releaseHeld()
 
-            guard case .failed = await opening.value else {
-                Issue.record("precondition: the book read again doesn't load")
-                return
-            }
+            #expect(
+                await opening.value == .openedReadOnly(.openOnAnotherMac(other)), "that book is still open")
             #expect(store.current === readOnly)
+            #expect(!readOnly.isEditable)
             #expect(store.recentBooks.map(\.canonicalPath) == [url.canonicalPath])
             #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Shared”."])
         }

@@ -51,6 +51,13 @@ extension BookStoreIntegrationTests {
                     try await OneBookRenders.alert(notice), name: "refusal-\(wording)", to: output)
             }
 
+            let untitled = folder.appending(path: "Untitled.sceneit")
+            for wording in OneBookWording.CreateRefusal.allCases {
+                let notice = OneBookWording.createRefusal(wording, of: untitled, whileOpen: url)
+                try OneBookRenders.write(
+                    try await OneBookRenders.alert(notice), name: "create-refusal-\(wording)", to: output)
+            }
+
             let lost = try OneBookRenders.loadError(in: folder, named: "My Novel")
             let copy = folder.appending(path: "My Novel (my edits).sceneit")
             for wording in OneBookWording.BookLost.allCases {

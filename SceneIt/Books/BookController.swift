@@ -93,25 +93,66 @@ final class BookController {
         await store.open(books)
     }
 
+    /// What closing does (ADR 0038).
+    enum CloseAction: Equatable {
+        /// Close Book: save, release, show the start screen.
+        case closeBook
+        case quit
+        /// Another window is key: it closes as usual.
+        case closeWindow(NSWindow)
+        case nothing
+    }
+
+    enum CloseSource {
+        /// File → Close Book (⌘W), with the key window at the time.
+        case menu(keyWindow: NSWindow?)
+        /// The main window's red close button.
+        case closeButton
+    }
+
+    /// The whole decision, from the state now and where the close came from. A caller that
+    /// decides when the event arrives, rather than when its task runs, passes the result to
+    /// `perform`.
+    func closeAction(from source: CloseSource) -> CloseAction {
+        if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
+            return .closeWindow(other)
+        }
+        guard store.isChoosing else { return .closeBook }
+        switch (source, Self.startScreenCommandW) {
+        case (.closeButton, _), (.menu, .quits): return .quit
+        case (.menu, .nothing): return .nothing
+        }
+    }
+
+    func perform(_ action: CloseAction) async {
+        switch action {
+        case .closeBook: await store.closeBook()
+        case .quit: requests.send(.quit)
+        case .closeWindow(let window): window.performClose(nil)
+        case .nothing: break
+        }
+    }
+
     /// The main window's close button: with a book open, Close Book, which returns to the start
     /// screen; on the start screen, Quit (ADR 0038).
     func closeMainWindow() async {
-        if store.current != nil {
-            await store.closeBook()
-        } else {
-            requests.send(.quit)
-        }
+        await perform(closeAction(from: .closeButton))
+    }
+
+    /// File → Close Book (⌘W).
+    func closeFromMenu(keyWindow: NSWindow? = NSApp.keyWindow) async {
+        await perform(closeAction(from: .menu(keyWindow: keyWindow)))
     }
 
     /// File → Close Book's title: on the start screen it's the item ⌘W chooses there.
     var closeItemTitle: String {
-        store.current == nil ? OneBookWording.startScreenCloseMenuItem : OneBookWording.closeBookMenuItem
+        store.isChoosing ? OneBookWording.startScreenCloseMenuItem : OneBookWording.closeBookMenuItem
     }
 
     var isCloseItemEnabled: Bool {
         switch Self.startScreenCommandW {
         case .quits: true
-        case .nothing: store.current != nil
+        case .nothing: !store.isChoosing
         }
     }
 
@@ -129,19 +170,13 @@ final class BookController {
         return root === mainWindow ? .mainWindow : .window(keyWindow)
     }
 
-    /// File → Close Book (⌘W).
-    func closeFromMenu() async {
-        switch closeTarget(keyWindow: NSApp.keyWindow) {
-        case .window(let window):
-            window.performClose(nil)
-        case .mainWindow where store.current != nil:
-            await store.closeBook()
-        case .mainWindow:
-            switch Self.startScreenCommandW {
-            case .quits: requests.send(.quit)
-            case .nothing: break
-            }
-        }
+    /// The Dock icon clicked (`applicationShouldHandleReopen`): if the main window isn't on
+    /// screen (minimized, or ordered out), it comes back. True if AppKit should do its own
+    /// reopening, as when the main window is already visible.
+    func reopenMainWindow() -> Bool {
+        guard let window = mainWindow, !window.isVisible || window.isMiniaturized else { return true }
+        requests.send(.bringForward(window))
+        return false
     }
 
     func newBook() async {
