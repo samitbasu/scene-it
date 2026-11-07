@@ -19,6 +19,9 @@ final class BookController {
     static let startScreenCommandW = StartScreenCommandW.quits
 
     let store: AppBookStore
+    /// The close a press started, until it has finished: any press meanwhile does nothing, even
+    /// one decided before the store reached `closing` (while another operation held it).
+    private var closeInFlight: Task<Void, Never>?
     let memory: any BookMemory
     /// The window's layout (ADR 0022).
     let preferences: AppPreferences
@@ -117,6 +120,7 @@ final class BookController {
         if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
             return .closeWindow(other)
         }
+        if closeInFlight != nil { return .nothing }
         switch store.session {
         case .open: return .closeBook
         case .closing: return .nothing
@@ -142,7 +146,23 @@ final class BookController {
     @discardableResult
     func press(_ source: CloseSource) -> Task<Void, Never> {
         let action = closeAction(from: source)
-        return Task { await perform(action) }
+        guard action == .closeBook else { return Task { await perform(action) } }
+        let close = Task {
+            await perform(action)
+            closeInFlight = nil
+        }
+        closeInFlight = close
+        return close
+    }
+
+    /// File a Copy can start: the book is open for editing, and not being closed.
+    var canStartFiling: Bool {
+        store.openBook?.isEditable == true
+    }
+
+    /// Make Editable… applies: the open book, not being closed, was repaired as it opened.
+    var canMakeEditable: Bool {
+        store.openBook?.canBeMadeEditable == true
     }
 
     /// File → Close Book's title: on the start screen it's the item ⌘W chooses there.

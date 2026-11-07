@@ -32,8 +32,9 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
-    public var isClosing: Bool {
-        if case .closing = session { true } else { false }
+    /// The book while it's open and not being closed: what File a Copy and Make Editable act on.
+    public var openBook: OpenBook<C>? {
+        if case .open(let book) = session { book } else { nil }
     }
 
     /// New Book, Open Book and the start state's recent books are offered only here.

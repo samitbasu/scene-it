@@ -13,8 +13,9 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
 ## Decision
 1. **One book at a time, and never switched in place.** While a book is open, nothing else opens:
    - File → New Book… and Open Book… are disabled. (Scene It has no Open Recent menu; Recent Books are on the
-     start screen.) If a book opens while the New Book panel is up (from Finder, say), the new book isn't
-     created, and the writer is told.
+     start screen.) If New Book is chosen while an open is already running (the launch reopening the last
+     book from a slow volume, say, while the start screen shows) and that book opens first, the new book
+     isn't created, and the writer is told.
    - File → Save is disabled on the start screen, where there's nothing to save.
    - A book forwarded from Finder or `open`, including ADR 0020's hand-off from a second launch, is not
      opened. The window comes forward with an alert saying the open book must be closed first. If the
@@ -38,8 +39,11 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
 - Only a chosen book that won't load is forgotten from Recent Books. A book read again, or the writer's copy,
   stays there when it won't load. An Open Anyway that can't read the book again leaves the read-only book open
   (`.openedReadOnly`), after telling the writer once, also when it follows Open Other Version.
-- While Open Other Version reads the original again, off the main actor, the old book is detached: it isn't
-  editable, so the page refuses typing, and an edit that still reaches it is refused rather than lost.
+- A book stops taking edits the moment it's detached (Close Book, or Open Other Version's reload): the model
+  refuses them, and the page's editor refuses every change with a beep before the view changes, so a
+  keystroke between the detach and SwiftUI's next update can't appear and then vanish. Tests: the store
+  refuses edits in the reload's gap (a held file read), and the page refuses typing on a detached book whose
+  view is still editable.
 - **A lost book.** If ADR 0018's reopen (the original, or the writer's copy) fails after the writer's version
   was saved as a copy, no book is left open: the start screen shows, the writer is told what happened and
   where their version is (`OneBookWording.bookLost`; the copy is named once), and the copy is first in Recent
@@ -56,7 +60,12 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   (the menu with its key window, or the close button), and hands that decision to a task. A press with a book
   open only closes the book. While Close Book is saving or asking, the session is `closing(book)` (the book is
   still shown; Cancel returns to `open`), and any other press (a key repeat, a second click, ⌘W after the red
-  button) does nothing. A fresh press once the start screen shows quits.
+  button) does nothing, as does any press while the close a press started is unfinished (including one
+  decided while another store operation held the store, before it reached `closing`). A fresh press once the
+  start screen shows quits. Quit itself isn't a session state: AppKit's own terminate path ignores a second
+  Quit while one is pending, and a close press queued behind a Quit finds no book once it's done.
+- **File a Copy… and Make Editable…** act on `BookStore.openBook`, which is nil while the book is closing, so
+  neither can be started (and then torn down with what was typed) during Close Book's save or questions.
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).
 - **⌘W acts on the main window only** while it, or a window it owns (a sheet, a child window, walked up to the
   root), is key. Any other key window (the crash report, say) just closes. The main window is the one whose

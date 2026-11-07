@@ -267,7 +267,7 @@ struct StoreRaceTests {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
-            let (store, book, scene, url) = try await changedBook(
+            let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
             let gate = Gate()
             prompts.beforeAnswering = { _ in
@@ -287,7 +287,6 @@ struct StoreRaceTests {
             gate.open()
             await eventually { store.current !== book && store.current != nil }
             #expect(try bookOnDisk(folder.appending(path: copyName)).scenes.first?.body == [[Run("Mine")]])
-            _ = url
         }
     }
 

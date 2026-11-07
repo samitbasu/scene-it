@@ -15,8 +15,8 @@ private func drainARunLoopTurn() {
 }
 
 extension BookStoreIntegrationTests {
-    /// #88: closing a book in the app's own window, through File → Close Book, releases the `OpenBook` and the page's editor,
-    /// while the window stays up for the start screen. (The page's `NSTextView` itself outlives
+    /// #88: closing a book in the app's own window, through File → Close Book, releases the
+    /// `OpenBook` and the page's editor, while the window stays up for the start screen. (The page's `NSTextView` itself outlives
     /// them for a while, held by AppKit: a block `-[NSView _commonAwake]` registers with the
     /// notification center, and AppKit's `previousKeyViews` table. It no longer reaches the
     /// book, since its editor is weak and gone, so it isn't asserted on.)

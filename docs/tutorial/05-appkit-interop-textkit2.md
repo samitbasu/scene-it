@@ -23,8 +23,11 @@ attributed strings are new to you.
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
 | [`Sources/SceneItCore/Store/OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `apply(_:to:in:adding:)`, `undo(for:_:)`, `resolve(_:into:)` |
 
-The tests: [`SceneItTests/PageTests.swift`](../../SceneItTests/PageTests.swift) drives the real
-page in an offscreen window; [`Tests/SceneItCoreTests/Text/BodyChangeTests.swift`](../../Tests/SceneItCoreTests/Text/BodyChangeTests.swift)
+The tests: [`SceneItTests/PageTests.swift`](../../SceneItTests/PageTests.swift) and
+[`SceneItTests/NotesTests.swift`](../../SceneItTests/NotesTests.swift) drive the real page and notes in
+an offscreen window, with fuzz, caret, click, drop and comment-operation suites beside them in
+[`SceneItTests/`](../../SceneItTests/);
+[`Tests/SceneItCoreTests/Text/BodyChangeTests.swift`](../../Tests/SceneItCoreTests/Text/BodyChangeTests.swift)
 and [`Tests/SceneItCoreTests/Store/PageEditTests.swift`](../../Tests/SceneItCoreTests/Store/PageEditTests.swift)
 cover the pure parts.
 
@@ -237,9 +240,10 @@ TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws
 (`draw(at:in:)`). The layout manager asks its delegate for every paragraph's fragment
 (`textLayoutManager(_:textLayoutFragmentFor:in:)`), so the page (`ManuscriptTextView`) makes a
 `CommentUnderliner` its layout manager's delegate, and every paragraph of the page is a
-`CommentUnderlineFragment` (the notes have no comments, ADR 0035, and keep TextKit's own): TextKit's own drawing, then a line per comment below the
-baseline, in the comment's colour. A Rust analogy: the delegate is a factory closure the layout
-engine calls, and the fragment is a type that wraps the default `draw` and adds to it.
+`CommentUnderlineFragment` (the notes have no comments, ADR 0035, and keep TextKit's own):
+TextKit's own drawing, then a line per comment below the baseline, in the comment's colour. A
+Rust analogy: the delegate is a factory closure the layout engine calls, and the fragment is a
+type that wraps the default `draw` and adds to it.
 
 Three things about fragments are worth knowing:
 
@@ -556,10 +560,11 @@ the scene's own manager, which `OpenBook` keeps:
     }
 ```
 
-(`part` is `.body` for the page and `.notes` for the notes, section 11.) Switching scenes swaps the text in the same view, so the next keystroke registers on the new
-scene's manager, and coming back to a scene finds its history where it was left. An undo is
-an ordinary edit as far as the storage is concerned, so it reaches the model through the same
-`didProcessEditing` sync, and autosave hears of it in the same turn.
+(`part` is `.body` for the page and `.notes` for the notes, section 11.) Switching scenes swaps
+the text in the same view, so the next keystroke registers on the new scene's manager, and
+coming back to a scene finds its history where it was left. An undo is an ordinary edit as far
+as the storage is concerned, so it reaches the model through the same `didProcessEditing` sync,
+and autosave hears of it in the same turn.
 
 **Grouping.** `UndoManager.groupsByEvent` (on by default) opens a group at the first
 registration in an event and closes it when the run loop finishes the event. A test has no

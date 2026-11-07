@@ -63,12 +63,13 @@ private final class LosingPrompts: StorePrompts {
 /// Holds each question until `answer`, so a test can act while the writer is being asked.
 private final class HoldingPrompts: StorePrompts {
     private(set) var titles: [String] = []
-    private var held: (continuation: CheckedContinuation<Void, Never>, choice: (any Hashable & Sendable)?)?
+    private var held: CheckedContinuation<Void, Never>?
     private var next: (any Hashable & Sendable)?
 
     func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
         titles.append(alert.title)
-        await withCheckedContinuation { held = ($0, nil) }
+        await withCheckedContinuation { held = $0 }
+        defer { next = nil }
         return (next as? Choice) ?? alert.choices[0]
     }
 
@@ -78,7 +79,7 @@ private final class HoldingPrompts: StorePrompts {
 
     func answer(_ choice: any Hashable & Sendable) {
         next = choice
-        held?.continuation.resume()
+        held?.resume()
         held = nil
     }
 }
@@ -86,7 +87,7 @@ private final class HoldingPrompts: StorePrompts {
 /// ADR 0038 through the app's own menus and window: one book at a time; Close Book returns to
 /// the start screen; closing the start screen quits.
 extension BookStoreIntegrationTests {
-    @Test func newAndOpenAreOfferedOnlyOnTheStartScreen() async throws {
+    @Test func newAndOpenAreOfferedOnlyOnTheStartScreenAndSaveOnlyWithABook() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             try #require(books.store.isChoosing, "precondition: the start screen")
@@ -96,6 +97,7 @@ extension BookStoreIntegrationTests {
                 fileItem(StoreWording.newBookMenuItem)?.isEnabled == true
                     && fileItem(StoreWording.openBookMenuItem)?.isEnabled == true
                     && fileItem(startClose)?.isEnabled == true
+                    && fileItem(StoreWording.saveMenuItem)?.isEnabled == false
             }
             let close = try #require(fileItem(startClose))
             #expect(close.keyEquivalent == "w")
@@ -110,10 +112,14 @@ extension BookStoreIntegrationTests {
                 fileItem(StoreWording.newBookMenuItem)?.isEnabled == false
                     && fileItem(StoreWording.openBookMenuItem)?.isEnabled == false
                     && fileItem(OneBookWording.closeBookMenuItem)?.isEnabled == true
+                    && fileItem(StoreWording.saveMenuItem)?.isEnabled == true
             }
 
             #expect(await books.store.closeBook() == .left)
-            await eventually { fileItem(StoreWording.newBookMenuItem)?.isEnabled == true }
+            await eventually {
+                fileItem(StoreWording.newBookMenuItem)?.isEnabled == true
+                    && fileItem(StoreWording.saveMenuItem)?.isEnabled == false
+            }
             expectNoQuestions()
         }
     }
@@ -273,7 +279,10 @@ extension BookStoreIntegrationTests {
 
             let closing = books.press(.closeButton)
             await eventually { prompts.titles == ["Close without filing the copy?"] }
-            try #require(books.store.isClosing, "precondition: a close in flight")
+            guard case .closing = books.store.session else {
+                Issue.record("precondition: a close in flight")
+                return
+            }
             #expect(books.closeAction(from: .closeButton) == .nothing)
             #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing)
             await books.press(.closeButton).value
@@ -289,6 +298,93 @@ extension BookStoreIntegrationTests {
             await books.press(.closeButton).value
             #expect(
                 await books.quitCarriedOut() == [quitCarriedOut], "a fresh press on the start screen quits")
+        }
+    }
+
+    /// While Close Book is asking, File a Copy and Make Editable can't start: what they'd
+    /// collect would be torn down with the book.
+    @Test func fileACopyAndMakeEditableAreOfferedOnlyWhileTheBookIsOpenNotClosing() async throws {
+        try await withTemporaryFolder { folder in
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+
+            let prompts = HoldingPrompts()
+            let books = BookController(role: .testHost, prompts: prompts)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            try #require(books.canStartFiling, "precondition: offered while open")
+            books.store.current?.filingDraft = draft
+            let closing = books.press(.closeButton)
+            await eventually { prompts.titles == ["Close without filing the copy?"] }
+            #expect(!books.canStartFiling)
+            #expect(books.store.openBook == nil && books.store.current != nil, "closing, still shown")
+            prompts.answer(UnfiledDraftChoice.cancel)
+            await closing.value
+            #expect(books.canStartFiling, "offered again after Cancel")
+
+            let repairing = HoldingPrompts()
+            let other = BookController(role: .testHost, prompts: repairing)
+            let damaged = folder.appending(path: "Damaged.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: damaged, title: "Damaged")
+            try Data(
+                "---\ntitle: Damaged\nformat: 2\n---\n\nA stray line.\n\n## One\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n\nBody.\n"
+                    .utf8
+            ).write(to: damaged.appending(path: "book.md"))
+            let opening = Task { await other.store.open(damaged) }
+            await eventually { repairing.titles.count == 1 }
+            repairing.answer(ReadOnlyChoice.keepReadOnly)
+            guard case .openedReadOnly(.repairedOnOpen) = await opening.value else {
+                Issue.record("precondition: the book opens repaired")
+                return
+            }
+            try #require(other.canMakeEditable, "precondition: offered while open")
+            other.store.current?.filingDraft = draft
+            let closingRepaired = other.press(.closeButton)
+            await eventually { repairing.titles.count == 2 }
+            #expect(!other.canMakeEditable)
+            repairing.answer(UnfiledDraftChoice.leaveAnyway)
+            await closingRepaired.value
+
+            books.store.current?.filingDraft = nil
+            #expect(await books.store.closeBook() == .left)
+        }
+    }
+
+    /// Two presses decided while another store operation holds the store (both before it
+    /// reaches `closing`) ask about closing once: the second is ignored while the first's close
+    /// is unfinished, and Cancel then leaves the book open.
+    @Test func pressesQueuedBehindAnotherOperationAskOnce() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = HoldingPrompts()
+            let books = BookController(role: .testHost, prompts: prompts)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let scene = try #require(book.addScene(after: nil))
+            await eventually { book.status == .saved }
+            var theirs = try bookOnDisk(url)
+            theirs.title = "Their version"
+            try BookFormat.serialize(theirs).write(to: url.appending(path: "book.md"), options: .atomic)
+            book.setTitle(of: scene, to: "My version")
+            books.store.saveNow()
+            await eventually { prompts.titles == [QuitWording.changedOnDiskTitle] }
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+            book.filingDraft = draft
+
+            let first = books.press(.closeButton)
+            let second = books.press(.closeButton)
+            prompts.answer(ExternalChangeChoice.keepMyVersion)
+            await eventually { prompts.titles.count == 2 }
+            prompts.answer(UnfiledDraftChoice.cancel)
+            await first.value
+            await second.value
+
+            #expect(prompts.titles == [QuitWording.changedOnDiskTitle, "Close without filing the copy?"])
+            #expect(books.store.current === book, "Cancel kept the book open")
+            book.filingDraft = nil
+            #expect(await books.store.closeBook() == .left)
+            #expect(books.takeRequests() == [])
         }
     }
 
@@ -473,6 +569,35 @@ extension BookStoreIntegrationTests {
             #expect(books.takeRequests() == [.init(request: .bringForward(nil), storeWasBusy: false)])
             #expect(books.store.current?.layout.root.canonicalPath == url.canonicalPath)
             #expect(await books.store.closeBook() == .left)
+        }
+    }
+}
+
+/// The page, during the gap between a book's detach and SwiftUI's next update.
+@Suite(.serialized, .timeLimit(.minutes(1)))
+struct DetachedBookTypingTests {
+    /// Close Book (or Open Other Version's reload) detaches the book in one main-actor job; the
+    /// page stops being editable only when SwiftUI next updates it. A keystroke in between is
+    /// refused by the editor itself, with a beep, and never reaches the text.
+    @Test func aDetachedBooksPageRefusesTypingBeforeSwiftUICatchesUp() async throws {
+        try await withPage([scene("One", [[Run("Kept.")]])]) { harness in
+            let page = harness.page
+            let editor = try #require(page.editor)
+            let before = harness.storage.string
+            let end = NSRange(location: (before as NSString).length, length: 0)
+            let change = [NSValue(range: end)]
+            try #require(
+                editor.textView(page, shouldChangeTextInRanges: change, replacementStrings: [" More."]),
+                "precondition: the open book's page takes typing")
+
+            #expect(await harness.store.closeBook() == .left)
+            try #require(!harness.book.isEditable, "precondition: detached")
+            page.isEditable = true
+            page.setSelectedRange(end)
+            page.insertText(" Lost?", replacementRange: end)
+
+            #expect(harness.storage.string == before, "the keystroke never reached the text")
+            #expect(!editor.textView(page, shouldChangeTextInRanges: change, replacementStrings: [" More."]))
         }
     }
 }

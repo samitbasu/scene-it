@@ -69,8 +69,9 @@ public enum OneBookWording {
         }
     }
 
-    /// The alert shown when a book can't be created because another is open: a book from Finder
-    /// opened while the New Book panel was up.
+    /// The alert shown when a book can't be created because another is open: New Book was chosen
+    /// while an open was already running (the launch reopening the last book from a slow volume,
+    /// say, while the start screen shows), and that book opened first.
     public enum CreateRefusal: CaseIterable, Sendable {
         /// What didn't happen is the title; the body says how to get there.
         case wasntCreated
