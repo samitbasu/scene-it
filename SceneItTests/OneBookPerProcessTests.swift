@@ -145,12 +145,18 @@ extension BookStoreIntegrationTests {
         }
     }
 
-    @Test func theCloseButtonClosesTheBookAndTheWindowStaysForTheStartScreen() async throws {
+    /// #130: the red button with a book open quits, through Quit's own path: one request,
+    /// carried out a run-loop turn after the click, however many clicks; the book stays open
+    /// until that path runs, then is saved and released there.
+    @Test func theCloseButtonWithABookOpenQuitsThroughTheQuitPath() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             _ = books.takeRequests()
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let scene = try #require(book.addScene(after: nil))
+            book.replaceBody(of: scene, with: [[Run("Typed just before quitting")]])
             await eventually { mainWindow() != nil }
             let window = try #require(mainWindow())
             let button = try #require(window.standardWindowButton(.closeButton))
@@ -159,10 +165,48 @@ extension BookStoreIntegrationTests {
                 "precondition: routed, so the click can't close the window")
 
             button.performClick(nil)
+            button.performClick(nil)
+            #expect(books.takeRequests() == [], "not carried out in the click's turn")
 
-            await eventually { books.store.isChoosing }
+            #expect(await books.quitCarriedOut() == [quitCarriedOut])
+            #expect(books.store.current === book, "the book stays open until the quit path runs")
             #expect(window.isVisible)
-            #expect(books.takeRequests() == [], "nothing quit")
+            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing, "⌘W waits for the quit")
+
+            #expect(await books.settleQuit() == .left, "the quit path, as applicationShouldTerminate runs it")
+            #expect(book.status == .closed)
+            #expect(try bookOnDisk(url) == book.book, "saved first")
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "the second click asked for nothing")
+            expectNoQuestions()
+        }
+    }
+
+    /// Quit's Cancel, after the red button, keeps the book open and editable, and leaves the
+    /// next press to be decided afresh.
+    @Test func cancelInTheQuitPromptAfterTheCloseButtonKeepsTheBookOpen() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            let headless = try #require(books.prompts as? HeadlessPrompts)
+            _ = books.takeRequests()
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+            book.filingDraft = draft
+
+            books.press(.closeButton)
+            #expect(await books.quitCarriedOut() == [quitCarriedOut])
+            #expect(await books.settleQuit() == .stayed)
+
+            #expect(headless.takeTitles() == ["Quit without filing the copy?"])
+            #expect(books.store.current === book)
+            #expect(book.isEditable)
+            #expect(books.closeAction(from: .closeButton) == .quit, "ready for the next press")
+            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
+            book.filingDraft = nil
+            #expect(await books.store.closeBook() == .left)
             expectNoQuestions()
         }
     }
@@ -182,6 +226,7 @@ extension BookStoreIntegrationTests {
 
         #expect(await books.quitCarriedOut() == [quitCarriedOut])
         #expect(mainWindow()?.isVisible == true, "the window stays until the quit goes through")
+        #expect(await books.settleQuit() == .left)
     }
 
     @Test func commandWOnTheStartScreenQuits() async throws {
@@ -193,6 +238,7 @@ extension BookStoreIntegrationTests {
         try perform(item)
 
         #expect(await books.quitCarriedOut() == [quitCarriedOut])
+        #expect(await books.settleQuit() == .left)
         expectNoQuestions()
     }
 
@@ -240,9 +286,9 @@ extension BookStoreIntegrationTests {
         }
     }
 
-    /// Owner's pick (M2): a close is decided when it's pressed. Two presses in quick succession
-    /// with a book open (a key repeat, a double click) close the book once and never quit.
-    @Test func twoQuickClosePressesCloseTheBookOnceAndDontQuit() async throws {
+    /// Owner's pick (M2): a close is decided when it's pressed. Two ⌘W presses in quick
+    /// succession with a book open (a key repeat) close the book once and never quit.
+    @Test func twoQuickCloseBookPressesCloseTheBookOnceAndDontQuit() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             _ = books.takeRequests()
@@ -250,7 +296,7 @@ extension BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             let book = try #require(books.store.current)
 
-            let first = books.press(.closeButton)
+            let first = books.press(.menu(keyWindow: nil))
             let second = books.press(.menu(keyWindow: nil))
             await first.value
             await second.value
@@ -275,7 +321,7 @@ extension BookStoreIntegrationTests {
             draft.note = "Before the ending"
             books.store.current?.filingDraft = draft
 
-            let closing = books.press(.closeButton)
+            let closing = books.press(.menu(keyWindow: nil))
             await eventually { prompts.titles == ["Close without filing the copy?"] }
             guard case .closing = books.store.session else {
                 Issue.record("precondition: a close in flight")
@@ -296,6 +342,7 @@ extension BookStoreIntegrationTests {
             await books.press(.closeButton).value
             #expect(
                 await books.quitCarriedOut() == [quitCarriedOut], "a fresh press on the start screen quits")
+            #expect(await books.settleQuit() == .left)
         }
     }
 
@@ -312,7 +359,7 @@ extension BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             try #require(books.canStartFiling, "precondition: offered while open")
             books.store.current?.filingDraft = draft
-            let closing = books.press(.closeButton)
+            let closing = books.press(.menu(keyWindow: nil))
             await eventually { prompts.titles == ["Close without filing the copy?"] }
             #expect(!books.canStartFiling)
             #expect(books.store.openBook == nil && books.store.current != nil, "closing, still shown")
@@ -337,7 +384,7 @@ extension BookStoreIntegrationTests {
             }
             try #require(other.canMakeEditable, "precondition: offered while open")
             other.store.current?.filingDraft = draft
-            let closingRepaired = other.press(.closeButton)
+            let closingRepaired = other.press(.menu(keyWindow: nil))
             await eventually { repairing.titles.count == 2 }
             #expect(!other.canMakeEditable)
             repairing.answer(UnfiledDraftChoice.leaveAnyway)
@@ -370,8 +417,8 @@ extension BookStoreIntegrationTests {
             draft.note = "Before the ending"
             book.filingDraft = draft
 
-            let first = books.press(.closeButton)
-            let second = books.press(.closeButton)
+            let first = books.press(.menu(keyWindow: nil))
+            let second = books.press(.menu(keyWindow: nil))
             prompts.answer(ExternalChangeChoice.keepMyVersion)
             await eventually { prompts.titles.count == 2 }
             prompts.answer(UnfiledDraftChoice.cancel)
@@ -422,7 +469,7 @@ extension BookStoreIntegrationTests {
             #expect(books.closeAction(from: .menu(keyWindow: other)) == .closeWindow(other))
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
-            #expect(books.closeAction(from: .closeButton) == .closeBook)
+            #expect(books.closeAction(from: .closeButton) == .quit)
             #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
             #expect(books.closeAction(from: .menu(keyWindow: other)) == .closeWindow(other))
             #expect(await books.store.closeBook() == .left)

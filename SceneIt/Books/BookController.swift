@@ -10,9 +10,15 @@ final class BookController {
     static let shared = BookController(role: .current)
 
     let store: AppBookStore
-    /// The close a press started, until it has finished: any press meanwhile does nothing, even
-    /// one decided before the store reached `closing` (while another operation held it).
-    private var closeInFlight: Task<Void, Never>?
+    /// What a press (or Quit) started and hasn't finished. Any close press meanwhile does
+    /// nothing, even one decided before the store reached `closing` (while another operation
+    /// held it), or before AppKit's quit got to `applicationShouldTerminate`.
+    private var inFlight: InFlight?
+
+    private enum InFlight {
+        case closingBook
+        case quitting
+    }
     let memory: any BookMemory
     /// The window's layout (ADR 0022).
     let preferences: AppPreferences
@@ -87,10 +93,11 @@ final class BookController {
         await store.open(books)
     }
 
-    /// What closing does (ADR 0038).
+    /// What a close press does (ADR 0038).
     enum CloseAction: Equatable {
         /// Close Book: save, release, show the start screen.
         case closeBook
+        /// Quit, through AppKit's own path (`settleQuit`), which saves first.
         case quit
         /// Another window is key: it closes as usual.
         case closeWindow(NSWindow)
@@ -104,42 +111,51 @@ final class BookController {
         case closeButton
     }
 
-    /// The whole decision, from the state now and where the close came from. A press is
-    /// decided when it arrives (`press`): with a book open it only closes the book, and while a
-    /// close is still saving or asking, another press does nothing.
+    /// The whole decision, from the state now and where the press came from. The red button
+    /// quits (#130); ⌘W closes the book, or quits from the start screen. While a close or a quit
+    /// is under way, another press does nothing.
     func closeAction(from source: CloseSource) -> CloseAction {
         if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
             return .closeWindow(other)
         }
-        if closeInFlight != nil { return .nothing }
-        switch store.session {
-        case .open: return .closeBook
-        case .closing: return .nothing
-        case .choosing: return .quit
-        }
-    }
-
-    func perform(_ action: CloseAction) async {
-        switch action {
-        case .closeBook: await store.closeBook()
-        case .quit: requests.send(.quit)
-        case .closeWindow(let window): window.performClose(nil)
-        case .nothing: break
+        if inFlight != nil { return .nothing }
+        switch (source, store.session) {
+        case (_, .closing): return .nothing
+        case (.closeButton, _), (.menu, .choosing): return .quit
+        case (.menu, .open): return .closeBook
         }
     }
 
     /// File → Close Book (⌘W) or the main window's close button, pressed: decided now, as the
-    /// event arrives, then carried out (ADR 0038).
+    /// event arrives (ADR 0038). A quit is only requested here; AppKit starts it from a run-loop
+    /// source (`AppRequests`), never inside a task or a store operation.
     @discardableResult
     func press(_ source: CloseSource) -> Task<Void, Never> {
-        let action = closeAction(from: source)
-        guard action == .closeBook else { return Task { await perform(action) } }
-        let close = Task {
-            await perform(action)
-            closeInFlight = nil
+        switch closeAction(from: source) {
+        case .closeBook:
+            inFlight = .closingBook
+            return Task {
+                await store.closeBook()
+                inFlight = nil
+            }
+        case .quit:
+            inFlight = .quitting
+            requests.send(.quit)
+        case .closeWindow(let window):
+            window.performClose(nil)
+        case .nothing:
+            break
         }
-        closeInFlight = close
-        return close
+        return Task {}
+    }
+
+    /// The quit path's own work, for `applicationShouldTerminate`: saves and releases the book,
+    /// asking (Retry / Cancel / Quit Anyway) when that can't finish. Presses do nothing until it
+    /// ends; if the writer cancels, the next press is decided afresh.
+    func settleQuit() async -> AppBookStore.LeaveOutcome {
+        inFlight = .quitting
+        defer { inFlight = nil }
+        return await store.prepareToQuit()
     }
 
     /// File a Copy can start: the book is open for editing, and not being closed.
@@ -204,8 +220,9 @@ final class BookController {
     }
 }
 
-/// What the controller asks of the whole app. Closing the start screen quits through AppKit's
-/// own path (`applicationShouldTerminate`), exactly as Quit does (ADR 0038).
+/// What the controller asks of the whole app. The main window's close button (and ⌘W on the
+/// start screen) quits through AppKit's own path (`applicationShouldTerminate`), exactly as Quit
+/// does (ADR 0038).
 enum AppRequest: Hashable {
     case quit
     /// The app comes forward, with the main window if there is one.

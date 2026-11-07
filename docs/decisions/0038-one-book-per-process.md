@@ -1,6 +1,7 @@
 # 0038 — One book at a time, never switched in place; Close Book returns to the start screen
 
-**Status:** Accepted (2026-11-06, the owner's decisions on #88; revised 2026-11-07 after the owner's hand test).
+**Status:** Accepted (2026-11-06, the owner's decisions on #88; revised 2026-11-07 after the owner's hand test;
+amended 2026-11-07 by #130: the window's red close button quits).
 Supersedes [0021](0021-one-book-at-a-time.md) on switching books in place; amends
 [0020](0020-instance-and-book-locks.md) on books forwarded to the running instance. The owner chose the
 wording on 2026-11-07 (below).
@@ -20,11 +21,15 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
    - A book forwarded from Finder or `open`, including ADR 0020's hand-off from a second launch, is not
      opened. The window comes forward with an alert saying the open book must be closed first. If the
      forwarded book *is* the open book, the window just comes forward, with no alert.
-2. **Close Book returns to the start screen** in the same process. File → Close Book, ⌘W while the book's
-   window is key, and the window's red close button all save first, asking when a save can't finish (Retry /
-   Cancel / Close Anyway; Cancel keeps the book open), then release the book and show the start screen.
-3. **Closing the start screen quits Scene It.** Its red close button and ⌘W both quit, through Quit's own path;
-   there the File menu item reads "Close Window and Quit" (the owner's pick, 2026-11-07).
+2. **Close Book returns to the start screen** in the same process. File → Close Book, and ⌘W while the
+   book's window is key, save first, asking when a save can't finish (Retry / Cancel / Close Anyway; Cancel
+   keeps the book open), then release the book and show the start screen.
+3. **The window's red close button quits Scene It** (#130, the owner, 2026-11-07: "clicking the close (red)
+   button on the window _should_ exit the app"), with a book open or on the start screen, through Quit's own
+   path: it saves first, asking (Retry / Cancel / Quit Anyway) when a save can't finish, and Cancel keeps the
+   book open and Scene It running. On the start screen ⌘W quits too; there the File menu item reads "Close
+   Window and Quit" (the owner's pick, 2026-11-07). Until #130 the red button closed the book like Close Book
+   did, and quit only from the start screen.
 4. **To switch books:** Close Book, then choose on the start screen.
 
 ## How it's built
@@ -50,7 +55,7 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
 - **Closing** is `BookStore.closeBook()`, the same leave as quitting (`confirmLeaving`, `settle`) with the close
   wording. The book is detached in the same main-actor turn as the session changes, so it refuses edits from
   then on.
-- **Quitting from the start screen** sends `AppRequest.quit`, carried out from a run-loop source
+- **Quitting from the red button or the start screen** sends `AppRequest.quit`, carried out from a run-loop source
   (`perform(_:with:afterDelay: 0)`), never in the sender's own turn: `terminate` with `.terminateLater` runs a
   nested run loop until the quit path, a main-actor task, replies, and that task couldn't start while the
   sender's job was still running. Nothing is torn down inside a store operation's caller.
@@ -61,8 +66,11 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   still shown; Cancel returns to `open`), and any other press (a key repeat, a second click, ⌘W after the red
   button) does nothing, as does any press while the close a press started is unfinished (including one
   decided while another store operation held the store, before it reached `closing`). A fresh press once the
-  start screen shows quits. Quit itself isn't a session state: AppKit's own terminate path ignores a second
-  Quit while one is pending, and a close press queued behind a Quit finds no book once it's done.
+  start screen shows quits. A quit is under way from the press that asks for it until `settleQuit` (the
+  quit path's own work, called by `applicationShouldTerminate`) ends; any press meanwhile, ⌘W included, does
+  nothing, so two clicks on the red button ask for one quit, and a quit's Cancel leaves the next press to be
+  decided afresh. Quit isn't a session state of the store: AppKit's own terminate path ignores a second Quit
+  while one is pending, and a close press queued behind a Quit finds no book once it's done.
 - **File a Copy… and Make Editable…** act on `BookStore.openBook`, which is nil while the book is closing, so
   neither can be started (and then torn down with what was typed) during Close Book's save or questions.
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).

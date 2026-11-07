@@ -88,14 +88,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         books.store.appDeactivated()
     }
 
-    /// Replies later, once the book is saved or the writer has chosen (`QuitWording`). Closing the
-    /// start screen comes here too (ADR 0038).
+    /// Replies later, once the book is saved or the writer has chosen (`QuitWording`). The main
+    /// window's red button comes here too, and ⌘W on the start screen (ADR 0038, #130).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         switch phase {
         case .running:
             phase = .quitting
             Task {
-                switch await books.store.prepareToQuit() {
+                switch await books.settleQuit() {
                 case .left:
                     sender.reply(toApplicationShouldTerminate: true)
                 case .stayed:

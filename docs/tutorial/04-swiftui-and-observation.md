@@ -485,10 +485,13 @@ turn as the final synchronous check that nothing is unsaved, then releases the l
 
 ### Closing: the book, then the app (ADR 0038)
 
-File → Close Book (Cmd+W) and the window's red close button lead to the store's `closeBook()`,
-which saves first, asking (Retry / Cancel / Close Anyway) when it can't, then releases the book;
-the window stays and shows the start screen. On the start screen, the red button quits Scene It,
-and so does Cmd+W, whose menu item reads "Close Window and Quit" there.
+File → Close Book (Cmd+W) leads to the store's `closeBook()`, which saves first, asking (Retry /
+Cancel / Close Anyway) when it can't, then releases the book; the window stays and shows the start
+screen. The window's red close button quits Scene It (#130), through Quit's own path: that saves
+first too, asking Quit's questions, and Cancel leaves everything as it was. On the start screen
+Cmd+W quits as well, and its menu item reads "Close Window and Quit" there. Each press is decided
+when it arrives (`BookController.closeAction`), and while a close or a quit is under way, more
+presses do nothing: a double click asks for one quit.
 (Replacing SwiftUI's `.saveItem` group removed its own Close, so Cmd+W is ours. From any window
 but the main one, Cmd+W just closes that window.) The close button is an `NSButton` whose target
 and action `MainWindowCloseButton` points at `press(.closeButton)` once the window exists; SwiftUI's
@@ -504,9 +507,10 @@ operation and the app hangs. So `AppRequests.send(.quit)` schedules it with
 returned. (A Rust analogy: calling `block_on` from inside the executor's own task.)
 
 `AppRequests` carries requests out through a closure: AppKit in the app, a recorder in the test
-host. The deferral is the same code in both, so the hosted tests click the start screen's real
-close button, check that nothing happened in the click's own turn, then wait for one `.quit`,
-recorded with the store idle. That's the general move for an effect you can't let a test
+host. The deferral is the same code in both, so the hosted tests click the main window's real
+close button (twice), check that nothing happened in the click's own turn, then wait for one
+`.quit`, recorded with the store idle. Then they run the quit path's own work themselves
+(`settleQuit`, what `applicationShouldTerminate` calls) and check the book was saved. That's the general move for an effect you can't let a test
 perform: make it a value, and test the value. (In Rust you'd return an enum from the decision
 function and keep the side effect in `main`.)
 
