@@ -6,6 +6,16 @@ import AppKit
 /// text. Whatever it's given, its owner puts through the character policy. Text neither drops
 /// into it nor drags out of it (ADR 0036): it arrives typed or pasted.
 class KeyboardTextView: NSTextView {
+    /// The writer's words are changed only by the writer: nothing is corrected, replaced,
+    /// completed or predicted as they type. Spelling is still underlined where it's checked.
+    /// Every subclass's setup calls this.
+    func leaveTheWritersWordsAlone() {
+        isAutomaticSpellingCorrectionEnabled = false
+        isAutomaticTextReplacementEnabled = false
+        isAutomaticTextCompletionEnabled = false
+        inlinePredictionType = .no
+    }
+
     override var inputContext: NSTextInputContext? {
         nil
     }

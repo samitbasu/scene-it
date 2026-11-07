@@ -466,6 +466,17 @@ Two subtleties:
 - **Smart quotes are off.** `isAutomaticQuoteSubstitutionEnabled = false` and the dash
   equivalent: the policy would spell them in ASCII straight back. Print and Word export
   smarten quotes on the way out (ADR 0022).
+- **Nothing changes a word as it's typed** (#127). macOS leaves four such features on in a
+  fresh `NSTextView`: automatic spelling correction (a word is replaced when you type the
+  space after it), text replacement (System Settings' `omw` → `On my way!`), text completion
+  and inline prediction (the grey suggestion ahead of the caret). `KeyboardTextView`'s
+  `leaveTheWritersWordsAlone()` turns all four off; `SceneTextView.configure` (page and
+  notes) and `AdmittingTextView`'s initializer (the title, comment cards, File a Copy's fields)
+  call it. Spelling is still *checked* (`isContinuousSpellCheckingEnabled`, the red
+  underlines); it's only never *corrected*. One trap: an `NSTextField` copies its own
+  `isAutomaticTextCompletionEnabled` onto its field editor each time editing begins, so
+  `AdmittingTextField` turns that off on the field too, or the title's editor would get it
+  back.
 
 ## 6. `typingAttributes`
 

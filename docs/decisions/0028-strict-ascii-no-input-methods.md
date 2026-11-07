@@ -49,3 +49,7 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   would alter and make the admitted one instead, as one undoable change; the page also reloads from the model if any edit
   ever leaves a character the policy doesn't admit. The Errors tab's fix field (a SwiftUI `TextField`) keeps its input method:
   what it holds is admitted when the fix is applied.
+- **Automatic text changes are off (#127):** the writer's words are changed only by the writer. Every manuscript editor
+  (`KeyboardTextView.leaveTheWritersWordsAlone()`) turns off automatic spelling correction, text replacement, text
+  completion and inline prediction; continuous spell checking (the underlines) stays on. Smart copy/paste
+  (`smartInsertDeleteEnabled`) is left at the system default pending the owner's call.

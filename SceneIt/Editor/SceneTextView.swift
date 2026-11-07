@@ -30,6 +30,7 @@ class SceneTextView: KeyboardTextView {
         usesFindBar = true
         isIncrementalSearchingEnabled = true
         isContinuousSpellCheckingEnabled = true
+        leaveTheWritersWordsAlone()
         // `CharacterPolicy` would only spell them in ASCII again.
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
