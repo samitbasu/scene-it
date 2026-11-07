@@ -44,7 +44,7 @@ extension BookStoreIntegrationTests {
 
             let window = try #require(books.mainWindow, "precondition: the app's main window")
 
-            await books.closeFromMenu(keyWindow: nil)
+            await books.press(.menu(keyWindow: nil)).value
             await eventually { books.store.isChoosing && page() == nil }
             #expect(window.isVisible, "the window stays up for the start screen")
 

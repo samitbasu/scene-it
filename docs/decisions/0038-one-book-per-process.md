@@ -51,10 +51,12 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   (`perform(_:with:afterDelay: 0)`), never in the sender's own turn: `terminate` with `.terminateLater` runs a
   nested run loop until the quit path, a main-actor task, replies, and that task couldn't start while the
   sender's job was still running. Nothing is torn down inside a store operation's caller.
-- **One close decision.** `BookController.closeAction(from:)` decides what a close does from the state and
-  its source (the menu with its key window, or the close button); `perform` carries it out. Today both are
-  called when the close's task runs. (Open for the owner: whether a second close that arrives while the first
-  is still saving should quit, as it does now, or be ignored.)
+- **A close is decided when it's pressed** (the owner's pick, 2026-11-07). `BookController.press(_:)` calls
+  `closeAction(from:)` as the menu item or close button's event arrives, from the state then and the source
+  (the menu with its key window, or the close button), and hands that decision to a task. A press with a book
+  open only closes the book. While Close Book is saving or asking, the session is `closing(book)` (the book is
+  still shown; Cancel returns to `open`), and any other press (a key repeat, a second click, ⌘W after the red
+  button) does nothing. A fresh press once the start screen shows quits.
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).
 - **⌘W acts on the main window only** while it, or a window it owns (a sheet, a child window, walked up to the
   root), is key. Any other key window (the crash report, say) just closes. The main window is the one whose

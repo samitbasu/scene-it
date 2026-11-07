@@ -110,14 +110,18 @@ final class BookController {
         case closeButton
     }
 
-    /// The whole decision, from the state now and where the close came from. A caller that
-    /// decides when the event arrives, rather than when its task runs, passes the result to
-    /// `perform`.
+    /// The whole decision, from the state now and where the close came from. A press is
+    /// decided when it arrives (`press`): with a book open it only closes the book, and while a
+    /// close is still saving or asking, another press does nothing.
     func closeAction(from source: CloseSource) -> CloseAction {
         if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
             return .closeWindow(other)
         }
-        guard store.isChoosing else { return .closeBook }
+        switch store.session {
+        case .open: return .closeBook
+        case .closing: return .nothing
+        case .choosing: break
+        }
         switch (source, Self.startScreenCommandW) {
         case (.closeButton, _), (.menu, .quits): return .quit
         case (.menu, .nothing): return .nothing
@@ -133,15 +137,12 @@ final class BookController {
         }
     }
 
-    /// The main window's close button: with a book open, Close Book, which returns to the start
-    /// screen; on the start screen, Quit (ADR 0038).
-    func closeMainWindow() async {
-        await perform(closeAction(from: .closeButton))
-    }
-
-    /// File → Close Book (⌘W).
-    func closeFromMenu(keyWindow: NSWindow? = NSApp.keyWindow) async {
-        await perform(closeAction(from: .menu(keyWindow: keyWindow)))
+    /// File → Close Book (⌘W) or the main window's close button, pressed: decided now, as the
+    /// event arrives, then carried out (ADR 0038).
+    @discardableResult
+    func press(_ source: CloseSource) -> Task<Void, Never> {
+        let action = closeAction(from: source)
+        return Task { await perform(action) }
     }
 
     /// File → Close Book's title: on the start screen it's the item ⌘W chooses there.

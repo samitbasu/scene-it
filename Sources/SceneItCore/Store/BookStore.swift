@@ -20,10 +20,20 @@ public final class BookStore<C: Clock<Duration>> {
         /// The start state, the only one a book can be opened or created from.
         case choosing
         case open(OpenBook<C>)
+        /// Close Book is saving the book or asking about it. The book is still open (Cancel
+        /// returns to `open`), but another close isn't.
+        case closing(OpenBook<C>)
     }
 
     public var current: OpenBook<C>? {
-        if case .open(let book) = session { book } else { nil }
+        switch session {
+        case .choosing: nil
+        case .open(let book), .closing(let book): book
+        }
+    }
+
+    public var isClosing: Bool {
+        if case .closing = session { true } else { false }
     }
 
     /// New Book, Open Book and the start state's recent books are offered only here.
@@ -123,7 +133,7 @@ public final class BookStore<C: Clock<Duration>> {
         switch session {
         case .choosing:
             return nil
-        case .open(let book):
+        case .open(let book), .closing(let book):
             let own = book.layout.root.canonicalPath
             let others = books.filter { $0.canonicalPath != own }
             guard !others.isEmpty else { return .alreadyOpen }
@@ -148,7 +158,7 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {
         await exclusively {
-            if case .open(let book) = session {
+            if let book = current {
                 Log.store.info("refused to create a book while one is open")
                 await prompts.tell(OneBookWording.createRefusal(of: url, whileOpen: book.layout.root))
                 return .refused
@@ -451,12 +461,10 @@ public final class BookStore<C: Clock<Duration>> {
     /// lock to the process exit if a save is still running.
     private func leave(_ leaving: Leaving) async -> LeaveOutcome {
         guard let book = current else { return .left }
-        guard await book.confirmLeaving(leaving, asking: prompts) == .leave else { return .stayed }
-        let departure: Departure
-        switch await book.settle(before: leaving, asking: prompts) {
-        case .stay: return .stayed
-        case .saved: departure = .saved
-        case .discarding: departure = .discarding
+        if leaving == .closeBook { session = .closing(book) }
+        guard let departure = await departure(of: book, leaving) else {
+            session = .open(book)
+            return .stayed
         }
         let writer = book.detach()
         session = .choosing
@@ -475,6 +483,16 @@ public final class BookStore<C: Clock<Duration>> {
     private enum Departure {
         case saved
         case discarding
+    }
+
+    /// Nil if the writer chose to stay.
+    private func departure(of book: OpenBook<C>, _ leaving: Leaving) async -> Departure? {
+        guard await book.confirmLeaving(leaving, asking: prompts) == .leave else { return nil }
+        switch await book.settle(before: leaving, asking: prompts) {
+        case .stay: return nil
+        case .saved: return .saved
+        case .discarding: return .discarding
+        }
     }
 
     /// `applicationWillTerminate`: releases the book's lock now, unless a save is still running.

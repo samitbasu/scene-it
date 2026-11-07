@@ -270,18 +270,24 @@ window, so their lifetimes overlapped. Now there is always a start screen betwee
 owner's hand test found the dead end: launch reopens the last book, so the start screen, the
 only place to choose another, was never reachable.)
 
-The store's state is one enum, so "no book" and "a book" can't be confused:
+The store's state is one enum, so "no book", "a book" and "closing it" can't be confused:
 
 ```swift
     public enum Session {
         /// The start state, the only one a book can be opened or created from.
         case choosing
         case open(OpenBook<C>)
+        /// Close Book is saving the book or asking about it. The book is still open (Cancel
+        /// returns to `open`), but another close isn't.
+        case closing(OpenBook<C>)
     }
 ```
 
-`session` is `private(set)`. A book becomes the session's only through `install`, and goes
-back to `.choosing` only through leaving (`closeBook` or `prepareToQuit`, which share one
+`session` is `private(set)`. While Close Book saves or asks, it's `.closing(book)`: the book is
+still on screen and Cancel returns to `.open`, but a second close press (decided when it's
+pressed, by `BookController.closeAction`) does nothing, so a key repeat can't close the book and
+then quit. A book becomes the session's only through `install`, and goes back to `.choosing`
+only through leaving (`closeBook` or `prepareToQuit`, which share one
 `leave`), `closeForTermination`, or the ADR 0018 path when the other version won't open.
 What `install` installs is a `Target` whose case says where it comes from: `.chosen(url)`, only
 while `.choosing`; `.again(book)`, the open book's own package read again (Open Anyway, Open
@@ -485,7 +491,7 @@ the window stays and shows the start screen. On the start screen, the red button
 and so does Cmd+W unless the owner picks otherwise (`BookController.startScreenCommandW`).
 (Replacing SwiftUI's `.saveItem` group removed its own Close, so Cmd+W is ours. From any window
 but the main one, Cmd+W just closes that window.) The close button is an `NSButton` whose target
-and action `MainWindowCloseButton` points at `closeMainWindow()` once the window exists; SwiftUI's
+and action `MainWindowCloseButton` points at `press(.closeButton)` once the window exists; SwiftUI's
 own window delegate never sees the click, and the routed button is also how the app tells its
 main window from any other.
 

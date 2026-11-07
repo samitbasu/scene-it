@@ -284,8 +284,12 @@ struct BookStoreTests {
             let book = try #require(store.current)
             book.write("Unsaved")
             fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.md"), cause: .noSpace))
+            var closingWhileAsked: [Bool] = []
+            prompts.beforeAnswering = { _ in closingWhileAsked.append(store.isClosing) }
 
             #expect(await store.closeBook() == .stayed)
+            #expect(closingWhileAsked == [true], "closing while the writer decides")
+            #expect(!store.isClosing, "Cancel returns to open")
             #expect(store.current === book)
             #expect(book.isEditable)
             #expect(prompts.labels == [["Retry", "Cancel", "Close Anyway"]])

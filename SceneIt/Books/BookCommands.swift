@@ -1,3 +1,4 @@
+import AppKit
 import SceneItCore
 import SwiftUI
 
@@ -19,7 +20,7 @@ struct BookCommands: Commands {
                 .disabled(!choosing)
         }
         CommandGroup(replacing: .saveItem) {
-            Button(books.closeItemTitle) { Task { await books.closeFromMenu() } }
+            Button(books.closeItemTitle) { books.press(.menu(keyWindow: NSApp.keyWindow)) }
                 .keyboardShortcut("w")
                 .disabled(!books.isCloseItemEnabled)
             Button(StoreWording.saveMenuItem) { books.store.saveNow() }

@@ -12,7 +12,7 @@ struct MainWindow: View {
             switch books.store.session {
             case .choosing:
                 StartView(books: books)
-            case .open(let book):
+            case .open(let book), .closing(let book):
                 // A new identity per `OpenBook`, so window state (an open sheet, the editors,
                 // the undo router) never outlives the one it was made for when the book is
                 // read again (Open Anyway, Open Other Version).
@@ -28,8 +28,8 @@ struct MainWindow: View {
     }
 }
 
-/// Points the window's close button at `BookController.closeMainWindow` (ADR 0038): with a book
-/// open it closes the book, asking what Close Book asks, and the window stays for the start
+/// Points the window's close button at `BookController.press(.closeButton)` (ADR 0038): with a
+/// book open it closes the book, asking what Close Book asks, and the window stays for the start
 /// screen; on the start screen it quits.
 struct MainWindowCloseButton: NSViewRepresentable {
     let books: BookController
@@ -67,7 +67,7 @@ struct MainWindowCloseButton: NSViewRepresentable {
         }
 
         @objc private func closeClicked(_ sender: Any?) {
-            Task { await books.closeMainWindow() }
+            books.press(.closeButton)
         }
     }
 }

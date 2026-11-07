@@ -60,6 +60,29 @@ private final class LosingPrompts: StorePrompts {
     }
 }
 
+/// Holds each question until `answer`, so a test can act while the writer is being asked.
+private final class HoldingPrompts: StorePrompts {
+    private(set) var titles: [String] = []
+    private var held: (continuation: CheckedContinuation<Void, Never>, choice: (any Hashable & Sendable)?)?
+    private var next: (any Hashable & Sendable)?
+
+    func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        titles.append(alert.title)
+        await withCheckedContinuation { held = ($0, nil) }
+        return (next as? Choice) ?? alert.choices[0]
+    }
+
+    func tell(_ notice: Notice) async {
+        titles.append(notice.title)
+    }
+
+    func answer(_ choice: any Hashable & Sendable) {
+        next = choice
+        held?.continuation.resume()
+        held = nil
+    }
+}
+
 /// ADR 0038 through the app's own menus and window: one book at a time; Close Book returns to
 /// the start screen; closing the start screen quits.
 extension BookStoreIntegrationTests {
@@ -213,6 +236,62 @@ extension BookStoreIntegrationTests {
         }
     }
 
+    /// Owner's pick (M2): a close is decided when it's pressed. Two presses in quick succession
+    /// with a book open (a key repeat, a double click) close the book once and never quit.
+    @Test func twoQuickClosePressesCloseTheBookOnceAndDontQuit() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            _ = books.takeRequests()
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+
+            let first = books.press(.closeButton)
+            let second = books.press(.menu(keyWindow: nil))
+            await first.value
+            await second.value
+
+            #expect(books.store.isChoosing, "the start screen shows")
+            #expect(book.status == .closed)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "nothing quit")
+            expectNoQuestions()
+        }
+    }
+
+    /// While Close Book is still asking, the store is `closing`, and another press is ignored.
+    /// Once the start screen shows, a fresh press quits.
+    @Test func aPressWhileClosingIsIgnoredAndOneAfterwardsQuits() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = HoldingPrompts()
+            let books = BookController(role: .testHost, prompts: prompts)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+            books.store.current?.filingDraft = draft
+
+            let closing = books.press(.closeButton)
+            await eventually { prompts.titles == ["Close without filing the copy?"] }
+            try #require(books.store.isClosing, "precondition: a close in flight")
+            #expect(books.closeAction(from: .closeButton) == .nothing)
+            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing)
+            await books.press(.closeButton).value
+            await books.press(.menu(keyWindow: nil)).value
+            prompts.answer(UnfiledDraftChoice.leaveAnyway)
+            await closing.value
+
+            #expect(books.store.isChoosing)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "the ignored presses quit nothing")
+            #expect(prompts.titles == ["Close without filing the copy?"], "asked once")
+
+            await books.press(.closeButton).value
+            #expect(
+                await books.quitCarriedOut() == [quitCarriedOut], "a fresh press on the start screen quits")
+        }
+    }
+
     /// ⌘W with another window key closes that window, through its own close, and leaves the
     /// book alone.
     @Test func closeBookWithAnotherWindowKeyClosesThatWindow() async throws {
@@ -229,7 +308,7 @@ extension BookStoreIntegrationTests {
             defer { other.close() }
             try #require(other.isVisible, "precondition: on screen")
 
-            await books.closeFromMenu(keyWindow: other)
+            await books.press(.menu(keyWindow: other)).value
 
             #expect(!other.isVisible, "closed")
             #expect(books.store.current === book, "the book stays open")
