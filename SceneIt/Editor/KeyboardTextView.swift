@@ -6,14 +6,77 @@ import AppKit
 /// text. Whatever it's given, its owner puts through the character policy. Text neither drops
 /// into it nor drags out of it (ADR 0036): it arrives typed or pasted.
 class KeyboardTextView: NSTextView {
-    /// The writer's words are changed only by the writer: nothing is corrected, replaced,
-    /// completed or predicted as they type. Spelling is still underlined where it's checked.
+    // MARK: No automatic text changes (#127)
+
+    /// Turns off AppKit's own state for every automatic change, which it reads from the
+    /// writer's system settings as the view is made and may consult without the getters below.
     /// Every subclass's setup calls this.
     func leaveTheWritersWordsAlone() {
-        isAutomaticSpellingCorrectionEnabled = false
-        isAutomaticTextReplacementEnabled = false
-        isAutomaticTextCompletionEnabled = false
-        inlinePredictionType = .no
+        super.isAutomaticSpellingCorrectionEnabled = false
+        super.isAutomaticTextReplacementEnabled = false
+        super.isAutomaticTextCompletionEnabled = false
+        super.smartInsertDeleteEnabled = false
+        super.isAutomaticQuoteSubstitutionEnabled = false
+        super.isAutomaticDashSubstitutionEnabled = false
+        super.isAutomaticLinkDetectionEnabled = false
+        super.isAutomaticDataDetectionEnabled = false
+        super.inlinePredictionType = .no
+    }
+
+    override var isAutomaticSpellingCorrectionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticTextReplacementEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticTextCompletionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var smartInsertDeleteEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticQuoteSubstitutionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticDashSubstitutionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticLinkDetectionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isAutomaticDataDetectionEnabled: Bool {
+        get { false }
+        set {}
+    }
+
+    override var inlinePredictionType: NSTextInputTraitType {
+        get { .no }
+        set {}
+    }
+
+    /// Their actions, from a menu or the Substitutions panel, pass this view by.
+    nonisolated override func responds(to aSelector: Selector!) -> Bool {
+        !AutomaticTextChanges.actions.contains(aSelector) && super.responds(to: aSelector)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event)?.copy() as? NSMenu else { return nil }
+        AutomaticTextChanges.hide(in: menu)
+        return menu
     }
 
     override var inputContext: NSTextInputContext? {

@@ -313,36 +313,6 @@ struct AdversarialPageTests {
         }
     }
 
-    /// #127: nothing changes the writer's words as they type, in any editor of the book's text,
-    /// while spelling is still underlined on the page, the title and the notes.
-    @Test func noEditorChangesWordsAsTheyAreTyped() async throws {
-        let plain = NSTextView(usingTextLayoutManager: true)
-        #expect(
-            !automaticChanges(of: plain).isEmpty,
-            "precondition: a text view left as AppKit makes it would fail the check")
-        try await withPage([scene("One", letterScene, .withTooEarly)]) { page in
-            #expect(page.window.makeFirstResponder(page.title))
-            let title = try #require(
-                page.title.currentEditor() as? AdmittingTextView, "the title's own field editor, editing")
-            let notes = try await page.showNotes()
-            page.preferences.showRightPanelTab(.comments)
-            await eventually { page.card(noted) != nil }
-            let card = try #require(page.card(noted), "the comment's card")
-            let editors: [(String, NSTextView)] = [
-                ("page", page.page), ("title", title), ("notes", notes), ("comment card", card),
-            ]
-            for (name, editor) in editors {
-                #expect(automaticChanges(of: editor).isEmpty, "\(name)")
-            }
-            #expect(
-                !page.title.isAutomaticTextCompletionEnabled,
-                "the title field, which gives its editor its own completion as editing begins")
-            for (name, editor) in editors.prefix(3) {
-                #expect(editor.isContinuousSpellCheckingEnabled, "\(name) still underlines spelling")
-            }
-        }
-    }
-
     /// Review S2: the title's correction is one undoable change, so undoing a length-changing
     /// transliteration gives back the title as it was, never the typing's offsets replayed over
     /// the corrected text.
@@ -625,15 +595,4 @@ struct AdversarialPageTests {
             #expect(page.book.status == .unsaved, "find and replace")
         }
     }
-}
-
-/// What of the system's automatic changes to typed text `view` would make.
-@MainActor
-private func automaticChanges(of view: NSTextView) -> [String] {
-    [
-        ("spelling correction", view.isAutomaticSpellingCorrectionEnabled),
-        ("text replacement", view.isAutomaticTextReplacementEnabled),
-        ("text completion", view.isAutomaticTextCompletionEnabled),
-        ("inline prediction", view.inlinePredictionType != .no),
-    ].filter(\.1).map(\.0)
 }

@@ -313,6 +313,13 @@ refusal (`refusal`), new-book refusal (`create-refusal`), lost-book (`book-lost`
 (`several-books`) alerts. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to render
 only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
 
+`menus` renders the Edit menu and the page's right-click menu (#127, `MenuRenders.swift`) into a
+`menus/` subfolder, as `edit-menu` and `page-context-menu`, at `@1x.png` and `@2x.png`, each with its
+Spelling and Grammar submenu open beside it. The items are the real menus' items as they show
+(the ones `AutomaticTextChanges` hides are left out), drawn by `MenuStandIn`. That drawing doesn't
+run menu validation, so no check marks appear. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/menus\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

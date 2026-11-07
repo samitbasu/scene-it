@@ -463,20 +463,38 @@ Two subtleties:
   **accents can't be typed at all.** Option-E then E, press-and-hold on `e`, and every IME are
   gone on the page and in the title. Accented text pasted in arrives as its plain letters
   (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
-- **Smart quotes are off.** `isAutomaticQuoteSubstitutionEnabled = false` and the dash
-  equivalent: the policy would spell them in ASCII straight back. Print and Word export
-  smarten quotes on the way out (ADR 0022).
-- **Nothing changes a word as it's typed** (#127). macOS leaves four such features on in a
-  fresh `NSTextView`: automatic spelling correction (a word is replaced when you type the
-  space after it), text replacement (System Settings' `omw` → `On my way!`), text completion
-  and inline prediction (the grey suggestion ahead of the caret). `KeyboardTextView`'s
-  `leaveTheWritersWordsAlone()` turns all four off; `SceneTextView.configure` (page and
-  notes) and `AdmittingTextView`'s initializer (the title, comment cards, File a Copy's fields)
-  call it. Spelling is still *checked* (`isContinuousSpellCheckingEnabled`, the red
-  underlines); it's only never *corrected*. One trap: an `NSTextField` copies its own
-  `isAutomaticTextCompletionEnabled` onto its field editor each time editing begins, so
-  `AdmittingTextField` turns that off on the field too, or the title's editor would get it
-  back.
+- **Nothing changes a word as it's typed** (#127). A fresh `NSTextView` takes its automatic
+  changes from System Settings: spelling correction (a word is replaced when you type the space
+  after it), text replacement (`omw` becomes `On my way!`), completion, inline prediction (the
+  grey suggestion ahead of the caret), smart quotes and dashes, link and data detection, and
+  smart copy/paste (spaces adjusted around a paste or a deleted word). `KeyboardTextView` turns
+  them off for good, the way it does Writing Tools: each property is overridden to read off and
+  ignore being set, so nothing can switch one back on.
+
+  ```swift
+      override var isAutomaticSpellingCorrectionEnabled: Bool {
+          get { false }
+          set {}
+      }
+  ```
+
+  An override changes what Swift and Objective-C callers see, but AppKit may read its own stored
+  state without calling the getter, so `leaveTheWritersWordsAlone()` also sets each one off on
+  `super` when the view is set up (`SceneTextView.configure`, `AdmittingTextView`'s initializer).
+  Spelling is still *checked* (`isContinuousSpellCheckingEnabled`, the red underlines); it's
+  only never *corrected*. Print and Word export smarten quotes on the way out (ADR 0022).
+
+  The menus offered these too: Edit > Substitutions, Correct Spelling Automatically, and the same
+  items in a text view's right-click menu. `AutomaticTextChanges.actions` is the one list of their
+  selectors, and it's used three ways. `KeyboardTextView.responds(to:)` says no to them, so the
+  responder chain passes the editor by: in Rust terms it's as if the trait object stopped
+  implementing those methods at run time, which Objective-C's dynamic dispatch allows.
+  `menu(for:)` copies AppKit's context menu and hides those items. And `AppDelegate` installs
+  `AutomaticTextChanges.keepOutOfTheMainMenu()`, which hides them in the Edit menu. SwiftUI
+  builds the main menu and may build it again, so the items are *hidden*, not removed (SwiftUI's
+  bookkeeping still matches the menu). Hiding runs again after items are added and whenever a
+  menu opens. A submenu left with nothing else (Substitutions) is hidden whole, along with any
+  separators that are left with nothing on one side.
 
 ## 6. `typingAttributes`
 

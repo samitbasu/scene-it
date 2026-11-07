@@ -50,6 +50,12 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   ever leaves a character the policy doesn't admit. The Errors tab's fix field (a SwiftUI `TextField`) keeps its input method:
   what it holds is admitted when the fix is applied.
 - **Automatic text changes are off (#127):** the writer's words are changed only by the writer. Every manuscript editor
-  (`KeyboardTextView.leaveTheWritersWordsAlone()`) turns off automatic spelling correction, text replacement, text
-  completion and inline prediction; continuous spell checking (the underlines) stays on. Smart copy/paste
-  (`smartInsertDeleteEnabled`) is left at the system default pending the owner's call.
+  (`KeyboardTextView`) has automatic spelling correction, text replacement, text completion, smart copy/paste
+  (`smartInsertDeleteEnabled`), smart quotes and dashes, link and data detection and inline prediction off for good:
+  each property reads off and ignores being set, as `writingToolsBehavior` does, and the editors don't answer the
+  actions that would turn one on. Continuous spell checking (the underlines) stays on. The owner's call: the menus
+  don't offer them. `AutomaticTextChanges.actions` is the one list; the Edit menu and the editors' context menus hide
+  every item with one of its actions, which takes away Correct Spelling Automatically, the whole Substitutions
+  submenu (Show Substitutions, Smart Copy/Paste, Smart Quotes, Smart Dashes, Smart Links, Data Detectors, Text
+  Replacement) and, in the context menu, its one-shot Replace Quotes, Replace Dashes, Add Links and Replace Text.
+  Show Spelling and Grammar, Check Document Now, Check Spelling While Typing and Check Grammar With Spelling stay.
