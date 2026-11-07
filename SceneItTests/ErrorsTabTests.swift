@@ -369,10 +369,12 @@ extension BookStoreIntegrationTests {
                 return
             }
             await eventually { makeEditableItem?.isEnabled == true }
+            #expect(await store.closeBook() == .left)
             let newer = try package(newerText, named: "Newer", in: folder)
             #expect(await store.open(newer) == .openedReadOnly(.newerFormat(FormatVersion(3))))
             await eventually { makeEditableItem?.isEnabled == false }
 
+            #expect(await store.closeBook() == .left)
             guard case .openedReadOnly(.repairedOnOpen) = await store.open(repaired) else {
                 Issue.record("precondition: the book opens repaired and read-only again")
                 return

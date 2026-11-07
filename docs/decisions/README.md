@@ -26,8 +26,8 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0017](0017-paste-carries-comments.md) | Pasting commented text copies its comments into the destination scene | Accepted |
 | [0018](0018-external-change-ux.md) | External change on disk: ask Keep Mine / Open Theirs; both versions survive | Accepted |
 | [0019](0019-backup-failure-policy.md) | Backup can't be written: refuse for external versions, save-and-warn for our own | Accepted |
-| [0020](0020-instance-and-book-locks.md) | One app instance (flock) and one writer per book; the second opener gets read-only | Accepted |
-| [0021](0021-one-book-at-a-time.md) | One book open at a time; switching books saves and closes the current one first | Accepted |
+| [0020](0020-instance-and-book-locks.md) | One app instance (flock) and one writer per book; the second opener gets read-only | Accepted — forwarding amended by 0038 |
+| [0021](0021-one-book-at-a-time.md) | One book open at a time; switching books saves and closes the current one first | Partly superseded by 0038 |
 | [0022](0022-markdown-book-format.md) | Book format v2: tolerant Markdown (`book.md`), Latin-1, marks, Errors tab; settings move to app prefs | Accepted — replaces PLAN §5 |
 | [0023](0023-word-count-like-word.md) | Word counts match Microsoft Word (whitespace-delimited, body only) | Accepted |
 | [0024](0024-damaged-books-open-read-only.md) | A book repaired on open is read-only until the writer chooses Make Editable; the original is kept permanently | Accepted |
@@ -44,3 +44,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0035](0035-comments-on-the-manuscript-only.md) | Comments are on the manuscript only: the notes draw none, and paste into them drops comments | Accepted — narrows 0017; deviates from PLAN §8.6 |
 | [0036](0036-no-drag-and-drop-of-text.md) | No drag and drop of text: the manuscript editors and fields refuse drops and never start a drag | Accepted — amends 0016 and 0028 on drops |
 | [0037](0037-comment-operations.md) | Comment operations: the page changes the text, the store changes the list; New Comment is Cmd+Shift+M | Accepted — deviates from PLAN §8.1 and §11 |
+| [0038](0038-one-book-per-process.md) | One book at a time, never switched in place: Close Book returns to the start screen; closing the start screen quits; New, Open and forwarded books are refused while a book is open | Accepted — supersedes 0021 on switching; amends 0020 |

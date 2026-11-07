@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             phase = .starting(lastSession, books: books + urls)
         case .running:
             Log.app.info("asked to open books", ["count": .count(urls.count)])
-            Task { await books.store.open(urls) }
+            Task { await books.openForwarded(urls) }
         case .quitting:
             Log.app.info(
                 "asked to open books while quitting; not opening them", ["count": .count(urls.count)])
@@ -80,11 +80,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        books.reopenMainWindow()
+    }
+
     func applicationDidResignActive(_ notification: Notification) {
         books.store.appDeactivated()
     }
 
-    /// Replies later, once the book is saved or the writer has chosen (`QuitWording`).
+    /// Replies later, once the book is saved or the writer has chosen (`QuitWording`). Closing the
+    /// start screen comes here too (ADR 0038).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         switch phase {
         case .running:

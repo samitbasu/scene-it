@@ -135,6 +135,161 @@ struct StoreRaceTests {
         }
     }
 
+    /// ADR 0038: with the original unreadable after my version was saved, no book is left open,
+    /// so the start state shows, with my version first in Recent Books.
+    @Test func whenTheOtherVersionWontOpenTheStartStateShowsWithMyVersionFirst() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Before the change")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            try writeExternally(try draft(7), to: url)
+            let original = url.appending(path: "book.md")
+            fileSystem.before(.exchange("\(copyName)/book.md")) {
+                try? FileManager.default.removeItem(at: original)
+                try? FileManager.default.createDirectory(at: original, withIntermediateDirectories: false)
+            }
+
+            book.write("Mine")
+            store.saveNow()
+            await eventually { store.isChoosing }
+
+            guard case .choosing = store.session else {
+                Issue.record("the session is \(store.session)")
+                return
+            }
+            #expect(book.status == .closed)
+            let copy = folder.appending(path: copyName)
+            let notice = try #require(prompts.notices.last)
+            #expect(notice.title == "Scene It couldn't open “Novel”.")
+            #expect(notice.message.hasPrefix("Your version was saved as “Novel (my edits)”."))
+            #expect(notice.message.hasSuffix("“Novel (my edits)” is first in Recent Books."))
+            #expect(try bookOnDisk(copy).scenes.count == 2)
+            #expect(store.recentBooks.first?.canonicalPath == copy.canonicalPath, "my version reopens next")
+        }
+    }
+
+    /// The `.notAFile` branch: when my version won't open in place of the original either, it
+    /// still stays in Recent Books, and the alert names it.
+    @Test func whenMyVersionWontOpenEitherItStaysInRecentBooksAndTheStartStateShows() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Mine")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            try FileManager.default.removeItem(at: url.appending(path: "book.md"))
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "book.md"), withIntermediateDirectories: false)
+            let copy = folder.appending(path: copyName)
+            let copyBook = copy.appending(path: "book.md")
+            fileSystem.before(.lock("\(copyName)/.lock")) {
+                fileSystem.before(.lock("\(copyName)/.lock")) {
+                    try? FileManager.default.removeItem(at: copyBook)
+                    try? FileManager.default.createDirectory(at: copyBook, withIntermediateDirectories: false)
+                }
+            }
+
+            book.write("More of mine")
+            store.saveNow()
+            await eventually { store.isChoosing }
+
+            guard case .choosing = store.session else {
+                Issue.record("the session is \(store.session)")
+                return
+            }
+            let notice = try #require(prompts.notices.last)
+            #expect(notice.title == "Scene It couldn't open “Novel (my edits)”.")
+            #expect(!notice.message.contains("Your version was saved as"), "the copy is named once")
+            #expect(
+                store.recentBooks.map(\.canonicalPath) == [copy.canonicalPath], "the original is forgotten")
+        }
+    }
+
+    /// Open Other Version reopens the original read-only (its lock record is another Mac's), and
+    /// the writer's Open Anyway then can't read it: the read-only book stays open, the writer is
+    /// told once, and nothing is lost.
+    @Test func aFailedOpenAnywayAfterOpenOtherVersionKeepsTheReadOnlyBookOpen() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.override(locality: .network)
+            let other = LockRecord(
+                host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
+                since: Date(timeIntervalSince1970: 1_800_000_000))
+            let prompts = ScriptedPrompts([
+                ExternalChangeChoice.openOtherVersion, ReadOnlyChoice.openAnyway(other),
+            ])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Mine")
+            store.saveNow()
+            await eventually { book.status == .saved }
+            try writeExternally(try draft(7), to: url)
+            let original = url.appending(path: "book.md")
+            prompts.beforeAnswering = { title in
+                if title == QuitWording.changedOnDiskTitle {
+                    try? other.encoded().write(to: url.appending(path: ".lock"))
+                } else if title == ReadOnlyWording.readOnlyTitle {
+                    try? FileManager.default.removeItem(at: original)
+                    try? FileManager.default.createDirectory(at: original, withIntermediateDirectories: false)
+                }
+            }
+
+            book.write("More of mine")
+            store.saveNow()
+            await eventually { !prompts.notices.isEmpty }
+
+            #expect(prompts.titles == [QuitWording.changedOnDiskTitle, ReadOnlyWording.readOnlyTitle])
+            let readOnly = try #require(store.current, "a book is still open")
+            #expect(readOnly !== book)
+            #expect(!readOnly.isEditable)
+            #expect(readOnly.layout.root.canonicalPath == url.canonicalPath)
+            #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Novel”."], "told once")
+            let copy = folder.appending(path: copyName)
+            #expect(store.recentBooks.map(\.canonicalPath) == [url.canonicalPath, copy.canonicalPath])
+            #expect(try bookOnDisk(copy).scenes.count == 2, "my version is safe")
+        }
+    }
+
+    /// While Open Other Version reads the original again, off the main actor, the old book is
+    /// still the session's but detached: it isn't editable, so the editor refuses typing (it
+    /// observes `isEditable`), and an edit that still reaches the model is refused, not lost
+    /// in a book nobody saves.
+    @Test func duringTheReloadTheOldBookRefusesEveryEdit() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let (store, book, scene, _) = try await changedBook(
+                in: folder, prompts: prompts, fileSystem: fileSystem)
+            let gate = Gate()
+            prompts.beforeAnswering = { _ in
+                fileSystem.before(.read("Novel.sceneit/book.md")) { gate.pass() }
+            }
+
+            book.replaceBody(of: scene, with: [[Run("Mine")]])
+            store.saveNow()
+            await gate.waitForArrival()
+
+            try #require(store.current === book, "precondition: in the reload's gap")
+            #expect(!book.isEditable)
+            #expect(book.status == .closed)
+            let before = book.book
+            book.replaceBody(of: scene, with: [[Run("Typed in the gap")]])
+            #expect(book.book == before, "refused")
+            gate.open()
+            await eventually { store.current !== book && store.current != nil }
+            #expect(try bookOnDisk(folder.appending(path: copyName)).scenes.first?.body == [[Run("Mine")]])
+        }
+    }
+
     @Test func aCopyThatCantBeSavedIsRemovedAndTheBookStaysOpen() async throws {
         try await withTemporaryFolder { folder in
             let fileSystem = FaultInjectingFileSystem(root: folder)
@@ -221,7 +376,7 @@ struct StoreRaceTests {
         }
     }
 
-    // MARK: S1: Close Anyway past a stuck save never blocks later operations
+    // MARK: S1: Close Anyway or Quit Anyway past a stuck save never waits for it
 
     @Test func closeAnywayPastAStuckSaveLeavesTheStoreUsable() async throws {
         try await withTemporaryFolder { folder in
@@ -229,7 +384,39 @@ struct StoreRaceTests {
             let clock = ManualClock()
             let prompts = ScriptedPrompts([QuitAlertChoice.quitAnyway])
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, clock: clock)
-            let second = try await createBook("Second", in: folder, store: store)
+            let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: other, title: "Other")
+            let url = try await createBook("First", in: folder, store: store)
+            let book = try #require(store.current)
+            let gate = Gate()
+            fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
+            book.write("Stuck")
+            await gate.waitForArrival()
+
+            async let closed = store.closeBook()
+            await eventually { book.autosave?.quitIsQueuedBehindASave == true }
+            clock.advance(by: AutosavePolicy.quitGracePeriod)
+            #expect(await closed == .left)
+            #expect(prompts.titles == ["Scene It is still saving your book."])
+            #expect(prompts.labels == [["Wait", "Close Anyway"]])
+            #expect(store.isChoosing)
+
+            #expect(
+                await store.open(url) == .openedReadOnly(.openElsewhere),
+                "the stuck save still holds its lock, so the same book opens read-only, without waiting")
+            #expect(await store.closeBook() == .left)
+            #expect(await store.open(other) == .opened, "and another book opens")
+            #expect(await store.closeBook() == .left)
+            gate.open()
+        }
+    }
+
+    @Test func quitAnywayPastAStuckSaveLeavesAtOnce() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let clock = ManualClock()
+            let prompts = ScriptedPrompts([QuitAlertChoice.quitAnyway])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, clock: clock)
             try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
             let gate = Gate()
@@ -237,13 +424,13 @@ struct StoreRaceTests {
             book.write("Stuck")
             await gate.waitForArrival()
 
-            async let switched = store.open(second)
+            async let quit = store.prepareToQuit()
             await eventually { book.autosave?.quitIsQueuedBehindASave == true }
             clock.advance(by: AutosavePolicy.quitGracePeriod)
-            #expect(await switched == .opened)
+            #expect(await quit == .left)
             #expect(prompts.titles == ["Scene It is still saving your book."])
-            #expect(prompts.labels == [["Wait", "Close Anyway"]])
-            #expect(await store.prepareToQuit() == .left)
+            #expect(prompts.labels == [["Wait", "Quit Anyway"]])
+            #expect(store.current == nil)
             gate.open()
         }
     }
@@ -267,7 +454,8 @@ struct StoreRaceTests {
                 prompts.notices == [
                     Notice(
                         title: "Scene It opens one book at a time.",
-                        message: "“A” is open. These books were added to Recent Books instead: “B”, “C”.")
+                        message: "“A” is open. “B” and “C” are in Recent Books: to open one, choose "
+                            + "File → Close Book, then choose it there.")
                 ])
         }
     }

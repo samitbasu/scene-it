@@ -3,7 +3,7 @@ import Foundation
 /// Every string the main window shows, in one place so the owner can review the wording as a
 /// whole.
 public enum WindowWording {
-    // MARK: Start state (ADR 0021)
+    // MARK: Start state (ADR 0038)
 
     public static let noBookOpen = "No book is open."
     public static let recentBooks = "Recent Books"

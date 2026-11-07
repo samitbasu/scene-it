@@ -252,44 +252,10 @@ struct FileACopyTests {
         }
     }
 
-    @Test func openingAnotherBookWithTypedTextAsksOnce() async throws {
-        try await withTemporaryFolder { folder in
-            let prompts = ScriptedPrompts([UnfiledDraftChoice.leaveAnyway])
-            let store = makeStore(in: folder, prompts: prompts)
-            let other = try await createBook("Other", in: folder, store: store)
-            #expect(await store.closeBook() == .left)
-            try await createBook("Novel", in: folder, store: store)
-            store.current?.filingDraft = Self.typedDraft()
-
-            #expect(await store.open(other) == .opened)
-
-            #expect(prompts.titles == [Self.closeTitle], "switching books settles twice but asks once")
-        }
-    }
-
-    @Test func switchingBooksWithTypedTextAndCancelStaysWithTheDialog() async throws {
-        try await withTemporaryFolder { folder in
-            let prompts = ScriptedPrompts([UnfiledDraftChoice.cancel])
-            let store = makeStore(in: folder, prompts: prompts)
-            let other = try await createBook("Other", in: folder, store: store)
-            #expect(await store.closeBook() == .left)
-            try await createBook("Novel", in: folder, store: store)
-            let book = try #require(store.current)
-            book.filingDraft = Self.typedDraft()
-
-            #expect(await store.open(other) == .stayed)
-
-            #expect(prompts.titles == [Self.closeTitle])
-            #expect(store.current === book)
-            #expect(book.filingDraft == Self.typedDraft())
-        }
-    }
-
     /// Choosing "… Anyway" loses the typed text only if the book is really left: when the leave
-    /// then stops (a save fails and the writer cancels, the next book won't open), the dialog
-    /// still holds it.
+    /// then stops (a save fails and the writer cancels), the dialog still holds it.
     enum LeavePath: CaseIterable {
-        case quit, close, switchBooks
+        case quit, close
     }
 
     @Test(arguments: LeavePath.allCases)
@@ -303,21 +269,12 @@ struct FileACopyTests {
             let book = try #require(store.current)
             book.filingDraft = Self.typedDraft()
 
-            switch path {
-            case .quit, .close:
-                book.write("Unsaved, and the save will fail")
-                fileSystem.inject(.fail(.writeTemporary("book.md")))
-                let outcome = path == .quit ? await store.prepareToQuit() : await store.closeBook()
-                #expect(outcome == .stayed)
-                #expect(prompts.titles.count == 2, "asked about the dialog, then about the failed save")
-                fileSystem.clearFault()
-            case .switchBooks:
-                let missing = folder.appending(path: "Missing.sceneit", directoryHint: .isDirectory)
-                guard case .failed = await store.open(missing) else {
-                    Issue.record("precondition: the next book doesn't open")
-                    return
-                }
-            }
+            book.write("Unsaved, and the save will fail")
+            fileSystem.inject(.fail(.writeTemporary("book.md")))
+            let outcome = path == .quit ? await store.prepareToQuit() : await store.closeBook()
+            #expect(outcome == .stayed)
+            #expect(prompts.titles.count == 2, "asked about the dialog, then about the failed save")
+            fileSystem.clearFault()
 
             #expect(store.current === book)
             #expect(book.filingDraft == Self.typedDraft(), "the dialog still holds what was typed")

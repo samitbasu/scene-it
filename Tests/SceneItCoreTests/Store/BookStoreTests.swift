@@ -28,11 +28,12 @@ struct BookStoreTests {
             #expect(snapshots.contains { $0.hasPrefix("book-") })
 
             let saved = book.book
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
             #expect(store.current == nil)
-            #expect(await store.open(url) == .opened)
-            #expect(store.current?.book == saved)
-            #expect(store.current?.isEditable == true)
+            let relaunched = makeStore(in: folder, memory: memory)
+            #expect(await relaunched.open(url) == .opened)
+            #expect(relaunched.current?.book == saved)
+            #expect(relaunched.current?.isEditable == true)
         }
     }
 
@@ -199,78 +200,122 @@ struct BookStoreTests {
                 == "Draft Two (my edits).sceneit")
     }
 
-    // MARK: ADR 0021
+    // MARK: ADR 0038: one book at a time; Close Book returns to the start state
 
-    @Test func openingAnotherBookSavesAndClosesTheCurrentOne() async throws {
+    @Test func anotherBookIsRefusedUnreadAndTheWriterIsTold() async throws {
         try await withTemporaryFolder { folder in
-            let store = makeStore(in: folder)
-            let first = try await createBook("First", in: folder, store: store)
-            let second = try await createBook("Second", in: folder, store: store)
-            #expect(await store.open(first) == .opened)
+            let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: other, title: "Other")
+            let broken = folder.appending(path: "Broken.sceneit")
+            try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: false)
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
-            book.write("Unsaved when switching")
-            #expect(book.status != .saved)
+            book.write("Unsaved when the other book is asked for")
 
-            #expect(await store.open(second) == .opened)
-            #expect(store.current?.layout.root.canonicalPath == second.canonicalPath)
-            #expect(try bookOnDisk(first) == book.book)
-            #expect(book.status == .closed)
-            let reopened = try BookPackage.open(at: first)
-            #expect(reopened.editable != nil, "the first book's lock was released")
-        }
-    }
+            #expect(await store.open(other) == .refused)
+            #expect(await store.open(broken) == .refused)
+            #expect(await store.open([url, other]) == .refused)
 
-    @Test func aFailingSaveBlocksTheSwitchUntilTheWriterChooses() async throws {
-        try await withTemporaryFolder { folder in
-            let fileSystem = FaultInjectingFileSystem(root: folder)
-            let prompts = ScriptedPrompts([QuitAlertChoice.retry, QuitAlertChoice.cancel])
-            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
-            let second = try await createBook("Second", in: folder, store: store)
-            let first = try await createBook("First", in: folder, store: store)
-            let book = try #require(store.current)
-            book.write("Precious")
-            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.md"), cause: .noSpace))
-
-            #expect(await store.open(second) == .stayed)
             #expect(store.current === book)
+            #expect(book.isEditable)
+            #expect(book.hasUnsavedEdits, "nothing was saved for a switch")
             #expect(
-                prompts.titles == Array(repeating: "Scene It couldn't save your latest changes.", count: 2))
-            #expect(prompts.labels.last == ["Retry", "Cancel", "Close Anyway"])
+                prompts.notices == [
+                    OneBookWording.refusal(of: [other], whileOpen: url),
+                    OneBookWording.refusal(of: [broken], whileOpen: url),
+                    OneBookWording.refusal(of: [other], whileOpen: url),
+                ])
+            #expect(prompts.titles.isEmpty, "only told, never asked")
             #expect(
-                book.status
-                    == .failed(
-                        .fileSystem(FileSystemError(.write, first.appending(path: "book.md"), .noSpace))))
-
-            fileSystem.clearFault()
-            #expect(await store.open(second) == .opened)
-            #expect(try bookOnDisk(first) == book.book)
-            #expect(prompts.titles.count == 2)
+                !FileManager.default.fileExists(
+                    atPath: broken.appending(path: ".lock").path(percentEncoded: false)),
+                "the refused book wasn't read")
+            #expect(try BookPackage.open(at: other).editable != nil, "nor locked")
         }
     }
 
-    @Test func closeAnywaySwitchesWithoutTheUnsavedEdits() async throws {
-        try await withTemporaryFolder { folder in
-            let fileSystem = FaultInjectingFileSystem(root: folder)
-            let prompts = ScriptedPrompts([QuitAlertChoice.quitAnyway])
-            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
-            let second = try await createBook("Second", in: folder, store: store)
-            let first = try await createBook("First", in: folder, store: store)
-            let onDisk = try bookOnDisk(first)
-            try #require(store.current).write("Lost by choice")
-            fileSystem.inject(.fail(.writeTemporary("First.sceneit/book.md")))
-
-            #expect(await store.open(second) == .opened)
-            #expect(prompts.titles.count == 1)
-            #expect(try bookOnDisk(first) == onDisk)
-        }
-    }
-
-    @Test func aBookThatWontLoadLeavesTheCurrentOneOpen() async throws {
+    @Test func noBookCanBeCreatedOnceOneIsOpen() async throws {
         try await withTemporaryFolder { folder in
             let prompts = ScriptedPrompts()
             let store = makeStore(in: folder, prompts: prompts)
-            try await createBook("Good", in: folder, store: store)
+            try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
+            let second = folder.appending(path: "Second.sceneit", directoryHint: .isDirectory)
+
+            #expect(await store.create(at: second) == .refused)
+            #expect(store.current === book)
+            #expect(!FileManager.default.fileExists(atPath: second.path(percentEncoded: false)))
+            #expect(
+                prompts.notices == [OneBookWording.createRefusal(of: second, whileOpen: book.layout.root)],
+                "New Book is disabled, but its panel may have been up when a book from Finder opened")
+        }
+    }
+
+    @Test func closingTheBookSavesReleasesItAndReturnsToTheStartState() async throws {
+        try await withTemporaryFolder { folder in
+            let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
+            _ = try BookPackage.create(at: other, title: "Other")
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Unsaved when the book is closed")
+            try #require(book.hasUnsavedEdits, "precondition: something to save")
+
+            #expect(await store.closeBook() == .left)
+
+            #expect(store.isChoosing)
+            #expect(book.status == .closed)
+            #expect(try bookOnDisk(url) == book.book)
+            #expect(try BookPackage.open(at: url).editable != nil, "its lock was released")
+            #expect(await store.open(other) == .opened, "the start state opens another book")
+            #expect(prompts.titles.isEmpty)
+        }
+    }
+
+    @Test func closeAsksWhenSavingFailsAndCancelKeepsTheBookOpen() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let prompts = ScriptedPrompts([QuitAlertChoice.cancel])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("Unsaved")
+            fileSystem.inject(.fail(.writeTemporary("Novel.sceneit/book.md"), cause: .noSpace))
+            var closingWhileAsked: [Bool] = []
+            prompts.beforeAnswering = { _ in
+                closingWhileAsked.append(store.openBook == nil && store.current === book)
+            }
+
+            #expect(await store.closeBook() == .stayed)
+            #expect(closingWhileAsked == [true], "closing while the writer decides")
+            #expect(store.openBook === book, "Cancel returns to open")
+            #expect(store.current === book)
+            #expect(book.isEditable)
+            #expect(prompts.labels == [["Retry", "Cancel", "Close Anyway"]])
+
+            prompts.answer([QuitAlertChoice.quitAnyway])
+            #expect(await store.closeBook() == .left)
+            #expect(store.isChoosing)
+        }
+    }
+
+    @Test func closingFromTheStartStateDoesNothing() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            #expect(await store.closeBook() == .left)
+            #expect(store.isChoosing)
+            #expect(prompts.titles.isEmpty)
+        }
+    }
+
+    @Test func aBookThatWontLoadLeavesTheStartState() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
             let broken = folder.appending(path: "Broken.sceneit")
             try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: false)
             try FileManager.default.createDirectory(
@@ -281,23 +326,45 @@ struct BookStoreTests {
                 return
             }
             #expect(error.package.canonicalPath == broken.canonicalPath)
-            #expect(store.current === book)
-            #expect(book.isEditable)
+            #expect(store.isChoosing)
             #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Broken”."])
             #expect(!store.recentBooks.contains { $0.canonicalPath == broken.canonicalPath })
             #expect(
                 !FileManager.default.fileExists(
                     atPath: broken.appending(path: ".lock").path(percentEncoded: false)))
+
+            try await createBook("Good", in: folder, store: store)
+            #expect(store.current != nil, "still choosing, so another book opens")
         }
     }
 
     @Test func openingTheOpenBookAgainDoesNothing() async throws {
         try await withTemporaryFolder { folder in
-            let store = makeStore(in: folder)
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             #expect(await store.open(url.appending(path: "../Novel.sceneit")) == .alreadyOpen)
+            #expect(await store.open([url]) == .alreadyOpen)
             #expect(store.current === book)
+            #expect(prompts.notices.isEmpty)
+        }
+    }
+
+    @Test func openingTheOpenReadOnlyBookAgainDoesNothing() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Held.sceneit")
+            let holder = try BookPackage.create(at: url, title: "Held")
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
+            let book = try #require(store.current)
+
+            #expect(await store.open(url) == .alreadyOpen)
+            #expect(store.current === book)
+            #expect(
+                prompts.titles == [ReadOnlyWording.readOnlyTitle], "the read-only alert isn't asked again")
+            _ = consume holder
         }
     }
 
@@ -368,12 +435,45 @@ struct BookStoreTests {
         }
     }
 
+    /// The book read again for Open Anyway is the open book: one that won't load leaves it open,
+    /// read-only, and in Recent Books.
+    @Test func anOpenAnywayThatWontLoadKeepsTheReadOnlyBookAndItsRecentEntry() async throws {
+        try await withTemporaryFolder { folder in
+            let url = folder.appending(path: "Shared.sceneit")
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.override(locality: .network)
+            _ = try BookPackage.create(at: url, title: "Shared", fileSystem: fileSystem)
+            let other = LockRecord(
+                host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
+                since: Date(timeIntervalSince1970: 1_800_000_000))
+            try other.encoded().write(to: url.appending(path: ".lock"))
+            let prompts = ScriptedPrompts([ReadOnlyChoice.openAnyway(other)])
+            prompts.holding = true
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+
+            let opening = Task { await store.open(url) }
+            await eventually { prompts.titles.count == 1 }
+            let readOnly = try #require(store.current)
+            try #require(!readOnly.isEditable, "precondition: read-only behind the alert")
+            let book = url.appending(path: "book.md")
+            try FileManager.default.removeItem(at: book)
+            try FileManager.default.createDirectory(at: book, withIntermediateDirectories: false)
+            prompts.releaseHeld()
+
+            #expect(
+                await opening.value == .openedReadOnly(.openOnAnotherMac(other)), "that book is still open")
+            #expect(store.current === readOnly)
+            #expect(!readOnly.isEditable)
+            #expect(store.recentBooks.map(\.canonicalPath) == [url.canonicalPath])
+            #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Shared”."])
+        }
+    }
+
     // MARK: Quitting
 
     @Test func quittingSavesReleasesAndTerminates() async throws {
         try await withTemporaryFolder { folder in
             let store = makeStore(in: folder)
-            #expect(await store.prepareToQuit() == .left, "nothing open")
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("Saved at quit")
@@ -396,6 +496,7 @@ struct BookStoreTests {
 
             #expect(await store.prepareToQuit() == .stayed)
             #expect(store.current === book)
+            #expect(book.isEditable, "Cancel keeps the book open, and editable")
             #expect(prompts.labels == [["Retry", "Cancel", "Quit Anyway"]])
 
             prompts.answer([QuitAlertChoice.quitAnyway])
@@ -446,7 +547,7 @@ struct BookStoreTests {
             #expect(prompts.notices.count == 1)
 
             let good = try await createBook("Good", in: folder, store: store)
-            #expect(await store.closeBook() == .left)
+            #expect(await store.prepareToQuit() == .left)
             store = makeStore(in: folder, prompts: prompts, memory: memory)
             await store.reopenLastBook()
             #expect(store.current?.layout.root.canonicalPath == good.canonicalPath)

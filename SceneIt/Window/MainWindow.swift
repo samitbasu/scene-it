@@ -1,26 +1,74 @@
+import AppKit
 import SceneItCore
 import SwiftUI
 
-/// The one main window (ADR 0021): the open book, or the start state when none is open.
+/// The one main window (ADR 0038): the start screen, or the open book. Closing it with a book
+/// open closes the book; closing the start screen quits.
 struct MainWindow: View {
     let books: BookController
 
     var body: some View {
         Group {
-            if let book = books.store.current {
-                // A new identity per opening of a book, so window state (an open sheet, the
-                // editors, the undo router) never outlives the `OpenBook` it was made for, even
-                // when the same package is opened again.
+            switch books.store.session {
+            case .choosing:
+                StartView(books: books)
+            case .open(let book), .closing(let book):
+                // A new identity per `OpenBook`, so window state (an open sheet, the editors,
+                // the undo router) never outlives the one it was made for when the book is
+                // read again (Open Anyway, Open Other Version).
                 OpenBookWindow(
                     book: book, store: books.store, preferences: books.preferences,
                     formatting: books.formatting
                 )
                 .id(book.instanceID)
-            } else {
-                StartView(books: books)
             }
         }
         .frame(minWidth: WindowMetrics.minimumSize.width, minHeight: WindowMetrics.minimumSize.height)
+        .background(MainWindowCloseButton(books: books))
+    }
+}
+
+/// Points the window's close button at `BookController.press(.closeButton)` (ADR 0038): with a
+/// book open it closes the book, asking what Close Book asks, and the window stays for the start
+/// screen; on the start screen it quits.
+struct MainWindowCloseButton: NSViewRepresentable {
+    let books: BookController
+
+    func makeNSView(context: Context) -> Router {
+        Router(books: books)
+    }
+
+    func updateNSView(_ router: Router, context: Context) {
+        router.route()
+    }
+
+    final class Router: NSView {
+        let books: BookController
+
+        init(books: BookController) {
+            self.books = books
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("not loaded from a nib")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            route()
+        }
+
+        func route() {
+            guard let button = window?.standardWindowButton(.closeButton) else { return }
+            button.target = self
+            button.action = #selector(closeClicked(_:))
+        }
+
+        @objc private func closeClicked(_ sender: Any?) {
+            books.press(.closeButton)
+        }
     }
 }
 

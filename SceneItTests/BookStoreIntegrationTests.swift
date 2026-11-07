@@ -94,6 +94,14 @@ struct BookStoreIntegrationTests {
             let book = try #require(store.current)
             let scene = try #require(book.addScene(after: nil))
             await eventually { book.status == .saved }
+            await eventually {
+                guard let menu = menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)?.menu else {
+                    return false
+                }
+                menu.delegate?.menuNeedsUpdate?(menu)
+                menu.update()
+                return menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)?.isEnabled == true
+            }
             book.setTitle(of: scene, to: "Saved by the menu")
             #expect(book.status == .unsaved, "precondition: the edit waits for autosave")
             try perform(try #require(menuItem(titled: StoreWording.saveMenuItem, in: NSApp.mainMenu)))

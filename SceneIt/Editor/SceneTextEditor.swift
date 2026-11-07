@@ -527,10 +527,18 @@ extension SceneTextEditor: NSTextViewDelegate {
 
     /// Every typed or replaced string goes through the character policy (ADR 0028). When the
     /// policy changes it, this change is refused and the admitted text put in its place.
+    ///
+    /// A book that has stopped taking edits (detached by Close Book or Open Other Version)
+    /// refuses here, with a beep, before the view changes: the view only stops being editable
+    /// when SwiftUI next updates it, and a keystroke in between would otherwise show and vanish.
     func textView(
         _ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
         replacementStrings: [String]?
     ) -> Bool {
+        guard book.isEditable else {
+            NSSound.beep()
+            return false
+        }
         guard let strings = replacementStrings, let view = textView as? SceneTextView else {
             return true
         }

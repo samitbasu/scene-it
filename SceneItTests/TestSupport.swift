@@ -2,6 +2,15 @@ import Foundation
 import SceneItCore
 import Testing
 
+@testable import SceneIt
+
+extension BookController {
+    /// The requests carried out since the last call (the test host's `RecordedRequests`).
+    func takeRequests() -> [RecordedRequests.Carried] {
+        recorded?.take() ?? []
+    }
+}
+
 func withTemporaryFolder(_ body: (URL) async throws -> Void) async throws {
     let url = FileManager.default.temporaryDirectory
         .appending(path: "SceneItAppTests-\(UUID().uuidString)", directoryHint: .isDirectory)

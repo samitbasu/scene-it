@@ -3,7 +3,7 @@ import SceneItCore
 
 /// The window's two editors of scene text, the page and the notes, each made once and kept for
 /// the window's life, however often SwiftUI rebuilds the views that show them. The window's
-/// life is one `OpenBook`'s (`MainWindow` keys it on `OpenBook.instanceID`, ADR 0021), so the
+/// life is one `OpenBook`'s (`MainWindow` keys it on `OpenBook.instanceID`, ADR 0038), so the
 /// editors never outlive the book they edit, even when the same package is opened again. They must outlive those rebuilds: the scenes' undo histories record typing
 /// against an editor's own text storage, and an undo replayed on a storage that's gone does
 /// nothing, or raises.

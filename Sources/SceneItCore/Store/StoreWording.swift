@@ -87,15 +87,6 @@ public enum StoreWording {
                 + "can't be read.")
     }
 
-    /// Books asked for together, beyond the one opened (ADR 0021).
-    public static func oneBookAtATime(open: URL?, addedToRecents others: [URL]) -> Notice {
-        let opened = open.map { "“\(bookName($0))” is open. " } ?? ""
-        return Notice(
-            title: "Scene It opens one book at a time.",
-            message: opened + "These books were added to Recent Books instead: "
-                + others.map { "“\(bookName($0))”" }.joined(separator: ", ") + ".")
-    }
-
     /// A book's name as the writer sees it in Finder: the package name without `.sceneit`.
     public static func bookName(_ package: URL) -> String {
         package.deletingPathExtension().lastPathComponent

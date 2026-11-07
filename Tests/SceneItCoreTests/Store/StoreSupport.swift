@@ -13,6 +13,8 @@ final class ScriptedPrompts: StorePrompts {
     private(set) var labels: [[String]] = []
     private(set) var notices: [Notice] = []
     var holding = false
+    /// Runs as each question arrives, with its title, before it's answered.
+    var beforeAnswering: ((String) -> Void)?
     private var held: [CheckedContinuation<Void, Never>] = []
 
     init(_ answers: [any Hashable & Sendable] = []) {
@@ -26,6 +28,7 @@ final class ScriptedPrompts: StorePrompts {
     func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
         titles.append(alert.title)
         labels.append(alert.buttons.map(\.label))
+        beforeAnswering?(alert.title)
         if holding { await withCheckedContinuation { held.append($0) } }
         if let next = answers.first as? Choice {
             answers.removeFirst()

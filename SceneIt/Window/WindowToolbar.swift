@@ -3,12 +3,12 @@ import SwiftUI
 
 /// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Print arrives with
 /// #35 and Export to Word with #37, and until then those are disabled. File a copy… is only
-/// for a book open for editing.
+/// for a book open for editing and not being closed: `filing` is nil otherwise.
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
     let preferences: AppPreferences
     let undo: UndoRouter
-    let filing: FilingFlow
+    let filing: FilingFlow?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -49,10 +49,10 @@ struct WindowToolbar: ToolbarContent {
         }
         ToolbarSpacer(.fixed)
         ToolbarItem {
-            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
+            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing?.begin() }
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(.borderedProminent)
-                .disabled(!book.isEditable || filing.draft != nil)
+                .disabled(filing == nil || filing?.draft != nil)
         }
     }
 
