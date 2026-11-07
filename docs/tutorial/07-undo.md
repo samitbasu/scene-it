@@ -17,6 +17,9 @@ which one the toolbar's buttons and Edit → Undo act on. Read it after
 
 The tests: [`SceneItTests/UndoRouterTests.swift`](../../SceneItTests/UndoRouterTests.swift),
 the Errors tab case in [`SceneItTests/ErrorsTabTests.swift`](../../SceneItTests/ErrorsTabTests.swift),
+the comment actions' undo and redo in [`SceneItTests/CommentOperationTests.swift`](../../SceneItTests/CommentOperationTests.swift)
+and, through the router with what the page last drew, in
+[`SceneItTests/CommentsPanelTests.swift`](../../SceneItTests/CommentsPanelTests.swift),
 and `UndoRoutingTests` in [`Tests/SceneItCoreTests/Window/WindowModelTests.swift`](../../Tests/SceneItCoreTests/Window/WindowModelTests.swift).
 
 ---

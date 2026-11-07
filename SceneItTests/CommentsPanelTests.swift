@@ -10,7 +10,8 @@ private let early = CommentID(rawValue: "01JC4K0000000000000000EARL")
 private let gone = CommentID(rawValue: "01JC4K0000000000000000GONE")
 
 /// The letter's comment (`noted`, created first) comes after the dawn's (`early`) on the page,
-/// and `gone` covers nothing.
+/// and `gone` covers nothing. No comment here is gray: the edges of black text sample as gray, so
+/// a pixel check couldn't tell a gray underline is gone.
 private let panelScene: [Paragraph] = [
     [Run("Dawn", comments: [early]), Run(" came. The "), Run("letter", comments: [noted]), Run(" waited.")]
 ]
@@ -21,7 +22,7 @@ private func panelBook() -> BookScene {
     let created = Timestamp(Date(timeIntervalSince1970: 1_700_000_100), in: .gmt)
     commented.comments = [
         tooEarly, Comment(id: early, color: .red, text: "At dawn?", created: created),
-        Comment(id: gone, color: .gray, text: "Cut?", created: created),
+        Comment(id: gone, color: .pink, text: "Cut?", created: created),
     ]
     return commented
 }
@@ -408,6 +409,64 @@ struct CommentsPanelTests {
             try harness.undoOnThePage()
             #expect(harness.book.book.scene(scene)?.comment(noted) == tooEarly)
             #expect(harness.storage.ranges(commentedBy: noted) == [letterRange])
+
+            try harness.undo.redo()
+            #expect(harness.book.book.scene(scene)?.comment(noted) == nil, "redo dismisses it again")
+            #expect(harness.storage.ranges(commentedBy: noted).isEmpty)
+            try harness.undoOnThePage()
+            #expect(harness.book.book.scene(scene)?.comment(noted) == tooEarly, "still never the draft")
+        }
+    }
+
+    /// #26's acceptance, through the real path: Dismiss from the ⋯ menu, then Undo with the page
+    /// focused, through the window's router, brings back the card and the underline the page
+    /// draws; Redo takes both away again.
+    @Test func undoingADismissRestoresTheCardAndTheUnderlineAndRedoTakesThemAway() async throws {
+        try await withPanel { harness in
+            let scene = try #require(harness.book.openScene)
+            try await harness.settle(drawing: .purple, under: letterRange)
+            await eventually { harness.card(noted) != nil }
+            try #require(harness.card(noted) != nil, "precondition: the card is shown")
+            let menu = try await harness.menu(of: noted, in: scene)
+            try perform(try #require(menu.items.first { $0.title == CommentWording.dismiss }))
+            #expect(harness.book.book.scene(scene)?.comment(noted) == nil)
+            await eventually { harness.card(noted) == nil }
+            try await harness.expectUndrawn(.purple, under: letterRange)
+
+            harness.focusPage(at: 0)
+            #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.dismissUndoName)
+            try harness.undoOnThePage()
+            #expect(
+                harness.book.book.scene(scene)?.comments.map(\.id) == [noted, early, gone], "in its place")
+            #expect(harness.book.book.scene(scene)?.comment(noted) == tooEarly)
+            #expect(harness.storage.ranges(commentedBy: noted) == [letterRange])
+            #expect(harness.pageMirrorsModel)
+            await eventually { harness.card(noted)?.string == tooEarly.text }
+            try await harness.expectDrawn(.purple, under: letterRange)
+
+            #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.dismissUndoName)
+            try harness.undo.redo()
+            #expect(harness.book.book.scene(scene)?.comment(noted) == nil)
+            #expect(harness.storage.ranges(commentedBy: noted).isEmpty)
+            #expect(harness.pageMirrorsModel)
+            await eventually { harness.card(noted) == nil }
+            try await harness.expectUndrawn(.purple, under: letterRange)
+            await eventually { harness.book.status == .saved }
+            #expect(try bookOnDisk(harness.url) == harness.book.book)
+        }
+    }
+
+    @Test func aNewCommentFromThePlusButtonUndoesAndRedoes() async throws {
+        try await expectNewCommentUndoesAndRedoes { harness in
+            CommentsTab.addComment(through: harness.formatting)
+        }
+    }
+
+    @Test func aNewCommentFromTheFloatingButtonUndoesAndRedoes() async throws {
+        try await expectNewCommentUndoesAndRedoes { harness in
+            await eventually { !harness.page.commentButton.isHidden }
+            try #require(!harness.page.commentButton.isHidden, "precondition: the button shows")
+            harness.page.commentButton.performClick(nil)
         }
     }
 
@@ -438,19 +497,35 @@ struct CommentsPanelTests {
         }
     }
 
-    /// A detached card's Re-anchor puts the comment on the page's selection.
+    /// A detached card's Re-anchor puts the comment on the page's selection, and its underline on
+    /// the page; Undo detaches it again, keeping its card, and Redo re-anchors it.
     @Test func reanchorPutsADetachedCommentOnTheSelection() async throws {
         try await withPanel { harness in
             let scene = try #require(harness.book.openScene)
+            let came = NSRange(location: 5, length: 4)
             harness.window.makeFirstResponder(harness.page)
-            harness.page.setSelectedRange(NSRange(location: 5, length: 4))
+            harness.page.setSelectedRange(came)
             await eventually { harness.formatting.commentablePage != nil }
             let menu = try await harness.menu(of: gone, in: scene)
             let reanchor = try #require(menu.items.first { $0.title == CommentWording.reanchor })
             #expect(reanchor.isEnabled)
             try perform(reanchor)
-            #expect(harness.storage.ranges(commentedBy: gone) == [NSRange(location: 5, length: 4)])
+            #expect(harness.storage.ranges(commentedBy: gone) == [came])
             #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.reanchorUndoName)
+            try await harness.expectDrawn(.pink, under: came)
+
+            try harness.undoOnThePage()
+            #expect(harness.storage.ranges(commentedBy: gone).isEmpty)
+            #expect(harness.book.book.scene(scene)?.isDetached(gone) == true, "kept, detached")
+            #expect(harness.pageMirrorsModel)
+            try await harness.expectUndrawn(.pink, under: came)
+            #expect(harness.card(gone) != nil, "its card stays")
+
+            #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.reanchorUndoName)
+            try harness.undo.redo()
+            #expect(harness.storage.ranges(commentedBy: gone) == [came])
+            #expect(harness.pageMirrorsModel)
+            try await harness.expectDrawn(.pink, under: came)
         }
     }
 
@@ -523,13 +598,79 @@ struct CommentsPanelTests {
         }
     }
 
-    private func withPanel(holdingTheLock: Bool = false, _ body: (PageHarness) async throws -> Void)
-        async throws
-    {
-        try await withPage([panelBook()], holdingTheLock: holdingTheLock) { harness in
-            harness.preferences.reveal(.comments)
-            try await body(harness)
+}
+
+extension BookStoreIntegrationTests {
+    /// Edit → New Comment acts on the app's own controller's page, so it's tested here.
+    @Test func aNewCommentFromTheEditMenuUndoesAndRedoes() async throws {
+        try await expectNewCommentUndoesAndRedoes(books: .shared) { _ in
+            await eventually { newCommentItem()?.isEnabled == true }
+            try perform(try #require(newCommentItem()))
         }
+    }
+}
+
+/// The panel's book in the window, with the Comments tab showing; the tab is put back after.
+@MainActor
+private func withPanel(
+    holdingTheLock: Bool = false, books: BookController = BookController(role: .testHost),
+    _ body: (PageHarness) async throws -> Void
+) async throws {
+    try await withPage([panelBook()], holdingTheLock: holdingTheLock, books: books) { harness in
+        let tab = harness.preferences.rightPanelTab
+        defer { harness.preferences.showRightPanelTab(tab) }
+        harness.preferences.reveal(.comments)
+        try await body(harness)
+    }
+}
+
+/// New Comment, made by `make` on a selection of "came", is one step named New Comment on the
+/// page's undo: Undo through the router takes the comment, its card and its underline away;
+/// Redo brings all three back.
+@MainActor
+private func expectNewCommentUndoesAndRedoes(
+    books: BookController = BookController(role: .testHost),
+    made make: @escaping @MainActor (PageHarness) async throws -> Void
+) async throws {
+    try await withPanel(books: books) { harness in
+        let color = harness.preferences.lastCommentColor
+        defer { harness.preferences.rememberCommentColor(color) }
+        harness.preferences.rememberCommentColor(.blue)
+        let scene = try #require(harness.book.openScene)
+        let came = NSRange(location: 5, length: 4)
+        try #require((harness.storage.string as NSString).substring(with: came) == "came", "precondition")
+        harness.window.makeFirstResponder(harness.page)
+        harness.page.setSelectedRange(came)
+        await eventually { harness.formatting.commentablePage === harness.page.editor }
+        try #require(!harness.book.pageUndo(for: scene).canUndo, "precondition: nothing to undo")
+
+        try await make(harness)
+        let made = try #require(harness.book.book.scene(scene)?.comments.last)
+        try #require(![noted, early, gone].contains(made.id), "precondition: a new comment")
+        #expect(made.color == .blue)
+        #expect(harness.storage.ranges(commentedBy: made.id) == [came])
+        await eventually { harness.window.firstResponder === harness.card(made.id) }
+        try await harness.expectDrawn(.blue, under: came)
+
+        harness.focusPage(at: 0)
+        #expect(harness.book.pageUndo(for: scene).undoActionName == CommentWording.newComment)
+        try harness.undoOnThePage()
+        #expect(harness.book.book.scene(scene)?.comment(made.id) == nil)
+        #expect(harness.storage.ranges(commentedBy: made.id).isEmpty)
+        #expect(harness.pageMirrorsModel)
+        #expect(!harness.book.pageUndo(for: scene).canUndo, "one step")
+        await eventually { harness.card(made.id) == nil }
+        try await harness.expectUndrawn(.blue, under: came)
+
+        #expect(harness.book.pageUndo(for: scene).redoActionName == CommentWording.newComment)
+        try harness.undo.redo()
+        #expect(harness.book.book.scene(scene)?.comment(made.id) == made)
+        #expect(harness.storage.ranges(commentedBy: made.id) == [came])
+        #expect(harness.pageMirrorsModel)
+        await eventually { harness.card(made.id) != nil }
+        try await harness.expectDrawn(.blue, under: came)
+        await eventually { harness.book.status == .saved }
+        #expect(try bookOnDisk(harness.url) == harness.book.book)
     }
 }
 
@@ -587,7 +728,7 @@ extension PageHarness {
     /// stale paragraph: `shown()` renders the layers by drawing them afresh. So nothing may
     /// sample pixels between a change and the first check.
     func expectDrawn(
-        _ color: PaletteColor, not old: PaletteColor, under range: NSRange,
+        _ color: PaletteColor, not old: PaletteColor? = nil, under range: NSRange,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
         await eventually({ (try? lastDrawnColors(under: range)) == [color] }, sourceLocation: sourceLocation)
@@ -596,9 +737,24 @@ extension PageHarness {
             sourceLocation: sourceLocation)
         #expect(
             try pagePixels(under: range, of: color) > 0, "in the new color", sourceLocation: sourceLocation)
-        #expect(
-            try pagePixels(under: range, of: old) == 0, "none left in the old", sourceLocation: sourceLocation
-        )
+        if let old {
+            #expect(
+                try pagePixels(under: range, of: old) == 0, "none left in the old",
+                sourceLocation: sourceLocation)
+        }
+    }
+
+    /// The page shows no underline under `range`, so none in `old`, the color it had. As with
+    /// `expectDrawn`, what the paragraph last drew is checked before any pixel is sampled; and an
+    /// empty `lastDrawn` is a redraw only if the paragraph drew an underline there before.
+    func expectUndrawn(
+        _ old: PaletteColor, under range: NSRange, sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        await eventually({ (try? lastDrawnColors(under: range)) == [] }, sourceLocation: sourceLocation)
+        await eventually(
+            { !subviewTree(of: window.contentView).contains(where: \.needsDisplay) },
+            sourceLocation: sourceLocation)
+        #expect(try pagePixels(under: range, of: old) == 0, "no underline", sourceLocation: sourceLocation)
     }
 
     /// The colors of the underlines the page last drew under `range`'s characters.

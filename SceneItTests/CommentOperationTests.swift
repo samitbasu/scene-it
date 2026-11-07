@@ -272,13 +272,24 @@ struct CommentOperationTests {
             undo.undo()
             #expect(harness.book.book.scene(scene)?.isDetached(noted) == true)
             #expect(harness.book.book.scene(scene)?.comments == [tooEarly], "it's kept, detached")
+            #expect(undo.redoActionName == CommentWording.reanchorUndoName)
+            undo.redo()
+            #expect(harness.body().first?.runs.first == Run("The", comments: [noted]))
+            #expect(harness.pageMirrorsModel)
+            undo.undo()
+            try #require(harness.book.book.scene(scene)?.isDetached(noted) == true, "precondition: detached")
 
             #expect(await asAnEvent(undo) { editor.dismiss(noted) })
             #expect(harness.book.book.scene(scene)?.comments.isEmpty == true)
+            #expect(undo.undoActionName == CommentWording.dismissUndoName)
             undo.undo()
             #expect(harness.book.book.scene(scene)?.comments == [tooEarly])
             #expect(harness.body() == letterScene.map(\.uncommented))
             #expect(harness.pageMirrorsModel)
+            #expect(undo.redoActionName == CommentWording.dismissUndoName)
+            undo.redo()
+            #expect(harness.book.book.scene(scene)?.comments.isEmpty == true)
+            #expect(harness.body() == letterScene.map(\.uncommented))
         }
     }
 
@@ -414,7 +425,7 @@ extension CommentOperationTests {
 /// Edit → New Comment, after asking its menu to update as AppKit does when the writer opens it
 /// or presses a shortcut.
 @MainActor
-private func newCommentItem() -> NSMenuItem? {
+func newCommentItem() -> NSMenuItem? {
     if let menu = menuItem(titled: CommentWording.newComment, in: NSApp.mainMenu)?.menu {
         menu.delegate?.menuNeedsUpdate?(menu)
         menu.update()
