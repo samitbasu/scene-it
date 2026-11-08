@@ -92,7 +92,12 @@ struct BookWindow: View {
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
-            if old.isSheet, !new.isSheet, chrome.focusMode == .on { pageFocus.focusBody() }
+            // On the next turn, once the page the sheet covered is enabled again and can take it.
+            if old.isSheet, !new.isSheet, chrome.focusMode == .on {
+                DispatchQueue.main.async { [pageFocus] in
+                    if !pageFocus.holdsFocus { pageFocus.focusBody() }
+                }
+            }
         }
         .onChange(of: chrome.focusMode) {
             // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.

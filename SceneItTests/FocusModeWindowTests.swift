@@ -83,6 +83,17 @@ extension PageHarness {
         return try #require(try desk.findField)
     }
 
+    /// Whether the Search sheet holds the focus: its own focus view, or its field. (SwiftUI
+    /// focuses the field a turn after the sheet opens, and under load sometimes not at all; an
+    /// Esc reaches the resolver either way.)
+    var searchSheetHasTheFocus: Bool {
+        switch focused {
+        case is UndoFocusView: true
+        case let field as NSTextField: field.placeholderString == SearchWording.placeholder
+        default: false
+        }
+    }
+
     /// The desk's frame in the window: where the chrome around it leaves it.
     var deskFrame: NSRect {
         get throws { try desk.convert(desk.bounds, to: nil) }
@@ -163,8 +174,8 @@ struct FocusModeWindowTests {
             harness.focusPage(at: 4)
             harness.chrome.set(.on)
             harness.modes.mode = .search
-            await eventually { harness.focused is NSTextField }
-            #expect(harness.focused is NSTextField, "precondition: the Search sheet's field has the focus")
+            await eventually { harness.searchSheetHasTheFocus }
+            try #require(harness.searchSheetHasTheFocus, "precondition: the Search sheet has the focus")
             #expect(harness.chrome.focusMode == .on, "a sheet opens over focus mode")
 
             try press(.escape, in: harness.window)
@@ -377,15 +388,8 @@ struct FocusModeWindowTests {
             _ = try await harness.showFindBar()
             harness.focusPage(at: 4)
             harness.modes.mode = .search
-            @MainActor func sheetHasTheFocus() -> Bool {
-                switch harness.focused {
-                case is UndoFocusView: true
-                case let field as NSTextField: field.placeholderString == SearchWording.placeholder
-                default: false
-                }
-            }
-            await eventually { sheetHasTheFocus() }
-            try #require(sheetHasTheFocus(), "precondition: the sheet has the focus")
+            await eventually { harness.searchSheetHasTheFocus }
+            try #require(harness.searchSheetHasTheFocus, "precondition: the sheet has the focus")
             #expect(EscapeLayer.escape(in: try harness.keys.escapeContext) == .close(.sheet))
 
             try press(.escape, in: harness.window)
