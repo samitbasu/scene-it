@@ -53,7 +53,7 @@ struct TagsTab: View {
     @Environment(\.self) private var environment
 
     var body: some View {
-        let editability = SceneTextEditor.Editability(book, in: environment)
+        let editability = Editability(book, in: environment)
         let scene = book.location.scene
         VStack(alignment: .leading, spacing: 0) {
             SceneTagsSection(scene: scene, actions: actions, editability: editability)
@@ -70,7 +70,7 @@ struct TagsTab: View {
 private struct SceneTagsSection: View {
     let scene: BookScene?
     let actions: TagActions
-    let editability: SceneTextEditor.Editability
+    let editability: Editability
 
     var body: some View {
         VStack(alignment: .leading, spacing: WindowMetrics.Tags.headerGap) {
@@ -111,7 +111,7 @@ private struct BookTagsList: View {
     let tags: BookTags
     let scene: BookScene?
     let actions: TagActions
-    let editability: SceneTextEditor.Editability
+    let editability: Editability
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -231,7 +231,9 @@ private struct NewTagField: NSViewRepresentable {
     func makeNSView(context: Context) -> AdmittingTextField {
         let coordinator = context.coordinator
         coordinator.target = (scene, actions)
-        let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        let editor = AdmittingTextView.fieldEditor(
+            admitting: CharacterPolicy.admittedLine,
+            editability: { [weak book = actions.book] in Editability(book) })
         editor.history = coordinator.history
         let field = AdmittingTextField(string: "", editor: editor, lineBreakMode: .byClipping)
         field.font = .systemFont(ofSize: WindowMetrics.Tags.chipPointSize)
