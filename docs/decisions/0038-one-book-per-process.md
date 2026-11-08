@@ -1,6 +1,7 @@
 # 0038 — One book at a time, never switched in place; Close Book returns to the start screen
 
-**Status:** Accepted (2026-11-06, the owner's decisions on #88; revised 2026-11-07 after the owner's hand test).
+**Status:** Accepted (2026-11-06, the owner's decisions on #88; revised 2026-11-07 after the owner's hand test;
+amended 2026-11-07 by #130: the window's red close button quits).
 Supersedes [0021](0021-one-book-at-a-time.md) on switching books in place; amends
 [0020](0020-instance-and-book-locks.md) on books forwarded to the running instance. The owner chose the
 wording on 2026-11-07 (below).
@@ -20,11 +21,15 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
    - A book forwarded from Finder or `open`, including ADR 0020's hand-off from a second launch, is not
      opened. The window comes forward with an alert saying the open book must be closed first. If the
      forwarded book *is* the open book, the window just comes forward, with no alert.
-2. **Close Book returns to the start screen** in the same process. File → Close Book, ⌘W while the book's
-   window is key, and the window's red close button all save first, asking when a save can't finish (Retry /
-   Cancel / Close Anyway; Cancel keeps the book open), then release the book and show the start screen.
-3. **Closing the start screen quits Scene It.** Its red close button and ⌘W both quit, through Quit's own path;
-   there the File menu item reads "Close Window and Quit" (the owner's pick, 2026-11-07).
+2. **Close Book returns to the start screen** in the same process. File → Close Book, and ⌘W while the
+   book's window is key, save first, asking when a save can't finish (Retry / Cancel / Close Anyway; Cancel
+   keeps the book open), then release the book and show the start screen.
+3. **The window's red close button quits Scene It** (#130, the owner, 2026-11-07: "clicking the close (red)
+   button on the window _should_ exit the app"), with a book open or on the start screen, through Quit's own
+   path: it saves first, asking (Retry / Cancel / Quit Anyway) when a save can't finish, and Cancel keeps the
+   book open and Scene It running. On the start screen ⌘W quits too; there the File menu item reads "Close
+   Window and Quit" (the owner's pick, 2026-11-07). Until #130 the red button closed the book like Close Book
+   did, and quit only from the start screen.
 4. **To switch books:** Close Book, then choose on the start screen.
 
 ## How it's built
@@ -50,19 +55,24 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
 - **Closing** is `BookStore.closeBook()`, the same leave as quitting (`confirmLeaving`, `settle`) with the close
   wording. The book is detached in the same main-actor turn as the session changes, so it refuses edits from
   then on.
-- **Quitting from the start screen** sends `AppRequest.quit`, carried out from a run-loop source
-  (`perform(_:with:afterDelay: 0)`), never in the sender's own turn: `terminate` with `.terminateLater` runs a
-  nested run loop until the quit path, a main-actor task, replies, and that task couldn't start while the
-  sender's job was still running. Nothing is torn down inside a store operation's caller.
+- **Quitting from the red button or the start screen** asks AppKit to quit from a run-loop source
+  (`AppRequests.quit`, `perform(_:with:afterDelay: 0)`), never in the sender's own turn: `terminate` with
+  `.terminateLater` runs a nested run loop until the quit path, a main-actor task, replies, and that task
+  couldn't start while the sender's job was still running. `applicationShouldTerminate` then runs
+  `BookController.settleQuit()` (`prepareToQuit`), which saves first, as Quit does.
 - **A close is decided when it's pressed** (the owner's pick, 2026-11-07). `BookController.press(_:)` calls
-  `closeAction(from:)` as the menu item or close button's event arrives, from the state then and the source
-  (the menu with its key window, or the close button), and hands that decision to a task. A press with a book
-  open only closes the book. While Close Book is saving or asking, the session is `closing(book)` (the book is
-  still shown; Cancel returns to `open`), and any other press (a key repeat, a second click, ⌘W after the red
-  button) does nothing, as does any press while the close a press started is unfinished (including one
-  decided while another store operation held the store, before it reached `closing`). A fresh press once the
-  start screen shows quits. Quit itself isn't a session state: AppKit's own terminate path ignores a second
-  Quit while one is pending, and a close press queued behind a Quit finds no book once it's done.
+  `closeAction(from:)` as the menu item's or close button's event arrives, from the state then and the source
+  (the menu with its key window, or the close button), and carries it out there: Close Book starts in a task
+  (what `press` returns, to wait for), a quit is asked of AppKit as above. ⌘W with a book open closes the
+  book; the red button quits (#130); on the start screen both quit.
+- **One thing at a time.** While Close Book is saving or asking, the session is `closing(book)` (the book is
+  still shown; Cancel returns to `open`). `BookController` also tracks the close and the quit a press (or
+  Quit) started, separately, until each ends; each is cleared only by its own owner, so a close's Cancel
+  can't end a quit queued behind it. While any of these is under way, a press does nothing: a key repeat, a
+  second click, ⌘W during a pending quit, or a press decided while another store operation held the store. A
+  quit is over when `settleQuit` ends (it also drops a quit a click had queued but AppKit hadn't started,
+  so a Cancel can't be followed by a stray second quit), or, as a backstop, when `terminate` returns without
+  the quit path having run. Then the next press is decided afresh.
 - **File a Copy… and Make Editable…** act on `BookStore.openBook`, which is nil while the book is closing, so
   neither can be started (and then torn down with what was typed) during Close Book's save or questions.
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).

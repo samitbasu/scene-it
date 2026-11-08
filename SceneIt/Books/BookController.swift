@@ -10,9 +10,22 @@ final class BookController {
     static let shared = BookController(role: .current)
 
     let store: AppBookStore
-    /// The close a press started, until it has finished: any press meanwhile does nothing, even
-    /// one decided before the store reached `closing` (while another operation held it).
-    private var closeInFlight: Task<Void, Never>?
+    /// The Close Book and the quit a press (or Quit) started and that haven't finished, tracked
+    /// apart so neither can clear the other's. While either is under way a close press does
+    /// nothing, even one decided before the store reached `closing` (while another operation
+    /// held it), or before AppKit's quit got to `applicationShouldTerminate`. Each is cleared only
+    /// by its own owner, matched by identity.
+    private var closeUnderWay: Attempt?
+    /// Also covers the time between a press and `applicationShouldTerminate`, which the app
+    /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
+    private var quitUnderWay: Attempt?
+
+    private final class Attempt {}
+
+    /// A quit has been asked for and its path hasn't ended.
+    var isQuitUnderWay: Bool {
+        quitUnderWay != nil
+    }
     let memory: any BookMemory
     /// The window's layout (ADR 0022).
     let preferences: AppPreferences
@@ -26,11 +39,18 @@ final class BookController {
     private let role: ProcessRole
 
     /// `prompts` replaces the role's own, for a test that answers from a script.
-    init(role: ProcessRole, prompts: (any StorePrompts)? = nil) {
+    /// `recordedTerminate` is, in the test host, what the recorded `terminate` does: by default
+    /// it leaves the quit to the test; `.over` plays a `terminate` that returned without the quit
+    /// path having run.
+    init(
+        role: ProcessRole, prompts: (any StorePrompts)? = nil,
+        recordedTerminate: AppRequests.CarriedOut = .leftToTheTest
+    ) {
         self.role = role
         let standard: any StorePrompts
         let storage: any PreferenceStorage
         (memory, mirror, standard, storage, recorded) = Self.surroundings(for: role)
+        recorded?.terminate = recordedTerminate
         requests = AppRequests(carryOut: recorded.map { recorder in recorder.record } ?? AppRequests.appKit)
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
@@ -83,14 +103,15 @@ final class BookController {
     /// Books Finder or another launch sent while Scene It runs (ADR 0020). The window comes
     /// forward; the store opens them only from the start screen (ADR 0038).
     func openForwarded(_ books: [URL]) async {
-        requests.send(.bringForward(mainWindow))
+        requests.bringForward(mainWindow)
         await store.open(books)
     }
 
-    /// What closing does (ADR 0038).
+    /// What a close press does (ADR 0038).
     enum CloseAction: Equatable {
         /// Close Book: save, release, show the start screen.
         case closeBook
+        /// Quit, through AppKit's own path (`settleQuit`), which saves first.
         case quit
         /// Another window is key: it closes as usual.
         case closeWindow(NSWindow)
@@ -104,42 +125,63 @@ final class BookController {
         case closeButton
     }
 
-    /// The whole decision, from the state now and where the close came from. A press is
-    /// decided when it arrives (`press`): with a book open it only closes the book, and while a
-    /// close is still saving or asking, another press does nothing.
+    /// The whole decision, from the state now and where the press came from. The red button
+    /// quits (#130); ⌘W closes the book, or quits from the start screen. While a close or a quit
+    /// is under way, another press does nothing.
     func closeAction(from source: CloseSource) -> CloseAction {
         if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
             return .closeWindow(other)
         }
-        if closeInFlight != nil { return .nothing }
-        switch store.session {
-        case .open: return .closeBook
-        case .closing: return .nothing
-        case .choosing: return .quit
-        }
-    }
-
-    func perform(_ action: CloseAction) async {
-        switch action {
-        case .closeBook: await store.closeBook()
-        case .quit: requests.send(.quit)
-        case .closeWindow(let window): window.performClose(nil)
-        case .nothing: break
+        if closeUnderWay != nil || quitUnderWay != nil { return .nothing }
+        switch (source, store.session) {
+        case (_, .closing): return .nothing
+        case (.closeButton, _), (.menu, .choosing): return .quit
+        case (.menu, .open): return .closeBook
         }
     }
 
     /// File → Close Book (⌘W) or the main window's close button, pressed: decided now, as the
-    /// event arrives, then carried out (ADR 0038).
+    /// event arrives (ADR 0038). A quit is only requested here; AppKit starts it from a run-loop
+    /// source (`AppRequests`), never inside a task or a store operation. Returns the close, the
+    /// only outcome there is to wait for.
     @discardableResult
-    func press(_ source: CloseSource) -> Task<Void, Never> {
-        let action = closeAction(from: source)
-        guard action == .closeBook else { return Task { await perform(action) } }
-        let close = Task {
-            await perform(action)
-            closeInFlight = nil
+    func press(_ source: CloseSource) -> Task<Void, Never>? {
+        switch closeAction(from: source) {
+        case .closeBook:
+            let attempt = Attempt()
+            closeUnderWay = attempt
+            return Task {
+                await store.closeBook()
+                if closeUnderWay === attempt { closeUnderWay = nil }
+            }
+        case .quit:
+            let attempt = Attempt()
+            quitUnderWay = attempt
+            requests.quit { [weak self] in
+                if self?.quitUnderWay === attempt { self?.quitUnderWay = nil }
+            }
+        case .closeWindow(let window):
+            window.performClose(nil)
+        case .nothing:
+            break
         }
-        closeInFlight = close
-        return close
+        return nil
+    }
+
+    /// The quit path's own work, for `applicationShouldTerminate`, whether a press or Quit
+    /// started it: saves and releases the book, asking (Retry / Cancel / Quit Anyway) when that
+    /// can't finish. Presses do nothing until it ends. Then the quit is over either way: a quit a
+    /// click queued before `applicationShouldTerminate` ran, and AppKit hadn't started, is
+    /// dropped, and after Cancel the next press is decided afresh. Its attempt is its own, so a
+    /// press's backstop can never end it.
+    func settleQuit() async -> AppBookStore.LeaveOutcome {
+        let attempt = Attempt()
+        quitUnderWay = attempt
+        defer {
+            if quitUnderWay === attempt { quitUnderWay = nil }
+            requests.dropPendingQuit()
+        }
+        return await store.prepareToQuit()
     }
 
     /// File a Copy can start: the book is open for editing, and not being closed.
@@ -176,7 +218,7 @@ final class BookController {
     /// reopening, as when the main window is already visible.
     func reopenMainWindow() -> Bool {
         guard let window = mainWindow, !window.isVisible || window.isMiniaturized else { return true }
-        requests.send(.bringForward(window))
+        requests.bringForward(window)
         return false
     }
 
@@ -204,8 +246,9 @@ final class BookController {
     }
 }
 
-/// What the controller asks of the whole app. Closing the start screen quits through AppKit's
-/// own path (`applicationShouldTerminate`), exactly as Quit does (ADR 0038).
+/// What the controller asks of the whole app. The main window's close button (and ⌘W on the
+/// start screen) quits through AppKit's own path (`applicationShouldTerminate`), exactly as Quit
+/// does (ADR 0038).
 enum AppRequest: Hashable {
     case quit
     /// The app comes forward, with the main window if there is one.
@@ -217,35 +260,61 @@ enum AppRequest: Hashable {
 /// `terminate` runs a nested run loop until the quit path (a main-actor task) replies, and that
 /// task can't start while the sender's main-queue job, or a store operation, is still running.
 final class AppRequests: NSObject {
-    private let carryOut: (AppRequest) -> Void
+    private let carryOut: (AppRequest) -> CarriedOut
+    /// The one quit asked for and not yet carried out, with what to run once it's over.
+    private var pendingQuit: (() -> Void)?
 
-    init(carryOut: @escaping (AppRequest) -> Void) {
+    /// Whether a request is over once `carryOut` returns. AppKit's `terminate` returns only when
+    /// the quit was refused (the writer's Cancel) or never asked of `applicationShouldTerminate`;
+    /// when the quit goes through, it never returns. The test host's recorder returns at once,
+    /// and the test plays the quit path itself.
+    enum CarriedOut {
+        case over
+        case leftToTheTest
+    }
+
+    init(carryOut: @escaping (AppRequest) -> CarriedOut) {
         self.carryOut = carryOut
     }
 
-    func send(_ request: AppRequest) {
-        switch request {
-        case .quit:
-            perform(#selector(quitNow), with: nil, afterDelay: 0)
-        case .bringForward:
-            carryOut(request)
-        }
+    /// Brings the app forward, with `window` if there is one.
+    func bringForward(_ window: NSWindow?) {
+        _ = carryOut(.bringForward(window))
+    }
+
+    /// Asks AppKit to quit from a run-loop source; `whenOver` runs once `terminate` has
+    /// returned, as a backstop for a quit that never reached `applicationShouldTerminate`. It
+    /// also runs, harmlessly, after every Cancel: by then the quit path has ended the quit.
+    func quit(whenOver: @escaping () -> Void) {
+        dropPendingQuit()
+        pendingQuit = whenOver
+        perform(#selector(quitNow), with: nil, afterDelay: 0)
+    }
+
+    /// Drops a quit that's still waiting for its run-loop source.
+    func dropPendingQuit() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(quitNow), object: nil)
+        pendingQuit = nil
     }
 
     @objc private func quitNow() {
-        carryOut(.quit)
+        let whenOver = pendingQuit
+        pendingQuit = nil
+        if carryOut(.quit) == .over { whenOver?() }
     }
 
-    static func appKit(_ request: AppRequest) {
+    static func appKit(_ request: AppRequest) -> CarriedOut {
         switch request {
         case .quit:
             NSApp.terminate(nil)
         case .bringForward(let window):
             NSApp.activate()
-            guard let window else { return }
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            window.makeKeyAndOrderFront(nil)
+            if let window {
+                if window.isMiniaturized { window.deminiaturize(nil) }
+                window.makeKeyAndOrderFront(nil)
+            }
         }
+        return .over
     }
 }
 
@@ -259,9 +328,12 @@ final class RecordedRequests {
 
     private(set) var carried: [Carried] = []
     var storeIsBusy: () -> Bool = { false }
+    /// What a recorded `terminate` does once it returns.
+    var terminate = AppRequests.CarriedOut.leftToTheTest
 
-    func record(_ request: AppRequest) {
+    func record(_ request: AppRequest) -> AppRequests.CarriedOut {
         carried.append(Carried(request: request, storeWasBusy: storeIsBusy()))
+        return terminate
     }
 
     /// The requests so far, which are then forgotten.
