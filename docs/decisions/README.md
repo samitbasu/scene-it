@@ -45,3 +45,4 @@ when one is resolved, it gets a file here and the issue is closed with a link.
 | [0036](0036-no-drag-and-drop-of-text.md) | No drag and drop of text: the manuscript editors and fields refuse drops and never start a drag | Accepted — amends 0016 and 0028 on drops |
 | [0037](0037-comment-operations.md) | Comment operations: the page changes the text, the store changes the list; New Comment is Cmd+Shift+M | Accepted — deviates from PLAN §8.1 and §11 |
 | [0038](0038-one-book-per-process.md) | One book at a time, never switched in place: Close Book returns to the start screen; the window's red button quits (#130); New, Open and forwarded books are refused while a book is open | Accepted — supersedes 0021 on switching; amends 0020 |
+| [0039](0039-hosted-tests-four-at-a-time.md) | The app-hosted tests run at most four at a time (`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH` in the scheme): they share one main thread | Accepted — resolves #132 |
