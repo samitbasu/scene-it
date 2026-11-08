@@ -16,18 +16,6 @@ private final class OpenOtherVersionPrompts: StorePrompts {
     func tell(_ notice: Notice) async {}
 }
 
-/// Runs `body` from the run loop, as an event's handling runs, never inside a Swift task (see
-/// `PageFuzzTests`).
-@MainActor
-private func inATurn(_ body: @escaping @MainActor () -> Void) async {
-    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-        RunLoop.main.perform {
-            MainActor.assumeIsolated(body)
-            done.resume()
-        }
-    }
-}
-
 private let tides: [Paragraph] = [[Run("Check the tides.")], [Run("Dawn in March?")]]
 
 private func withNotes(
@@ -47,7 +35,7 @@ struct EditorLifetimeTests {
         let one = withNotes("One", [[Run("Body.")]], notes: tides)
         try await withPage([one]) { page in
             let first = try await page.showNotes()
-            await inATurn {
+            await onTheRunLoop {
                 page.focusNotes(first, at: 0)
                 first.insertText("X", replacementRange: first.selectedRange())
             }
@@ -59,7 +47,7 @@ struct EditorLifetimeTests {
 
             let notes = try await page.showNotes()
             #expect(notes === first, "the same view, back in the tab")
-            await inATurn { page.focusNotes(notes, at: 1) }
+            await onTheRunLoop { page.focusNotes(notes, at: 1) }
             let undo = try #require(notes.undoManager)
             #expect(undo.canUndo)
             await undoInAnEvent(undo)
@@ -79,7 +67,7 @@ struct EditorLifetimeTests {
         let three = withNotes("Three", [[Run("Third.")]], notes: [])
         try await withPage([one, three]) { page in
             let first = try await page.showNotes()
-            await inATurn {
+            await onTheRunLoop {
                 page.focusNotes(first, at: 0)
                 first.insertText("X", replacementRange: first.selectedRange())
             }
@@ -89,7 +77,7 @@ struct EditorLifetimeTests {
             await eventually { page.notesView == nil }
             page.book.select(one.id)
             let notes = try await page.showNotes()
-            await inATurn { page.focusNotes(notes, at: 0) }
+            await onTheRunLoop { page.focusNotes(notes, at: 0) }
             let undo = try #require(notes.undoManager)
             #expect(undo === page.book.notesUndo(for: one.id))
             await undoInAnEvent(undo)
@@ -103,7 +91,7 @@ struct EditorLifetimeTests {
     @Test func undoOnThePageAfterAStretchWithNoSceneOpen() async throws {
         let one = scene("One", [[Run("Start.")]])
         try await withPage([one]) { page in
-            await inATurn {
+            await onTheRunLoop {
                 page.focusPage(at: 6)
                 page.page.insertText(" More.", replacementRange: page.page.selectedRange())
             }
@@ -112,7 +100,7 @@ struct EditorLifetimeTests {
             await eventually { page.page.window == nil }
             page.book.select(one.id)
             await eventually { page.page.window === page.window && page.pageMirrorsModel }
-            await inATurn { page.focusPage(at: 0) }
+            await onTheRunLoop { page.focusPage(at: 0) }
             let undo = try #require(page.page.undoManager)
             #expect(undo === page.book.pageUndo(for: one.id))
             await undoInAnEvent(undo)
@@ -125,7 +113,7 @@ struct EditorLifetimeTests {
         let one = withNotes("One", [[Run("Body.")]], notes: tides)
         try await withPage([one]) { page in
             let notes = try await page.showNotes()
-            await inATurn {
+            await onTheRunLoop {
                 page.focusNotes(notes, at: 0)
                 notes.insertText("Y", replacementRange: notes.selectedRange())
                 notes.setSelectedRange(NSRange(location: 0, length: 5))
@@ -150,7 +138,7 @@ struct EditorLifetimeTests {
         let two = withNotes("Two", [[Run("Second.")]], notes: [[Run("See ")]])
         try await withPage([one, two]) { page in
             try await PageHarness.withPasteboard { pasteboard in
-                await inATurn {
+                await onTheRunLoop {
                     page.window.makeFirstResponder(page.page)
                     page.page.setSelectedRange(NSRange(location: 4, length: 6))
                     _ = page.page.writeSelection(to: pasteboard, types: page.page.writablePasteboardTypes)
@@ -158,7 +146,7 @@ struct EditorLifetimeTests {
                 page.book.select(two.id)
                 let notes = try await page.showNotes()
                 await eventually { notes.string == "See " }
-                await inATurn {
+                await onTheRunLoop {
                     page.focusNotes(notes, at: 4)
                     _ = notes.readSelection(from: pasteboard)
                 }
@@ -232,7 +220,7 @@ struct EditorLifetimeTests {
             #expect(before.window == nil, "the old book's page left with its window")
             #expect(before.editor?.book !== store.current, "and was never bound to the new book")
 
-            await inATurn {
+            await onTheRunLoop {
                 window.makeFirstResponder(after)
                 after.setSelectedRange(NSRange(location: 7, length: 0))
                 after.insertText(" More.", replacementRange: after.selectedRange())
@@ -335,7 +323,7 @@ struct NotesFuzzTests {
                     let action = Int.random(in: 0..<20, using: &random)
                     var awaitedTab: RightPanelTab?
                     var awaitedScene: SceneID?
-                    await inATurn {
+                    await onTheRunLoop {
                         let notesView = page.notesView
                         let inNotes = notesView != nil && Bool.random(using: &random)
                         let view: NSTextView = inNotes ? notesView! : page.page

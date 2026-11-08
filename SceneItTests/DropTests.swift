@@ -82,20 +82,6 @@ enum Dragged: CaseIterable {
     }
 }
 
-/// Runs `body` from the run loop, as an event's handling runs, so an Objective-C exception in
-/// AppKit doesn't unwind a Swift task. HIToolbox still swallows it, `done.resume()` never runs,
-/// and the test hangs on the continuation until its time limit, but Swift concurrency is left
-/// intact (ADR 0026).
-@MainActor
-func onTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
-    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-        RunLoop.main.perform {
-            MainActor.assumeIsolated(body)
-            done.resume()
-        }
-    }
-}
-
 /// How a text view handles a press on macOS 27. An `NSTextView` that overrides `mouseDown`, as the page
 /// does for comment clicks, tracks presses there, as before macOS 27; one that doesn't selects through
 /// an `NSTextSelectionManager`, which asks its delegate for a drag of the selection.
