@@ -79,11 +79,11 @@ struct BookWindow: View {
                 book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
         }
         .toolbar {
-            WindowToolbar(book: book, preferences: preferences, undo: undo, filing: filing.offered(in: store))
+            WindowToolbar(book: book, store: store, preferences: preferences, undo: undo, filing: filing)
         }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
-        .focusedSceneValue(\.filingFlow, filing.offered(in: store))
+        .focusedSceneValue(\.filingFlow, filing)
         .sheet(isPresented: isDialogUp) {
             FileACopyDialog(
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },

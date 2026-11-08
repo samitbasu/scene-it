@@ -1,4 +1,20 @@
 import AppKit
+import SwiftUI
+
+/// Whether a text view's text takes changes.
+enum Editability {
+    case editable, readOnly
+
+    /// As `book` takes edits: a detached (closed) book doesn't.
+    init(_ book: AppOpenBook?) {
+        self = book?.isEditable == true ? .editable : .readOnly
+    }
+
+    /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
+    init(_ book: AppOpenBook, in environment: EnvironmentValues) {
+        self = book.isEditable && environment.isEnabled ? .editable : .readOnly
+    }
+}
 
 /// A text view with no input method (ADR 0028), for every editor of manuscript text: the page,
 /// the title field and the notes. Keys reach it through the key bindings alone, as `insertText`,
@@ -6,6 +22,40 @@ import AppKit
 /// text. Whatever it's given, its owner puts through the character policy. Text neither drops
 /// into it nor drags out of it (ADR 0036): it arrives typed or pasted.
 class KeyboardTextView: NSTextView {
+    /// Asked before every change. What the view edits can stop taking edits (a book detached by
+    /// Close Book or Open Other Version) before SwiftUI next updates the view, and a keystroke
+    /// in between would show and then vanish, so the view refuses it, with a beep.
+    let editability: () -> Editability
+    private let content: NSTextContentStorage
+
+    /// A TextKit 2 view whose container tracks its width. (`init(usingTextLayoutManager:)` can't
+    /// be used: it calls `init(frame:textContainer:)` on the view, which a Swift subclass with
+    /// an initializer of its own doesn't have.)
+    init(editability: @escaping () -> Editability) {
+        self.editability = editability
+        let content = NSTextContentStorage()
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layout.textContainer = container
+        self.content = content
+        super.init(frame: .zero, textContainer: container)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool
+    {
+        guard editability() == .editable else {
+            NSSound.beep()
+            return false
+        }
+        return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
+
     override var inputContext: NSTextInputContext? {
         nil
     }

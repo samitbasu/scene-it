@@ -40,10 +40,10 @@ final class FilingFlow {
             set: { if self.draft != nil { self.draft = $0 } })
     }
 
-    /// This flow while it can be started in `store` (`BookStore.fileableBook`), else nil: what
-    /// the window hands the toolbar and the File menu.
-    func offered(in store: AppBookStore) -> FilingFlow? {
-        store.fileableBook === book ? self : nil
+    /// File a Copy… can begin: the store's book can be filed (`BookStore.fileableBook`), and
+    /// the dialog isn't already up. The toolbar's button and the File menu's item both ask.
+    func canBegin(in store: AppBookStore) -> Bool {
+        store.fileableBook === book && draft == nil
     }
 
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
@@ -225,7 +225,8 @@ struct TagTextField: NSViewRepresentable {
 
     /// The field `makeNSView` makes, wired to `coordinator`.
     static func field(_ text: String, _ coordinator: Coordinator) -> AdmittingTextField {
-        let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        let editor = AdmittingTextView.fieldEditor(
+            admitting: CharacterPolicy.admittedLine, editability: { .editable })
         editor.history = coordinator.history
         let field = AdmittingTextField(string: text, editor: editor, lineBreakMode: .byClipping)
         field.isBordered = false
@@ -317,7 +318,7 @@ struct NoteTextView: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
-        let view = AdmittingTextView(admitting: CharacterPolicy.admittedInput)
+        let view = AdmittingTextView(admitting: CharacterPolicy.admittedInput, editability: { .editable })
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false

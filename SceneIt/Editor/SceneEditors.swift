@@ -31,7 +31,7 @@ final class SceneEditors {
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor(WindowMetrics.deskColor)
         scrollView.findBarPosition = .aboveContent
-        let page = ManuscriptTextView.page()
+        let page = ManuscriptTextView.page(editability: { [weak book = self.book] in Editability(book) })
         page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         page.focus = focus
@@ -51,7 +51,8 @@ final class SceneEditors {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.findBarPosition = .aboveContent
-        let notes = SceneTextView(usingTextLayoutManager: true)
+        let notes = SceneTextView(
+            editability: { [weak book = self.book] in Editability(book) })
         notes.configure(.notes)
         notes.drawsBackground = false
         notes.textContainerInset = WindowMetrics.Notes.padding

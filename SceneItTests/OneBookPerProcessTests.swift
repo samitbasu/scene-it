@@ -479,9 +479,9 @@ extension BookStoreIntegrationTests {
     }
 
     /// Once the start screen shows, a press is decided as there, even while the close that got
-    /// there is still releasing the book: it quits, rather than being dropped, and the quit path
-    /// waits for the release.
-    @Test func aPressWhileTheClosedBookIsReleasedQuits() async throws {
+    /// there is still releasing the book: it quits, rather than being dropped. The quit is asked
+    /// for only once the close has ended, so the store is idle when AppKit's quit runs.
+    @Test func aPressWhileTheClosedBookIsReleasedQuitsOnceTheCloseEnds() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController(role: .testHost)
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
@@ -489,12 +489,13 @@ extension BookStoreIntegrationTests {
             let book = try #require(books.store.current)
             var releasing = false
             var decided: [BookController.CloseAction] = []
+            var pressed: Task<Void, Never>?
             whenTheStartScreenShows(books.store) {
-                releasing = books.isCloseUnderWay
+                releasing = books.isCloseUnderWay && books.store.isBusy
                 decided = [
                     books.closeAction(from: .closeButton), books.closeAction(from: .menu(keyWindow: nil)),
                 ]
-                books.press(.menu(keyWindow: nil))
+                pressed = books.press(.menu(keyWindow: nil))
             }
 
             await books.press(.menu(keyWindow: nil))?.value
@@ -502,10 +503,43 @@ extension BookStoreIntegrationTests {
             try #require(releasing, "precondition: pressed while the close was still releasing the book")
             #expect(decided == [.quit, .quit])
             #expect(!books.isCloseUnderWay)
-            #expect(await books.quitCarriedOut().map(\.request) == [.quit])
+            let quit = try #require(pressed, "the quit waits for the close")
+            await quit.value
+            #expect(
+                await books.quitCarriedOut() == [quitCarriedOut], "asked for after the close, the store idle")
             #expect(await books.settleQuit() == .left)
             #expect(book.status == .closed)
             #expect(books.store.isChoosing)
+        }
+    }
+
+    /// Quit's own path, started while a close is still releasing the book, queues behind the
+    /// close in the store: it ends only once the book's lock is released.
+    @Test func theQuitPathStartedWhileTheClosedBookIsReleasedWaitsForTheRelease() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            var startedDuringTheClose = false
+            var quitting: Task<(AppBookStore.LeaveOutcome, Bool), Never>?
+            whenTheStartScreenShows(books.store) {
+                quitting = Task.immediate {
+                    let outcome = await books.settleQuit()
+                    let released =
+                        if case .editing = try? BookPackage.open(at: url) { true } else { false }
+                    return (outcome, released)
+                }
+                startedDuringTheClose = books.isCloseUnderWay && books.isQuitUnderWay
+            }
+
+            await books.press(.menu(keyWindow: nil))?.value
+
+            try #require(startedDuringTheClose, "precondition: the quit path started while the close ran")
+            let quit = try #require(quitting)
+            let (outcome, released) = await quit.value
+            #expect(outcome == .left)
+            #expect(released, "the book's lock was released before the quit path ended")
+            #expect(!books.isQuitUnderWay)
         }
     }
 
@@ -522,21 +556,23 @@ extension BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             let book = try #require(books.store.current)
             try #require(books.store.fileableBook === book, "precondition: offered while open")
-            // What the window hands the toolbar's File a copy… and the File menu. (SwiftUI draws
-            // the toolbar's and the banner's buttons itself; the test host can't see their state.)
+            // What the toolbar's File a copy… and the File menu ask. (SwiftUI draws the toolbar's
+            // and the banner's buttons itself; the test host can't see their state.)
             let filing = FilingFlow(book: book)
-            try #require(filing.offered(in: books.store) === filing, "precondition: in the toolbar too")
+            try #require(filing.canBegin(in: books.store), "precondition: in the toolbar too")
             book.filingDraft = draft
+            try #require(!filing.canBegin(in: books.store), "precondition: not while the dialog is up")
             let closing = books.press(.menu(keyWindow: nil))
             await eventually { prompts.titles == ["Close without filing the copy?"] }
+            // The question stays up; without a draft, only the close keeps File a Copy off now.
+            book.filingDraft = nil
             #expect(books.store.fileableBook == nil)
-            #expect(filing.offered(in: books.store) == nil, "nor in the toolbar")
+            #expect(!filing.canBegin(in: books.store), "nor in the toolbar")
             #expect(books.store.openBook == nil && books.store.current != nil, "closing, still shown")
             prompts.answer(UnfiledDraftChoice.cancel)
             await closing?.value
             #expect(books.store.fileableBook === book, "offered again after Cancel")
-            #expect(filing.offered(in: books.store) === filing)
-            book.filingDraft = nil
+            #expect(filing.canBegin(in: books.store))
 
             let repairing = HoldingPrompts()
             let other = BookController(role: .testHost, prompts: repairing)
@@ -801,7 +837,6 @@ struct DetachedBookTypingTests {
     @Test func aDetachedBooksPageRefusesTypingBeforeSwiftUICatchesUp() async throws {
         try await withPage([scene("One", [[Run("Kept.")]])]) { harness in
             let page = harness.page
-            let editor = try #require(page.editor)
             let start = harness.storage.string
             var end = NSRange(location: (start as NSString).length, length: 0)
             page.setSelectedRange(end)
@@ -817,9 +852,7 @@ struct DetachedBookTypingTests {
             page.insertText(" Lost?", replacementRange: end)
 
             #expect(harness.storage.string == before, "the keystroke never reached the text")
-            #expect(
-                !editor.textView(
-                    page, shouldChangeTextInRanges: [NSValue(range: end)], replacementStrings: ["!"]))
+            #expect(!page.shouldChangeText(inRanges: [NSValue(range: end)], replacementStrings: ["!"]))
         }
     }
 

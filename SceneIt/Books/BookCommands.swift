@@ -28,7 +28,7 @@ struct BookCommands: Commands {
             Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
                 .disabled(!books.store.canMakeEditable)
             Button(ArchiveWording.menuItem) { filing?.begin() }
-                .disabled(filing == nil || books.store.fileableBook == nil || filing?.draft != nil)
+                .disabled(filing?.canBegin(in: books.store) != true)
         }
     }
 }

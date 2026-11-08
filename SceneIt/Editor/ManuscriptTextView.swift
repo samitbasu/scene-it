@@ -8,8 +8,8 @@ import SwiftUI
 final class ManuscriptTextView: SceneTextView {
     weak var focus: PageFocus?
 
-    static func page() -> ManuscriptTextView {
-        let view = ManuscriptTextView(usingTextLayoutManager: true)
+    static func page(editability: @escaping () -> Editability) -> ManuscriptTextView {
+        let view = ManuscriptTextView(editability: editability)
         view.configure(.body)
         view.drawsBackground = true
         view.textLayoutManager?.delegate = view.underliner

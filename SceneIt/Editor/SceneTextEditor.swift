@@ -85,7 +85,7 @@ final class SceneTextEditor: NSObject {
     }
 
     /// Its scene's undo, and only its.
-    private var heardUndo = HeardUndo()
+    private let heardUndo = HeardUndo()
 
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
@@ -133,15 +133,6 @@ final class SceneTextEditor: NSObject {
         // The sheet's focus holder leaves the window in this same update.
         DispatchQueue.main.async { [weak view] in
             view?.takeFocus()
-        }
-    }
-
-    enum Editability {
-        case editable, readOnly
-
-        /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
-        init(_ book: AppOpenBook, in environment: EnvironmentValues) {
-            self = book.isEditable && environment.isEnabled ? .editable : .readOnly
         }
     }
 
@@ -618,18 +609,12 @@ extension SceneTextEditor: NSTextViewDelegate {
 
     /// Every typed or replaced string goes through the character policy (ADR 0028). When the
     /// policy changes it, this change is refused and the admitted text put in its place.
-    ///
-    /// A book that has stopped taking edits (detached by Close Book or Open Other Version)
-    /// refuses here, with a beep, before the view changes: the view only stops being editable
-    /// when SwiftUI next updates it, and a keystroke in between would otherwise show and vanish.
+    /// (A book that has stopped taking edits was already refused by the view itself:
+    /// `KeyboardTextView.editability`.)
     func textView(
         _ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
         replacementStrings: [String]?
     ) -> Bool {
-        guard book.isEditable else {
-            NSSound.beep()
-            return false
-        }
         guard let strings = replacementStrings, let view = textView as? SceneTextView else {
             return true
         }

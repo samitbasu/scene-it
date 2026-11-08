@@ -448,20 +448,26 @@ shown to see.
 The veto is also where a book that has stopped taking edits says no. Close Book (and Open Other
 Version's reload) detaches the book in one main-actor turn ([chapter 04](04-swiftui-and-observation.md)),
 but SwiftUI makes the editors read-only only on its next update. A keystroke in between would
-appear in the view and then vanish, because the model refuses it. So every editor of the book's
-text refuses it first, with a beep, before the view changes: the page and the notes at the top of
-the delegate method above,
+appear in the view and then vanish, because the model refuses it. So every `KeyboardTextView`
+refuses it first, with a beep, before the view changes, in one override that runs before the
+delegate is asked:
 
 ```swift
-        guard book.isEditable else {
+    override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool {
+        guard editability() == .editable else {
             NSSound.beep()
             return false
         }
+        return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
 ```
 
-and the title field and the comment cards in `AdmittingTextView`'s own veto (section 9), which
-asks its `acceptsEdits` closure (the book's `isEditable`) first. File a Copy's fields, which use
-the same view, keep the default, which always accepts.
+`editability` is an init parameter, a closure returning the two-case `Editability`, so every
+view has to say where its answer comes from; there's no default to forget. The page, the notes,
+the title field and the comment cards ask the book (`Editability(book)`, holding it weakly). File
+a Copy's tag and note fields and the Errors tab's fix field pass `{ .editable }`: they edit a draft
+or a payload, not the book's text, and the action that applies them (File copy, Fix) is what a
+detached book refuses.
 
 Two subtleties:
 

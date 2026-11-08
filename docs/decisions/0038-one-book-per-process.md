@@ -45,7 +45,7 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   (`.openedReadOnly`), after telling the writer once, also when it follows Open Other Version.
 - A book stops taking edits the moment it's detached (Close Book, or Open Other Version's reload): the model
   refuses them, and the page, the notes, the title field and the comment cards refuse every change with a
-  beep before the view changes (#129), so a keystroke between the detach and SwiftUI's next update can't
+  beep before the view changes (`KeyboardTextView.editability`, #129), so a keystroke between the detach and SwiftUI's next update can't
   appear and then vanish. Tests: the store refuses edits in the reload's gap (a held file read), and the
   page, the title field and a comment card refuse typing on a detached book whose view is still editable.
 - **A lost book.** If ADR 0018's reopen (the original, or the writer's copy) fails after the writer's version
@@ -74,12 +74,16 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   so a Cancel can't be followed by a stray second quit), or, as a backstop, when `terminate` returns without
   the quit path having run. Then the next press is decided afresh. A close stops holding presses once the
   start screen shows, though it goes on releasing the book after that (#129): a press then is a press on the
-  start screen, and quits, and the quit path's own store operation waits for the release to finish. Until
-  #129 such a press did nothing, with no beep.
+  start screen, and quits, but the quit is asked of AppKit only once the close has ended, so the store is idle
+  when the quit path starts (Quit itself, chosen meanwhile, queues behind the close in the store and ends
+  the press's quit). The exception is Close Anyway: its release waits behind a save that may be stuck, so it
+  runs on past the close's end, without holding later operations, and a quit can then come first; the lock
+  goes when the process ends. Until #129 such a press did nothing, with no beep.
 - **File a Copy… and Make Editable…** act on `BookStore.openBook`, which is nil while the book is closing, so
   neither can be started (and then torn down with what was typed) during Close Book's save or questions.
   Whether each can start is decided once, by the store (`fileableBook`, `canMakeEditable`), and the File menu,
-  the toolbar's File a copy… and the read-only banner's Make Editable… all ask it (#129).
+  the toolbar's File a copy… (both through `FilingFlow.canBegin(in:)`, which adds that the dialog isn't up)
+  and the read-only banner's Make Editable… all ask it (#129).
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).
 - **⌘W acts on the main window only** while it, or a window it owns (a sheet, a child window, walked up to the
   root), is key. Any other key window (the crash report, say) just closes. The main window is the one whose

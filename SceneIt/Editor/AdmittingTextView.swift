@@ -14,24 +14,10 @@ class AdmittingTextView: KeyboardTextView {
     /// and nothing else's. Unlike a delegate's `textDidChange`, which comes through the
     /// notification center keyed on the view's address, it can't reach anyone once cleared.
     var onChange: ((String) -> Void)?
-    /// False once what the text edits stops taking edits (a detached book): every change is
-    /// then refused with a beep, before the view shows it. The view itself stops being editable
-    /// only when SwiftUI next updates it, and a keystroke in between would otherwise show and
-    /// vanish.
-    var acceptsEdits: () -> Bool = { true }
-    private let content: NSTextContentStorage
 
-    /// A TextKit 2 view whose container tracks its width.
-    init(admitting admit: @escaping (String) -> String) {
+    init(admitting admit: @escaping (String) -> String, editability: @escaping () -> Editability) {
         self.admit = admit
-        let content = NSTextContentStorage()
-        let layout = NSTextLayoutManager()
-        content.addTextLayoutManager(layout)
-        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = true
-        layout.textContainer = container
-        self.content = content
-        super.init(frame: .zero, textContainer: container)
+        super.init(editability: editability)
     }
 
     required init?(coder: NSCoder) {
@@ -50,10 +36,6 @@ class AdmittingTextView: KeyboardTextView {
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)
         -> Bool
     {
-        guard acceptsEdits() else {
-            NSSound.beep()
-            return false
-        }
         guard let strings = replacementStrings, let admitted = Self.corrected(strings, by: admit) else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
         }
@@ -74,8 +56,10 @@ class AdmittingTextView: KeyboardTextView {
     }
 
     /// One for a text field (`AdmittingTextField`), with undo.
-    static func fieldEditor(admitting admit: @escaping (String) -> String) -> AdmittingTextView {
-        let editor = AdmittingTextView(admitting: admit)
+    static func fieldEditor(
+        admitting admit: @escaping (String) -> String, editability: @escaping () -> Editability
+    ) -> AdmittingTextView {
+        let editor = AdmittingTextView(admitting: admit, editability: editability)
         editor.isFieldEditor = true
         editor.allowsUndo = true
         return editor

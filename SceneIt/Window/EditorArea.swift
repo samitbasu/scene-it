@@ -113,13 +113,12 @@ private struct TitleTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> AdmittingTextField {
-        let editor = AdmittingTextView.fieldEditor(admitting: { SceneTitle(pasted: $0).text })
+        let editor = AdmittingTextView.fieldEditor(
+            admitting: { SceneTitle(pasted: $0).text },
+            editability: { [weak book = self.book] in Editability(book) })
         editor.isContinuousSpellCheckingEnabled = true
         let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
         context.coordinator.field = field
-        editor.acceptsEdits = { [weak coordinator = context.coordinator] in
-            coordinator?.book?.isEditable == true
-        }
         NotificationCenter.default.addObserver(
             context.coordinator, selector: #selector(Coordinator.sceneWillSwitch),
             name: .openBookWillSwitchScene, object: book)
@@ -176,7 +175,7 @@ private struct TitleTextField: NSViewRepresentable {
         /// Whether the title had the focus when the writer opened another scene.
         var resumesEditing = false
         /// The shown scene's title history.
-        var heardUndo = HeardUndo()
+        let heardUndo = HeardUndo()
 
         @objc func sceneWillSwitch(_ notification: Notification) {
             guard let field, field.currentEditor() != nil else { return }

@@ -4,12 +4,12 @@ import Foundation
 /// (`object: nil`) would run the observer inside other code's undo, where asking a view for
 /// anything that goes through its delegate autoreleases the observer into that code's pool
 /// (#135).
-struct HeardUndo {
-    private(set) var manager: UndoManager?
+final class HeardUndo {
+    private weak var manager: UndoManager?
 
     /// From now on `observer` hears, through `selector`, of `undo`'s undo and redo, and of no
     /// other manager's.
-    mutating func hear(_ undo: UndoManager, by observer: NSObject, calling selector: Selector) {
+    func hear(_ undo: UndoManager, by observer: NSObject, calling selector: Selector) {
         guard undo !== manager else { return }
         let center = NotificationCenter.default
         for name in [NSNotification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
