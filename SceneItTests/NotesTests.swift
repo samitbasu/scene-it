@@ -18,7 +18,9 @@ extension PageHarness {
     func showNotes() async throws -> SceneTextView {
         preferences.showRightPanelTab(.notes)
         await eventually { notesView.map(notesMirrorModel) == true }
-        return try #require(notesView)
+        let notes = try #require(notesView)
+        settle(notes)
+        return notes
     }
 
     func notes(_ scene: SceneID? = nil) -> [Paragraph] {

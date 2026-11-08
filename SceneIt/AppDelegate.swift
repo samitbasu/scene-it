@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        AutomaticTextChanges.registerStartingValues()
         UnwoundTaskTrap.install()
         NSApp.appearance = NSAppearance(named: .aqua)
         let launch = LaunchGate.open(

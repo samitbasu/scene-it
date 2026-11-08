@@ -474,9 +474,28 @@ Two subtleties:
   **accents can't be typed at all.** Option-E then E, press-and-hold on `e`, and every IME are
   gone on the page and in the title. Accented text pasted in arrives as its plain letters
   (`Renée` becomes `Renee`, with no warning), and Greek or Japanese becomes `[?]`.
-- **Smart quotes are off.** `isAutomaticQuoteSubstitutionEnabled = false` and the dash
-  equivalent: the policy would spell them in ASCII straight back. Print and Word export
-  smarten quotes on the way out (ADR 0022).
+- **Automatic changes start off, and the writer decides** (#127). Spelling correction, smart quotes
+  and dashes, completion, inline prediction, capitalization and the double-space period come from
+  user defaults that AppKit reads (text replacement and smart copy/paste have no key the app can
+  reach, so they start as macOS has them), and the Edit menu's Spelling and Substitutions submenus
+  (and a text view's context menu) toggle them, saving the writer's choice in the app's own
+  defaults. The app's starting values go in the *registration domain*:
+
+  ```swift
+      AutomaticTextChanges.registerStartingValues()  // first thing in applicationWillFinishLaunching
+  ```
+
+  `UserDefaults` looks a key up through a stack of domains: the app's saved defaults, the global
+  domain (System Settings), and last the registration domain, which lives only in memory. In Rust
+  terms it's a chain of `HashMap`s searched in order, and `register(defaults:)` fills the last one.
+  So a value registered there is only a fallback: what the writer chose from a menu, or in System
+  Settings, wins, and nothing is ever written. That's also why no editor sets these properties
+  itself; one that did would undo the writer's choice whenever it was rebuilt. Smart quotes and
+  dashes, if the writer turns them on, change nothing in the manuscript: the character policy
+  spells them in ASCII again (print and Word export smarten quotes on the way out, ADR 0022). A
+  detected link is only a display attribute, which the run codec never reads into the model. An
+  earlier attempt hid the menu items and overrode the switches, and it was dropped as fighting
+  the OS; ADR 0028 has the history.
 
 ## 6. `typingAttributes`
 
