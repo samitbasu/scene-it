@@ -287,6 +287,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard let driver = editingDriver, let place = place(of: scene) else { return }
         var list = book[keyPath: place.list][place.index].comments
         let restored = comments.filter { entry in !list.contains { $0.id == entry.comment.id } }
+        if restored.count != comments.count {
+            // A backstop the page history's invariant (ADR 0040) should make unreachable.
+            Log.store.error(
+                "a comment undo found comments it restores already in the scene; skipping them",
+                ["comments": .count(comments.count), "restored": .count(restored.count)])
+        }
         for (index, comment) in restored { list.insert(comment, at: min(index, list.count)) }
         book[keyPath: place.list][place.index].comments = list
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
@@ -389,6 +395,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         var list = book[keyPath: place.list][place.index].tags
         let removed = tags.sorted { $0.index > $1.index }.filter {
             list.indices.contains($0.index) && list[$0.index] == $0.tag
+        }
+        if removed.count != tags.count {
+            // A backstop the invariant above should make unreachable: only the pairs still where
+            // their step left them are taken.
+            Log.store.error(
+                "a tag undo found the scene's tags changed under it; taking only what still matches",
+                ["recorded": .count(tags.count), "matched": .count(removed.count)])
         }
         guard !removed.isEmpty else { return false }
         for (index, _) in removed { list.remove(at: index) }

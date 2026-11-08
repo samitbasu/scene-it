@@ -79,10 +79,10 @@ its edit left them. Nothing in the app writes a scene's tags except these primit
 exception: an Errors-tab Fix of a `tags:` line, which has its own history. So a Fix that changes
 anything the page's history edits (the body, the scene's comments or its tags) clears that
 history, as a Fix to the text always did. One function says what each history covers,
-`TextPart.historyAgrees`, and `OpenBook.commit` asks it. The review of this PR first tried the
-other way round: inverses that coped with tags a repair had changed, by looking for the nearest
-copy and skipping spellings already present. Each patch lost a tag in some other interleaving.
-Ruling the interleavings out is the simpler design (CLAUDE.md, design rule 1).
+`TextPart.historyAgrees`, and `OpenBook.commit` asks it (ADR 0040). Inverses that tried to cope
+with tags changed under them always lost a tag in some interleaving; ruling the interleavings out
+is the simpler design (CLAUDE.md, design rule 1). The Fix itself can still be undone from the
+Errors tab, whose history is its own.
 
 Each inverse changes only the tag list, never the whole scene, so undoing a tag edit can't take
 back typing made after it. The inverse registers its own inverse, which is how redo works:
@@ -95,7 +95,6 @@ it in the field, ready for the next tag, and × and row clicks don't move it at 
 focused view's undo manager (`UndoRouter`), so in the field it undoes the field's own typing; to
 undo a tag, the writer clicks the page first. Every tag edit still calls `breakUndoCoalescing()`
 on the page, so typing before and after it stay separate steps rather than one long "Typing".
-
 
 ## 3. A `Layout` for chips
 

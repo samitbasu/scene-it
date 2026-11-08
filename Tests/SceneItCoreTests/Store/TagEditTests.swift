@@ -99,7 +99,7 @@ struct TagEditTests {
         }
     }
 
-    /// A step that changes nothing registers nothing, so Undo never has a step that does nothing.
+    /// A refused add or remove registers nothing: Undo gets no step that does nothing.
     @Test func aRefusedEditLeavesNoUndoStep() async throws {
         try await withFileTags(["x"]) { book, scene in
             #expect(!book.addTag("X", to: scene))
