@@ -197,9 +197,18 @@ line spacing *inside* it, which put the caret back at double height:
   line out again when that style changes.
 
 `ParagraphRole.paragraphStyle(for: ParagraphContent)` is the one place that decides. The codec
-applies it as it renders, and the editor re-applies it in `willProcessEditing` to the paragraphs
-an edit touches, so a paragraph that becomes empty, or gets typed into, is restyled within the
-same edit, and the page still mirrors the model exactly.
+applies it as it renders, and the editor re-applies it to the paragraphs an edit touches, so a
+paragraph that becomes empty, or gets typed into, is restyled and the page still mirrors the
+model exactly.
+
+*When* it re-applies it matters. `willProcessEditing` notes which paragraphs to restyle but
+doesn't touch them: any attribute it changes there joins the storage's edited range, and
+`NSTextView` puts the caret at the end of the edited range. Typing "C" into an empty paragraph
+changes the style of its break too, so the caret landed after the break and the rest of the word
+went to the next line (#133). So the restyle is its own attribute-only edit once the character
+edit is over: in `SceneTextView.didChangeText()` (typing, pasting, `replace`), after an undo or
+redo (which never reach `didChangeText`), and, for anything else, on the next turn of the main
+loop. It goes to neither the model nor the undo stack, since the style is derived from the text.
 
 In Rust terms: the style is a pure function of the paragraph's content, and every writer of the
 text storage calls it rather than storing a style of its own.

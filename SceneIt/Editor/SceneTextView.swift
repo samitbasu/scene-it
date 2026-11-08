@@ -220,7 +220,9 @@ class SceneTextView: KeyboardTextView {
     }
 
     /// An edit can change what the same offsets hold, so the highlights are looked at afresh.
+    /// Its paragraphs are restyled first, so whoever hears of the change sees them styled.
     override func didChangeText() {
+        editor?.restyleEditedParagraphs()
         super.didChangeText()
         highlightOverride = ([], .clear)
         refreshSelectionBands()

@@ -24,7 +24,9 @@ final class SceneTextEditor: NSObject {
     private(set) var scene: SceneID?
     /// The part the storage holds, as the model had it after the last edit or load.
     private var shown: [Paragraph] = []
-    private var isLoading = false
+    private var storageEdit = StorageEdit.byTheView
+    /// The paragraphs edits touched since they were last restyled.
+    private var paragraphsToRestyle: NSRange?
     private var sync = Sync.inStep
     /// Comments the edit under way adds (a paste's, or a new one), handed to the model with the
     /// text that carries them.
@@ -70,11 +72,21 @@ final class SceneTextEditor: NSObject {
         view.textStorage?.delegate = self
         NotificationCenter.default.addObserver(
             self, selector: #selector(sceneWillSwitch), name: .openBookWillSwitchScene, object: book)
+        for name in [NSNotification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(undoManagerDidUndoOrRedo), name: name, object: nil)
+        }
     }
 
     /// Before another scene opens: what's being typed stays in this one.
     @objc private func sceneWillSwitch(_ notification: Notification) {
         textView?.breakUndoCoalescing()
+    }
+
+    /// The view's undo and redo of typing change the storage without its `didChangeText`.
+    @objc private func undoManagerDidUndoOrRedo(_ notification: Notification) {
+        guard let undo = notification.object as? UndoManager, undo === textView?.undoManager else { return }
+        restyleEditedParagraphs()
     }
 
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
@@ -147,9 +159,10 @@ final class SceneTextEditor: NSObject {
         guard let view = textView, let storage = view.textStorage else { return }
         view.breakUndoCoalescing()
         self.scene = scene
-        isLoading = true
+        storageEdit = .loading
         storage.setAttributedString(RunCodec.attributedString(text, in: part))
-        isLoading = false
+        storageEdit = .byTheView
+        paragraphsToRestyle = nil
         sync = .inStep
         shown = text
         view.setSelectedRange(NSRange(location: min(caret, storage.length), length: 0))
@@ -204,6 +217,52 @@ final class SceneTextEditor: NSObject {
             // The model dropped comment ids it has no comment for; the view must too.
             DispatchQueue.main.async { [weak self] in self?.reload(scene, clearingUndo: .no) }
         }
+    }
+
+    /// Who is editing the storage, which decides what its delegate does with the edit.
+    private enum StorageEdit {
+        /// The view, or anyone editing through it or its storage: the model hears of it.
+        case byTheView
+        /// The editor, showing the model's text, which the codec has already styled.
+        case loading
+        /// The editor, giving edited paragraphs their style once the edit is over.
+        case restyling
+    }
+
+    /// Gives the paragraphs the last edits touched the style for what they now hold:
+    /// a change of the storage's attributes alone, so neither the model's nor undoable. It can't
+    /// be made while the storage processes the edit: a change of attributes then grows the
+    /// edited range, and the view puts the caret at the end of the edited range, so a character
+    /// typed into an empty paragraph would leave the caret after its break (#133).
+    func restyleEditedParagraphs() {
+        guard let range = paragraphsToRestyle, let storage = textView?.textStorage else { return }
+        paragraphsToRestyle = nil
+        storageEdit = .restyling
+        defer { storageEdit = .byTheView }
+        storage.beginEditing()
+        role.styleParagraphs(of: storage, around: range.clamped(toLength: storage.length))
+        storage.endEditing()
+    }
+
+    /// Adds the paragraphs an edit of `edited` touched, and the one after it (a break
+    /// inserted before its text can leave it empty), to those waiting to be restyled, which
+    /// move with the edit.
+    private func restyleLater(_ edited: NSRange, changeInLength delta: Int, in storage: NSTextStorage) {
+        let touched = NSRange(
+            location: edited.location, length: min(edited.length + 1, storage.length - edited.location))
+        guard let waiting = paragraphsToRestyle else {
+            paragraphsToRestyle = touched
+            // The view's `didChangeText` restyles as the edit ends; this is for an edit that
+            // never reaches it.
+            DispatchQueue.main.async { [weak self] in self?.restyleEditedParagraphs() }
+            return
+        }
+        let waitingEnd =
+            waiting.upperBound > edited.location
+            ? max(edited.upperBound, waiting.upperBound + delta) : waiting.upperBound
+        let location = min(waiting.location, touched.location)
+        paragraphsToRestyle = NSRange(
+            location: location, length: max(waitingEnd, touched.upperBound) - location)
     }
 
     enum UndoClearing {
@@ -559,27 +618,24 @@ extension SceneTextEditor: NSTextViewDelegate {
 extension SceneTextEditor: @MainActor NSTextStorageDelegate {
     /// A paragraph break has no format the model could store, so in the view it always has the
     /// role's own, as the codec renders it; otherwise a break typed in bold would be bold in
-    /// the view alone.
+    /// the view alone. Only breaks inside the edited range change here, so it doesn't grow.
     func textStorage(
         _ textStorage: NSTextStorage, willProcessEditing editedMask: NSTextStorageEditActions,
         range editedRange: NSRange, changeInLength delta: Int
     ) {
-        guard !isLoading else { return }
+        guard storageEdit == .byTheView else { return }
         let string = textStorage.string as NSString
         let plain = role.typingAttributes
         for index in editedRange.location..<editedRange.upperBound where string.isLineBreak(at: index) {
             let attributes = textStorage.attributes(at: index, effectiveRange: nil)
-            // Its paragraph style is `styleParagraphs`'s, below.
+            // Its paragraph style is `restyleEditedParagraphs`'s.
             var expected = plain
             expected[.paragraphStyle] = attributes[.paragraphStyle]
             if !NSDictionary(dictionary: attributes).isEqual(to: expected) {
                 textStorage.setAttributes(expected, range: NSRange(location: index, length: 1))
             }
         }
-        // The paragraph after the edit too: a break inserted before its text can leave it empty.
-        let rest = string.length - editedRange.location
-        let following = NSRange(location: editedRange.location, length: min(editedRange.length + 1, rest))
-        role.styleParagraphs(of: textStorage, around: following)
+        restyleLater(editedRange, changeInLength: delta, in: textStorage)
     }
 
     func textStorage(
@@ -587,7 +643,7 @@ extension SceneTextEditor: @MainActor NSTextStorageDelegate {
         range editedRange: NSRange,
         changeInLength delta: Int
     ) {
-        guard !isLoading else { return }
+        guard storageEdit == .byTheView else { return }
         edited(editedRange, in: textStorage)
         // An undo or redo of formatting changes the selection's format without moving it, and
         // without `textDidChange`. (After a change of characters the selection still has its
