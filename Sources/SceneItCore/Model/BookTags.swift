@@ -65,7 +65,9 @@ public enum SceneTag {
 
     /// The tag the writer means by `text` typed into a tag field: admitted as one line, without
     /// the spaces around it, and without one leading `#`, as `book.md` reads a `tags:` item
-    /// (book format §2.2), so `##x` is the tag `#x`. `nil` if nothing is left.
+    /// (book format §2.2), so `##x` is the tag `#x`. Unlike the file's reading, it also trims the
+    /// spaces after that `#`: typed `# x` is `x`, where a `tags:` item `# x` reads as ` x`. `nil`
+    /// if nothing is left.
     public static func typed(_ text: String) -> String? {
         var tag = CharacterPolicy.admittedLine(text).trimmingCharacters(in: .whitespaces)
         if tag.hasPrefix("#") { tag = String(tag.dropFirst()).trimmingCharacters(in: .whitespaces) }

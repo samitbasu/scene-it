@@ -117,21 +117,31 @@ private func entries(_ tags: BookTags) -> [String] {
         #expect(!SceneTag.contains(["Mara", "clue"], "Tomas"))
     }
 
-    /// A typed tag drops one `#`, as `book.md` reads a `tags:` item, so what's typed and what's
-    /// saved and read back agree.
-    @Test(arguments: ["#x", "##x", "x", "# x"])
+    /// The scene's tags as `book.md` reads a `tags:` line holding `item`.
+    private func fileTags(_ item: String) -> [String]? {
+        parse(
+            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n"
+                + "tags: \(item)\n\nBody.\n"
+        ).book.scenes.first?.tags
+    }
+
+    /// Typing drops one leading `#` as the file does, so the typed text and the same text in a
+    /// `tags:` line give one tag, which saves and reads back unchanged.
+    @Test(arguments: ["#x", "##x", "x"])
     func aTypedTagReadsAsTheFileWouldReadIt(typed: String) throws {
         let tag = try #require(SceneTag.typed(typed))
-        let parsed = parse(
-            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n"
-                + "tags: \(typed.replacingOccurrences(of: "# ", with: "#"))\n\nBody.\n")
-        #expect(parsed.book.scenes.first?.tags == [tag])
-        var book = Book(title: "T", scenes: [scene("S", [tag])])
-        book.scenes[0].tags = [tag]
+        #expect(fileTags(typed) == [tag])
+        let book = Book(title: "T", scenes: [scene("S", [tag])])
         var ids = IDGenerator.system
         let reread = BookFormat.parse(
             try BookFormat.verifiedSerialization(of: book), opened: BookFormat.rereadTime, ids: &ids)
         #expect(reread.book.scenes.first?.tags == [tag], "saved and read back")
+    }
+
+    /// The one difference: typing also trims the spaces after the `#`, where the file keeps them.
+    @Test func typingTrimsAfterTheHashWhereTheFileKeepsTheSpace() {
+        #expect(SceneTag.typed("# x") == "x")
+        #expect(fileTags("# x") == [" x"])
     }
 
     /// The ⌕'s search: one word as it is; words in one sentence as a phrase, a `"` in them a

@@ -41,7 +41,8 @@ struct TagEditTests {
     /// One scene whose tags are `tags` exactly as `book.md` holds them: case variants and
     /// duplicates included, which only a hand-edited file can give a scene.
     private func withFileTags(
-        _ tags: [String], _ test: (OpenBook<ManualClock>, SceneID) async throws -> Void
+        _ tags: [String], errors: [ErrorEntry] = [],
+        _ test: (OpenBook<ManualClock>, SceneID) async throws -> Void
     ) async throws {
         try await withTemporaryFolder { folder in
             let store = makeStore(in: folder)
@@ -50,7 +51,7 @@ struct TagEditTests {
             var ids = IDGenerator.system
             let held = BookScene(
                 id: ids.sceneID(), modified: Timestamp(secondsSince1970: 1_700_000_000, offset: .zero),
-                title: "One", tags: tags)
+                title: "One", tags: tags, errors: errors)
             try BookFormat.serialize(Book(title: "Novel", scenes: [held])).write(
                 to: url.appending(path: "book.md"), options: .atomic)
             #expect(await store.open(url) == .opened)
@@ -75,6 +76,46 @@ struct TagEditTests {
             #expect(tags(book, scene) == ["clue"])
             undo.undo()
             #expect(tags(book, scene) == ["Mara", "clue", "mara", "MARA"])
+        }
+    }
+
+    /// The Errors tab's Fix of a `tags:` entry, which sets the scene's tags outside the page's
+    /// undo, as something that changes them between a tag edit and its undo.
+    private func repairTags(_ book: OpenBook<ManualClock>, to tags: String) throws {
+        let entry = try #require(
+            book.book.errorGroups.flatMap(\.refs).first { $0.entry.tag == .metadata },
+            "precondition: the scene has a metadata entry")
+        #expect(book.repairError(entry, as: "tags: \(tags)") == .repaired)
+    }
+
+    /// The review's case (#20): undoing Add Tag takes away only the spelling it added, and
+    /// leaves a case variant a repair added since.
+    @Test func undoingAnAddTakesOnlyWhatItAdded() async throws {
+        try await withFileTags(["clue"], errors: [ErrorEntry(.metadata, "mood: grim")]) { book, scene in
+            let undo = book.pageUndo(for: scene)
+            step(book, scene) { #expect(book.addTag("storm", to: scene)) }
+            try repairTags(book, to: "clue, STORM, storm")
+            try #require(tags(book, scene) == ["clue", "STORM", "storm"], "precondition: the repair's tags")
+            undo.undo()
+            #expect(tags(book, scene) == ["clue", "STORM"], "the variant the repair added stays")
+            undo.redo()
+            #expect(tags(book, scene) == ["clue", "STORM", "storm"])
+        }
+    }
+
+    /// Undoing a removal doesn't put back a spelling a repair has put back since.
+    @Test func undoingARemovalSkipsASpellingTheSceneHasAgain() async throws {
+        try await withFileTags(["clue", "storm", "Storm"], errors: [ErrorEntry(.metadata, "mood: grim")]) {
+            book, scene in
+            let undo = book.pageUndo(for: scene)
+            step(book, scene) { #expect(book.removeTag("storm", from: scene)) }
+            #expect(tags(book, scene) == ["clue"])
+            try repairTags(book, to: "clue, storm")
+            undo.undo()
+            #expect(
+                tags(book, scene) == ["clue", "storm", "Storm"], "storm once, and Storm back in its place")
+            undo.redo()
+            #expect(tags(book, scene) == ["clue", "storm"], "redo takes only what the undo put back")
         }
     }
 

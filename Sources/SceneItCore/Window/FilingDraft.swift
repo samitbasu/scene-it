@@ -3,7 +3,7 @@ import Foundation
 /// What the File a Copy dialog holds while the writer fills it in (PLAN §7.1): the tags as
 /// chips, the text being typed as the next one, the date and the note.
 public struct FilingDraft: Hashable, Sendable {
-    /// Each one admitted, trimmed, non-empty and different from the others.
+    /// Each one admitted, trimmed, non-empty and unique ignoring case (`SceneTag.contains`).
     public private(set) var tags: [String] = []
     /// What's typed in the tags field, not yet a tag: one line of text `CharacterPolicy`
     /// admits, as the editors keep it, so the field never shows what the index won't keep.

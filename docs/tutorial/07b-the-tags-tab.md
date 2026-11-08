@@ -1,11 +1,11 @@
-# 07b — The Tags tab: a pure sort, undo that restores exactly, a custom `Layout`, and one shared chip
+# 07b — The Tags tab: a pure sort, undo that inverts exactly, a custom `Layout`, and one shared chip
 
 The Tags tab (PLAN §8.3, issue #20) shows the open scene's tags as chips with a **+ tag** field,
 then every tag in the book with how many scenes use it. A click on a row toggles the tag on the
 open scene, and a row's ⌕ opens Search on it. This chapter teaches four things a Rust programmer
 meets here:
 - a sort and a spelling rule as pure functions in core, so they're tested without a window;
-- undo inverses that put back exactly what they took, on another view's undo manager;
+- undo inverses that invert exactly their own edit, on another view's undo manager;
 - SwiftUI's `Layout` protocol, for chips that wrap;
 - one chip view and one typing rule shared by two features, so they can't drift.
 
@@ -52,33 +52,52 @@ use, and on a tie the first in code-point order, so `Mara` beats `mara` (and `MA
 `BookTags.spelling(of:)` gives a typed tag that spelling, which is how typing `mara` adds `Mara`.
 
 **Typed versus clicked.** Only what's typed goes through `SceneTag.typed`: trimmed, and one
-leading `#` dropped, exactly as `book.md` reads a `tags:` item (book format §2.2), so typing `##x`
-gives the tag `#x`, the same tag the file would. A row adds the book's tag exactly as it's
+leading `#` dropped, as `book.md` reads a `tags:` item (book format §2.2), so typing `##x` gives the
+tag `#x`, the same tag the file would. There's one difference: typing also trims the spaces after
+that `#`, so `# x` is `x`, where the file reads ` x`. A row adds the book's tag exactly as it's
 spelled, so a tag that really starts with `#` stays that way.
 
-## 2. Undo that puts back exactly what it took
+## 2. Undo that inverts exactly its own edit
 
 The owner chose to put tag edits on the scene's **page** undo manager, as comment actions are
 (PLAN §8.6). So ⌘Z on the page takes back a tag edit or the typing around it, in the order they
-happened. Two private primitives do all of it: `takeTags` removes every tag with one key (every
-case variant, and any exact repeat a hand-edited file has), and registers `putTags` with what it
-took, each at its index:
+happened. Two private primitives do all of it, and each registers the other as its inverse:
+- `takeTags` removes given spellings, each at its recorded index or, if the tags have moved, the
+  nearest index that has that spelling;
+- `putTags` inserts given spellings at their indices, skipping a spelling the scene already had
+  when it began.
+
+Each records what it actually did, and hands only that to its inverse:
 
 ```swift
-        registerPageUndo(in: scene, named: name) { _ = $0.putTags(removed, in: scene, named: name) }
+        registerPageUndo(in: scene, named: name) { _ = $0.takeTags(put, from: scene, named: name) }
 ```
 
-`putTags` inserts unconditionally, in ascending index order, and registers `takeTags` again.
-Unconditionally matters: a first version checked "does the scene already have this tag?" on the
-way back in, so undoing the removal of `Mara` from a scene that also held `mara` found `Mara`
-"already there" after restoring one variant and silently dropped the other. An undo should
-restore what was taken, not re-run the rules for a new edit. Those rules (no duplicate in any
-case) belong to `addTag` and the row's toggle, which check before calling `putTags`.
+This matters because something outside the page's undo can change the tags between an edit and
+its undo: an Errors-tab repair sets a scene's tags from a `tags:` line. Two earlier versions got
+this wrong:
+- Add's inverse removed the tag in every case, so undoing "Add `storm`" after a repair had also
+  added `STORM` lost `STORM`.
+- Remove's inverse inserted every spelling it took, unconditionally, so undoing a removal after a
+  repair had put the tag back duplicated it. (The version before that refused any spelling the
+  scene had in any case, and dropped a case variant taken in the same removal.)
+
+An undo inverts exactly its own edit: it takes only the spellings it put, and puts back only the
+spellings it took that the scene hasn't got again. Repeats taken together come back together. The
+rules for a new edit (no duplicate in any case) belong to `addTag` and the row's toggle, which
+check before calling `putTags`. `removeTag` gathers every case variant and repeat, so one click
+turns a row off.
 
 Each inverse changes only the tag list, never the whole scene, so undoing a tag edit can't take
 back typing made after it. The inverse registers its own inverse, which is how redo works:
 `UndoManager` turns what an undo registers into the redo step. `registerPageUndo` doesn't rename
 while undoing or redoing (#125), so Redo reads "Redo Add Tag".
+
+**Focus.** The owner chose to keep the focus where the writer is: Return in the + tag field leaves
+it in the field, ready for the next tag, and × and row clicks don't move it at all. ⌘Z goes to the
+focused view's undo manager (`UndoRouter`), so in the field it undoes the field's own typing; to
+undo a tag, the writer clicks the page first. Every tag edit still calls `breakUndoCoalescing()`
+on the page, so typing before and after it stay separate steps rather than one long "Typing".
 
 **Focus.** The owner chose to keep the focus where the writer is: Return in the + tag field leaves
 it in the field, ready for the next tag, and × and row clicks don't move it at all. ⌘Z goes to the

@@ -61,6 +61,7 @@ struct TagsTabTests {
             // Last: a test's stand-in for an event leaves an empty undo group where nothing changed.
             try harness.typeTag("mara")
             #expect(harness.tags() == ["opening", "Mara", "set piece"], "the scene has it already")
+            #expect(field.stringValue.isEmpty, "Return empties the field even when nothing's added")
         }
     }
 
