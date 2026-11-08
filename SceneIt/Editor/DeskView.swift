@@ -84,4 +84,72 @@ final class DeskView: NSScrollView {
         isPinching = false
         pinched(zoom)
     }
+
+    // MARK: The find bar's field, a Tab stop (PLAN §8.4)
+
+    /// The window's Tab order, which Tab and Shift-Tab in the find bar's field follow.
+    weak var keys: WindowKeys?
+    private var findFieldTabs: FindFieldTabs?
+
+    override var isFindBarVisible: Bool {
+        didSet { routeFindFieldTabs() }
+    }
+
+    override func findBarViewDidChangeHeight() {
+        super.findBarViewDidChangeHeight()
+        routeFindFieldTabs()
+    }
+
+    var findField: NSSearchField? {
+        guard isFindBarVisible, let bar = findBarView else { return nil }
+        func fields(in view: NSView) -> [NSSearchField] {
+            (view as? NSSearchField).map { [$0] } ?? view.subviews.flatMap(fields)
+        }
+        return fields(in: bar).first
+    }
+
+    func focusFindField() -> Bool {
+        guard let field = findField, let window, !field.isHiddenOrHasHiddenAncestor else { return false }
+        routeFindFieldTabs()
+        return window.makeFirstResponder(field)
+    }
+
+    /// The field's delegate is the find bar's own; Tab and Shift-Tab are taken from it, and
+    /// everything else passes through.
+    private func routeFindFieldTabs() {
+        guard let field = findField, !(field.delegate is FindFieldTabs) else { return }
+        let tabs = FindFieldTabs(finderDelegate: field.delegate) { [weak self] direction in
+            self?.keys?.tab(direction, from: .searchField) ?? false
+        }
+        findFieldTabs = tabs
+        field.delegate = tabs
+    }
+}
+
+/// Stands in as the find bar field's delegate: Tab and Shift-Tab go round the window's stops;
+/// every other message goes to the find bar's own delegate.
+private final class FindFieldTabs: NSObject, NSSearchFieldDelegate {
+    nonisolated(unsafe) private weak var finderDelegate: (any NSTextFieldDelegate)?
+    private let tab: (TabDirection) -> Bool
+
+    init(finderDelegate: (any NSTextFieldDelegate)?, tab: @escaping (TabDirection) -> Bool) {
+        self.finderDelegate = finderDelegate
+        self.tab = tab
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertTab(_:)) where tab(.forward): return true
+        case #selector(NSResponder.insertBacktab(_:)) where tab(.backward): return true
+        default: return finderDelegate?.control?(control, textView: textView, doCommandBy: selector) ?? false
+        }
+    }
+
+    nonisolated override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || finderDelegate?.responds(to: selector) == true
+    }
+
+    nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+        finderDelegate
+    }
 }

@@ -46,9 +46,19 @@ final class PageFocus {
     }
 
     /// Gives the body the focus, with its selection as it was.
-    func focusBody() {
-        guard let body, let window = body.window else { return }
-        window.makeFirstResponder(body)
+    @discardableResult
+    func focusBody() -> Bool {
+        guard let body, let window = body.window else { return false }
+        return window.makeFirstResponder(body)
+    }
+
+    /// Whether the title or the body has the focus.
+    var holdsFocus: Bool {
+        guard let window = body?.window ?? title?.window else { return false }
+        switch window.firstResponder {
+        case let editor as NSTextView where editor.isFieldEditor: return editor.delegate === title
+        case let responder: return responder != nil && responder === body
+        }
     }
 
     /// Puts the caret at the start of the body.

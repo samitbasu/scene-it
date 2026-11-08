@@ -134,7 +134,21 @@ private struct ColorControl: View {
     let formatting: EditorFormatting
     let part: TextPart
     let kind: PaletteKind
-    @State private var showsPalette = false
+    @Environment(\.windowKeys) private var keys
+
+    /// Open while the window's keys say so, so Esc closes it before anything else.
+    private var showsPalette: Binding<Bool> {
+        let palette = WindowPopover.palette(part, kind)
+        return Binding(
+            get: { keys?.popover == palette },
+            set: { shown in
+                if shown {
+                    keys?.popover = palette
+                } else if keys?.popover == palette {
+                    keys?.popover = nil
+                }
+            })
+    }
 
     var body: some View {
         let ink = kind.lastUsed(formatting.preferences)
@@ -143,7 +157,7 @@ private struct ColorControl: View {
                 ColorGlyph(ink: ink)
             }
             Button {
-                showsPalette = true
+                showsPalette.wrappedValue = true
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
@@ -154,10 +168,11 @@ private struct ColorControl: View {
                     ? WindowWording.clickToFormat(part) : WindowWording.showPalette
             )
             .accessibilityLabel("\(kind.name): \(WindowWording.showPalette)")
-            .popover(isPresented: $showsPalette, arrowEdge: .bottom) {
+            .popover(isPresented: showsPalette, arrowEdge: .bottom) {
                 PaletteView(formatting: formatting, part: part, kind: kind) {
-                    showsPalette = false
+                    showsPalette.wrappedValue = false
                 }
+                .background(EscapeKey(keys: keys))
             }
         }
     }

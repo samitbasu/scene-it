@@ -10,6 +10,8 @@ extension NSPasteboard.PasteboardType {
 /// typed or pasted into it; the view hands it its focus, its pasteboard traffic and its edits.
 class SceneTextView: KeyboardTextView {
     weak var editor: SceneTextEditor?
+    /// The window's Esc and Tab.
+    weak var keys: WindowKeys?
     /// Whether this view has the keyboard focus, as it last became or resigned first responder:
     /// inside `resignFirstResponder` the window's `firstResponder` is still this view.
     private(set) var keyboardFocus = KeyboardFocus.elsewhere {
@@ -276,7 +278,24 @@ class SceneTextView: KeyboardTextView {
 
     /// PLAN §8.4: Tab moves the focus on rather than typing a tab, which the text can't hold.
     override func insertTab(_ sender: Any?) {
-        window?.selectNextKeyView(sender)
+        guard let keys else { return window?.selectNextKeyView(sender) ?? () }
+        keys.tab(.forward, from: tabStop)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        guard let keys else { return super.insertBacktab(sender) }
+        keys.tab(.backward, from: tabStop)
+    }
+
+    var tabStop: TabStop {
+        role == .notes ? .panel : .page
+    }
+
+    /// Esc goes to the window first. Neither `NSTextView` nor `NSResponder` implements
+    /// `cancelOperation(_:)`, so it's caught here, where the text view's own Esc still follows.
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(NSResponder.cancelOperation(_:)), keys?.escape() == .handled { return }
+        super.doCommand(by: selector)
     }
 
     // MARK: The pasteboard (decision 0017)

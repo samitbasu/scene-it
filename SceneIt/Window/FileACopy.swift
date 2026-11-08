@@ -155,8 +155,9 @@ struct FileACopyDialog: View {
     private var buttons: some View {
         HStack {
             Spacer()
+            // Esc is the window's (`EscapeKey`), which cancels this dialog only when it's the
+            // top layer.
             Button(ArchiveWording.cancel, action: cancel)
-                .keyboardShortcut(.cancelAction)
             Button(ArchiveWording.confirm, action: confirm)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)

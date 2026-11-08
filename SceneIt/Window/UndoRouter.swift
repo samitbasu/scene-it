@@ -180,8 +180,10 @@ final class UndoFocusView: NSView {
     var role = Role.sheet {
         didSet { needsDisplay = true }
     }
-    /// Esc gives the focus back to where the writer was typing.
+    /// Esc gives the focus back to where the writer was typing, when the window has nothing
+    /// for Esc to close.
     var escape: () -> Void = {}
+    weak var keys: WindowKeys?
 
     var focus: UndoFocus {
         switch role {
@@ -228,7 +230,21 @@ final class UndoFocusView: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        escape()
+        if keys?.escape() != .handled { escape() }
+    }
+
+    override func insertTab(_ sender: Any?) {
+        switch role {
+        case .errorsTab: keys?.tab(.forward, from: .panel)
+        case .sheet: window?.selectNextKeyView(sender)
+        }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        switch role {
+        case .errorsTab: keys?.tab(.backward, from: .panel)
+        case .sheet: window?.selectPreviousKeyView(sender)
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -248,6 +264,7 @@ struct UndoFocusHolder: NSViewRepresentable {
     var anchor: UndoFocusAnchor?
     var escape: () -> Void = {}
     @Environment(UndoRouter.self) private var router: UndoRouter?
+    @Environment(\.windowKeys) private var keys
 
     func makeNSView(context: Context) -> UndoFocusView {
         let view = UndoFocusView()
@@ -259,6 +276,7 @@ struct UndoFocusHolder: NSViewRepresentable {
         view.router = router
         view.role = role
         view.escape = escape
+        view.keys = keys
         anchor?.view = view
     }
 }

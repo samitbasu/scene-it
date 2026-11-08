@@ -10,17 +10,20 @@ struct EditorArea: View {
     let formatting: EditorFormatting
     let focus: PageFocus
     let editors: SceneEditors
+    let chrome: WindowChrome
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                FormattingBar(formatting: formatting, part: .body)
-                Spacer()
+            if chrome.shows(.formattingBar) {
+                HStack(spacing: 12) {
+                    FormattingBar(formatting: formatting, part: .body)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .frame(height: WindowMetrics.barHeight)
+                Divider()
             }
-            .padding(.horizontal, 12)
-            .frame(height: WindowMetrics.barHeight)
-            Divider()
             if let scene {
                 SceneTitleField(book: book, scene: scene.id, focus: focus)
                     .frame(width: WindowMetrics.pageSize.width)
@@ -107,6 +110,7 @@ private struct TitleTextField: NSViewRepresentable {
     let scene: SceneID
     let title: String
     let focus: PageFocus
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -136,6 +140,7 @@ private struct TitleTextField: NSViewRepresentable {
         coordinator.book = book
         coordinator.scene = scene
         coordinator.focus = focus
+        coordinator.keys = keys
         let history = book.titleUndo(for: scene)
         field.editor?.history = history
         coordinator.heardUndo.hear(history, by: coordinator, calling: #selector(Coordinator.historyChanged))
@@ -168,6 +173,7 @@ private struct TitleTextField: NSViewRepresentable {
         var book: AppOpenBook?
         var scene: SceneID?
         var focus: PageFocus?
+        weak var keys: WindowKeys?
         weak var field: NSTextField?
         /// The scene whose title is being edited: fixed when the editing begins, so typing
         /// can't reach a scene opened since.
@@ -229,6 +235,10 @@ private struct TitleTextField: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
                 focus?.focusBodyStart()
                 return true
+            case #selector(NSResponder.insertBacktab(_:)):
+                return keys?.tab(.backward, from: .page) ?? false
+            case #selector(NSResponder.cancelOperation(_:)):
+                return keys?.escape() == .handled
             default:
                 return false
             }

@@ -11,6 +11,8 @@ struct CommentsTab: View {
     let formatting: EditorFormatting
     let editors: SceneEditors
     @State private var search = ""
+    @FocusState private var searchFocused: Bool
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         let query = CommentQuery(search)
@@ -30,12 +32,35 @@ struct CommentsTab: View {
                 Spacer()
             }
         }
+        .onAppear {
+            keys?.setPanelFocus(for: .comments) { [book, editors, $searchFocused] in
+                Self.takeFocus(book: book, editors: editors, search: $searchFocused)
+            }
+        }
+    }
+
+    /// Tab into the tab: the selected card's text, or else the search field.
+    private static func takeFocus(
+        book: AppOpenBook, editors: SceneEditors, search: FocusState<Bool>.Binding
+    ) -> Bool {
+        if let scene = book.location.scene?.id, let card = editors.comments.comment(in: scene) {
+            editors.comments.open(card, in: scene)
+        } else {
+            search.wrappedValue = true
+        }
+        return true
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             TextField(CommentWording.searchPlaceholder, text: $search)
                 .textFieldStyle(.roundedBorder)
+                .focused($searchFocused)
+                .onKeyPress(keys: [.tab]) { press in
+                    guard let keys else { return .ignored }
+                    let direction: TabDirection = press.modifiers.contains(.shift) ? .backward : .forward
+                    return keys.tab(direction, from: .panel) ? .handled : .ignored
+                }
                 .help(CommentWording.searchHelp)
                 .overlay(alignment: .trailing) {
                     if !search.isEmpty {
@@ -267,6 +292,7 @@ private struct CommentTextEditor: NSViewRepresentable {
     let scene: SceneID
     let comment: CommentID
     let text: String
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -303,6 +329,7 @@ private struct CommentTextEditor: NSViewRepresentable {
         coordinator.heardUndo.hear(
             book.pageUndo(for: scene), by: coordinator, calling: #selector(Coordinator.historyChanged))
         view.comment = comment
+        view.keys = keys
         view.history = coordinator.history
         let editable = Editability(book, in: context.environment) == .editable
         // As the title field does: a book that stops taking edits ends the edit under way, and
@@ -402,6 +429,7 @@ final class CommentTextView: AdmittingTextView {
     var onFinish: (() -> Void)?
     /// The comment whose text this is.
     var comment: CommentID?
+    weak var keys: WindowKeys?
 
     private var focusOnArrival = false
 
@@ -436,15 +464,17 @@ final class CommentTextView: AdmittingTextView {
     }
 
     override func insertTab(_ sender: Any?) {
-        window?.selectNextKeyView(sender)
+        guard let keys else { return window?.selectNextKeyView(sender) ?? () }
+        keys.tab(.forward, from: .panel)
     }
 
     override func insertBacktab(_ sender: Any?) {
-        window?.selectPreviousKeyView(sender)
+        guard let keys else { return window?.selectPreviousKeyView(sender) ?? () }
+        keys.tab(.backward, from: .panel)
     }
 
     override func cancelOperation(_ sender: Any?) {
-        finishEditing()
+        if keys?.escape() != .handled { finishEditing() }
     }
 
     /// Ends the edit under way, the focus going back to the page.

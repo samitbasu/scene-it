@@ -12,14 +12,19 @@ final class SceneEditors {
     private let preferences: AppPreferences
     private let formatting: EditorFormatting
     private let focus: PageFocus
+    private weak var keys: WindowKeys?
     /// The selected comment, which the page, the notes and the comments panel share.
     let comments = CommentSelection()
 
-    init(book: AppOpenBook, preferences: AppPreferences, formatting: EditorFormatting, focus: PageFocus) {
+    init(
+        book: AppOpenBook, preferences: AppPreferences, formatting: EditorFormatting, focus: PageFocus,
+        keys: WindowKeys
+    ) {
         self.book = book
         self.preferences = preferences
         self.formatting = formatting
         self.focus = focus
+        self.keys = keys
     }
 
     /// Built when first shown, so that only the window SwiftUI keeps builds one.
@@ -35,6 +40,8 @@ final class SceneEditors {
         page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         page.focus = focus
+        page.keys = keys
+        scrollView.keys = keys
         focus.body = page
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
@@ -57,6 +64,7 @@ final class SceneEditors {
         notes.drawsBackground = false
         notes.textContainerInset = WindowMetrics.Notes.padding
         notes.setAccessibilityLabel(WindowWording.tab(.notes))
+        notes.keys = keys
         scrollView.holdGrowingText(notes)
         return SceneTextHost(
             SceneTextEditor(

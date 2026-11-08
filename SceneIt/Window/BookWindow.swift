@@ -16,42 +16,56 @@ struct BookWindow: View {
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
     @State private var search: SearchSheetModel
+    @State private var chrome: WindowChrome
+    @State private var keys: WindowKeys
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mode: Binding<WindowMode>, filing: FilingFlow? = nil, search: SearchSheetModel? = nil
+        mode: Binding<WindowMode>, filing: FilingFlow? = nil, search: SearchSheetModel? = nil,
+        chrome: WindowChrome? = nil
     ) {
         self.book = book
         self.store = store
         self.preferences = preferences
         self.formatting = formatting
         _mode = mode
-        _filing = State(initialValue: filing ?? FilingFlow(book: book))
+        let filing = filing ?? FilingFlow(book: book)
+        _filing = State(initialValue: filing)
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
+        let chrome = chrome ?? WindowChrome()
+        _chrome = State(initialValue: chrome)
+        let keys = WindowKeys(chrome: chrome, filing: filing, page: focus, mode: mode)
+        _keys = State(initialValue: keys)
         _editors = State(
             initialValue: SceneEditors(
-                book: book, preferences: preferences, formatting: formatting, focus: focus))
+                book: book, preferences: preferences, formatting: formatting, focus: focus, keys: keys))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ReadOnlyBanner(book: book, store: store, preferences: preferences)
             HStack(spacing: 0) {
-                IconRail(book: book, mode: $mode)
-                Divider()
+                if chrome.shows(.rail) {
+                    IconRail(book: book, mode: $mode)
+                    Divider()
+                }
                 ZStack {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
                         EditorArea(
                             book: book, preferences: preferences, formatting: formatting, focus: pageFocus,
-                            editors: editors)
-                        Divider()
-                        RightPanel(
-                            book: book, preferences: preferences, formatting: formatting, editors: editors)
+                            editors: editors, chrome: chrome)
+                        if chrome.shows(.rightPanel) {
+                            Divider()
+                            RightPanel(
+                                book: book, preferences: preferences, formatting: formatting, editors: editors
+                            )
+                        }
                     }
+                    .overlay { FocusExitCueView(chrome: chrome) }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)
                     if mode == .search {
@@ -61,18 +75,36 @@ struct BookWindow: View {
                     }
                 }
             }
-            Divider()
-            StatusBar(book: book)
+            if chrome.shows(.statusBar) {
+                Divider()
+                StatusBar(book: book)
+            }
         }
         .background(.background)
         .modifier(FilingToastOverlay(flow: filing))
         .background(UndoRouterWindow(router: undo))
         .environment(undo)
         .environment(\.pageFocus, pageFocus)
+        .environment(\.windowKeys, keys)
         .focusedSceneValue(\.undoRouter, undo)
-        .onChange(of: mode, initial: true) {
+        .focusedSceneValue(\.windowChrome, chrome)
+        .background(WindowToolbarVisibility(chrome: chrome))
+        .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
+            if new.isSheet, !old.isSheet { chrome.note(.sheetOpened) }
+            if old.isSheet, !new.isSheet, chrome.focusMode == .on { pageFocus.focusBody() }
+        }
+        .onChange(of: filing.draft != nil) { _, up in
+            if up { chrome.note(.sheetOpened) }
+        }
+        .onChange(of: book.openScene) {
+            chrome.note(.sceneOpened)
+        }
+        .onChange(of: chrome.focusMode) {
+            editors.page.scrollView.backgroundColor = deskColor
+            // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.
+            if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
         .onAppear {
             search.opener = SearchOpener(
@@ -89,7 +121,9 @@ struct BookWindow: View {
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } }
             )
+            .background(EscapeKey(keys: keys))
             .environment(undo)
+            .environment(\.windowKeys, keys)
             .focusedSceneValue(\.undoRouter, undo)
         }
     }
@@ -98,9 +132,17 @@ struct BookWindow: View {
         Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
     }
 
+    private var deskColor: NSColor {
+        switch (chrome.focusMode, chrome.look.desk) {
+        case (.on, .dimmed): WindowMetrics.Focus.dimmedDesk
+        case (.on, .unchanged), (.off, _): NSColor(WindowMetrics.deskColor)
+        }
+    }
 }
 
 extension FocusedValues {
     /// The focused window's mode, for the View menu.
     @Entry var windowMode: Binding<WindowMode>?
+    /// The focused window's focus mode, for the View menu.
+    @Entry var windowChrome: WindowChrome?
 }

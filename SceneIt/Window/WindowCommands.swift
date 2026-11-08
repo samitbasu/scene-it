@@ -7,6 +7,12 @@ struct WindowCommands: Commands {
     let books: BookController
     @FocusedBinding(\.windowMode) private var mode
     @FocusedValue(\.page) private var page
+    @FocusedValue(\.windowChrome) private var chrome
+
+    /// Ticked while focus mode is on; choosing it, or its shortcut, enters or leaves.
+    private var focusMode: Binding<Bool> {
+        Binding(get: { chrome?.focusMode == .on }, set: { chrome?.set($0 ? .on : .off) })
+    }
 
     var body: some Commands {
         UndoCommands()
@@ -18,7 +24,10 @@ struct WindowCommands: Commands {
             }
             Button(WindowWording.toggleRightPanel) { books.preferences.toggleRightPanel() }
                 .keyboardShortcut("]")
-                .disabled(books.store.current == nil)
+                .disabled(books.store.current == nil || chrome?.focusMode == .on)
+            Toggle(WindowWording.focusMode, isOn: focusMode)
+                .keyboardShortcut(.return, modifiers: [.command, .shift])
+                .disabled(chrome == nil)
             Divider()
             zoom
             Divider()

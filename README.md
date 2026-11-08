@@ -332,6 +332,14 @@ subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` 
 `AdmittingTextField` it is now, holding the same long line at the panel's width, then both empty with their
 placeholder. To render only this, add `-only-testing:SceneItTests/WindowRenders/fixField\(\)`.
 
+`focusMode` renders focus mode (#21, `FocusModeRenders.swift`) into a `focus-mode/` subfolder, at 1× and 2×
+and 1440 × 900 pt, the page focused with a two-page formatted scene: normal mode (`normal`,
+`normal-panel-collapsed`); each candidate look in focus mode, also as `<name>-vs-normal.png` beside normal mode
+(`focus-a-hint`, the fading "Press Esc…" hint, shown as it first appears; `focus-b-no-cue`;
+`focus-c-corner-button`; `focus-desk-dimmed`; `focus-bar-hidden`, the formatting bar hidden too); and the Search
+sheet opened over focus mode (`focus-search-sheet`). To render only these, add
+`-only-testing:SceneItTests/WindowRenders/focusMode\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

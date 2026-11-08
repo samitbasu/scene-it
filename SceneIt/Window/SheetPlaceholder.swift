@@ -6,6 +6,7 @@ import SwiftUI
 struct SheetPlaceholder: View {
     let book: AppOpenBook
     @Binding var mode: WindowMode
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +20,6 @@ struct SheetPlaceholder: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(.borderless)
-                .keyboardShortcut(.cancelAction)
                 .help(WindowWording.closeSheet)
             }
             .padding(.horizontal, 16)
@@ -36,6 +36,7 @@ struct SheetPlaceholder: View {
         .background(.background)
         // Takes the keyboard focus, so the page or panel the sheet covers no longer has it.
         .background(UndoFocusHolder(role: .sheet))
+        .background(EscapeKey(keys: keys))
     }
 }
 

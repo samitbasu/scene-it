@@ -24,12 +24,13 @@ struct BookWindowWithMode: View {
     var formatting: EditorFormatting?
     @Bindable var box: ModeBox
     var search: SearchSheetModel?
+    var chrome: WindowChrome?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
             formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
-            search: search)
+            search: search, chrome: chrome)
     }
 }
 
@@ -48,6 +49,8 @@ struct PageHarness {
     let modes: ModeBox
     /// The window's Search sheet.
     let search: SearchSheetModel
+    /// The window's focus mode.
+    let chrome: WindowChrome
     /// Whether the editors keep the writer's automatic-change preferences or have them off.
     let automaticChanges: AutomaticChangesInTests
 
@@ -109,6 +112,11 @@ final class KeyWindow: NSWindow {
     override var isKeyWindow: Bool { Self.isKey }
 }
 
+/// Whether a page test's window has the window toolbar SwiftUI makes from `BookWindow`'s.
+enum HarnessToolbar {
+    case none, bridged
+}
+
 /// Whether a page test's editors have the automatic text changes off, or as the defaults say.
 enum AutomaticChangesInTests {
     case off, asTheDefaultsSay
@@ -121,7 +129,8 @@ func withPage(
     _ scenes: [BookScene], boneyard: [BookScene] = [], holdingTheLock: Bool = false,
     books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
-    automaticChanges: AutomaticChangesInTests = .off,
+    automaticChanges: AutomaticChangesInTests = .off, chrome: WindowChrome = WindowChrome(),
+    toolbar: HarnessToolbar = .none,
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
@@ -150,11 +159,13 @@ func withPage(
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
-                box: modes, search: search))
+                box: modes, search: search, chrome: chrome))
         controller.sizingOptions = []
+        if toolbar == .bridged { controller.sceneBridgingOptions = [.toolbars, .title] }
         let window = windowType.init(
-            contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
-            defer: false)
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: toolbar == .bridged ? [.titled, .closable, .miniaturizable, .resizable] : [.titled],
+            backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
@@ -171,7 +182,7 @@ func withPage(
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
             formatting: books.formatting, preferences: books.preferences, modes: modes, search: search,
-            automaticChanges: automaticChanges)
+            chrome: chrome, automaticChanges: automaticChanges)
         harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
