@@ -37,14 +37,14 @@ struct AutomaticTextChangeTests {
 
     /// Every editor takes the automatic changes as the defaults say, and none sets them itself.
     @Test func everyEditorTakesWhatTheDefaultsSay() async throws {
-        let correction = UserDefaults.standard.bool(forKey: "NSAutomaticSpellingCorrectionEnabled")
+        let expected = Self.whatTheDefaultsSay()
         try await withEditors { editors in
             for (name, editor) in editors {
-                #expect(editor.isAutomaticSpellingCorrectionEnabled == correction, "\(name)")
+                #expect(Self.switches(of: editor) == expected, "\(name)")
             }
         }
         try await withFixField { _, editor, _, _ in
-            #expect(editor.isAutomaticSpellingCorrectionEnabled == correction, "the Errors tab's fix")
+            #expect(Self.switches(of: editor) == expected, "the Errors tab's fix")
         }
     }
 
@@ -60,6 +60,29 @@ struct AutomaticTextChangeTests {
                 #expect(editor.isAutomaticTextReplacementEnabled, "\(name)")
                 editor.isAutomaticSpellingCorrectionEnabled = was
             }
+        }
+    }
+
+    /// Smart links only mark text for display: a detected link never reaches the scene or the
+    /// saved book, which hold the typed text alone.
+    @Test func aLinkDetectedOnThePageStaysOutOfTheBook() async throws {
+        try await withPage([scene("One", [[Run("Start.")]])]) { page in
+            page.page.isAutomaticLinkDetectionEnabled = true
+            page.focusPage(at: 6)
+            page.page.insertText(" See www.example.com today.", replacementRange: page.page.selectedRange())
+            page.page.checkTextInDocument(nil)
+            let storage = page.storage
+            var linked = false
+            storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) {
+                value, _, _ in
+                if value != nil { linked = true }
+            }
+            #expect(linked, "precondition: the page shows the address as a link")
+            let typed: [Paragraph] = [[Run("Start. See www.example.com today.")]]
+            #expect(page.body() == typed)
+            await eventually { page.book.status == .saved }
+            let saved = try bookOnDisk(page.url)
+            #expect(saved.scenes.first?.body == typed)
         }
     }
 
@@ -98,12 +121,36 @@ struct AutomaticTextChangeTests {
     /// What AppKit takes from each key: a fresh text view's switch, or the spelling checker's.
     static func whatAppKitReads() -> [String: Bool] {
         let view = NSTextView(usingTextLayoutManager: true)
-        return [
-            "NSAutomaticSpellingCorrectionEnabled": view.isAutomaticSpellingCorrectionEnabled,
+        return switches(of: view).merging([
             "NSAutomaticTextCompletionEnabled": NSSpellChecker.isAutomaticTextCompletionEnabled,
             "NSAutomaticInlinePredictionEnabled": NSSpellChecker.isAutomaticInlinePredictionEnabled,
             "NSAutomaticCapitalizationEnabled": NSSpellChecker.isAutomaticCapitalizationEnabled,
             "NSAutomaticPeriodSubstitutionEnabled": NSSpellChecker.isAutomaticPeriodSubstitutionEnabled,
+        ]) { view, _ in view }
+    }
+
+    /// A text view's own switches, by the key each starts from, and link and data detection,
+    /// which have no key and start off.
+    static func switches(of view: NSTextView) -> [String: Bool] {
+        [
+            "NSAutomaticSpellingCorrectionEnabled": view.isAutomaticSpellingCorrectionEnabled,
+            "NSAutomaticQuoteSubstitutionEnabled": view.isAutomaticQuoteSubstitutionEnabled,
+            "NSAutomaticDashSubstitutionEnabled": view.isAutomaticDashSubstitutionEnabled,
+            "link detection": view.isAutomaticLinkDetectionEnabled,
+            "data detection": view.isAutomaticDataDetectionEnabled,
+        ]
+    }
+
+    /// What `switches(of:)` should read, by the defaults.
+    static func whatTheDefaultsSay() -> [String: Bool] {
+        let defaults = UserDefaults.standard
+        return [
+            "NSAutomaticSpellingCorrectionEnabled": defaults.bool(
+                forKey: "NSAutomaticSpellingCorrectionEnabled"),
+            "NSAutomaticQuoteSubstitutionEnabled": defaults.bool(
+                forKey: "NSAutomaticQuoteSubstitutionEnabled"),
+            "NSAutomaticDashSubstitutionEnabled": defaults.bool(forKey: "NSAutomaticDashSubstitutionEnabled"),
+            "link detection": false, "data detection": false,
         ]
     }
 

@@ -50,20 +50,31 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   ever leaves a character the policy doesn't admit. The Errors tab's fix field was a SwiftUI `TextField` that kept its input
   method until #127, which made it an `AdmittingTextField`: its line goes into the manuscript, so it's typed as the
   manuscript is, with no input method and only the characters the policy admits.
-- **Automatic text changes start off; the writer switches them (#127).** The owner saw the page change a word being typed.
-  AppKit's automatic changes (spelling correction, text replacement, completion, inline prediction, capitalization, a
-  period for a double space) now start off the macOS way: at launch the app registers them off in the user-defaults
-  registration domain (`AutomaticTextChanges.startingValues`), which is never saved, and the writer turns each on or off
-  from the Edit menu's Spelling and Substitutions submenus or a text view's context menu, which AppKit remembers in the
-  app's own defaults. No editor sets them itself, so a writer's choice survives editors being rebuilt. System Settings'
-  own choices (Keyboard > Text Input) outrank the registration too. The keys, found in AppKit and checked in the
-  test host: registered off, `NSAutomaticSpellingCorrectionEnabled` turns a new text view's correction off, and
-  `NSAutomaticTextCompletionEnabled` and `NSAutomaticInlinePredictionEnabled` turn the spelling checker's switches
-  off. `NSAutomaticCapitalizationEnabled` and `NSAutomaticPeriodSubstitutionEnabled` are registered too, but on the
-  owner's Mac System Settings sets both, which outranks them, so their effect wasn't seen. Text replacement has no key
-  the registration reaches (`NSAutomaticTextReplacementEnabled` had no effect), so it starts as macOS has it, on; so
-  does smart copy/paste, which has no key. Smart quotes and dashes and link and data detection stay off on every
-  editor (`SceneTextView.configure`), as before: the policy would spell quotes and dashes in ASCII again.
+- **Automatic text changes are the writer's to switch, and start off (#127).** The owner saw the page change a word
+  being typed. The Edit menu's Spelling and Substitutions submenus and a text view's context menu are the standard
+  ones, and the writer turns each automatic change on or off there; AppKit keeps that choice in the app's own defaults.
+  Scene It only chooses where they start: at launch it registers them off in the user-defaults registration domain
+  (`AutomaticTextChanges.startingValues`), which is never saved and which the writer's choice and System Settings
+  (Keyboard > Text Input) both outrank. No editor sets them itself, so a choice survives editors being rebuilt.
+  The keys, found in AppKit and checked in the test host:
+  - `NSAutomaticSpellingCorrectionEnabled`, `NSAutomaticQuoteSubstitutionEnabled` and
+    `NSAutomaticDashSubstitutionEnabled` set a new text view's switches (registered on or off, the view follows).
+  - `NSAutomaticTextCompletionEnabled` and `NSAutomaticInlinePredictionEnabled` set the spelling checker's switches.
+    Text completion is the Touch Bar's list of candidate words (NSTextView's own `isAutomaticTextCompletionEnabled`,
+    which stays on, only allows that list); it never changes the text unless the writer picks a word. Inline
+    prediction is the grey suggestion ahead of the caret.
+  - `NSAutomaticCapitalizationEnabled` and `NSAutomaticPeriodSubstitutionEnabled` are registered off, but they come
+    from System Settings when it sets them, as it does on the owner's Mac; there they're on until the writer turns
+    them off in System Settings.
+  - Text replacement is left to macOS (the owner's call): no key the app registers reaches it, so it starts on, and
+    the writer turns it off in the menu. Whether AppKit remembers that toggle across launches couldn't be checked
+    without writing the app's real defaults; AppKit has no `NSAutomaticTextReplacementEnabled`-style key in its
+    strings, unlike the others. To be checked by hand in a trial build.
+  - Smart copy/paste has no key and starts on, as before.
+  - Link and data detection have no key; AppKit starts them off, and the writer may turn them on. They only mark text
+    for display: the run codec reads no link, so nothing they add reaches the scene or the saved book (tested).
+  Smart quotes and dashes, turned on, still don't change the manuscript: the character policy spells what they type
+  in ASCII again, so ticking them changes nothing visible (the owner was told).
   *History:* first the editors held every automatic change off for good, with hidden menu items and overridden
   switches (PR #128). The owner rejected that as fighting the OS ("The user can toggle spelling and substitutions
   themselves from the right click menu") and chose the standard menus with off-to-start values.
