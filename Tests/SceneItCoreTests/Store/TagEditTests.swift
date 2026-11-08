@@ -38,6 +38,89 @@ struct TagEditTests {
         undo.endUndoGrouping()
     }
 
+    /// One scene whose tags are `tags` exactly as `book.md` holds them: case variants and
+    /// duplicates included, which only a hand-edited file can give a scene.
+    private func withFileTags(
+        _ tags: [String], _ test: (OpenBook<ManualClock>, SceneID) async throws -> Void
+    ) async throws {
+        try await withTemporaryFolder { folder in
+            let store = makeStore(in: folder)
+            let url = try await createBook("Novel", in: folder, store: store)
+            #expect(await store.closeBook() == .left)
+            var ids = IDGenerator.system
+            let held = BookScene(
+                id: ids.sceneID(), modified: Timestamp(secondsSince1970: 1_700_000_000, offset: .zero),
+                title: "One", tags: tags)
+            try BookFormat.serialize(Book(title: "Novel", scenes: [held])).write(
+                to: url.appending(path: "book.md"), options: .atomic)
+            #expect(await store.open(url) == .opened)
+            let book = try #require(store.current)
+            try #require(book.book.scene(held.id)?.tags == tags, "precondition: the file's tags as written")
+            book.pageUndo(for: held.id).groupsByEvent = false
+            try await test(book, held.id)
+        }
+    }
+
+    /// The review's case (#20): removing a tag takes every case variant of it, and undo puts
+    /// each back exactly, where it was; redo takes them all again.
+    @Test func removingTakesEveryCaseVariantAndUndoPutsThemAllBack() async throws {
+        try await withFileTags(["Mara", "clue", "mara", "MARA"]) { book, scene in
+            let undo = book.pageUndo(for: scene)
+            step(book, scene) { #expect(book.toggleTag("Mara", on: scene)) }
+            #expect(tags(book, scene) == ["clue"], "the row is off after one click")
+            #expect(undo.undoActionName == TagWording.removeUndoName)
+            undo.undo()
+            #expect(tags(book, scene) == ["Mara", "clue", "mara", "MARA"])
+            undo.redo()
+            #expect(tags(book, scene) == ["clue"])
+            undo.undo()
+            #expect(tags(book, scene) == ["Mara", "clue", "mara", "MARA"])
+        }
+    }
+
+    @Test func removingExactDuplicatesTakesAllAndUndoRestoresThem() async throws {
+        try await withFileTags(["x", "y", "x"]) { book, scene in
+            let undo = book.pageUndo(for: scene)
+            step(book, scene) { #expect(book.removeTag("x", from: scene)) }
+            #expect(tags(book, scene) == ["y"])
+            undo.undo()
+            #expect(tags(book, scene) == ["x", "y", "x"])
+            undo.redo()
+            #expect(tags(book, scene) == ["y"])
+        }
+    }
+
+    /// A row adds its tag exactly as the book spells it: a `#` the tag starts with stays.
+    @Test func aRowAddsTheBooksTagExactly() async throws {
+        try await withFileTags(["#x", " spaced"]) { book, scene in
+            step(book, scene) { #expect(book.removeTag("#x", from: scene)) }
+            step(book, scene) { #expect(book.removeTag(" spaced", from: scene)) }
+            try #require(tags(book, scene).isEmpty, "precondition")
+            step(book, scene) { #expect(book.toggleTag("#x", on: scene)) }
+            step(book, scene) { #expect(book.toggleTag(" spaced", on: scene)) }
+            #expect(tags(book, scene) == ["#x", " spaced"])
+        }
+    }
+
+    /// Removing the tag at index 1, adding another, then undoing both leaves the tags as they
+    /// were, in order.
+    @Test func undoingARemoveAndAnAddRestoresTheOrder() async throws {
+        try await withTags { book, scene, _ in
+            step(book, scene) { #expect(book.addTag("storm", to: scene)) }
+            book.pageUndo(for: scene).removeAllActions()
+            try #require(tags(book, scene) == ["Mara", "clue", "storm"], "precondition")
+            let undo = book.pageUndo(for: scene)
+            step(book, scene) { #expect(book.removeTag("clue", from: scene)) }
+            step(book, scene) { #expect(book.addTag("fog", to: scene)) }
+            #expect(tags(book, scene) == ["Mara", "storm", "fog"])
+            undo.undo()
+            #expect(tags(book, scene) == ["Mara", "storm"])
+            undo.undo()
+            #expect(tags(book, scene) == ["Mara", "clue", "storm"])
+            #expect(!undo.canUndo)
+        }
+    }
+
     @Test func addingIsOneUndoableStepNamedAddTag() async throws {
         try await withTags { book, scene, _ in
             let undo = book.pageUndo(for: scene)

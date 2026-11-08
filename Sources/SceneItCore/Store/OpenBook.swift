@@ -341,54 +341,62 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         BookTags(book)
     }
 
-    /// Adds the tag the writer typed (`BookTags.spelling(of:)`: no `#`, in the book's spelling)
-    /// at the end of `scene`'s tags, as one change on its page's undo. `false`, changing nothing,
-    /// if the book is read-only, there's no such scene, `typed` is no tag or the scene already
-    /// has it in any case.
+    /// The + tag field's Return: adds the tag the writer typed (`BookTags.spelling(of:)`) at the
+    /// end of `scene`'s tags, as one change on its page's undo. `false`, changing nothing, if the
+    /// book is read-only, there's no such scene, `typed` is no tag or the scene already has it
+    /// in any case.
     @discardableResult
     public func addTag(_ typed: String, to scene: SceneID) -> Bool {
         guard let tag = tags.spelling(of: typed) else { return false }
-        return insertTag(tag, at: nil, in: scene, named: TagWording.addUndoName)
+        return add(tag, to: scene)
     }
 
-    /// Takes `tag`, in any case, off `scene`, as one change on its page's undo. `false`, changing
-    /// nothing, if the book is read-only, there's no such scene or it hasn't the tag.
+    /// Takes `tag` off `scene` in every case it has it in, as one change on its page's undo,
+    /// which puts each back where it was. `false`, changing nothing, if the book is read-only,
+    /// there's no such scene or it hasn't the tag.
     @discardableResult
     public func removeTag(_ tag: String, from scene: SceneID) -> Bool {
-        deleteTag(tag, from: scene, named: TagWording.removeUndoName)
+        takeTags(SceneTag.key(tag), from: scene, named: TagWording.removeUndoName)
     }
 
-    /// A row of the book's tags clicked: `removeTag` if `scene` has the tag, `addTag` if not.
+    /// A row of the book's tags clicked: `tag`, exactly as the book spells it, is removed from
+    /// `scene` if it has it in any case, and added if not.
     @discardableResult
     public func toggleTag(_ tag: String, on scene: SceneID) -> Bool {
         guard let current = book.scene(scene) else { return false }
-        return SceneTag.contains(current.tags, tag) ? removeTag(tag, from: scene) : addTag(tag, to: scene)
+        return SceneTag.contains(current.tags, tag) ? removeTag(tag, from: scene) : add(tag, to: scene)
     }
 
-    /// Puts `tag` among `scene`'s tags at `index` (the end if `nil`), unless it has it in any case.
-    private func insertTag(_ tag: String, at index: Int?, in scene: SceneID, named name: String) -> Bool {
+    private func add(_ tag: String, to scene: SceneID) -> Bool {
+        guard let current = book.scene(scene), !SceneTag.contains(current.tags, tag) else { return false }
+        return putTags([(current.tags.count, tag)], in: scene, named: TagWording.addUndoName)
+    }
+
+    /// Removes every tag of `scene` whose key is `key`, and registers putting them all back.
+    private func takeTags(_ key: String, from scene: SceneID, named name: String) -> Bool {
         guard let driver = editingDriver, let place = place(of: scene) else { return false }
-        var tags = book[keyPath: place.list][place.index].tags
-        guard !SceneTag.contains(tags, tag) else { return false }
-        tags.insert(tag, at: min(index ?? tags.count, tags.count))
-        book[keyPath: place.list][place.index].tags = tags
+        let removed = book[keyPath: place.list][place.index].tags.enumerated()
+            .filter { SceneTag.key($0.element) == key }.map { ($0.offset, $0.element) }
+        guard !removed.isEmpty else { return false }
+        for (index, _) in removed.reversed() { book[keyPath: place.list][place.index].tags.remove(at: index) }
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerPageUndo(in: scene, named: name) { _ = $0.deleteTag(tag, from: scene, named: name) }
+        registerPageUndo(in: scene, named: name) { _ = $0.putTags(removed, in: scene, named: name) }
         driver.send(.edited)
         return true
     }
 
-    private func deleteTag(_ tag: String, from scene: SceneID, named name: String) -> Bool {
-        guard let driver = editingDriver, let place = place(of: scene) else { return false }
-        let tags = book[keyPath: place.list][place.index].tags
-        guard let index = tags.firstIndex(where: { SceneTag.key($0) == SceneTag.key(tag) }) else {
-            return false
-        }
-        book[keyPath: place.list][place.index].tags.remove(at: index)
+    /// Puts each of `tags` (all with one key) in `scene`'s tags at its index, in ascending order of
+    /// index, whatever the scene has: an undo restores exactly what was taken. Registers taking
+    /// them away again.
+    private func putTags(_ tags: [(index: Int, tag: String)], in scene: SceneID, named name: String) -> Bool {
+        guard let driver = editingDriver, let place = place(of: scene),
+            let key = tags.first.map({ SceneTag.key($0.tag) })
+        else { return false }
+        var list = book[keyPath: place.list][place.index].tags
+        for (index, tag) in tags { list.insert(tag, at: min(index, list.count)) }
+        book[keyPath: place.list][place.index].tags = list
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerPageUndo(in: scene, named: name) { [removed = tags[index]] in
-            _ = $0.insertTag(removed, at: index, in: scene, named: name)
-        }
+        registerPageUndo(in: scene, named: name) { _ = $0.takeTags(key, from: scene, named: name) }
         driver.send(.edited)
         return true
     }

@@ -63,11 +63,12 @@ public enum SceneTag {
         tags.contains { key($0) == key(tag) }
     }
 
-    /// The tag the writer means by `text`: admitted as one line, without the spaces around it
-    /// and any leading `#`; `nil` if nothing is left.
+    /// The tag the writer means by `text` typed into a tag field: admitted as one line, without
+    /// the spaces around it, and without one leading `#`, as `book.md` reads a `tags:` item
+    /// (book format §2.2), so `##x` is the tag `#x`. `nil` if nothing is left.
     public static func typed(_ text: String) -> String? {
         var tag = CharacterPolicy.admittedLine(text).trimmingCharacters(in: .whitespaces)
-        while tag.hasPrefix("#") { tag = String(tag.dropFirst()).trimmingCharacters(in: .whitespaces) }
+        if tag.hasPrefix("#") { tag = String(tag.dropFirst()).trimmingCharacters(in: .whitespaces) }
         return tag.isEmpty ? nil : tag
     }
 
@@ -76,11 +77,16 @@ public enum SceneTag {
         "#" + tag
     }
 
-    /// What the Search sheet searches for to find `tag` (PLAN §8.3's ⌕): the tag itself if it's
-    /// one word, so its endings match as a word's do; otherwise its words as a quoted phrase, so
-    /// they're found together. A `"` in the tag would end the phrase, so it becomes a space.
-    public static func searchText(_ tag: String) -> String {
-        if SearchQuery(tag).keywords.count <= 1, !tag.contains("\"") { return tag }
-        return "\"" + tag.replacingOccurrences(of: "\"", with: " ") + "\""
+    /// What the Search sheet searches for to find `tag` (PLAN §8.3's ⌕); `nil` if it has no word
+    /// to search for. One word is searched as it is, so its endings match as a word's do. Words
+    /// in one sentence are a quoted phrase, so they're found together; words a sentence break
+    /// separates (`Mr. Smith`) can't be a phrase, so they're searched as separate words. A `"`
+    /// would start or end a phrase, so it becomes a space.
+    public static func searchText(_ tag: String) -> String? {
+        let tokens = SearchText.tokens(Array(tag.utf16))
+        guard let first = tokens.first else { return nil }
+        let words = tag.replacingOccurrences(of: "\"", with: " ")
+        let isPhrase = tokens.count > 1 && tokens.allSatisfy { $0.sentence == first.sentence }
+        return isPhrase ? "\"" + words + "\"" : words
     }
 }

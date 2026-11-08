@@ -21,12 +21,13 @@ public struct FilingDraft: Hashable, Sendable {
         filed = today
     }
 
-    /// Return in the tags field: the typed text becomes the last tag, unless it's empty or
-    /// already a tag. The field empties either way.
+    /// Return in the tags field: the typed text becomes the last tag, as the Tags tab's field
+    /// reads it (`SceneTag.typed`: trimmed, one leading `#` dropped), unless it's no tag or
+    /// already a tag in any case. The field empties either way.
     public mutating func commitPendingTag() {
-        let tag = pendingTag.trimmingCharacters(in: .whitespaces)
+        let tag = SceneTag.typed(pendingTag)
         pendingTag = ""
-        guard !tag.isEmpty, !tags.contains(tag) else { return }
+        guard let tag, !SceneTag.contains(tags, tag) else { return }
         tags.append(tag)
     }
 

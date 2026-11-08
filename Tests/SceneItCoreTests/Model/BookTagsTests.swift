@@ -98,7 +98,7 @@ private func entries(_ tags: BookTags) -> [String] {
     }
 
     @Test(arguments: [
-        ("#opening", "opening"), ("  #opening  ", "opening"), ("##opening", "opening"),
+        ("#opening", "opening"), ("  #opening  ", "opening"), ("##opening", "#opening"),
         ("# opening", "opening"),
         ("set piece", "set piece"), ("mid#hash", "mid#hash"), ("caf\u{00E9}", "cafe"),
         ("red\ndoor", "red door"),
@@ -107,7 +107,7 @@ private func entries(_ tags: BookTags) -> [String] {
         #expect(SceneTag.typed(typed) == tag)
     }
 
-    @Test(arguments: ["", "   ", "#", "# #"])
+    @Test(arguments: ["", "   ", "#", " #  "])
     func nothingLeftIsNoTag(typed: String) {
         #expect(SceneTag.typed(typed) == nil)
     }
@@ -117,12 +117,34 @@ private func entries(_ tags: BookTags) -> [String] {
         #expect(!SceneTag.contains(["Mara", "clue"], "Tomas"))
     }
 
-    /// The ⌕'s search: one word as it is; several as a phrase, so a `"` can't end it early.
+    /// A typed tag drops one `#`, as `book.md` reads a `tags:` item, so what's typed and what's
+    /// saved and read back agree.
+    @Test(arguments: ["#x", "##x", "x", "# x"])
+    func aTypedTagReadsAsTheFileWouldReadIt(typed: String) throws {
+        let tag = try #require(SceneTag.typed(typed))
+        let parsed = parse(
+            "---\ntitle: T\nformat: 2\n---\n\n## S\nid: s1\nmodified: 2026-01-01T00:00:00+00:00\n"
+                + "tags: \(typed.replacingOccurrences(of: "# ", with: "#"))\n\nBody.\n")
+        #expect(parsed.book.scenes.first?.tags == [tag])
+        var book = Book(title: "T", scenes: [scene("S", [tag])])
+        book.scenes[0].tags = [tag]
+        var ids = IDGenerator.system
+        let reread = BookFormat.parse(
+            try BookFormat.verifiedSerialization(of: book), opened: BookFormat.rereadTime, ids: &ids)
+        #expect(reread.book.scenes.first?.tags == [tag], "saved and read back")
+    }
+
+    /// The ⌕'s search: one word as it is; words in one sentence as a phrase, a `"` in them a
+    /// space; words a sentence break separates as words; and nothing for a tag with no word.
     @Test func theSearchForATag() {
         #expect(SceneTag.searchText("Mara") == "Mara")
         #expect(SceneTag.searchText("set piece") == "\"set piece\"")
         #expect(SceneTag.searchText("set-piece") == "\"set-piece\"")
         #expect(SceneTag.searchText("say \"hi\"") == "\"say  hi \"")
-        #expect(SearchQuery(SceneTag.searchText("set piece")).keywords == [.phrase(["set", "piece"])])
+        #expect(SceneTag.searchText("Mr. Smith") == "Mr. Smith")
+        #expect(SceneTag.searchText("!!") == nil)
+        #expect(SearchQuery(SceneTag.searchText("set piece") ?? "").keywords == [.phrase(["set", "piece"])])
+        #expect(
+            SearchQuery(SceneTag.searchText("Mr. Smith") ?? "").keywords.count == 2, "two words, no phrase")
     }
 }

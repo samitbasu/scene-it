@@ -27,28 +27,40 @@ private func tagged(_ scene: BookScene, _ tags: [String]) -> BookScene {
 @Suite(.serialized, .timeLimit(.minutes(2)))
 @MainActor
 struct TagsTabTests {
-    @Test func theFieldAddsATagWithoutItsHashInTheBooksSpellingAsAnUndoableStep() async throws {
+    /// Return adds the tag and keeps the focus in the field for the next (the owner); ⌘Z there
+    /// undoes the field's own typing, and on the page it undoes the tag.
+    @Test func theFieldAddsATagWithoutItsHashInTheBooksSpellingAndKeepsTheFocus() async throws {
         try await withTagsTab { harness, _ in
             let scene = try #require(harness.book.openScene)
             try harness.typeTag("#SET Piece")
             #expect(harness.tags() == ["opening", "Mara", "set piece"], "the book's spelling, no #")
-            #expect(try harness.tagField().stringValue.isEmpty, "Return empties the field")
-            #expect(harness.window.firstResponder === harness.page, "the focus goes to the page")
+            let field = try harness.tagField()
+            #expect(field.stringValue.isEmpty, "Return empties the field")
+            #expect(harness.fieldHasTheFocus(field), "the focus stays in the field")
             #expect(harness.book.pageUndo(for: scene).undoActionName == TagWording.addUndoName)
-            try await harness.expectUndoMenu(undo: TagWording.addUndoName, redo: nil)
+            try await harness.expectUndoMenu(undo: nil, redo: nil)
 
+            try harness.typeTag("  #storm ")
+            #expect(harness.tags() == ["opening", "Mara", "set piece", "storm"], "a second tag in a row")
+            let editor = try harness.typeInField("fo", field)
+            try harness.undo.undo()
+            #expect(editor.string.isEmpty, "Undo in the field takes back its typing")
+            #expect(harness.tags() == ["opening", "Mara", "set piece", "storm"], "and not a tag")
+
+            harness.focusPage(at: 0)
+            try await harness.expectUndoMenu(undo: TagWording.addUndoName, redo: nil)
+            try harness.undoOnThePage()
+            #expect(harness.tags() == ["opening", "Mara", "set piece"])
+            try await harness.expectUndoMenu(undo: TagWording.addUndoName, redo: TagWording.addUndoName)
             try harness.undoOnThePage()
             #expect(harness.tags() == ["opening", "Mara"])
             try await harness.expectUndoMenu(undo: nil, redo: TagWording.addUndoName)
             try harness.redoOnThePage()
             #expect(harness.tags() == ["opening", "Mara", "set piece"])
-            try await harness.expectUndoMenu(undo: TagWording.addUndoName, redo: nil)
 
-            try harness.typeTag("  #storm ")
-            #expect(harness.tags() == ["opening", "Mara", "set piece", "storm"], "a new tag as typed")
+            // Last: a test's stand-in for an event leaves an empty undo group where nothing changed.
             try harness.typeTag("mara")
-            #expect(harness.tags() == ["opening", "Mara", "set piece", "storm"], "the scene has it already")
-            #expect(try harness.tagField().stringValue.isEmpty)
+            #expect(harness.tags() == ["opening", "Mara", "set piece"], "the scene has it already")
         }
     }
 
@@ -63,12 +75,16 @@ struct TagsTabTests {
         }
     }
 
+    /// A chip's × leaves the focus where it was; on the page, Undo puts the tag back in place.
     @Test func aChipsCrossRemovesTheTagAndUndoPutsItBackInPlace() async throws {
         try await withTagsTab { harness, actions in
             let scene = try #require(harness.book.openScene)
+            let field = try harness.tagField()
+            _ = try harness.typeInField("", field)
             try harness.asAnEvent { #expect(actions.remove("opening", from: scene)) }
             #expect(harness.tags() == ["Mara"])
-            #expect(harness.window.firstResponder === harness.page)
+            #expect(harness.fieldHasTheFocus(field), "the focus didn't move")
+            harness.focusPage(at: 0)
             try await harness.expectUndoMenu(undo: TagWording.removeUndoName, redo: nil)
             try harness.undoOnThePage()
             #expect(harness.tags() == ["opening", "Mara"], "back where it was")
@@ -78,15 +94,18 @@ struct TagsTabTests {
         }
     }
 
-    /// A row adds a tag the scene hasn't (here one only the Boneyard uses) and removes one it has.
+    /// A row adds a tag the scene hasn't (here one only the Boneyard uses) and removes one it
+    /// has, leaving the focus on the page where it was.
     @Test func aRowTogglesItsTagOnTheOpenScene() async throws {
         try await withTagsTab { harness, actions in
             let scene = try #require(harness.book.openScene)
             try #require(
                 harness.book.tags.entries.contains { $0.tag == "Tomas" },
                 "precondition: the Boneyard's tag is listed")
+            harness.focusPage(at: 0)
             try harness.asAnEvent { #expect(actions.toggle("Tomas", on: scene)) }
             #expect(harness.tags() == ["opening", "Mara", "Tomas"])
+            #expect(harness.window.firstResponder === harness.page)
             try await harness.expectUndoMenu(undo: TagWording.addUndoName, redo: nil)
             try harness.asAnEvent { #expect(actions.toggle("Mara", on: scene)) }
             #expect(harness.tags() == ["opening", "Tomas"])
@@ -134,6 +153,8 @@ struct TagsTabTests {
         try await withTagsTab { harness, actions in
             harness.search.scope = .thisScene
             harness.search.set(.matchCase, .on)
+            actions.search("!?")
+            #expect(harness.modes.mode == .page, "a tag with no word has nothing to search for")
             actions.search("set piece")
             try await harness.expectSearching(for: "\"set piece\"", finding: [arrival.id])
         }
@@ -202,8 +223,12 @@ extension PageHarness {
 
     fileprivate func tagFieldIfShown() throws -> AdmittingTextField? {
         subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first {
-            $0.placeholderAttributedString?.string == TagWording.addPlaceholder
+            $0.placeholderString == TagWording.addPlaceholder
         }
+    }
+
+    fileprivate func fieldHasTheFocus(_ field: AdmittingTextField) -> Bool {
+        field.currentEditor() != nil && window.firstResponder === field.currentEditor()
     }
 
     fileprivate func tagField() throws -> AdmittingTextField {

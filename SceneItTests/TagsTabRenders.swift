@@ -5,11 +5,10 @@ import Testing
 
 @testable import SceneIt
 
-/// The Tags tab's candidates (#20) in the window at 100%, beside mockup 06, for the owner's look
-/// pick: candidate A is the mockup's look, B the alternatives (`TagsLook`). Each in the same
-/// states: the mockup's tags, a tag being typed, a scene with no tags, a long tag, many tags
-/// (scrolled to the top and to the end), and a read-only book. In a `tags/` subfolder, each
-/// with a `-panel@2x.png` close-up of the panel.
+/// The Tags tab (#20) as the owner picked its look, in the window at 100%, beside mockup 06: the
+/// mockup's tags, a tag being typed, a scene with no tags, a long tag, many tags (scrolled to the
+/// top and to the end), and a read-only book. In a `tags/` subfolder, each with a
+/// `-panel@2x.png` close-up of the panel.
 extension WindowRenders {
     static let tagsMockup = "06-tags-tab.png"
 
@@ -48,85 +47,62 @@ extension WindowRenders {
         return book
     }
 
-    private struct TagsCandidate {
-        let letter: String
-        let look: TagsLook
-        let summary: String
-    }
-
-    private static let tagsCandidates = [
-        TagsCandidate(
-            letter: "A", look: .a,
-            summary: "gray capsule chips, dashed + tag, tinted bold row, \u{2315} always"),
-        TagsCandidate(
-            letter: "B", look: .b,
-            summary: "accent token chips, rounded + tag field, check mark row, \u{2315} on hover"),
-    ]
-
     @Test func tagsTab() async throws {
         let output = try #require(renderFolder).appending(path: "tags", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let provisional = WindowMetrics.Tags.look
-        defer { WindowMetrics.Tags.look = provisional }
-        for candidate in Self.tagsCandidates {
-            WindowMetrics.Tags.look = candidate.look
-            @MainActor func state(
-                _ book: AppOpenBook, _ store: AppBookStore, _ preferences: AppPreferences, _ name: String,
-                _ caption: String, _ prepare: @escaping (NSWindow) async throws -> Void = { _ in }
-            ) async throws {
-                let window = BookWindow(
-                    book: book, store: store, preferences: preferences,
-                    formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
-                let renders = try await Self.render(window, in: KeyWindow.self, preparing: prepare)
-                let file = "tags-\(candidate.letter)-\(name)"
-                try Self.write(
-                    renders, name: file, caption: "\(candidate.letter): \(caption) (\(candidate.summary))",
-                    to: output, beside: Self.tagsMockup)
-                try Self.png(Self.closeUp(renders.double, Self.panelRect))
-                    .write(to: output.appending(path: "\(file)-panel@2x.png"))
-            }
+        @MainActor func state(
+            _ book: AppOpenBook, _ store: AppBookStore, _ preferences: AppPreferences, _ name: String,
+            _ caption: String, _ prepare: @escaping (NSWindow) async throws -> Void = { _ in }
+        ) async throws {
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences,
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
+            let renders = try await Self.render(window, in: KeyWindow.self, preparing: prepare)
+            let file = "final-tags-\(name)"
+            try Self.write(renders, name: file, caption: caption, to: output, beside: Self.tagsMockup)
+            try Self.png(Self.closeUp(renders.double, Self.panelRect))
+                .write(to: output.appending(path: "\(file)-panel@2x.png"))
+        }
 
-            try await withSampleBook(Self.taggedBook()) { store, book, preferences in
-                preferences.reveal(.tags)
-                defer { preferences.showRightPanelTab(.comments) }
-                try await state(book, store, preferences, "mockup", "The mockup's tags")
-                try await state(book, store, preferences, "typing", "Typing a tag") { window in
-                    let field = try #require(
-                        subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first {
-                            $0.placeholderAttributedString?.string == TagWording.addPlaceholder
-                        }, "precondition: the + tag field")
-                    window.makeFirstResponder(field)
-                    let editor = try #require(field.currentEditor() as? NSTextView)
-                    editor.insertText("isl", replacementRange: editor.selectedRange())
-                }
-                book.select(book.book.scenes[5].id)
-                try await state(book, store, preferences, "no-tags-on-scene", "A scene with no tags")
-                let ferry = try #require(book.book.scenes.first?.id)
-                book.select(ferry)
-                #expect(book.addTag(Self.longTag, to: ferry))
-                try await state(
-                    book, store, preferences, "long-tag", "A long tag truncates; its tooltip has it all")
+        try await withSampleBook(Self.taggedBook()) { store, book, preferences in
+            preferences.reveal(.tags)
+            defer { preferences.showRightPanelTab(.comments) }
+            try await state(book, store, preferences, "mockup", "The mockup's tags")
+            try await state(book, store, preferences, "typing", "Typing a tag") { window in
+                let field = try #require(
+                    subviewTree(of: window.contentView).compactMap { $0 as? AdmittingTextField }.first {
+                        $0.placeholderString == TagWording.addPlaceholder
+                    }, "precondition: the + tag field")
+                window.makeFirstResponder(field)
+                let editor = try #require(field.currentEditor() as? NSTextView)
+                editor.insertText("isl", replacementRange: editor.selectedRange())
             }
+            book.select(book.book.scenes[5].id)
+            try await state(book, store, preferences, "no-tags-on-scene", "A scene with no tags")
+            let ferry = try #require(book.book.scenes.first?.id)
+            book.select(ferry)
+            #expect(book.addTag(Self.longTag, to: ferry))
+            try await state(
+                book, store, preferences, "long-tag", "A long tag truncates; its tooltip has it all")
+        }
 
-            try await withSampleBook(Self.manyTaggedBook()) { store, book, preferences in
-                preferences.reveal(.tags)
-                defer { preferences.showRightPanelTab(.comments) }
-                try #require(book.tags.entries.count > 30, "precondition: more tags than fit")
-                try await state(book, store, preferences, "many-tags", "Many tags: the list scrolls")
-                try await state(book, store, preferences, "many-tags-end", "Many tags, scrolled to the end") {
-                    window in
-                    let list = try #require(Self.tagsList(in: window), "precondition: the list")
-                    list.documentView?.scroll(NSPoint(x: 0, y: list.documentView?.bounds.maxY ?? 0))
-                }
+        try await withSampleBook(Self.manyTaggedBook()) { store, book, preferences in
+            preferences.reveal(.tags)
+            defer { preferences.showRightPanelTab(.comments) }
+            try #require(book.tags.entries.count > 30, "precondition: more tags than fit")
+            try await state(book, store, preferences, "many-tags", "Many tags: the list scrolls")
+            try await state(book, store, preferences, "many-tags-end", "Many tags, scrolled to the end") {
+                window in
+                let list = try #require(Self.tagsList(in: window), "precondition: the list")
+                list.documentView?.scroll(NSPoint(x: 0, y: list.documentView?.bounds.maxY ?? 0))
             }
+        }
 
-            try await withReadOnlyBook(Self.taggedBook()) { store, book, preferences in
-                preferences.reveal(.tags)
-                defer { preferences.showRightPanelTab(.comments) }
-                try await state(
-                    book, store, preferences, "read-only",
-                    "Read-only: no \u{00D7}, no + tag, rows not clickable")
-            }
+        try await withReadOnlyBook(Self.taggedBook()) { store, book, preferences in
+            preferences.reveal(.tags)
+            defer { preferences.showRightPanelTab(.comments) }
+            try await state(
+                book, store, preferences, "read-only", "Read-only: no \u{00D7}, no + tag, rows not clickable")
         }
     }
 

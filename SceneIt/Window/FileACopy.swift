@@ -174,7 +174,9 @@ private struct TagEntry: View {
     var body: some View {
         ChipFlow(spacing: ChipSpacing(points: 5)) {
             ForEach(draft.tags, id: \.self) { tag in
-                TagChip(tag: tag) { draft.remove(tag) }
+                TagChip(
+                    label: tag,
+                    remove: TagChip.Removal(label: ArchiveWording.removeTag(tag)) { draft.remove(tag) })
             }
             TagTextField(draft: $draft)
                 .frame(minWidth: 150)
@@ -185,26 +187,6 @@ private struct TagEntry: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
-    }
-}
-
-private struct TagChip: View {
-    let tag: String
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Text(tag).font(.callout).lineLimit(1)
-            Button(action: remove) {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(ArchiveWording.removeTag(tag))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
-        .background(Color.secondary.opacity(0.14), in: Capsule())
     }
 }
 
