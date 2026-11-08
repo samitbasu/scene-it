@@ -502,7 +502,7 @@ main window from any other.
 nested run loop until `reply(toApplicationShouldTerminate:)`. The reply comes from a main-actor
 `Task`, and the main actor is the main queue, which isn't drained while the job that called
 `terminate` is still on the stack. Call `terminate` straight from a button's action or a store
-operation and the app hangs. So `AppRequests.send(.quit)` schedules it with
+operation and the app hangs. So `AppRequests.quit(whenOver:)` schedules it with
 `perform(_:with:afterDelay: 0)`: a run-loop source, which fires once the current job has
 returned. (A Rust analogy: calling `block_on` from inside the executor's own task.)
 

@@ -28,6 +28,18 @@ private func mainWindow() -> NSWindow? {
 private let quitCarriedOut = RecordedRequests.Carried(request: .quit, storeWasBusy: false)
 
 extension BookController {
+    /// Runs `body`; if it throws with a quit still under way, plays the quit path to its end as
+    /// AppKit would, so a test that fails part-way can't leave the shared controller quitting.
+    @MainActor
+    fileprivate func settlingQuits(_ body: () async throws -> Void) async throws {
+        do {
+            try await body()
+        } catch {
+            if isQuitUnderWay { _ = await settleQuit() }
+            throw error
+        }
+    }
+
     /// Waits for the run-loop source that carries out a quit.
     @MainActor
     fileprivate func quitCarriedOut() async -> [RecordedRequests.Carried] {
@@ -85,7 +97,7 @@ private final class HoldingPrompts: StorePrompts {
 }
 
 /// ADR 0038 through the app's own menus and window: one book at a time; Close Book returns to
-/// the start screen; closing the start screen quits.
+/// the start screen; the window's red close button quits (#130).
 extension BookStoreIntegrationTests {
     @Test func newAndOpenAreOfferedOnlyOnTheStartScreenAndSaveOnlyWithABook() async throws {
         try await withTemporaryFolder { folder in
@@ -149,66 +161,153 @@ extension BookStoreIntegrationTests {
     /// carried out a run-loop turn after the click, however many clicks; the book stays open
     /// until that path runs, then is saved and released there.
     @Test func theCloseButtonWithABookOpenQuitsThroughTheQuitPath() async throws {
-        try await withTemporaryFolder { folder in
-            let books = BookController.shared
-            _ = books.takeRequests()
-            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
-            #expect(await books.store.create(at: url) == .created)
-            let book = try #require(books.store.current)
-            let scene = try #require(book.addScene(after: nil))
-            book.replaceBody(of: scene, with: [[Run("Typed just before quitting")]])
-            await eventually { mainWindow() != nil }
-            let window = try #require(mainWindow())
-            let button = try #require(window.standardWindowButton(.closeButton))
-            try #require(
-                button.target is MainWindowCloseButton.Router,
-                "precondition: routed, so the click can't close the window")
+        let books = BookController.shared
+        try await books.settlingQuits {
+            try await withTemporaryFolder { folder in
+                _ = books.takeRequests()
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await books.store.create(at: url) == .created)
+                let book = try #require(books.store.current)
+                let scene = try #require(book.addScene(after: nil))
+                await eventually { book.status == .saved }
+                book.replaceBody(of: scene, with: [[Run("Typed just before quitting")]])
+                await eventually { mainWindow() != nil }
+                let window = try #require(mainWindow())
+                let button = try #require(window.standardWindowButton(.closeButton))
+                try #require(
+                    button.target is MainWindowCloseButton.Router,
+                    "precondition: routed, so the click can't close the window")
 
-            button.performClick(nil)
-            button.performClick(nil)
-            #expect(books.takeRequests() == [], "not carried out in the click's turn")
+                button.performClick(nil)
+                button.performClick(nil)
+                #expect(books.takeRequests() == [], "not carried out in the click's turn")
 
-            #expect(await books.quitCarriedOut() == [quitCarriedOut])
-            #expect(books.store.current === book, "the book stays open until the quit path runs")
-            #expect(window.isVisible)
-            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing, "⌘W waits for the quit")
+                #expect(await books.quitCarriedOut() == [quitCarriedOut])
+                #expect(books.store.current === book, "the book stays open until the quit path runs")
+                #expect(window.isVisible)
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing, "⌘W waits for the quit")
 
-            #expect(await books.settleQuit() == .left, "the quit path, as applicationShouldTerminate runs it")
-            #expect(book.status == .closed)
-            #expect(try bookOnDisk(url) == book.book, "saved first")
-            try await Task.sleep(for: .milliseconds(100))
-            #expect(books.takeRequests() == [], "the second click asked for nothing")
-            expectNoQuestions()
+                // Autosave waits 2 s after the last edit (AutosavePolicy.idleDelay); the app's
+                // controller has no clock to hold, so the precondition is checked here, just
+                // before the quit path runs, with no suspension in between.
+                try #require(book.status == .unsaved, "precondition: autosave hasn't saved the edit")
+                try #require(try bookOnDisk(url) != book.book, "precondition: the edit isn't on disk yet")
+                #expect(
+                    await books.settleQuit() == .left, "the quit path, as applicationShouldTerminate runs it")
+                #expect(book.status == .closed)
+                #expect(try bookOnDisk(url) == book.book, "saved first")
+                try await Task.sleep(for: .milliseconds(100))
+                #expect(books.takeRequests() == [], "the second click asked for nothing")
+                expectNoQuestions()
+            }
         }
     }
 
     /// Quit's Cancel, after the red button, keeps the book open and editable, and leaves the
     /// next press to be decided afresh.
     @Test func cancelInTheQuitPromptAfterTheCloseButtonKeepsTheBookOpen() async throws {
+        let books = BookController.shared
+        try await books.settlingQuits {
+            try await withTemporaryFolder { folder in
+                let headless = try #require(books.prompts as? HeadlessPrompts)
+                _ = books.takeRequests()
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await books.store.create(at: url) == .created)
+                let book = try #require(books.store.current)
+                var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+                draft.note = "Before the ending"
+                book.filingDraft = draft
+
+                #expect(books.press(.closeButton) == nil, "a quit has nothing to wait for here")
+                #expect(await books.quitCarriedOut() == [quitCarriedOut])
+                #expect(await books.settleQuit() == .stayed)
+
+                #expect(headless.takeTitles() == ["Quit without filing the copy?"])
+                #expect(books.store.current === book)
+                #expect(book.isEditable)
+                #expect(books.closeAction(from: .closeButton) == .quit, "ready for the next press")
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
+                book.filingDraft = nil
+                #expect(await books.store.closeBook() == .left)
+                expectNoQuestions()
+            }
+        }
+    }
+
+    /// A close held at its question, then a quit queued behind it (⌘Q while Close Book asks):
+    /// the close's Cancel doesn't end the quit. A red press during the quit does nothing, and
+    /// once the quit is cancelled too, presses are decided afresh.
+    @Test func aCancelledCloseLeavesAQuitQueuedBehindItUnderWay() async throws {
         try await withTemporaryFolder { folder in
-            let books = BookController.shared
-            let headless = try #require(books.prompts as? HeadlessPrompts)
-            _ = books.takeRequests()
+            let prompts = HoldingPrompts()
+            let books = BookController(role: .testHost, prompts: prompts)
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
-            let book = try #require(books.store.current)
             var draft = FilingDraft(today: CalendarDay(.now, in: .current))
             draft.note = "Before the ending"
-            book.filingDraft = draft
+            books.store.current?.filingDraft = draft
 
-            books.press(.closeButton)
-            #expect(await books.quitCarriedOut() == [quitCarriedOut])
-            #expect(await books.settleQuit() == .stayed)
+            let closing = try #require(books.press(.menu(keyWindow: nil)))
+            await eventually { prompts.titles == ["Close without filing the copy?"] }
+            let quitting = Task { await books.settleQuit() }
+            await eventually { books.isQuitUnderWay }
+            prompts.answer(UnfiledDraftChoice.cancel)
+            await closing.value
 
-            #expect(headless.takeTitles() == ["Quit without filing the copy?"])
-            #expect(books.store.current === book)
-            #expect(book.isEditable)
-            #expect(books.closeAction(from: .closeButton) == .quit, "ready for the next press")
-            #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
-            book.filingDraft = nil
+            #expect(books.isQuitUnderWay, "the close cleared only its own")
+            #expect(books.closeAction(from: .closeButton) == .nothing)
+            #expect(books.press(.closeButton) == nil)
+            await eventually { prompts.titles.count == 2 }
+            #expect(prompts.titles.last == "Quit without filing the copy?")
+            prompts.answer(UnfiledDraftChoice.cancel)
+            #expect(await quitting.value == .stayed)
+
+            #expect(!books.isQuitUnderWay)
+            #expect(books.closeAction(from: .closeButton) == .quit)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "the red press during the quit asked for nothing")
+            books.store.current?.filingDraft = nil
             #expect(await books.store.closeBook() == .left)
-            expectNoQuestions()
         }
+    }
+
+    /// A click decided as a quit just before Quit reached `applicationShouldTerminate` leaves a
+    /// quit waiting for its run-loop source; the quit path drops it as it ends, so it can't
+    /// start a second quit after the writer's Cancel.
+    @Test func aQuitQueuedBeforeTheQuitPathIsDroppedWhenItEnds() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+            books.store.current?.filingDraft = draft
+
+            #expect(books.press(.closeButton) == nil)
+            #expect(await books.settleQuit() == .stayed, "Cancel, the headless default")
+
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "the queued quit never ran")
+            #expect(books.closeAction(from: .closeButton) == .quit)
+            books.store.current?.filingDraft = nil
+            #expect(await books.store.closeBook() == .left)
+        }
+    }
+
+    /// If AppKit's `terminate` returns without the quit path running (AppKit never asked
+    /// `applicationShouldTerminate`), the quit's backstop ends it, so presses work again.
+    @Test func aQuitThatTerminateReturnsFromIsOver() async throws {
+        let requests = AppRequests(carryOut: { _ in .over })
+        var over = 0
+        requests.quit { over += 1 }
+        #expect(over == 0, "not in the sender's turn")
+        await eventually { over == 1 }
+
+        let recorded = AppRequests(carryOut: { _ in .leftToTheTest })
+        var stillPending = 0
+        recorded.quit { stillPending += 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(stillPending == 0, "the test host's quit is the test's to settle")
     }
 
     /// The start screen's close button quits, through AppKit's quit, started from a run-loop
@@ -216,30 +315,34 @@ extension BookStoreIntegrationTests {
     /// the quit path.
     @Test func theStartScreensCloseButtonQuitsFromTheRunLoop() async throws {
         let books = BookController.shared
-        _ = books.takeRequests()
-        try #require(books.store.isChoosing, "precondition: the start screen")
-        await eventually { mainWindow() != nil }
-        let button = try #require(mainWindow()?.standardWindowButton(.closeButton))
+        try await books.settlingQuits {
+            _ = books.takeRequests()
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            await eventually { mainWindow() != nil }
+            let button = try #require(mainWindow()?.standardWindowButton(.closeButton))
 
-        button.performClick(nil)
-        #expect(books.takeRequests() == [], "not carried out in the click's turn")
+            button.performClick(nil)
+            #expect(books.takeRequests() == [], "not carried out in the click's turn")
 
-        #expect(await books.quitCarriedOut() == [quitCarriedOut])
-        #expect(mainWindow()?.isVisible == true, "the window stays until the quit goes through")
-        #expect(await books.settleQuit() == .left)
+            #expect(await books.quitCarriedOut() == [quitCarriedOut])
+            #expect(mainWindow()?.isVisible == true, "the window stays until the quit goes through")
+            #expect(await books.settleQuit() == .left)
+        }
     }
 
     @Test func commandWOnTheStartScreenQuits() async throws {
         let books = BookController.shared
-        _ = books.takeRequests()
-        try #require(books.store.isChoosing, "precondition: the start screen")
-        let item = try #require(fileItem(OneBookWording.startScreenCloseMenuItem))
+        try await books.settlingQuits {
+            _ = books.takeRequests()
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let item = try #require(fileItem(OneBookWording.startScreenCloseMenuItem))
 
-        try perform(item)
+            try perform(item)
 
-        #expect(await books.quitCarriedOut() == [quitCarriedOut])
-        #expect(await books.settleQuit() == .left)
-        expectNoQuestions()
+            #expect(await books.quitCarriedOut() == [quitCarriedOut])
+            #expect(await books.settleQuit() == .left)
+            expectNoQuestions()
+        }
     }
 
     @Test func theMainWindowsCloseButtonIsRoutedToTheApp() async throws {
@@ -298,8 +401,8 @@ extension BookStoreIntegrationTests {
 
             let first = books.press(.menu(keyWindow: nil))
             let second = books.press(.menu(keyWindow: nil))
-            await first.value
-            await second.value
+            await first?.value
+            await second?.value
 
             #expect(books.store.isChoosing, "the start screen shows")
             #expect(book.status == .closed)
@@ -329,17 +432,17 @@ extension BookStoreIntegrationTests {
             }
             #expect(books.closeAction(from: .closeButton) == .nothing)
             #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing)
-            await books.press(.closeButton).value
-            await books.press(.menu(keyWindow: nil)).value
+            await books.press(.closeButton)?.value
+            await books.press(.menu(keyWindow: nil))?.value
             prompts.answer(UnfiledDraftChoice.leaveAnyway)
-            await closing.value
+            await closing?.value
 
             #expect(books.store.isChoosing)
             try await Task.sleep(for: .milliseconds(100))
             #expect(books.takeRequests() == [], "the ignored presses quit nothing")
             #expect(prompts.titles == ["Close without filing the copy?"], "asked once")
 
-            await books.press(.closeButton).value
+            await books.press(.closeButton)?.value
             #expect(
                 await books.quitCarriedOut() == [quitCarriedOut], "a fresh press on the start screen quits")
             #expect(await books.settleQuit() == .left)
@@ -364,7 +467,7 @@ extension BookStoreIntegrationTests {
             #expect(!books.canStartFiling)
             #expect(books.store.openBook == nil && books.store.current != nil, "closing, still shown")
             prompts.answer(UnfiledDraftChoice.cancel)
-            await closing.value
+            await closing?.value
             #expect(books.canStartFiling, "offered again after Cancel")
 
             let repairing = HoldingPrompts()
@@ -388,7 +491,7 @@ extension BookStoreIntegrationTests {
             await eventually { repairing.titles.count == 2 }
             #expect(!other.canMakeEditable)
             repairing.answer(UnfiledDraftChoice.leaveAnyway)
-            await closingRepaired.value
+            await closingRepaired?.value
 
             books.store.current?.filingDraft = nil
             #expect(await books.store.closeBook() == .left)
@@ -422,8 +525,8 @@ extension BookStoreIntegrationTests {
             prompts.answer(ExternalChangeChoice.keepMyVersion)
             await eventually { prompts.titles.count == 2 }
             prompts.answer(UnfiledDraftChoice.cancel)
-            await first.value
-            await second.value
+            await first?.value
+            await second?.value
 
             #expect(prompts.titles == [QuitWording.changedOnDiskTitle, "Close without filing the copy?"])
             #expect(books.store.current === book, "Cancel kept the book open")
@@ -449,7 +552,7 @@ extension BookStoreIntegrationTests {
             defer { other.close() }
             try #require(other.isVisible, "precondition: on screen")
 
-            await books.press(.menu(keyWindow: other)).value
+            await books.press(.menu(keyWindow: other))?.value
 
             #expect(!other.isVisible, "closed")
             #expect(books.store.current === book, "the book stays open")
