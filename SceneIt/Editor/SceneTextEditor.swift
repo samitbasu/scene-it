@@ -239,16 +239,37 @@ final class SceneTextEditor: NSObject {
     /// a change of attributes then grows that edit's range, and the view puts the caret at the
     /// end of it.
     func restyleEditedParagraphs() {
+        restyleEditedParagraphs(.first)
+    }
+
+    /// Whether edited paragraphs are waiting to be restyled.
+    var restyleIsPending: Bool {
+        paragraphsToRestyle != nil
+    }
+
+    private enum RestyleAttempt {
+        case first, last
+    }
+
+    private func restyleEditedParagraphs(_ attempt: RestyleAttempt) {
         guard storageEdit == .byTheView, let range = paragraphsToRestyle, let storage = textView?.textStorage
         else { return }
+        // Inside an open batch of edits the pending range hasn't moved with them yet, either.
         guard storage.editedMask.isEmpty else {
-            restyleOnTheNextTurn()
+            switch attempt {
+            case .first:
+                restyleOnTheNextTurn(.last)
+            case .last:
+                Log.editor.error(
+                    "an edit of the storage stayed open; its paragraphs keep their old style",
+                    ["part": .symbol(part.logName)])
+                paragraphsToRestyle = nil
+            }
             return
         }
         paragraphsToRestyle = nil
-        let previous = storageEdit
         storageEdit = .restyling
-        defer { storageEdit = previous }
+        defer { storageEdit = .byTheView }
         storage.beginEditing()
         role.styleParagraphs(of: storage, around: range.clamped(toLength: storage.length))
         storage.endEditing()
@@ -262,7 +283,7 @@ final class SceneTextEditor: NSObject {
             location: edited.location, length: min(edited.length + 1, storage.length - edited.location))
         guard let waiting = paragraphsToRestyle else {
             paragraphsToRestyle = touched
-            restyleOnTheNextTurn()
+            restyleOnTheNextTurn(.first)
             return
         }
         let waitingEnd =
@@ -275,8 +296,8 @@ final class SceneTextEditor: NSObject {
 
     /// The view's `didChangeText` restyles as an edit ends; this is for an edit that never
     /// reaches it.
-    private func restyleOnTheNextTurn() {
-        DispatchQueue.main.async { [weak self] in self?.restyleEditedParagraphs() }
+    private func restyleOnTheNextTurn(_ attempt: RestyleAttempt) {
+        DispatchQueue.main.async { [weak self] in self?.restyleEditedParagraphs(attempt) }
     }
 
     enum UndoClearing {

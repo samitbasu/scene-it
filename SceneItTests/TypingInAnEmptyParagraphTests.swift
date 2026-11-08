@@ -170,26 +170,47 @@ struct TypingInAnEmptyParagraphTests {
             page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
             #expect(page.body() == [[Run("Ert")], [], [Run("I saw the cat")]])
             #expect(!page.pageMirrorsModel, "precondition: the break keeps the style of text")
-            try await Task.sleep(for: .milliseconds(50))
+            await afterTheMainQueue()
             #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .empty))
             #expect(page.pageMirrorsModel)
         }
     }
 
+    /// What the outer edit's processing sees, had the restyle joined it: its edited range grown
+    /// over the restyled paragraph.
     @Test func aRestyleAskedForInsideAnotherEditWaitsForTheNextTurn() async throws {
         try await withPage([scene("One", [[Run("Ert")], [Run("C")], [Run("I saw the cat")]])]) { page in
             page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
+            let end = page.storage.length
+            let processed = ProcessedEdits(of: page.storage)
             page.storage.beginEditing()
-            page.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: typed("X"))
+            page.storage.replaceCharacters(in: NSRange(location: end, length: 0), with: typed("X"))
             page.page.didChangeText()
             page.storage.endEditing()
-            #expect(page.storage.string == "XErt\n\nI saw the cat")
+            #expect(page.storage.string == "Ert\n\nI saw the catX")
+            #expect(processed.ranges == [NSRange(location: end, length: 1)], "the outer edit didn't grow")
             #expect(
-                paragraphStyle(of: page, at: 5) == ParagraphRole.body.paragraphStyle(for: .text),
+                paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .text),
                 "not restyled inside the outer edit")
-            try await Task.sleep(for: .milliseconds(50))
-            #expect(paragraphStyle(of: page, at: 5) == ParagraphRole.body.paragraphStyle(for: .empty))
+            await afterTheMainQueue()
+            #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .empty))
             #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func aRestyleIsDroppedIfAnEditStaysOpenForTwoTurns() async throws {
+        try await withPage([scene("One", [[Run("Ert")], [Run("C")], [Run("I saw the cat")]])]) { page in
+            let editor = try #require(page.page.editor)
+            page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
+            #expect(editor.restyleIsPending, "precondition")
+            page.storage.beginEditing()
+            page.storage.replaceCharacters(
+                in: NSRange(location: page.storage.length, length: 0), with: typed("X"))
+            await afterTheMainQueue()
+            await afterTheMainQueue()
+            #expect(!editor.restyleIsPending, "it tried again on the next turn, then gave up")
+            page.storage.endEditing()
+            #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .text))
         }
     }
 
@@ -199,17 +220,40 @@ struct TypingInAnEmptyParagraphTests {
         let short = scene("Two", [[Run("Hi.")]])
         try await withPage([long, short]) { page in
             page.storage.replaceCharacters(in: NSRange(location: 24, length: 1), with: typed(""))
-            #expect(!page.pageMirrorsModel, "precondition: a restyle is pending")
-            page.book.select(short.id)
             let editor = try #require(page.page.editor)
+            #expect(editor.restyleIsPending, "precondition")
+            page.book.select(short.id)
             editor.show(short.id, .editable)
             #expect(page.storage.string == "Hi.")
-            try await Task.sleep(for: .milliseconds(50))
+            #expect(!editor.restyleIsPending)
+            await afterTheMainQueue()
             #expect(page.storage.string == "Hi.")
             #expect(page.pageMirrorsModel)
             #expect(page.body(long.id)[1] == [])
             #expect(page.body(short.id) == short.body)
         }
+    }
+}
+
+/// The edited ranges a storage's processing sees, from when this is made.
+@MainActor private final class ProcessedEdits {
+    private(set) var ranges: [NSRange] = []
+    private var observer: NSObjectProtocol?
+
+    init(of storage: NSTextStorage) {
+        observer = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+        ) { [weak self] note in
+            // Posted synchronously, from the storage's processing on the main thread.
+            nonisolated(unsafe) let note = note
+            MainActor.assumeIsolated {
+                if let storage = note.object as? NSTextStorage { self?.ranges.append(storage.editedRange) }
+            }
+        }
+    }
+
+    isolated deinit {
+        observer.map(NotificationCenter.default.removeObserver)
     }
 }
 

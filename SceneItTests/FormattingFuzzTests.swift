@@ -264,7 +264,7 @@ private struct SplitMix: RandomNumberGenerator {
 /// makes around each event.
 @MainActor
 func inAnEvent(_ undo: UndoManager, _ body: @escaping @MainActor () -> Void) async {
-    await fromTheRunLoop {
+    await onTheRunLoop {
         undo.groupsByEvent = false
         undo.beginUndoGrouping()
         body()
@@ -279,20 +279,10 @@ enum UndoDirection {
 
 @MainActor
 func undoInAnEvent(_ undo: UndoManager, _ direction: UndoDirection = .undo) async {
-    await fromTheRunLoop {
+    await onTheRunLoop {
         switch direction {
         case .undo: undo.undo()
         case .redo: undo.redo()
-        }
-    }
-}
-
-@MainActor
-private func fromTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
-    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-        RunLoop.main.perform {
-            MainActor.assumeIsolated(body)
-            done.resume()
         }
     }
 }
