@@ -313,6 +313,11 @@ refusal (`refusal`), new-book refusal (`create-refusal`), lost-book (`book-lost`
 (`several-books`) alerts. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to render
 only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
 
+`fixField` renders the Errors tab's fix field (#127, `FixFieldRenders.swift`) into a `fix-field/`
+subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` it was, above the
+`AdmittingTextField` it is now, holding the same long line at the panel's width, then both empty with their
+placeholder. To render only this, add `-only-testing:SceneItTests/WindowRenders/fixField\(\)`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile

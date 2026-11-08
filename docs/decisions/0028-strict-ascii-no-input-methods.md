@@ -47,5 +47,23 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   plain text instead), so marked text can't arise. Writing Tools is off on them too (`writingToolsBehavior` is always
   `.none`): it rewrites text through paths the veto might not see. The page and the title both veto a change the policy
   would alter and make the admitted one instead, as one undoable change; the page also reloads from the model if any edit
-  ever leaves a character the policy doesn't admit. The Errors tab's fix field (a SwiftUI `TextField`) keeps its input method:
-  what it holds is admitted when the fix is applied.
+  ever leaves a character the policy doesn't admit. The Errors tab's fix field was a SwiftUI `TextField` that kept its input
+  method until #127, which made it an `AdmittingTextField`: its line goes into the manuscript, so it's typed as the
+  manuscript is, with no input method and only the characters the policy admits.
+- **Automatic text changes start off; the writer switches them (#127).** The owner saw the page change a word being typed.
+  AppKit's automatic changes (spelling correction, text replacement, completion, inline prediction, capitalization, a
+  period for a double space) now start off the macOS way: at launch the app registers them off in the user-defaults
+  registration domain (`AutomaticTextChanges.startingValues`), which is never saved, and the writer turns each on or off
+  from the Edit menu's Spelling and Substitutions submenus or a text view's context menu, which AppKit remembers in the
+  app's own defaults. No editor sets them itself, so a writer's choice survives editors being rebuilt. System Settings'
+  own choices (Keyboard > Text Input) outrank the registration too. The keys, found in AppKit and checked in the
+  test host: registered off, `NSAutomaticSpellingCorrectionEnabled` turns a new text view's correction off, and
+  `NSAutomaticTextCompletionEnabled` and `NSAutomaticInlinePredictionEnabled` turn the spelling checker's switches
+  off. `NSAutomaticCapitalizationEnabled` and `NSAutomaticPeriodSubstitutionEnabled` are registered too, but on the
+  owner's Mac System Settings sets both, which outranks them, so their effect wasn't seen. Text replacement has no key
+  the registration reaches (`NSAutomaticTextReplacementEnabled` had no effect), so it starts as macOS has it, on; so
+  does smart copy/paste, which has no key. Smart quotes and dashes and link and data detection stay off on every
+  editor (`SceneTextView.configure`), as before: the policy would spell quotes and dashes in ASCII again.
+  *History:* first the editors held every automatic change off for good, with hidden menu items and overridden
+  switches (PR #128). The owner rejected that as fighting the OS ("The user can toggle spelling and substitutions
+  themselves from the right click menu") and chose the standard menus with off-to-start values.
