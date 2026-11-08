@@ -129,6 +129,36 @@ extension BookStoreIntegrationTests {
             await eventually { toolbarItem()?.isEnabled == true }
             #expect(toolbarItem()?.isEnabled == true)
             #expect(await books.store.closeBook() == .left)
+            await eventually { toolbarItem()?.isEnabled == false }
+            #expect(toolbarItem()?.isEnabled == false, "on the start screen it's disabled")
+            expectNoQuestions()
+        }
+    }
+
+    /// Closing the book takes the window's Esc fallback out of its responder chain.
+    @Test func closingTheBookLeavesNoEscapeResponderInTheChain() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
+            let (window, _) = try await openBook(at: url, in: books)
+            @MainActor func fallbacks() -> Int {
+                var count = 0
+                var responder: NSResponder? = window
+                while let current = responder {
+                    if current is WindowEscapeFallback.EscapeResponder { count += 1 }
+                    responder = current.nextResponder
+                }
+                return count
+            }
+            await eventually { fallbacks() == 1 }
+            #expect(fallbacks() == 1, "precondition: the open book's window has one")
+
+            #expect(await books.store.closeBook() == .left)
+            await eventually { fallbacks() == 0 }
+            #expect(fallbacks() == 0, "none is left behind")
             expectNoQuestions()
         }
     }

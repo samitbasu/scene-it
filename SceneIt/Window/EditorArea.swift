@@ -235,7 +235,7 @@ private struct TitleTextField: NSViewRepresentable {
             case #selector(NSResponder.insertBacktab(_:)):
                 return keys?.tab(.backward, from: .page) ?? false
             case #selector(NSResponder.cancelOperation(_:)):
-                return keys?.escape() == .handled
+                return keys?.escape(from: .focusedView) == .handled
             default:
                 return false
             }

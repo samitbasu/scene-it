@@ -72,7 +72,7 @@ struct CommentsTab: View {
                     return keys.tab(direction, from: .panel) ? .handled : .ignored
                 }
                 .onKeyPress(.escape) {
-                    keys?.escapeAfterThisKey() == .handled ? .handled : .ignored
+                    keys?.escapeAfterThisKey(from: .focusedView) == .handled ? .handled : .ignored
                 }
                 .help(CommentWording.searchHelp)
                 .overlay(alignment: .trailing) {
@@ -487,7 +487,7 @@ final class CommentTextView: AdmittingTextView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if keys?.escape() != .handled { finishEditing() }
+        if keys?.escape(from: .focusedView) != .handled { finishEditing() }
     }
 
     /// Ends the edit under way, the focus going back to the page.

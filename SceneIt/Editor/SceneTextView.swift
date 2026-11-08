@@ -294,7 +294,11 @@ class SceneTextView: KeyboardTextView {
     /// Esc goes to the window first. Neither `NSTextView` nor `NSResponder` implements
     /// `cancelOperation(_:)`, so it's caught here, where the text view's own Esc still follows.
     override func doCommand(by selector: Selector) {
-        if selector == #selector(NSResponder.cancelOperation(_:)), keys?.escape() == .handled { return }
+        if selector == #selector(NSResponder.cancelOperation(_:)),
+            keys?.escape(from: .focusedView) == .handled
+        {
+            return
+        }
         super.doCommand(by: selector)
     }
 

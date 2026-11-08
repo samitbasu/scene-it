@@ -91,7 +91,8 @@ equals `allCases`. In Rust you'd reach for the same shape: a `#[derive(PartialOr
 The window's `WindowKeys` is the only thing that *acts* on the result:
 
 ```swift
-switch EscapeLayer.escape(in: escapeContext) {
+lastEscape = (entrance, result)
+switch result {
 case .passOn:
     return .passedOn
 case .hold:
@@ -100,7 +101,15 @@ case .close(.popover):
     popover = nil
 ```
 
-Then every place Esc can arrive calls `escape()`, and only falls back to its own meaning when
+(`lastEscape` records where each Esc came in and what it did, so the tests can prove it was the
+resolver, not some other path, that closed a dialog.)
+
+The same goes for File a Copy's dialog: the model is the only authority over it. The sheet is
+presented while a draft exists, and the binding SwiftUI is given ignores what SwiftUI writes back
+(`set: { _ in }`), so nothing SwiftUI does on its own (a dismissal, a presentation race) can drop
+what the writer typed. Only Cancel, Esc through the resolver, and a filed copy end a draft.
+
+Then every place Esc can arrive calls `escape(from:)` (saying where it came in), and only falls back to its own meaning when
 told `.passedOn`:
 
 | Where the focus is | How Esc arrives | Fallback |
@@ -127,7 +136,7 @@ one level up instead:
 
 ```swift
 override func doCommand(by selector: Selector) {
-    if selector == #selector(NSResponder.cancelOperation(_:)), keys?.escape() == .handled { return }
+    if selector == #selector(NSResponder.cancelOperation(_:)), keys?.escape(from: .focusedView) == .handled { return }
     super.doCommand(by: selector)
 }
 ```
@@ -140,7 +149,7 @@ window itself can be the first responder. Then no view hears Esc, and before thi
 the writer could be stuck in focus mode. AppKit hands a key that nothing took along the responder
 chain, view, superview, …, window, and on to whatever follows the window. So
 `WindowEscapeFallback` puts one small `NSResponder` at the *end* of that chain, whose `keyDown`
-asks `escape()`. A view that handles Esc never passes the key on, so Esc is never handled twice.
+asks `escape(from: .window)`. A view that handles Esc never passes the key on, so Esc is never handled twice.
 It goes at the end, not straight after the window: the first try put it straight after, and
 SwiftUI's own focus and popovers stopped working in the tests, because SwiftUI keeps responders of
 its own there. In Rust terms, the chain is a linked list of `&mut dyn Responder`, and we appended

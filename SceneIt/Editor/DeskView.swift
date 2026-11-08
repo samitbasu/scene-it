@@ -100,6 +100,17 @@ final class DeskView: NSScrollView {
         routeFindFieldKeys()
     }
 
+    /// Whether the find bar's field sends its Tab and Esc to the window's keys.
+    var findFieldRoutesKeys: Bool {
+        findField?.delegate is FindFieldKeys
+    }
+
+    /// The find bar's field may be built after it shows; laying out the bar finds it.
+    override func tile() {
+        super.tile()
+        routeFindFieldKeys()
+    }
+
     var findField: NSSearchField? {
         guard isFindBarVisible, let bar = findBarView else { return nil }
         func fields(in view: NSView) -> [NSSearchField] {
@@ -122,7 +133,7 @@ final class DeskView: NSScrollView {
             guard let keys = self?.keys else { return false }
             switch key {
             case .tab(let direction): return keys.tab(direction, from: .searchField)
-            case .escape: return keys.escape() == .handled
+            case .escape: return keys.escape(from: .focusedView) == .handled
             }
         }
         findFieldKeys = routed

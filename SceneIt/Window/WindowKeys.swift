@@ -2,13 +2,14 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// One window's Esc and Tab (PLAN §8.4). `escape()` closes what `EscapeLayer` says, and
+/// One window's Esc and Tab (PLAN §8.4). `escape(from:)` closes what `EscapeLayer` says, and
 /// `tab(_:from:)` tries the stops in `TabStop`'s order, so each order is in one place.
 ///
-/// Every Esc in the window asks `escape()` first: the page, the notes and the title; comment
+/// Every Esc in the window asks `escape(from:)` first: the page, the notes and the title; comment
 /// cards, Comments' search field and the Errors tab; the page's find bar field; and `EscapeKey`
-/// in the sheets, File a Copy's dialog and the palettes. The one exception is the notes' own find
-/// bar, whose Esc stays AppKit's: it closes that bar.
+/// in the sheets, File a Copy's dialog and the palettes; and, when no view took it, the window
+/// itself (`WindowEscapeFallback`). The one exception is the notes' own find bar, whose Esc stays
+/// AppKit's: it closes that bar.
 @MainActor
 @Observable
 final class WindowKeys {
@@ -39,10 +40,36 @@ final class WindowKeys {
     }
 
     /// Closes what Esc closes now, or says there's nothing, so the focused view's own Esc applies.
-    /// `focus` is where the focus was when the key came, if that was recorded earlier.
     @discardableResult
-    func escape(restoring focus: PageFocus.Focus? = nil) -> EscapeOutcome {
-        switch EscapeLayer.escape(in: escapeContext) {
+    func escape(from entrance: EscapeEntrance) -> EscapeOutcome {
+        act(on: EscapeLayer.escape(in: escapeContext), from: entrance, restoring: nil)
+    }
+
+    /// `escape(from:)` for a SwiftUI field, which is still handling the key: what Esc closes is
+    /// decided now, and closed on the next turn, only if it's still what Esc would close. Moving
+    /// the focus while the field handles its key (as closing the find bar does) loses what was
+    /// typed in it.
+    func escapeAfterThisKey(from entrance: EscapeEntrance) -> EscapeOutcome {
+        let decided = EscapeLayer.escape(in: escapeContext)
+        if decided == .passOn { return .passedOn }
+        let focus = page.currentFocus
+        DispatchQueue.main.async { [weak self] in
+            guard let self, EscapeLayer.escape(in: self.escapeContext) == decided else { return }
+            _ = self.act(on: decided, from: entrance, restoring: focus)
+        }
+        return .handled
+    }
+
+    /// The last Esc that reached the window's keys: where it came in and what it did.
+    @ObservationIgnored private(set) var lastEscape: (entrance: EscapeEntrance, result: EscapeResult)?
+
+    private func act(
+        on result: EscapeResult, from entrance: EscapeEntrance, restoring focus: PageFocus.Focus?
+    )
+        -> EscapeOutcome
+    {
+        lastEscape = (entrance, result)
+        switch result {
         case .passOn:
             return .passedOn
         case .hold:
@@ -58,16 +85,6 @@ final class WindowKeys {
         case .close(.focusMode):
             chrome.set(.off)
         }
-        return .handled
-    }
-
-    /// `escape()` for a SwiftUI field, which is still handling the key: what Esc closes is decided
-    /// now, and closed on the next turn. Moving the focus while the field handles its key (as
-    /// closing the find bar does) loses what was typed in it.
-    func escapeAfterThisKey() -> EscapeOutcome {
-        if EscapeLayer.escape(in: escapeContext) == .passOn { return .passedOn }
-        let focus = page.currentFocus
-        DispatchQueue.main.async { [weak self] in self?.escape(restoring: focus) }
         return .handled
     }
 
@@ -95,6 +112,16 @@ enum EscapeOutcome {
     case handled, passedOn
 }
 
+/// Where an Esc reached the window's keys.
+enum EscapeEntrance: Equatable {
+    /// `EscapeKey`, the key equivalent in a sheet, the dialog or a palette.
+    case keyEquivalent
+    /// The focused view's own handling: a text view, a field, a card, the Errors tab.
+    case focusedView
+    /// `WindowEscapeFallback`: no view took it.
+    case window
+}
+
 /// A popover in the window, which Esc closes first.
 enum WindowPopover: Hashable {
     case palette(TextPart, PaletteKind)
@@ -107,7 +134,7 @@ struct EscapeKey: View {
     let keys: WindowKeys?
 
     var body: some View {
-        Button("") { keys?.escape() }
+        Button("") { keys?.escape(from: .keyEquivalent) }
             .keyboardShortcut(.cancelAction)
             .buttonStyle(.plain)
             .focusable(false)

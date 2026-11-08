@@ -152,7 +152,9 @@ struct WindowEscapeFallback: NSViewRepresentable {
         /// At the end of the window's chain, so SwiftUI's own responders after the window stay
         /// where SwiftUI put them.
         func insert(after window: NSWindow?) {
-            guard let window, self.window !== window else { return }
+            // Out of a window, out of its chain: the chain doesn't keep its responders alive.
+            guard let window else { return remove() }
+            guard self.window !== window else { return }
             remove()
             var last: NSResponder = window
             while let next = last.nextResponder, next !== self { last = next }
@@ -176,8 +178,21 @@ struct WindowEscapeFallback: NSViewRepresentable {
 
         override func keyDown(with event: NSEvent) {
             let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
-            if event.keyCode == 53, plain, keys?.escape() == .handled { return }
+            if event.keyCode == 53, plain, keys?.escape(from: .window) == .handled { return }
             super.keyDown(with: event)
         }
     }
+}
+
+/// Tells `moved` the window it's in, and when it leaves it.
+struct WindowReporter: NSViewRepresentable {
+    let moved: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> FocusModeToolbar.WindowWatcher {
+        let view = FocusModeToolbar.WindowWatcher()
+        view.moved = moved
+        return view
+    }
+
+    func updateNSView(_ view: FocusModeToolbar.WindowWatcher, context: Context) {}
 }

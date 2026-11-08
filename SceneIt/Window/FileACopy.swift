@@ -41,13 +41,47 @@ final class FilingFlow {
     }
 
     /// File a Copy… can begin: the store's book can be filed (`BookStore.fileableBook`), and
-    /// the dialog isn't already up. The toolbar's button and the File menu's item both ask.
+    /// the dialog isn't already showing. The toolbar's button and the File menu's item both ask.
     func canBegin(in store: AppBookStore) -> Bool {
-        store.fileableBook === book && draft == nil
+        store.fileableBook === book && (draft == nil || presentationLost)
     }
 
+    /// A new draft; or, with one whose dialog went without being closed (which only SwiftUI
+    /// could do), the same draft's dialog again.
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
-        draft = FilingDraft(today: today)
+        if draft == nil {
+            draft = FilingDraft(today: today)
+        } else if presentationLost {
+            presentation = FilingPresentation(id: presentation.id + 1)
+        }
+    }
+
+    /// The dialog's presentation: a new one shows the dialog afresh.
+    private(set) var presentation = FilingPresentation(id: 0)
+    /// Whether the dialog's sheet went while its draft stayed, as the window's sheets say.
+    private(set) var presentationLost = false
+    /// The window the dialog is a sheet of, whose sheets are watched for one that ends.
+    @ObservationIgnored weak var window: NSWindow? {
+        didSet {
+            guard window !== oldValue else { return }
+            let center = NotificationCenter.default
+            for observer in sheetObservers { center.removeObserver(observer) }
+            sheetObservers = []
+            guard let window else { return }
+            sheetObservers = [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification].map {
+                center.addObserver(forName: $0, object: window, queue: .main) { [weak self] _ in
+                    // The sheet is attached, or detached, once AppKit's own turn is over.
+                    DispatchQueue.main.async { MainActor.assumeIsolated { self?.sheetsChanged() } }
+                }
+            }
+        }
+    }
+    @ObservationIgnored private var sheetObservers: [any NSObjectProtocol] = []
+
+    private func sheetsChanged() {
+        guard let window else { return }
+        let lost = draft != nil && window.attachedSheet == nil
+        if lost != presentationLost { presentationLost = lost }
     }
 
     /// Closes the dialog, dropping the draft; never while the copy is being filed, which still
@@ -93,6 +127,11 @@ final class FilingFlow {
             if self?.toast == toast { self?.toast = nil }
         }
     }
+}
+
+/// One showing of File a Copy's dialog, for `.sheet(item:)`.
+struct FilingPresentation: Identifiable, Hashable {
+    let id: Int
 }
 
 // MARK: - The dialog

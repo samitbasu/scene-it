@@ -18,6 +18,19 @@ private func press(_ key: TestKey, in window: NSWindow) throws {
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
+/// Esc in File a Copy's dialog until `closed`, at most 50 times, 20 ms apart. SwiftUI makes the
+/// dialog's `EscapeKey` answer on one of its turns after the dialog shows or changes, which no
+/// AppKit state shows; an Esc before that reaches nothing, so it's pressed again, as the writer
+/// would. Nothing else can close the dialog (its binding ignores SwiftUI, and SwiftUI's own
+/// dismissal is off), and the tests check the resolver closed it (`WindowKeys.lastEscape`).
+@MainActor
+private func pressEscape(in dialog: NSWindow, until closed: () -> Bool) async throws {
+    for _ in 0..<50 where !closed() {
+        try press(.escape, in: dialog)
+        try await Task.sleep(for: .milliseconds(20))
+    }
+}
+
 /// Letters typed as the window gets them, one key at a time, into what has the focus.
 @MainActor
 private func type(_ text: String, in window: NSWindow) throws {
@@ -79,7 +92,9 @@ extension PageHarness {
         let item = NSMenuItem()
         item.tag = NSTextFinder.Action.showFindInterface.rawValue
         page.performFindPanelAction(item)
-        await eventually { (try? desk.findField) != nil }
+        await eventually { (try? desk.findFieldRoutesKeys) == true }
+        try #require(
+            try desk.findFieldRoutesKeys, "precondition: the find bar's field asks the window's keys")
         return try #require(try desk.findField)
     }
 
@@ -198,11 +213,46 @@ struct FocusModeWindowTests {
             filing.begin()
             await eventually { harness.window.attachedSheet != nil }
             let dialog = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
+            try #require(filing.draft != nil, "precondition: its draft")
             #expect(keys.escapeContext.dialog == .editing)
 
-            try press(.escape, in: dialog)
+            try await pressEscape(in: dialog) { filing.draft == nil }
             #expect(filing.draft == nil, "Esc cancels the dialog")
+            #expect(
+                keys.lastEscape?.result == .close(.dialog), "through the resolver, not SwiftUI's dismissal")
+            #expect(keys.lastEscape?.entrance != .focusedView, "by the dialog's own Esc")
             #expect(harness.chrome.focusMode == .on, "and only the dialog")
+        }
+    }
+
+    /// The model is the only authority over the dialog: if its sheet ends behind SwiftUI's back,
+    /// the draft stays, and File a Copy… shows the same draft again.
+    @Test func aDialogEndedBehindTheModelsBackKeepsItsDraft() async throws {
+        try await withPage([ferry]) { harness in
+            let filing = try harness.keys.filing
+            filing.begin()
+            filing.draft?.note = "Keep me"
+            let typed = try #require(filing.draft)
+            await eventually { harness.window.attachedSheet != nil }
+            let sheet = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
+            #expect(!filing.canBegin(in: harness.store), "precondition: File a Copy… is off while it shows")
+
+            harness.window.endSheet(sheet)
+            #expect(harness.window.attachedSheet == nil, "precondition: the sheet ended")
+            #expect(filing.draft == typed, "the draft stays")
+            // SwiftUI shows the sheet again itself, the model still saying it's up; if it didn't,
+            // File a Copy… would be offered, and would bring it back.
+            await eventually { harness.window.attachedSheet != nil || filing.canBegin(in: harness.store) }
+            if harness.window.attachedSheet == nil {
+                #expect(filing.canBegin(in: harness.store), "File a Copy… is offered, to bring it back")
+                filing.begin()
+                await eventually { harness.window.attachedSheet != nil }
+            }
+            #expect(harness.window.attachedSheet != nil, "the dialog is back")
+            #expect(filing.draft == typed, "with the same draft")
+            await eventually { !filing.canBegin(in: harness.store) }
+            #expect(!filing.canBegin(in: harness.store), "File a Copy… is off again while it shows")
+            filing.cancel()
         }
     }
 
@@ -318,7 +368,9 @@ struct FocusModeWindowTests {
 
             try press(.escape, in: dialog)
             try press(.escape, in: harness.window)
+            #expect(keys.lastEscape?.result == .hold(.dialog), "the resolver holds")
             #expect(filing.draft == typed, "Esc keeps the dialog and what was typed")
+            #expect(harness.window.attachedSheet === dialog, "the dialog stays up")
             #expect(harness.chrome.focusMode == .on, "and closes nothing under it")
 
             release.yield()
@@ -326,16 +378,11 @@ struct FocusModeWindowTests {
             #expect(await confirming.value == .failed(.archiveNotAFolder))
             #expect(filing.draft == typed, "the failed filing still has the draft")
             #expect(filing.stage == .editing)
-            // SwiftUI brings the editable dialog's Esc back on one of its next turns, which no
-            // AppKit state shows; so Esc is pressed until it takes, as the writer would press again.
-            for _ in 0..<100 where filing.draft != nil {
-                try press(.escape, in: harness.window.attachedSheet ?? dialog)
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            #expect(
-                filing.draft == nil,
-                "once it's editable again, Esc cancels it (sheet: \(String(describing: harness.window.attachedSheet)), same: \(harness.window.attachedSheet === dialog), responder: \(String(describing: harness.window.attachedSheet?.firstResponder)))"
-            )
+            #expect(harness.window.attachedSheet === dialog, "the dialog is still the one shown")
+            try await pressEscape(in: dialog) { filing.draft == nil }
+            #expect(filing.draft == nil, "once it's editable again, Esc cancels it")
+            #expect(keys.lastEscape?.result == .close(.dialog), "the resolver closed it")
+            #expect(keys.lastEscape?.entrance != .focusedView, "through the dialog's own Esc")
         }
     }
 
@@ -416,15 +463,20 @@ struct FocusModeWindowTests {
             #expect(harness.window.makeFirstResponder(nil))
             try #require(
                 harness.window.firstResponder === harness.window, "precondition: no view has the focus")
+            let keys = try harness.keys
             try press(.escape, in: harness.window)
             #expect(harness.modes.mode == .page, "Esc closes the sheet")
             #expect(harness.chrome.focusMode == .on, "and only the sheet")
+            #expect(keys.lastEscape?.entrance == .window, "the fallback took it, not the sheet's EscapeKey")
+            #expect(keys.lastEscape?.result == .close(.sheet))
 
             #expect(harness.window.makeFirstResponder(nil))
             try #require(
                 harness.window.firstResponder === harness.window, "precondition: no view has the focus")
             try press(.escape, in: harness.window)
             #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
+            #expect(keys.lastEscape?.entrance == .window)
+            #expect(keys.lastEscape?.result == .close(.focusMode))
 
             #expect(harness.window.makeFirstResponder(nil))
             try press(.escape, in: harness.window)

@@ -78,11 +78,23 @@ final class PageFocus {
         item.tag = NSTextFinder.Action.hideFindInterface.rawValue
         body.performFindPanelAction(item)
         guard Focus(window.firstResponder) != before else { return }
+        func outsideTheBar(_ view: NSView) -> Bool {
+            view.window === window && (bar.map { !view.isDescendant(of: $0) } ?? true)
+        }
         switch before {
-        case .field(let field, let selection) where bar.map({ !field.isDescendant(of: $0) }) ?? true:
-            guard window.makeFirstResponder(field) else { return }
-            (field.currentEditor() as? NSTextView)?.selectedRanges = selection
-        case .view(let view) where view !== body && bar.map({ !view.isDescendant(of: $0) }) ?? true:
+        case .field(let field, let selection) where outsideTheBar(field) && field.isEnabled:
+            guard window.makeFirstResponder(field), let editor = field.currentEditor() as? NSTextView else {
+                return
+            }
+            // Clamped: the field's text may have changed since, and a range past its end raises.
+            let length = (editor.string as NSString).length
+            editor.selectedRanges = selection.map { value in
+                let range = value.rangeValue
+                let location = min(range.location, length)
+                return NSValue(
+                    range: NSRange(location: location, length: min(range.length, length - location)))
+            }
+        case .view(let view) where view !== body && outsideTheBar(view):
             window.makeFirstResponder(view)
         case .field, .view, .window:
             if !holdsFocus { focusBody() }
@@ -104,10 +116,11 @@ final class PageFocus {
         init(_ responder: NSResponder?) {
             switch responder {
             case let editor as NSTextView where editor.isFieldEditor:
+                // A field editor no field is editing with is nowhere to go back to.
                 if let field = editor.delegate as? NSTextField {
                     self = .field(field, selection: editor.selectedRanges)
                 } else {
-                    self = .view(editor)
+                    self = .window
                 }
             case let view as NSView: self = .view(view)
             default: self = .window

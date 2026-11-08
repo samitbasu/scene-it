@@ -94,8 +94,11 @@ struct BookWindow: View {
             if mode == .search { search.refresh() } else { search.close() }
             // On the next turn, once the page the sheet covered is enabled again and can take it.
             if old.isSheet, !new.isSheet, chrome.focusMode == .on {
-                DispatchQueue.main.async { [pageFocus] in
-                    if !pageFocus.holdsFocus { pageFocus.focusBody() }
+                DispatchQueue.main.async { [pageFocus, chrome, mode = $mode] in
+                    guard !mode.wrappedValue.isSheet, chrome.focusMode == .on, !pageFocus.holdsFocus else {
+                        return
+                    }
+                    pageFocus.focusBody()
                 }
             }
         }
@@ -113,21 +116,27 @@ struct BookWindow: View {
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
         .focusedSceneValue(\.filingFlow, filing)
-        .sheet(isPresented: isDialogUp) {
+        .background(WindowReporter { [filing] in filing.window = $0 })
+        .sheet(item: dialog) { _ in
             FileACopyDialog(
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } }
             )
             .background(EscapeKey(keys: keys))
-            .interactiveDismissDisabled(filing.stage == .filing)
+            .background(WindowEscapeFallback(keys: keys))
+            .interactiveDismissDisabled()
             .environment(undo)
             .environment(\.windowKeys, keys)
             .focusedSceneValue(\.undoRouter, undo)
         }
     }
 
-    private var isDialogUp: Binding<Bool> {
-        Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
+    /// The dialog is up exactly while there's a draft: only the model's own actions (Cancel,
+    /// Esc through `WindowKeys`, a copy filed) end one, so nothing SwiftUI writes here can drop
+    /// what the writer typed. If SwiftUI ever ends the sheet itself, File a Copy… shows the same
+    /// draft again (`FilingFlow.begin`).
+    private var dialog: Binding<FilingPresentation?> {
+        Binding(get: { filing.draft == nil ? nil : filing.presentation }, set: { _ in })
     }
 }
 

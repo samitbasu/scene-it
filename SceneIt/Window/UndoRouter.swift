@@ -230,7 +230,7 @@ final class UndoFocusView: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if keys?.escape() != .handled { escape() }
+        if keys?.escape(from: .focusedView) != .handled { escape() }
     }
 
     /// The Errors tab is a Tab stop. A sheet's holder handles no Tab, so nothing the sheet covers
