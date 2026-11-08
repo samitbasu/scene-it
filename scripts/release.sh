@@ -32,7 +32,7 @@ run() {
     local step=$1
     shift
     local log="$log_dir/$step.log"
-    with_time_limit 3600 "$log_dir/$step-hang" "$@" >>"$log" 2>&1 || {
+    with_time_limit 3600 "$log_dir/$step-hang" "$every_build_folder" "$@" >>"$log" 2>&1 || {
         echo "release.sh: $step failed (full log: $log)" >&2
         print_log_diagnostics "$log"
         exit 1

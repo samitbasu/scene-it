@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The commit gate (docs/decisions/0008-local-ci.md). Silent and exit 0 when green;
-# otherwise prints the failing step's diagnostics and exits non-zero.
+# otherwise prints every failing step's diagnostics and exits non-zero.
 set -euo pipefail
 
 source "$(dirname "$0")/lib.sh"
@@ -20,23 +20,31 @@ print_test_failures() {
         | jq -r '.testFailures[]? | "✘ \(.targetName)/\(.testName): \(.failureText)"' >&2 || true
 }
 
-fail() {
-    local step=$1 log=$2
+report_failure() {
+    local step=$1 log="$log_dir/$1.log"
     echo "check.sh: $step failed (full log: $log)" >&2
     print_log_diagnostics "$log"
     if [[ $step == xcodebuild ]]; then
         print_test_failures
     fi
-    exit 1
 }
 
-# run <step> <minutes> <command>...: a step that takes longer than <minutes> fails.
-run() {
-    local step=$1 minutes=$2
-    shift 2
-    local log="$log_dir/$step.log"
+# time_limited <step> <minutes> <build folders> <command>...: runs the command into the step's
+# log, failing if it takes longer than <minutes>. A timeout also kills what runs from <build
+# folders> (with_time_limit in lib.sh).
+time_limited() {
+    local step=$1 minutes=$2 folders=$3
+    shift 3
     rm -f "$log_dir/$step"-hang-*.txt
-    with_time_limit $((minutes * 60)) "$log_dir/$step-hang" "$@" >"$log" 2>&1 || fail "$step" "$log"
+    with_time_limit $((minutes * 60)) "$log_dir/$step-hang" "$folders" "$@" >"$log_dir/$step.log" 2>&1
+}
+
+# run <step> <minutes> <command>...: a step that runs alone; the gate stops if it fails.
+run() {
+    time_limited "$1" "$2" "$every_build_folder" "${@:3}" || {
+        report_failure "$1"
+        exit 1
+    }
 }
 
 run guard-tests 5 scripts/test-guards.sh
@@ -44,11 +52,20 @@ for guard in "${source_guards[@]}"; do
     run "${guard%%:*}" 5 "${guard#*:}" "${swift_paths[@]}"
 done
 run lint 5 lint_swift
-run swift-test 15 swift test
-run xcodebuild 45 xcodebuild \
+
+# SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
+time_limited swift-test 15 '\.build' swift test &
+swift_test=$!
+time_limited xcodebuild 45 build xcodebuild \
     -project SceneIt.xcodeproj \
     -scheme SceneIt \
     -destination 'platform=macOS' \
     -derivedDataPath build/DerivedData \
     -resultBundlePath "$result_bundle" \
-    test
+    test &
+xcodebuild=$!
+
+status=0
+wait "$swift_test" || { report_failure swift-test; status=1; }
+wait "$xcodebuild" || { report_failure xcodebuild; status=1; }
+exit "$status"

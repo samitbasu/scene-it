@@ -91,7 +91,8 @@ scripts/check.sh
 Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
-runs, in order, stopping at the first failure:
+runs steps 1–6 in order, stopping at the first failure. If they pass, it runs steps 7 and 8
+at the same time and waits for both:
 
 1. `scripts/test-guards.sh` (below): checks that the source guards in steps 2–5 reject
    and accept what they should.
@@ -118,11 +119,17 @@ runs, in order, stopping at the first failure:
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 
+Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
+builds its own copy into `build/DerivedData`. Running them together saves about a minute on
+an incremental build.
+
 Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
 check.sh kills two sets of processes: the step's own process tree, and any process that runs
-something from `.build/` or `build/`, started while the step ran, and isn't `Scene It.app`.
+something from the step's own build folder (`.build/` for `swift test`, `build/` for
+xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`. So
+a timeout in one of steps 7 and 8 never kills the other.
 That spares a Debug app or an IDE build that was already running, and an app the step didn't
 start itself. Before it kills them, check.sh samples up to four of them that are test runners
 (`swiftpm-testing-helper`, an `.xctest` bundle or a test host app), all at once, for 3 seconds,
@@ -130,9 +137,10 @@ into `build/check/<step>-hang-<pid>.txt`.
 
 **Output on success:** nothing, exit status 0.
 
-**Output on failure:** exit status 1, and on stderr:
+**Output on failure:** exit status 1, and on stderr, for each failed step:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
-`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match.
+`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. If both
+steps 7 and 8 fail, both are reported, `swift-test` first, once both have finished.
 A step that ran out of time adds `error: still running after <n> min (or s), so it was killed: <command>`
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.

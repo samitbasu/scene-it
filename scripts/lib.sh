@@ -21,12 +21,16 @@ descendants() {
     done
 }
 
-# Processes running this checkout's build products. A test helper or test host can outlive
-# the `swift test` or `xcodebuild` that started it, so it isn't always a descendant.
+# SwiftPM's .build and xcodebuild's build, as a `built_here` pattern.
+readonly every_build_folder='\.?build'
+
+# built_here <folders>: processes running this checkout's build products from the build folders
+# whose names match the extended regular expression <folders>. A test helper or test host can
+# outlive the `swift test` or `xcodebuild` that started it, so it isn't always a descendant.
 built_here() {
-    local root
+    local folders=$1 root
     root=$(sed 's/[][\.*^$+?(){}|]/\\&/g' <<<"$PWD")
-    pgrep -f "$root/\.?build/" || true
+    pgrep -f "$root/$folders/" || true
 }
 
 # Whether `pid`'s command line matches the extended regular expression `pattern`.
@@ -39,12 +43,12 @@ readonly app_pattern='/Scene It\.app/'
 readonly test_runner_pattern="swiftpm-testing-helper|\.xctest/|$app_pattern"
 
 # The processes a timed-out step is killed with: its own process tree, and the build products
-# that started while it ran, other than the app. An app that isn't in the tree might be the
-# writer's own Debug run, so it's left alone.
+# from its build folders that started while it ran, other than the app. An app that isn't in
+# the tree might be the writer's own Debug run, so it's left alone.
 doomed() {
-    local pid=$1 before=$2 process
+    local pid=$1 folders=$2 before=$3 process
     descendants "$pid"
-    for process in $(built_here); do
+    for process in $(built_here "$folders"); do
         [[ $before == *" $process "* ]] && continue
         runs "$process" "$app_pattern" && continue
         echo "$process"
@@ -68,20 +72,22 @@ sample_test_runners() {
     echo "$count"
 }
 
-# with_time_limit <seconds> <sample-prefix> <command>...: runs the command, and if it's still
-# running after <seconds>, samples its stuck test runners to <sample-prefix>-<pid>.txt, kills
-# what `doomed` lists, and returns 124. Swift Testing's time limits can't end a test that's
-# blocked, so this is what stops a hung test run (#77).
+# with_time_limit <seconds> <sample-prefix> <folders> <command>...: runs the command, and if
+# it's still running after <seconds>, samples its stuck test runners to
+# <sample-prefix>-<pid>.txt, kills what `doomed` lists, and returns 124. Swift Testing's time
+# limits can't end a test that's blocked, so this is what stops a hung test run (#77).
+# <folders> is the `built_here` pattern for the command's own build folders, so a timeout
+# spares a command running alongside it from another folder.
 with_time_limit() {
-    local limit=$1 prefix=$2 pid deadline before victims sampled duration
-    shift 2
-    before=" $(built_here | tr '\n' ' ') "
+    local limit=$1 prefix=$2 folders=$3 pid deadline before victims sampled duration
+    shift 3
+    before=" $(built_here "$folders" | tr '\n' ' ') "
     "$@" &
     pid=$!
     deadline=$((SECONDS + limit))
     while kill -0 "$pid" 2>/dev/null; do
         if ((SECONDS >= deadline)); then
-            victims=$(doomed "$pid" "$before" | sort -u)
+            victims=$(doomed "$pid" "$folders" "$before" | sort -u)
             sampled=$(sample_test_runners "$prefix" $victims)
             kill -9 $victims 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
