@@ -7,7 +7,10 @@ struct WindowCommands: Commands {
     let books: BookController
     @FocusedBinding(\.windowMode) private var mode
     @FocusedValue(\.page) private var page
-    @FocusedValue(\.windowChrome) private var chrome
+
+    private var chrome: WindowChrome? {
+        books.mainWindowChrome.chrome
+    }
 
     /// Ticked while focus mode is on; choosing it, or its shortcut, enters or leaves.
     private var focusMode: Binding<Bool> {
@@ -16,7 +19,9 @@ struct WindowCommands: Commands {
 
     var body: some Commands {
         UndoCommands()
-        CommandGroup(before: .toolbar) {
+        // In place of macOS's toolbar group, whose Show/Hide Toolbar is ours (below) so that focus
+        // mode can disable it (the owner, #21).
+        CommandGroup(replacing: .toolbar) {
             ForEach(WindowMode.allCases.filter(\.isSheet), id: \.self) { sheet in
                 Button(WindowWording.railName(sheet)) { mode = mode?.choosing(sheet) }
                     .keyboardShortcut(Self.shortcut(for: sheet))
@@ -37,6 +42,10 @@ struct WindowCommands: Commands {
                     .disabled(destination(of: step) == nil)
             }
             Divider()
+            let action: ToolbarItemAction = chrome?.toolbarVisibility == .hidden ? .show : .hide
+            Button(WindowWording.toolbarItem(action)) { chrome?.toggleToolbar() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(chrome == nil || chrome?.focusMode == .on)
         }
     }
 

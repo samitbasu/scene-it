@@ -135,6 +135,24 @@ override func doCommand(by selector: Selector) {
 `#selector` names an Objective-C method; `Selector` is a runtime key. Rust has no analogue in safe
 code; think of a `&'static str` method name looked up in a vtable at runtime.
 
+**When no view has the focus.** Just after a sheet opens, or after a focused view goes away, the
+window itself can be the first responder. Then no view hears Esc, and before this fix nothing did:
+the writer could be stuck in focus mode. AppKit hands a key that nothing took along the responder
+chain, view, superview, …, window, and on to whatever follows the window. So
+`WindowEscapeFallback` puts one small `NSResponder` at the *end* of that chain, whose `keyDown`
+asks `escape()`. A view that handles Esc never passes the key on, so Esc is never handled twice.
+It goes at the end, not straight after the window: the first try put it straight after, and
+SwiftUI's own focus and popovers stopped working in the tests, because SwiftUI keeps responders of
+its own there. In Rust terms, the chain is a linked list of `&mut dyn Responder`, and we appended
+a node instead of splicing one in where SwiftUI expects its own.
+
+**Moving the focus mid-key.** Closing the find bar moves the focus (AppKit gives it to the page),
+so `PageFocus.closeFindBar` puts it back. A field's focus is really its *field editor*'s, a shared
+`NSTextView`, so the field and its selection are recorded, and the selection is restored after
+the field is made first responder again (which by itself selects all its text). In a SwiftUI
+`TextField`, doing that *while the field is still handling the key* lost what was typed, so its
+`onKeyPress(.escape)` decides now and closes on the next turn (`escapeAfterThisKey`).
+
 The same `doCommand(by:)` hook lets the sheet's focus holder (`UndoFocusView`) handle *no* Tab:
 the command goes on up the chain as before, so nothing the sheet covers can take the focus.
 
@@ -199,11 +217,19 @@ they get `WindowKeys` from the environment (`@Entry var windowKeys`) and call it
 In the app's `Window` scene, `.toolbarVisibility(.hidden, for: .windowToolbar)` left the toolbar
 showing (a hosted test in the app's own window found it). `FocusModeToolbar` steps down to AppKit:
 an `NSViewRepresentable` that sets `window.toolbar?.isVisible`, the same pattern as
-`MainWindowCloseButton` (ADR 0038). Three details make it honest: its coordinator decides once, as focus mode
-begins, whether the toolbar was showing, so leaving focus mode never shows a toolbar the writer hid
-with View → Hide Toolbar; it hides the toolbar again on every update while focus mode is on, in
-case SwiftUI shows it again; and `dismantleNSView` shows it again, so closing a book in focus mode doesn't leave the
-window without one.
+`MainWindowCloseButton` (ADR 0038). Its coordinator watches the toolbar with key-value observing
+(KVO): `toolbar.observe(\.isVisible)` calls back whenever the property changes, in the same turn,
+so a toolbar SwiftUI shows again in focus mode is hidden before anything is drawn. KVO is
+Objective-C's built-in observer pattern; Rust has nothing built in, the nearest being a `watch`
+channel you'd wire up yourself. It decides once, as focus mode begins, whether the toolbar was
+showing, so leaving focus mode never shows a toolbar the writer hid, and `dismantleNSView` shows
+it again, so closing a book in focus mode doesn't leave the window without one.
+
+View → Show/Hide Toolbar is macOS's own item, rebuilt in `WindowCommands` (it replaces the
+`.toolbar` command group) so that focus mode can disable it, the owner's pick. The View menu reads
+the window's `WindowChrome` from `BookController.mainWindowChrome`, not from SwiftUI's focused
+values: there's one main window (ADR 0038), and the hosted tests can then check the menu, which
+sees no focused window when the test app isn't active.
 
 ## Tests
 

@@ -53,10 +53,19 @@ final class WindowKeys {
         case .close(.sheet):
             mode.wrappedValue = mode.wrappedValue.closingSheet
         case .close(.findBar):
-            page.closeFindBar(keepingFocus: page.focusedView)
+            page.closeFindBar()
         case .close(.focusMode):
             chrome.set(.off)
         }
+        return .handled
+    }
+
+    /// `escape()` for a SwiftUI field, which is still handling the key: what Esc closes is decided
+    /// now, and closed on the next turn. Moving the focus while the field handles its key (as
+    /// closing the find bar does) loses what was typed in it.
+    func escapeAfterThisKey() -> EscapeOutcome {
+        if EscapeLayer.escape(in: escapeContext) == .passOn { return .passedOn }
+        DispatchQueue.main.async { [weak self] in self?.escape() }
         return .handled
     }
 

@@ -55,13 +55,27 @@ extension BookStoreIntegrationTests {
             let (window, chrome) = try await openBook(at: url, in: books)
             let desks = subviewTree(of: window.contentView).compactMap { $0 as? DeskView }
             let keys = try #require(desks.compactMap(\.keys).first)
-            @MainActor func stillHidden(_ what: String) async throws {
-                try await Task.sleep(for: .milliseconds(400))
-                #expect(window.toolbar?.isVisible == false, "the toolbar stays hidden: \(what)")
-            }
 
             chrome.set(.on)
             await eventually { window.toolbar?.isVisible == false }
+            // Every change to the toolbar's visibility, or to which toolbar the window has, from
+            // here on: none may show one, even for a moment.
+            let shown = ShownToolbars()
+            let watching = [
+                window.observe(\.toolbar, options: [.new]) { window, _ in
+                    MainActor.assumeIsolated { shown.note(window.toolbar?.isVisible == true) }
+                },
+                try #require(window.toolbar).observe(\.isVisible, options: [.new]) { toolbar, _ in
+                    MainActor.assumeIsolated { shown.note(toolbar.isVisible) }
+                },
+            ]
+            defer { for observation in watching { observation.invalidate() } }
+            @MainActor func stillHidden(_ what: String) async throws {
+                try await Task.sleep(for: .milliseconds(300))
+                #expect(shown.count == 0, "the toolbar never showed: \(what)")
+                #expect(window.toolbar?.isVisible == false, "the toolbar is hidden: \(what)")
+            }
+
             book.select(second)
             try await stillHidden("another scene opened")
             keys.mode.wrappedValue = .scenes
@@ -83,6 +97,42 @@ extension BookStoreIntegrationTests {
         }
     }
 
+    /// The owner's pick: View → Show/Hide Toolbar is disabled in focus mode.
+    @Test func showAndHideToolbarIsDisabledInFocusMode() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
+            let (_, chrome) = try await openBook(at: url, in: books)
+            @MainActor func toolbarItem() -> NSMenuItem? {
+                let titles = [ToolbarItemAction.show, .hide].map(WindowWording.toolbarItem)
+                for title in titles {
+                    if let menu = menuItem(titled: title, in: NSApp.mainMenu)?.menu {
+                        menu.delegate?.menuNeedsUpdate?(menu)
+                        menu.update()
+                    }
+                }
+                return titles.lazy.compactMap { menuItem(titled: $0, in: NSApp.mainMenu) }.first
+            }
+            await eventually { toolbarItem()?.isEnabled == true }
+            let item = try #require(toolbarItem(), "the View menu has the toolbar item")
+            #expect(item.title == WindowWording.toolbarItem(.hide), "the toolbar shows, so the item hides it")
+            #expect(item.keyEquivalent == "t")
+            #expect(item.isEnabled, "outside focus mode the writer can hide the toolbar")
+
+            chrome.set(.on)
+            await eventually { toolbarItem()?.isEnabled == false }
+            #expect(toolbarItem()?.isEnabled == false, "in focus mode it's disabled")
+            chrome.set(.off)
+            await eventually { toolbarItem()?.isEnabled == true }
+            #expect(toolbarItem()?.isEnabled == true)
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
     @Test func aToolbarTheWriterHidStaysHiddenAndCloseBookGivesItBack() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
@@ -93,7 +143,7 @@ extension BookStoreIntegrationTests {
             let (window, chrome) = try await openBook(at: url, in: books)
 
             // The writer's own View → Hide Toolbar stays as they left it.
-            window.toggleToolbarShown(nil)
+            chrome.toggleToolbar()
             try #require(window.toolbar?.isVisible == false, "precondition: the writer hid the toolbar")
             chrome.set(.on)
             try await Task.sleep(for: .milliseconds(300))
@@ -102,7 +152,7 @@ extension BookStoreIntegrationTests {
             #expect(
                 window.toolbar?.isVisible == false, "leaving focus mode doesn't show a toolbar the writer hid"
             )
-            window.toggleToolbarShown(nil)
+            chrome.toggleToolbar()
             await eventually { window.toolbar?.isVisible == true }
 
             // Closing the book in focus mode; the book opens again out of it, toolbar and all.
@@ -118,5 +168,15 @@ extension BookStoreIntegrationTests {
             #expect(await books.store.closeBook() == .left)
             expectNoQuestions()
         }
+    }
+}
+
+/// How many times a toolbar showed.
+@MainActor
+private final class ShownToolbars {
+    private(set) var count = 0
+
+    func note(_ visible: Bool) {
+        if visible { count += 1 }
     }
 }

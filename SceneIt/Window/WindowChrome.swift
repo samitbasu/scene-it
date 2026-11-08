@@ -9,6 +9,11 @@ final class WindowChrome {
     private(set) var focusMode = FocusMode.off
     /// How many times focus mode has begun: the hint shows afresh each time.
     private(set) var entries = 0
+    /// Whether the window's toolbar shows, as AppKit has it (`FocusModeToolbar` keeps it), for
+    /// View → Show/Hide Toolbar.
+    var toolbarVisibility = ToolbarVisibility.shown
+    /// Shows or hides the window's toolbar, as View → Show/Hide Toolbar does.
+    @ObservationIgnored var toggleToolbar: () -> Void = {}
 
     func shows(_ part: ChromePart) -> Bool {
         focusMode.shows(part)
@@ -25,66 +30,32 @@ final class WindowChrome {
     }
 }
 
+/// The main window's `WindowChrome` while a book is open in it, for the View menu. There's one
+/// main window (ADR 0038), so the menu acts on it as on the book's preferences, whichever
+/// window is key.
+@MainActor
+@Observable
+final class MainWindowChrome {
+    private(set) var chrome: WindowChrome?
+
+    func show(_ chrome: WindowChrome) {
+        self.chrome = chrome
+    }
+
+    func gone(_ chrome: WindowChrome) {
+        if self.chrome === chrome { self.chrome = nil }
+    }
+}
+
+enum ToolbarVisibility {
+    case shown, hidden
+}
+
 extension WindowMetrics {
     enum Focus {
         static let hintShown = Interval.seconds(3)
         static let hintFade = Interval(clamping: .milliseconds(600))
         static let hintInset: CGFloat = 28
-    }
-}
-
-/// Hides the window's toolbar in focus mode, and shows it again after, on AppKit's toolbar
-/// itself: in the app's `Window` scene, `.toolbarVisibility(.hidden, for: .windowToolbar)` left
-/// the toolbar showing (`FocusModeAppWindowTests`). Only a toolbar focus mode hid is shown
-/// again, so one the writer hid (View → Hide Toolbar) stays hidden, and a book closed in focus
-/// mode gives the window its toolbar back.
-struct FocusModeToolbar: NSViewRepresentable {
-    let chrome: WindowChrome
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        NSView()
-    }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        let shown = chrome.shows(.toolbar)
-        let coordinator = context.coordinator
-        DispatchQueue.main.async { [weak view] in
-            coordinator.show(shown, in: view?.window)
-        }
-    }
-
-    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
-        coordinator.show(true, in: view.window)
-    }
-
-    final class Coordinator {
-        /// While focus mode is on: the window, and whether its toolbar showed as focus mode
-        /// began, which is decided once.
-        private var hiding: (window: Weak<NSWindow>, wasShowing: Bool)?
-
-        func show(_ shown: Bool, in window: NSWindow?) {
-            if shown {
-                if let hiding, hiding.wasShowing { hiding.window.value?.toolbar?.isVisible = true }
-                hiding = nil
-                return
-            }
-            guard let window = window ?? hiding?.window.value else { return }
-            if hiding == nil { hiding = (Weak(window), window.toolbar?.isVisible == true) }
-            // Every update, so a toolbar SwiftUI shows again (or makes anew) is hidden again.
-            if window.toolbar?.isVisible == true { window.toolbar?.isVisible = false }
-        }
-    }
-
-    struct Weak<T: AnyObject> {
-        weak var value: T?
-
-        init(_ value: T) {
-            self.value = value
-        }
     }
 }
 

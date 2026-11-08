@@ -72,7 +72,7 @@ struct CommentsTab: View {
                     return keys.tab(direction, from: .panel) ? .handled : .ignored
                 }
                 .onKeyPress(.escape) {
-                    keys?.escape() == .handled ? .handled : .ignored
+                    keys?.escapeAfterThisKey() == .handled ? .handled : .ignored
                 }
                 .help(CommentWording.searchHelp)
                 .overlay(alignment: .trailing) {

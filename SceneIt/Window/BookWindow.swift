@@ -87,8 +87,8 @@ struct BookWindow: View {
         .environment(\.pageFocus, pageFocus)
         .environment(\.windowKeys, keys)
         .focusedSceneValue(\.undoRouter, undo)
-        .focusedSceneValue(\.windowChrome, chrome)
         .background(FocusModeToolbar(chrome: chrome))
+        .background(WindowEscapeFallback(keys: keys))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
@@ -114,6 +114,7 @@ struct BookWindow: View {
                 confirm: { Task { await filing.confirm(in: store) } }
             )
             .background(EscapeKey(keys: keys))
+            .interactiveDismissDisabled(filing.stage == .filing)
             .environment(undo)
             .environment(\.windowKeys, keys)
             .focusedSceneValue(\.undoRouter, undo)
@@ -128,6 +129,4 @@ struct BookWindow: View {
 extension FocusedValues {
     /// The focused window's mode, for the View menu.
     @Entry var windowMode: Binding<WindowMode>?
-    /// The focused window's focus mode, for the View menu.
-    @Entry var windowChrome: WindowChrome?
 }

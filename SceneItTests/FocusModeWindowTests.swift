@@ -18,6 +18,19 @@ private func press(_ key: TestKey, in window: NSWindow) throws {
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
+/// Letters typed as the window gets them, one key at a time, into what has the focus.
+@MainActor
+private func type(_ text: String, in window: NSWindow) throws {
+    for character in text {
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: String(character),
+                charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: 0))
+        window.sendEvent(event)
+    }
+}
+
 private enum TestKey {
     case escape, tab, shiftTab
 
@@ -356,19 +369,18 @@ struct FocusModeWindowTests {
     }
 
     /// A sheet covers the find bar, so Esc closes the sheet and leaves the find bar. The Esc is
-    /// pressed once the sheet holds the focus: its own focus view, or the Search field. (Just
-    /// after a sheet opens, the window itself can be the first responder for a moment, before
-    /// SwiftUI has made the sheet's key equivalent; an Esc there finds nothing to take it.)
+    /// pressed once the sheet holds the focus: its own focus view, or the Search field. (The
+    /// moment before, with the window itself the first responder, is
+    /// `escReachingTheWindowItselfStillCloses`.)
     @Test func escWithASheetOverTheFindBarClosesOnlyTheSheet() async throws {
         try await withPage([ferry]) { harness in
             _ = try await harness.showFindBar()
             harness.focusPage(at: 4)
             harness.modes.mode = .search
-            let desk = try harness.desk
             @MainActor func sheetHasTheFocus() -> Bool {
                 switch harness.focused {
                 case is UndoFocusView: true
-                case let field as NSTextField: !field.isDescendant(of: desk)
+                case let field as NSTextField: field.placeholderString == SearchWording.placeholder
                 default: false
                 }
             }
@@ -379,6 +391,85 @@ struct FocusModeWindowTests {
             try press(.escape, in: harness.window)
             #expect(harness.modes.mode == .page, "Esc closes the sheet")
             #expect(try harness.desk.findField != nil, "and not the find bar it covered")
+        }
+    }
+
+    /// An Esc that reaches the window itself, with no view holding the focus, still closes what
+    /// Esc closes: a sheet, then focus mode.
+    @Test func escReachingTheWindowItselfStillCloses() async throws {
+        try await withPage([ferry]) { harness in
+            harness.focusPage(at: 4)
+            harness.chrome.set(.on)
+            harness.modes.mode = .search
+            #expect(harness.window.makeFirstResponder(nil))
+            try #require(
+                harness.window.firstResponder === harness.window, "precondition: no view has the focus")
+            try press(.escape, in: harness.window)
+            #expect(harness.modes.mode == .page, "Esc closes the sheet")
+            #expect(harness.chrome.focusMode == .on, "and only the sheet")
+
+            #expect(harness.window.makeFirstResponder(nil))
+            try #require(
+                harness.window.firstResponder === harness.window, "precondition: no view has the focus")
+            try press(.escape, in: harness.window)
+            #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
+
+            #expect(harness.window.makeFirstResponder(nil))
+            try press(.escape, in: harness.window)
+            #expect(harness.modes.mode == .page, "with nothing to close, nothing changes")
+            #expect(harness.chrome.focusMode == .off)
+        }
+    }
+
+    /// Esc closing the find bar puts the focus back where it was, with its own selection: a field
+    /// made first responder would otherwise select all its text.
+    @Test func closingTheFindBarKeepsTheTitlesSelection() async throws {
+        try await withPage([ferry]) { harness in
+            _ = try await harness.showFindBar()
+            #expect(harness.window.makeFirstResponder(harness.title))
+            let editor = try #require(harness.title.currentEditor())
+            editor.selectedRange = NSRange(location: 3, length: 2)
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(try harness.desk.findField == nil, "Esc in the title closes the find bar")
+            #expect(harness.focused === harness.title, "the title keeps the focus")
+            #expect(harness.title.currentEditor()?.selectedRange == NSRange(location: 3, length: 2))
+        }
+    }
+
+    @Test func closingTheFindBarKeepsTheCommentsSearchFieldsText() async throws {
+        try await withPage([ferry]) { harness in
+            _ = try await harness.showFindBar()
+            harness.focusPage(at: 4)
+            try press(.tab, in: harness.window)
+            let search = try #require(harness.focused as? NSTextField)
+            try #require(
+                search.placeholderString == CommentWording.searchPlaceholder, "precondition: the field")
+            try type("tide", in: harness.window)
+            await eventually { search.stringValue == "tide" || search.currentEditor()?.string == "tide" }
+            let editor = try #require(search.currentEditor() as? NSTextView)
+            editor.setSelectedRange(NSRange(location: 2, length: 0))
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(harness.focused === search, "the search field keeps the focus")
+            #expect(search.currentEditor()?.selectedRange == NSRange(location: 2, length: 0), "and its caret")
+            #expect(search.stringValue == "tide")
+        }
+    }
+
+    @Test func closingTheFindBarKeepsTheNotesSelection() async throws {
+        try await withPage([ferry]) { harness in
+            harness.preferences.showRightPanelTab(.notes)
+            defer { harness.preferences.showRightPanelTab(.comments) }
+            let notes = try await harness.showNotes()
+            _ = try await harness.showFindBar()
+            harness.focusNotes(notes, at: 0)
+            notes.insertText("Tide tables.", replacementRange: notes.selectedRange())
+            notes.setSelectedRange(NSRange(location: 5, length: 6))
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(harness.focused === notes, "the notes keep the focus")
+            #expect(notes.selectedRange() == NSRange(location: 5, length: 6), "and their selection")
         }
     }
 
@@ -464,8 +555,9 @@ struct FocusModeWindowTests {
     }
 }
 
-/// The palettes, one test at a time: a palette is a transient popover, and showing one closes
-/// any other in the app, so two tests showing palettes at once close each other's.
+/// Every test that shows a palette goes here, to run one at a time: a palette is a transient
+/// popover, and showing one closes any other in the app, so two tests showing palettes at once
+/// close each other's.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct FocusModePaletteTests {
@@ -478,9 +570,7 @@ struct FocusModePaletteTests {
             // opens once focus mode's layout is done: the desk at the window's left edge.
             await eventually { (try? harness.deskFrame.minX) == 0 }
             let keys = try harness.keys
-            keys.popover = .palette(.body, .textColor)
-            await eventually { popoverWindow() != nil }
-            let popover = try #require(popoverWindow(), "precondition: the palette is showing")
+            let popover = try await open(.palette(.body, .textColor), with: keys)
 
             try press(.escape, in: popover)
             #expect(keys.popover == nil, "Esc closes the palette")
@@ -503,9 +593,7 @@ struct FocusModePaletteTests {
             await eventually { harness.notesView?.window != nil }
             harness.focusPage(at: 4)
             let keys = try harness.keys
-            keys.popover = .palette(.notes, .highlight)
-            await eventually { popoverWindow() != nil }
-            try #require(popoverWindow() != nil, "precondition: the notes' palette is showing")
+            _ = try await open(.palette(.notes, .highlight), with: keys)
 
             harness.chrome.set(.on)
             await eventually { keys.popover == nil }
@@ -522,6 +610,19 @@ struct FocusModePaletteTests {
 }
 
 // MARK: Helpers
+
+/// Opens `palette` as its ▾ button does, and returns its window. SwiftUI sometimes drops a
+/// popover just asked for in an offscreen window, setting its `isPresented` back to false (which
+/// clears `keys.popover`); then the press is made again, as the writer would click again.
+@MainActor
+private func open(_ palette: WindowPopover, with keys: WindowKeys) async throws -> NSWindow {
+    for _ in 0..<10 {
+        keys.popover = palette
+        await eventually { popoverWindow() != nil || keys.popover == nil }
+        if let window = popoverWindow() { return window }
+    }
+    return try #require(popoverWindow(), "precondition: the palette is showing")
+}
 
 /// SwiftUI's layout of a change, done.
 @MainActor

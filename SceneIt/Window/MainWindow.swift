@@ -18,7 +18,7 @@ struct MainWindow: View {
                 // read again (Open Anyway, Open Other Version).
                 OpenBookWindow(
                     book: book, store: books.store, preferences: books.preferences,
-                    formatting: books.formatting
+                    formatting: books.formatting, mainChrome: books.mainWindowChrome
                 )
                 .id(book.instanceID)
             }
@@ -78,10 +78,17 @@ private struct OpenBookWindow: View {
     let store: AppBookStore
     let preferences: AppPreferences
     let formatting: EditorFormatting
+    let mainChrome: MainWindowChrome
     @State private var mode = WindowMode.page
+    @State private var chrome = WindowChrome()
 
     var body: some View {
-        BookWindow(book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode)
+        BookWindow(
+            book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
+            chrome: chrome
+        )
+        .onAppear { mainChrome.show(chrome) }
+        .onDisappear { mainChrome.gone(chrome) }
     }
 }
 
