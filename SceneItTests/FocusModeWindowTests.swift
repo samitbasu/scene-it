@@ -328,11 +328,14 @@ struct FocusModeWindowTests {
             #expect(filing.stage == .editing)
             // SwiftUI brings the editable dialog's Esc back on one of its next turns, which no
             // AppKit state shows; so Esc is pressed until it takes, as the writer would press again.
-            await eventually {
-                _ = try? press(.escape, in: dialog)
-                return filing.draft == nil
+            for _ in 0..<100 where filing.draft != nil {
+                try press(.escape, in: harness.window.attachedSheet ?? dialog)
+                try await Task.sleep(for: .milliseconds(20))
             }
-            #expect(filing.draft == nil, "once it's editable again, Esc cancels it")
+            #expect(
+                filing.draft == nil,
+                "once it's editable again, Esc cancels it (sheet: \(String(describing: harness.window.attachedSheet)), same: \(harness.window.attachedSheet === dialog), responder: \(String(describing: harness.window.attachedSheet?.firstResponder)))"
+            )
         }
     }
 
