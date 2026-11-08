@@ -289,20 +289,18 @@ private struct CommentTextEditor: NSViewRepresentable {
         view.onResign = { [weak coordinator] in coordinator?.commit() }
         view.onFinish = { [weak coordinator] in coordinator?.finish() }
         coordinator.view = view
-        let center = NotificationCenter.default
-        center.addObserver(
+        view.acceptsEdits = { [weak coordinator] in coordinator?.target?.book.isEditable == true }
+        NotificationCenter.default.addObserver(
             coordinator, selector: #selector(Coordinator.sceneWillSwitch), name: .openBookWillSwitchScene,
             object: book)
-        for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
-            center.addObserver(
-                coordinator, selector: #selector(Coordinator.historyChanged), name: name, object: nil)
-        }
         return view
     }
 
     func updateNSView(_ view: CommentTextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.target = (book, editors, scene, comment)
+        coordinator.heardUndo.hear(
+            book.pageUndo(for: scene), by: coordinator, calling: #selector(Coordinator.historyChanged))
         view.comment = comment
         view.history = coordinator.history
         let editable = SceneTextEditor.Editability(book, in: context.environment) == .editable
@@ -340,6 +338,8 @@ private struct CommentTextEditor: NSViewRepresentable {
         let history = UndoManager()
         /// The comment's text before this edit's first change; `nil` while nothing's typed.
         private(set) var original: String?
+        /// The scene's page undo, which holds the comment's edits.
+        var heardUndo = HeardUndo()
 
         /// The comment as the model has it.
         private var modelComment: Comment? {

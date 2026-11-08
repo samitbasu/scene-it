@@ -44,10 +44,10 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   stays there when it won't load. An Open Anyway that can't read the book again leaves the read-only book open
   (`.openedReadOnly`), after telling the writer once, also when it follows Open Other Version.
 - A book stops taking edits the moment it's detached (Close Book, or Open Other Version's reload): the model
-  refuses them, and the page's editor refuses every change with a beep before the view changes, so a
-  keystroke between the detach and SwiftUI's next update can't appear and then vanish. Tests: the store
-  refuses edits in the reload's gap (a held file read), and the page refuses typing on a detached book whose
-  view is still editable.
+  refuses them, and the page, the notes, the title field and the comment cards refuse every change with a
+  beep before the view changes (#129), so a keystroke between the detach and SwiftUI's next update can't
+  appear and then vanish. Tests: the store refuses edits in the reload's gap (a held file read), and the
+  page, the title field and a comment card refuse typing on a detached book whose view is still editable.
 - **A lost book.** If ADR 0018's reopen (the original, or the writer's copy) fails after the writer's version
   was saved as a copy, no book is left open: the start screen shows, the writer is told what happened and
   where their version is (`OneBookWording.bookLost`; the copy is named once), and the copy is first in Recent
@@ -72,9 +72,14 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   second click, ⌘W during a pending quit, or a press decided while another store operation held the store. A
   quit is over when `settleQuit` ends (it also drops a quit a click had queued but AppKit hadn't started,
   so a Cancel can't be followed by a stray second quit), or, as a backstop, when `terminate` returns without
-  the quit path having run. Then the next press is decided afresh.
+  the quit path having run. Then the next press is decided afresh. A close stops holding presses once the
+  start screen shows, though it goes on releasing the book after that (#129): a press then is a press on the
+  start screen, and quits, and the quit path's own store operation waits for the release to finish. Until
+  #129 such a press did nothing, with no beep.
 - **File a Copy… and Make Editable…** act on `BookStore.openBook`, which is nil while the book is closing, so
   neither can be started (and then torn down with what was typed) during Close Book's save or questions.
+  Whether each can start is decided once, by the store (`fileableBook`, `canMakeEditable`), and the File menu,
+  the toolbar's File a copy… and the read-only banner's Make Editable… all ask it (#129).
 - **The Dock icon** brings the main window back if it isn't on screen (`applicationShouldHandleReopen`).
 - **⌘W acts on the main window only** while it, or a window it owns (a sheet, a child window, walked up to the
   root), is key. Any other key window (the crash report, say) just closes. The main window is the one whose
@@ -96,11 +101,11 @@ All in `OneBookWording`; the alerts have only an OK button. Renders: `OneBookRen
   "“My Novel (my edits)” is first in Recent Books."
 - Several books asked for at once on the start screen (the first opens): "Scene It opens one book at a time." /
   "“A” is open. “B” and “C” are in Recent Books: to open one, choose File → Close Book, then choose it there."
-- Not chosen: shorter refusals ("Close “My Novel” first."), a lost-book title saying the book was closed, the
-  pre-ADR several-books wording ("added to Recent Books instead"), "Close Book" on the start screen too, and ⌘W
-  doing nothing there.
 
 ## Not chosen
+- **Other wording:** shorter refusals ("Close “My Novel” first."), a lost-book title saying the book was
+  closed, the pre-ADR several-books wording ("added to Recent Books instead"), "Close Book" on the start screen
+  too, and ⌘W doing nothing there.
 - **Close Book quits Scene It (one book per process).** Accepted on 2026-11-06 and implemented, then rejected
   by the owner's hand test: launch reopens the last book, Close Book quit, and New and Open were offered only
   on the start screen, so the start screen could never be reached and there was no way to switch books.

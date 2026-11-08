@@ -14,6 +14,11 @@ class AdmittingTextView: KeyboardTextView {
     /// and nothing else's. Unlike a delegate's `textDidChange`, which comes through the
     /// notification center keyed on the view's address, it can't reach anyone once cleared.
     var onChange: ((String) -> Void)?
+    /// False once what the text edits stops taking edits (a detached book): every change is
+    /// then refused with a beep, before the view shows it. The view itself stops being editable
+    /// only when SwiftUI next updates it, and a keystroke in between would otherwise show and
+    /// vanish.
+    var acceptsEdits: () -> Bool = { true }
     private let content: NSTextContentStorage
 
     /// A TextKit 2 view whose container tracks its width.
@@ -45,6 +50,10 @@ class AdmittingTextView: KeyboardTextView {
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)
         -> Bool
     {
+        guard acceptsEdits() else {
+            NSSound.beep()
+            return false
+        }
         guard let strings = replacementStrings, let admitted = Self.corrected(strings, by: admit) else {
             return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
         }

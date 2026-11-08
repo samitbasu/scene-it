@@ -445,6 +445,24 @@ backstop is a scan of the edited range only, so it costs nothing per keystroke. 
 off on every `KeyboardTextView` for the same reason: it rewrites text in ways the veto can't be
 shown to see.
 
+The veto is also where a book that has stopped taking edits says no. Close Book (and Open Other
+Version's reload) detaches the book in one main-actor turn ([chapter 04](04-swiftui-and-observation.md)),
+but SwiftUI makes the editors read-only only on its next update. A keystroke in between would
+appear in the view and then vanish, because the model refuses it. So every editor of the book's
+text refuses it first, with a beep, before the view changes: the page and the notes at the top of
+the delegate method above,
+
+```swift
+        guard book.isEditable else {
+            NSSound.beep()
+            return false
+        }
+```
+
+and the title field and the comment cards in `AdmittingTextView`'s own veto (section 9), which
+asks its `acceptsEdits` closure (the book's `isEditable`) first. File a Copy's fields, which use
+the same view, keep the default, which always accepts.
+
 Two subtleties:
 
 - **No input methods (ADR 0028).** An input method (Japanese or Chinese, but also the Option
@@ -622,6 +640,13 @@ order of registration, so the comment removal is registered *first*, to run *las
 first responder for its undo manager, so the focused text view's own manager answers. The
 toolbar's Undo and Redo, and the rule that sends them to `OpenBook.structureUndo` while the
 Scenes sheet is open, are [chapter 07](07-undo.md)'s subject.
+
+**Hearing an undo.** A few views need to know when an undo or redo happened
+(`NSUndoManagerDidUndoChange`): the page restyles what it changed, the title field and a comment
+card take the text from the model. Each hears only the manager it cares about, its scene's, through
+`HeardUndo`, never `object: nil`. A handler that ran for every undo in the app would run inside
+other code's undo, and asking a view for its delegate's undo manager there autoreleases the
+delegate into that code's autorelease pool, which kept closed books alive in the tests (#135).
 
 ## 9. The title field and its own field editor
 

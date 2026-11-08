@@ -84,22 +84,8 @@ final class SceneTextEditor: NSObject {
         restyleEditedParagraphs()
     }
 
-    /// The undo manager whose undo and redo this editor hears of: its scene's, and only its.
-    /// Hearing every undo in the app would run this editor inside other code's undo, where
-    /// asking its view for anything that goes through the view's delegate autoreleases the
-    /// editor into that code's pool.
-    private var heardUndo: UndoManager?
-
-    private func hearUndo(of scene: SceneID) {
-        let undo = book.undo(for: scene, part)
-        guard undo !== heardUndo else { return }
-        let center = NotificationCenter.default
-        for name in [NSNotification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
-            if let heard = heardUndo { center.removeObserver(self, name: name, object: heard) }
-            center.addObserver(self, selector: #selector(undoManagerDidUndoOrRedo), name: name, object: undo)
-        }
-        heardUndo = undo
-    }
+    /// Its scene's undo, and only its.
+    private var heardUndo = HeardUndo()
 
     /// Shows `scene` as the model now has it; editable only when `editability` says so.
     func show(_ scene: SceneID, _ editability: Editability) {
@@ -171,7 +157,7 @@ final class SceneTextEditor: NSObject {
         guard let view = textView, let storage = view.textStorage else { return }
         view.breakUndoCoalescing()
         self.scene = scene
-        hearUndo(of: scene)
+        heardUndo.hear(book.undo(for: scene, part), by: self, calling: #selector(undoManagerDidUndoOrRedo))
         paragraphsToRestyle = nil
         do {
             let previous = storageEdit

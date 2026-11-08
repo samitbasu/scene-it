@@ -117,14 +117,12 @@ private struct TitleTextField: NSViewRepresentable {
         editor.isContinuousSpellCheckingEnabled = true
         let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
         context.coordinator.field = field
-        let center = NotificationCenter.default
-        center.addObserver(
+        editor.acceptsEdits = { [weak coordinator = context.coordinator] in
+            coordinator?.book?.isEditable == true
+        }
+        NotificationCenter.default.addObserver(
             context.coordinator, selector: #selector(Coordinator.sceneWillSwitch),
             name: .openBookWillSwitchScene, object: book)
-        for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
-            center.addObserver(
-                context.coordinator, selector: #selector(Coordinator.historyChanged), name: name, object: nil)
-        }
         field.bezelStyle = .roundedBezel
         field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
@@ -139,7 +137,9 @@ private struct TitleTextField: NSViewRepresentable {
         coordinator.book = book
         coordinator.scene = scene
         coordinator.focus = focus
-        field.editor?.history = book.titleUndo(for: scene)
+        let history = book.titleUndo(for: scene)
+        field.editor?.history = history
+        coordinator.heardUndo.hear(history, by: coordinator, calling: #selector(Coordinator.historyChanged))
         if field.currentEditor() == nil, field.stringValue != title { field.stringValue = title }
         if coordinator.resumesEditing {
             coordinator.resumesEditing = false
@@ -175,6 +175,8 @@ private struct TitleTextField: NSViewRepresentable {
         private var editing: SceneID?
         /// Whether the title had the focus when the writer opened another scene.
         var resumesEditing = false
+        /// The shown scene's title history.
+        var heardUndo = HeardUndo()
 
         @objc func sceneWillSwitch(_ notification: Notification) {
             guard let field, field.currentEditor() != nil else { return }
@@ -198,9 +200,7 @@ private struct TitleTextField: NSViewRepresentable {
         /// An undo or redo in the field changes its text without telling the field's delegate,
         /// so the title is taken from the field editor here instead.
         @objc func historyChanged(_ notification: Notification) {
-            guard let editor = field?.currentEditor() as? NSTextView,
-                let history = notification.object as? UndoManager, history === editor.undoManager
-            else { return }
+            guard let editor = field?.currentEditor() as? NSTextView else { return }
             sync(editor)
         }
 

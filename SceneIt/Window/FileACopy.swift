@@ -40,6 +40,12 @@ final class FilingFlow {
             set: { if self.draft != nil { self.draft = $0 } })
     }
 
+    /// This flow while it can be started in `store` (`BookStore.fileableBook`), else nil: what
+    /// the window hands the toolbar and the File menu.
+    func offered(in store: AppBookStore) -> FilingFlow? {
+        store.fileableBook === book ? self : nil
+    }
+
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
         draft = FilingDraft(today: today)
     }

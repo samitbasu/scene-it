@@ -227,6 +227,11 @@ struct BookStoreTests {
                     OneBookWording.refusal(of: [broken], whileOpen: url),
                     OneBookWording.refusal(of: [other], whileOpen: url),
                 ])
+            #expect(
+                prompts.notices.first
+                    == Notice(
+                        title: "“Other” can't be opened while “Novel” is open.",
+                        message: "Close “Novel” first (File → Close Book), then open “Other” again."))
             #expect(prompts.titles.isEmpty, "only told, never asked")
             #expect(
                 !FileManager.default.fileExists(
@@ -248,7 +253,12 @@ struct BookStoreTests {
             #expect(store.current === book)
             #expect(!FileManager.default.fileExists(atPath: second.path(percentEncoded: false)))
             #expect(
-                prompts.notices == [OneBookWording.createRefusal(of: second, whileOpen: book.layout.root)],
+                prompts.notices == [
+                    Notice(
+                        title: "“Second” wasn't created, because “Novel” is open.",
+                        message:
+                            "Close “Novel” first (File → Close Book), then choose File → New Book… again.")
+                ],
                 "New Book is disabled, but its panel may have been up when a book from Finder opened")
         }
     }

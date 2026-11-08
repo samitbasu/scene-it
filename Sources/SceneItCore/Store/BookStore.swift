@@ -37,6 +37,16 @@ public final class BookStore<C: Clock<Duration>> {
         if case .open(let book) = session { book } else { nil }
     }
 
+    /// The book File a Copy can start on: open for editing, and not being closed.
+    public var fileableBook: OpenBook<C>? {
+        openBook.flatMap { $0.isEditable ? $0 : nil }
+    }
+
+    /// Make Editable… applies: the open book, not being closed, was repaired as it opened.
+    public var canMakeEditable: Bool {
+        openBook?.canBeMadeEditable == true
+    }
+
     /// New Book, Open Book and the start state's recent books are offered only here.
     public var isChoosing: Bool {
         if case .choosing = session { true } else { false }

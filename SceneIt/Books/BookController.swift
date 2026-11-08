@@ -11,10 +11,11 @@ final class BookController {
 
     let store: AppBookStore
     /// The Close Book and the quit a press (or Quit) started and that haven't finished, tracked
-    /// apart so neither can clear the other's. While either is under way a close press does
-    /// nothing, even one decided before the store reached `closing` (while another operation
-    /// held it), or before AppKit's quit got to `applicationShouldTerminate`. Each is cleared only
-    /// by its own owner, matched by identity.
+    /// apart so neither can clear the other's. While the book is still open, a close under way
+    /// makes a close press do nothing, even one decided before the store reached `closing`
+    /// (while another operation held it); a quit under way does so everywhere, even before
+    /// AppKit's quit got to `applicationShouldTerminate`. Each is cleared only by its own owner,
+    /// matched by identity.
     private var closeUnderWay: Attempt?
     /// Also covers the time between a press and `applicationShouldTerminate`, which the app
     /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
@@ -25,6 +26,12 @@ final class BookController {
     /// A quit has been asked for and its path hasn't ended.
     var isQuitUnderWay: Bool {
         quitUnderWay != nil
+    }
+
+    /// A Close Book a press started hasn't finished: it may still be releasing the book after
+    /// the start screen shows.
+    var isCloseUnderWay: Bool {
+        closeUnderWay != nil
     }
     let memory: any BookMemory
     /// The window's layout (ADR 0022).
@@ -126,15 +133,18 @@ final class BookController {
     }
 
     /// The whole decision, from the state now and where the press came from. The red button
-    /// quits (#130); ⌘W closes the book, or quits from the start screen. While a close or a quit
-    /// is under way, another press does nothing.
+    /// quits (#130); ⌘W closes the book, or quits from the start screen. While a quit is under
+    /// way, or a close while the book is still shown, another press does nothing. Once the start
+    /// screen shows, a press is decided as there, even while the close is still releasing the
+    /// book: its quit path's own store operation waits for that release.
     func closeAction(from source: CloseSource) -> CloseAction {
         if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
             return .closeWindow(other)
         }
-        if closeUnderWay != nil || quitUnderWay != nil { return .nothing }
+        if quitUnderWay != nil { return .nothing }
         switch (source, store.session) {
         case (_, .closing): return .nothing
+        case (_, .open) where closeUnderWay != nil: return .nothing
         case (.closeButton, _), (.menu, .choosing): return .quit
         case (.menu, .open): return .closeBook
         }
@@ -182,16 +192,6 @@ final class BookController {
             requests.dropPendingQuit()
         }
         return await store.prepareToQuit()
-    }
-
-    /// File a Copy can start: the book is open for editing, and not being closed.
-    var canStartFiling: Bool {
-        store.openBook?.isEditable == true
-    }
-
-    /// Make Editable… applies: the open book, not being closed, was repaired as it opened.
-    var canMakeEditable: Bool {
-        store.openBook?.canBeMadeEditable == true
     }
 
     /// File → Close Book's title: on the start screen, where it quits, it says so.
