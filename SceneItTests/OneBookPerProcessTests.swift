@@ -27,6 +27,20 @@ private func mainWindow() -> NSWindow? {
 /// with the store idle.
 private let quitCarriedOut = RecordedRequests.Carried(request: .quit, storeWasBusy: false)
 
+/// Runs `body` in the first main-actor turn after `store` reaches the start screen: before any
+/// task the change's own turn then waits on (the close releasing the book) can resume, since
+/// the main actor runs its jobs in the order they arrive.
+@MainActor
+private func whenTheStartScreenShows(_ store: AppBookStore, _ body: @escaping @MainActor () -> Void) {
+    withObservationTracking {
+        _ = store.session
+    } onChange: {
+        Task { @MainActor in
+            if store.isChoosing { body() } else { whenTheStartScreenShows(store, body) }
+        }
+    }
+}
+
 extension BookController {
     /// Runs `body`; if it throws with a quit still under way, plays the quit path to its end as
     /// AppKit would, so a test that fails part-way can't leave the shared controller quitting.
@@ -464,8 +478,111 @@ extension BookStoreIntegrationTests {
         }
     }
 
-    /// While Close Book is asking, File a Copy and Make Editable can't start: what they'd
-    /// collect would be torn down with the book.
+    /// Once the start screen shows, a press is decided as there, even while the close that got
+    /// there is still releasing the book: it quits, rather than being dropped. The quit is asked
+    /// for only once the close has ended, so the store is idle when AppKit's quit runs.
+    @Test func aPressWhileTheClosedBookIsReleasedQuitsOnceTheCloseEnds() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            var releasing = false
+            var decided: [BookController.CloseAction] = []
+            var pressed: Task<Void, Never>?
+            var closeUnderWayWhenCarriedOut: [Bool] = []
+            let recorder = try #require(books.recorded)
+            let storeIsBusy = recorder.storeIsBusy
+            recorder.storeIsBusy = {
+                closeUnderWayWhenCarriedOut.append(books.isCloseUnderWay)
+                return storeIsBusy()
+            }
+            whenTheStartScreenShows(books.store) {
+                releasing = books.isCloseUnderWay && books.store.isBusy
+                decided = [
+                    books.closeAction(from: .closeButton), books.closeAction(from: .menu(keyWindow: nil)),
+                ]
+                pressed = books.press(.menu(keyWindow: nil))
+            }
+
+            await books.press(.menu(keyWindow: nil))?.value
+
+            try #require(releasing, "precondition: pressed while the close was still releasing the book")
+            #expect(decided == [.quit, .quit])
+            #expect(!books.isCloseUnderWay)
+            let quit = try #require(pressed, "the quit waits for the close")
+            await quit.value
+            #expect(
+                await books.quitCarriedOut() == [quitCarriedOut], "asked for after the close, the store idle")
+            #expect(closeUnderWayWhenCarriedOut == [false], "nothing carried out while the close ran")
+            #expect(await books.settleQuit() == .left)
+            #expect(book.status == .closed)
+            #expect(books.store.isChoosing)
+        }
+    }
+
+    /// A press during the release waits for the close; if Quit's own path starts meanwhile, it
+    /// takes the quit over, and the press asks AppKit for nothing.
+    @Test func aPressDuringTheReleaseLeavesTheQuitToAQuitPathStartedMeanwhile() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            var pressed: Task<Void, Never>?
+            var quitting: Task<AppBookStore.LeaveOutcome, Never>?
+            var bothDuringTheClose = false
+            whenTheStartScreenShows(books.store) {
+                pressed = books.press(.closeButton)
+                quitting = Task.immediate { await books.settleQuit() }
+                bothDuringTheClose = books.isCloseUnderWay
+            }
+
+            await books.press(.menu(keyWindow: nil))?.value
+
+            try #require(bothDuringTheClose, "precondition: both started while the close ran")
+            let press = try #require(pressed, "precondition: the press waits for the close")
+            let quit = try #require(quitting)
+            await press.value
+            #expect(await quit.value == .left)
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(books.takeRequests() == [], "the quit path ended the press's quit")
+            #expect(!books.isQuitUnderWay)
+            #expect(books.closeAction(from: .closeButton) == .quit, "the next press is decided afresh")
+        }
+    }
+
+    /// Quit's own path, started while a close is still releasing the book, queues behind the
+    /// close in the store: it ends only once the book's lock is released.
+    @Test func theQuitPathStartedWhileTheClosedBookIsReleasedWaitsForTheRelease() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            var startedDuringTheClose = false
+            var quitting: Task<(AppBookStore.LeaveOutcome, Bool), Never>?
+            whenTheStartScreenShows(books.store) {
+                quitting = Task.immediate {
+                    let outcome = await books.settleQuit()
+                    let released =
+                        if case .editing = try? BookPackage.open(at: url) { true } else { false }
+                    return (outcome, released)
+                }
+                startedDuringTheClose = books.isCloseUnderWay && books.isQuitUnderWay
+            }
+
+            await books.press(.menu(keyWindow: nil))?.value
+
+            try #require(startedDuringTheClose, "precondition: the quit path started while the close ran")
+            let quit = try #require(quitting)
+            let (outcome, released) = await quit.value
+            #expect(outcome == .left)
+            #expect(released, "the book's lock was released before the quit path ended")
+            #expect(!books.isQuitUnderWay)
+        }
+    }
+
+    /// While Close Book is asking, File a Copy and Make Editable can't start, from the menu, the
+    /// toolbar or the read-only banner: what they'd collect would be torn down with the book.
     @Test func fileACopyAndMakeEditableAreOfferedOnlyWhileTheBookIsOpenNotClosing() async throws {
         try await withTemporaryFolder { folder in
             var draft = FilingDraft(today: CalendarDay(.now, in: .current))
@@ -475,15 +592,25 @@ extension BookStoreIntegrationTests {
             let books = BookController(role: .testHost, prompts: prompts)
             let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
             #expect(await books.store.create(at: url) == .created)
-            try #require(books.canStartFiling, "precondition: offered while open")
-            books.store.current?.filingDraft = draft
+            let book = try #require(books.store.current)
+            try #require(books.store.fileableBook === book, "precondition: offered while open")
+            // What the toolbar's File a copy… and the File menu ask. (SwiftUI draws the toolbar's
+            // and the banner's buttons itself; the test host can't see their state.)
+            let filing = FilingFlow(book: book)
+            try #require(filing.canBegin(in: books.store), "precondition: in the toolbar too")
+            book.filingDraft = draft
+            try #require(!filing.canBegin(in: books.store), "precondition: not while the dialog is up")
             let closing = books.press(.menu(keyWindow: nil))
             await eventually { prompts.titles == ["Close without filing the copy?"] }
-            #expect(!books.canStartFiling)
+            // The question stays up; without a draft, only the close keeps File a Copy off now.
+            book.filingDraft = nil
+            #expect(books.store.fileableBook == nil)
+            #expect(!filing.canBegin(in: books.store), "nor in the toolbar")
             #expect(books.store.openBook == nil && books.store.current != nil, "closing, still shown")
             prompts.answer(UnfiledDraftChoice.cancel)
             await closing?.value
-            #expect(books.canStartFiling, "offered again after Cancel")
+            #expect(books.store.fileableBook === book, "offered again after Cancel")
+            #expect(filing.canBegin(in: books.store))
 
             let repairing = HoldingPrompts()
             let other = BookController(role: .testHost, prompts: repairing)
@@ -500,15 +627,18 @@ extension BookStoreIntegrationTests {
                 Issue.record("precondition: the book opens repaired")
                 return
             }
-            try #require(other.canMakeEditable, "precondition: offered while open")
-            other.store.current?.filingDraft = draft
+            try #require(other.store.canMakeEditable, "precondition: offered while open")
+            let repaired = try #require(other.store.current)
+            repaired.filingDraft = draft
             let closingRepaired = other.press(.menu(keyWindow: nil))
             await eventually { repairing.titles.count == 2 }
-            #expect(!other.canMakeEditable)
-            repairing.answer(UnfiledDraftChoice.leaveAnyway)
+            #expect(!other.store.canMakeEditable, "neither in the menu nor on the banner")
+            repairing.answer(UnfiledDraftChoice.cancel)
             await closingRepaired?.value
+            #expect(other.store.canMakeEditable, "offered again after Cancel")
 
-            books.store.current?.filingDraft = nil
+            repaired.filingDraft = nil
+            #expect(await other.store.closeBook() == .left)
             #expect(await books.store.closeBook() == .left)
         }
     }
@@ -534,6 +664,7 @@ extension BookStoreIntegrationTests {
             var draft = FilingDraft(today: CalendarDay(.now, in: .current))
             draft.note = "Before the ending"
             book.filingDraft = draft
+            try #require(books.store.openBook === book, "precondition: open, the close not yet begun")
 
             let first = books.press(.menu(keyWindow: nil))
             let second = books.press(.menu(keyWindow: nil))
@@ -744,13 +875,13 @@ struct DetachedBookTypingTests {
     @Test func aDetachedBooksPageRefusesTypingBeforeSwiftUICatchesUp() async throws {
         try await withPage([scene("One", [[Run("Kept.")]])]) { harness in
             let page = harness.page
-            let editor = try #require(page.editor)
+            let start = harness.storage.string
+            var end = NSRange(location: (start as NSString).length, length: 0)
+            page.setSelectedRange(end)
+            page.insertText(" More.", replacementRange: end)
             let before = harness.storage.string
-            let end = NSRange(location: (before as NSString).length, length: 0)
-            let change = [NSValue(range: end)]
-            try #require(
-                editor.textView(page, shouldChangeTextInRanges: change, replacementStrings: [" More."]),
-                "precondition: the open book's page takes typing")
+            try #require(before == start + " More.", "precondition: the open book's page takes typing")
+            end = NSRange(location: (before as NSString).length, length: 0)
 
             #expect(await harness.store.closeBook() == .left)
             try #require(!harness.book.isEditable, "precondition: detached")
@@ -759,7 +890,91 @@ struct DetachedBookTypingTests {
             page.insertText(" Lost?", replacementRange: end)
 
             #expect(harness.storage.string == before, "the keystroke never reached the text")
-            #expect(!editor.textView(page, shouldChangeTextInRanges: change, replacementStrings: [" More."]))
+            #expect(!page.shouldChangeText(inRanges: [NSValue(range: end)], replacementStrings: ["!"]))
+        }
+    }
+
+    /// A paste on the page (`insert`, through the singular `shouldChangeText(in:replacementString:)`)
+    /// is refused in the same gap: AppKit hands the singular call to the view's veto.
+    @Test func aDetachedBooksPageRefusesAPasteOfCommentedText() async throws {
+        try await withPage([scene("One", letterScene, .withTooEarly)]) { harness in
+            try await PageHarness.withPasteboard { pasteboard in
+                let page = harness.page
+                let letter = NSRange(location: 4, length: 6)
+                try #require((harness.storage.string as NSString).substring(with: letter) == "letter")
+                harness.window.makeFirstResponder(page)
+                page.setSelectedRange(letter)
+                try #require(page.writeSelection(to: pasteboard, types: page.writablePasteboardTypes))
+                try #require(pasteboard.types?.contains(.pageClip) == true, "precondition: our own clip")
+                let start = harness.storage.string
+                page.setSelectedRange(NSRange(location: 0, length: 0))
+                try #require(page.readSelection(from: pasteboard))
+                try #require(
+                    harness.storage.string == "letter" + start, "precondition: the open book's page pastes")
+                let before = harness.storage.string
+                let comments = harness.book.book.scene(harness.book.openScene)?.comments
+
+                #expect(await harness.store.closeBook() == .left)
+                try #require(!harness.book.isEditable, "precondition: detached")
+                page.isEditable = true
+                harness.window.makeFirstResponder(page)
+                page.setSelectedRange(NSRange(location: 0, length: 0))
+                _ = page.readSelection(from: pasteboard)
+
+                #expect(harness.storage.string == before, "the paste never reached the text")
+                #expect(harness.book.book.scene(harness.book.openScene)?.comments == comments)
+                #expect(!page.shouldChangeText(in: NSRange(location: 0, length: 0), replacementString: "x"))
+            }
+        }
+    }
+
+    /// The title field refuses typing in the same gap, as the page does.
+    @Test func aDetachedBooksTitleRefusesTypingBeforeSwiftUICatchesUp() async throws {
+        try await withPage([scene("One", [[Run("Kept.")]])]) { harness in
+            let title = harness.title
+            let scene = try #require(harness.book.openScene)
+            try #require(harness.window.makeFirstResponder(title), "precondition: the title takes the focus")
+            let editor = try #require(title.currentEditor() as? NSTextView)
+            editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+            editor.insertText(" more", replacementRange: editor.selectedRange())
+            try #require(
+                harness.book.book.scene(scene)?.title.text == "One more",
+                "precondition: the open book's title takes typing")
+
+            #expect(await harness.store.closeBook() == .left)
+            try #require(!harness.book.isEditable, "precondition: detached")
+            title.isEnabled = true
+            title.isEditable = true
+            try #require(
+                harness.window.makeFirstResponder(title), "precondition: the field is still editable")
+            let detached = try #require(title.currentEditor() as? NSTextView)
+            let before = detached.string
+            detached.setSelectedRange(NSRange(location: (before as NSString).length, length: 0))
+            detached.insertText(" lost?", replacementRange: detached.selectedRange())
+
+            #expect(detached.string == before, "the keystroke never reached the field")
+            #expect(
+                !detached.shouldChangeText(in: NSRange(location: 0, length: 0), replacementString: "x"),
+                "the singular call `sync` makes is refused too")
+            #expect(harness.book.book.scene(scene)?.title.text == "One more")
+        }
+    }
+
+    /// A comment card refuses typing in the same gap, as the page does.
+    @Test func aDetachedBooksCommentCardRefusesTypingBeforeSwiftUICatchesUp() async throws {
+        try await withPanel { harness in
+            let card = try await harness.typeInCard(noted, " Or")
+            try #require(card.string == "Too early? Or", "precondition: the open book's card takes typing")
+
+            #expect(await harness.store.closeBook() == .left)
+            try #require(!harness.book.isEditable, "precondition: detached")
+            card.isEditable = true
+            try #require(harness.window.makeFirstResponder(card), "precondition: the card is still editable")
+            let before = card.string
+            card.setSelectedRange(NSRange(location: (before as NSString).length, length: 0))
+            card.insertText(" late?", replacementRange: card.selectedRange())
+
+            #expect(card.string == before, "the keystroke never reached the card")
         }
     }
 }

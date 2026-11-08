@@ -202,6 +202,18 @@ struct BookStoreTests {
 
     // MARK: ADR 0038: one book at a time; Close Book returns to the start state
 
+    /// The owner's pick (#129) for several books asked for when none opens.
+    @Test func whenNoneOfSeveralBooksOpensTheNoticeNamesTheRestInRecentBooks() {
+        let others = ["The Lighthouse", "Other Book"].map { URL(filePath: "/tmp/\($0).sceneit") }
+        #expect(
+            OneBookWording.severalBooks(open: nil, addedToRecents: others)
+                == Notice(
+                    title: "Scene It opens one book at a time.",
+                    message:
+                        "“The Lighthouse” and “Other Book” are in Recent Books: to open one, choose it there."
+                ))
+    }
+
     @Test func anotherBookIsRefusedUnreadAndTheWriterIsTold() async throws {
         try await withTemporaryFolder { folder in
             let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)
@@ -227,6 +239,11 @@ struct BookStoreTests {
                     OneBookWording.refusal(of: [broken], whileOpen: url),
                     OneBookWording.refusal(of: [other], whileOpen: url),
                 ])
+            #expect(
+                prompts.notices.first
+                    == Notice(
+                        title: "“Other” can't be opened while “Novel” is open.",
+                        message: "Close “Novel” first (File → Close Book), then open “Other” again."))
             #expect(prompts.titles.isEmpty, "only told, never asked")
             #expect(
                 !FileManager.default.fileExists(
@@ -248,7 +265,12 @@ struct BookStoreTests {
             #expect(store.current === book)
             #expect(!FileManager.default.fileExists(atPath: second.path(percentEncoded: false)))
             #expect(
-                prompts.notices == [OneBookWording.createRefusal(of: second, whileOpen: book.layout.root)],
+                prompts.notices == [
+                    Notice(
+                        title: "“Second” wasn't created, because “Novel” is open.",
+                        message:
+                            "Close “Novel” first (File → Close Book), then choose File → New Book… again.")
+                ],
                 "New Book is disabled, but its panel may have been up when a book from Finder opened")
         }
     }

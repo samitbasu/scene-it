@@ -78,10 +78,12 @@ struct BookWindow: View {
             search.opener = SearchOpener(
                 book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
         }
-        .toolbar { WindowToolbar(book: book, preferences: preferences, undo: undo, filing: fileable) }
+        .toolbar {
+            WindowToolbar(book: book, store: store, preferences: preferences, undo: undo, filing: filing)
+        }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
-        .focusedSceneValue(\.filingFlow, fileable)
+        .focusedSceneValue(\.filingFlow, filing)
         .sheet(isPresented: isDialogUp) {
             FileACopyDialog(
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
@@ -90,11 +92,6 @@ struct BookWindow: View {
             .environment(undo)
             .focusedSceneValue(\.undoRouter, undo)
         }
-    }
-
-    /// File a Copy, while it can be started: the book is editable and open, not being closed.
-    private var fileable: FilingFlow? {
-        store.openBook === book && book.isEditable ? filing : nil
     }
 
     private var isDialogUp: Binding<Bool> {

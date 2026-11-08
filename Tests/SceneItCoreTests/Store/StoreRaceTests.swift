@@ -473,7 +473,7 @@ struct StoreRaceTests {
             #expect(store.current == nil)
             #expect(store.recentBooks.map(\.canonicalPath) == [other.canonicalPath])
             #expect(
-                prompts.notices.last?.message == "These books were added to Recent Books instead: “Other”.")
+                prompts.notices.last?.message == "“Other” is in Recent Books: to open one, choose it there.")
         }
     }
 }

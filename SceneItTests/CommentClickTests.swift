@@ -169,7 +169,8 @@ struct CommentClickTests {
         try await withPage([commented]) { harness in
             let notes = try await harness.showNotes()
             await eventually { notes.string == "The letter again." }
-            #expect(notes.textLayoutManager?.delegate == nil, "TextKit's own fragments")
+            let layout = try #require(notes.textLayoutManager, "TextKit 2")
+            #expect(layout.delegate == nil, "TextKit's own fragments")
             let selection = try #require(harness.page.editor?.comments)
             try Self.click(harness, onCharacter: 6)
             let pageSelection = selection.selected

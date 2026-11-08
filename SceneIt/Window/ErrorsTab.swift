@@ -207,7 +207,9 @@ struct FixTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> AdmittingTextField {
-        let editor = AdmittingTextView.fieldEditor(admitting: CharacterPolicy.admittedLine)
+        // A payload, not the book's text: Fix itself refuses once the book stops taking edits.
+        let editor = AdmittingTextView.fieldEditor(
+            admitting: CharacterPolicy.admittedLine, editability: { .editable })
         editor.history = context.coordinator.history
         let field = AdmittingTextField(string: text, editor: editor, lineBreakMode: .byWordWrapping)
         field.cell?.usesSingleLineMode = false

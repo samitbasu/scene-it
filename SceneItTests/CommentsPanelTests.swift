@@ -621,7 +621,7 @@ extension BookStoreIntegrationTests {
 
 /// The panel's book in the window, with the Comments tab showing; the panel is put back after.
 @MainActor
-private func withPanel(
+func withPanel(
     holdingTheLock: Bool = false, books: BookController = BookController(role: .testHost),
     _ body: (PageHarness) async throws -> Void
 ) async throws {

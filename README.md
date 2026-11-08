@@ -97,7 +97,8 @@ runs, in order, stopping at the first failure:
    and accept what they should.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
-   `textLayoutManager` is allowed.
+   `textLayoutManager` is allowed, and so is `SceneItTests/TextKit1Alarm.swift`, the test alarm that
+   names the notification a text view posts as it falls back to TextKit 1, to fail any page test on it.
 3. **Logging guard:** fails on `Logger(`, `os_log`, `OSLog…` or `NSLog(` outside
    `Sources/SceneItCore/Diagnostics/Log.swift` and `CurrentProcessLog.swift`. All logging
    goes through `Log`, whose types keep manuscript text out (ADR 0006).
@@ -309,9 +310,10 @@ only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the
 start screen after a close (`start-screen-after-close`, 1440 × 900 pt); and, as the app's own `NSAlert`, the
-refusal (`refusal`), new-book refusal (`create-refusal`), lost-book (`book-lost`) and several-books
-(`several-books`) alerts. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to render
-only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
+refusal (`refusal`), new-book refusal (`create-refusal`), lost-book (`book-lost`) and several-books alerts, with
+the first book open (`several-books`) and with none open (`several-books-none-open`). It drives the app's own
+store, so it runs in `BookStoreIntegrationTests`: to render only these, use
+`-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
 
 `fixField` renders the Errors tab's fix field (#127, `FixFieldRenders.swift`) into a `fix-field/`
 subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` it was, above the

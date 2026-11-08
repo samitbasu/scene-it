@@ -23,6 +23,7 @@ struct ReadOnlyBanner: View {
                         Button(ErrorsWording.showRepairs) { preferences.reveal(.errors) }
                         Button(ErrorsWording.makeEditableItem) { Task { await store.confirmMakeEditable() } }
                             .buttonStyle(.borderedProminent)
+                            .disabled(!store.canMakeEditable)
                     }
                 }
                 .padding(.horizontal, 16)

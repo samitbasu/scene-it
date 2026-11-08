@@ -26,9 +26,9 @@ struct BookCommands: Commands {
                 .keyboardShortcut("s")
                 .disabled(choosing)
             Button(ErrorsWording.makeEditableItem) { Task { await books.store.confirmMakeEditable() } }
-                .disabled(!books.canMakeEditable)
+                .disabled(!books.store.canMakeEditable)
             Button(ArchiveWording.menuItem) { filing?.begin() }
-                .disabled(filing == nil || !books.canStartFiling || filing?.draft != nil)
+                .disabled(filing?.canBegin(in: books.store) != true)
         }
     }
 }
