@@ -23,7 +23,9 @@ extension BookStoreIntegrationTests {
     /// `OpenBook` and the page's editor, while the window stays up for the start screen. (The page's `NSTextView` itself outlives
     /// them for a while, held by AppKit: a block `-[NSView _commonAwake]` registers with the
     /// notification center, and AppKit's `previousKeyViews` table. It no longer reaches the
-    /// book, since its editor is weak and gone, so it isn't asserted on.)
+    /// book, since its editor is weak and gone, so it isn't asserted on.) Any AppKit call from a
+    /// test's task that reads the view's weak delegate autoreleases the editor into the never-drained
+    /// pool, and so keeps it alive here.
     @Test func aClosedBookIsReleasedWithItsEditor() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
@@ -52,7 +54,8 @@ extension BookStoreIntegrationTests {
             await eventually { books.store.isChoosing && page() == nil }
             #expect(window.isVisible, "the window stays up for the start screen")
 
-            for _ in 0..<1000 where book != nil || editor != nil {
+            let deadline = ContinuousClock.now + .seconds(30)
+            while book != nil || editor != nil, ContinuousClock.now < deadline {
                 await drainARunLoopTurn()
             }
             #expect(book == nil, "the closed OpenBook was released")

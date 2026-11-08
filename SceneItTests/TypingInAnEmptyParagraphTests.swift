@@ -227,7 +227,67 @@ struct TypingInAnEmptyParagraphTests {
             elsewhere.undo()
             elsewhere.redo()
             #expect(editor.restyleIsPending, "not restyled by another manager's undo or redo")
-            #expect(CFGetRetainCount(editor) == retains, "nothing retained it")
+            #expect(
+                CFGetRetainCount(editor) == retains,
+                "nothing read the view's weak delegate, which would autorelease the editor into this task's pool"
+            )
+        }
+    }
+
+    /// The editor hears the undo manager of the scene it shows, so after a switch away and back
+    /// an undo still restyles at once. The page opens on another scene first, so the one typed in
+    /// is never the first manager the editor heard.
+    @Test func undoAfterASceneSwitchAndBackRestylesAtOnce() async throws {
+        let one = scene("One", [[Run("Ert")], [], [Run("I saw the cat")]])
+        let two = scene("Two", [[Run("Elsewhere.")]])
+        try await withPage([two, one]) { page in
+            #expect(page.book.openScene == two.id, "precondition: it opens on the other scene")
+            page.book.select(one.id)
+            await eventually { page.storage.string == "Ert\n\nI saw the cat" }
+            page.book.select(two.id)
+            await eventually { page.storage.string == "Elsewhere." }
+            page.book.select(one.id)
+            await eventually { page.storage.string == "Ert\n\nI saw the cat" }
+            let editor = try #require(page.page.editor)
+            let undo = try #require(page.page.undoManager)
+            #expect(undo === page.book.pageUndo(for: one.id), "precondition: the scene's own manager")
+            page.focusPage(at: 4)
+            page.page.insertText("C", replacementRange: page.page.selectedRange())
+            page.page.breakUndoCoalescing()
+            undo.undo()
+            #expect(!editor.restyleIsPending, "restyled as the undo ended")
+            #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .empty))
+            #expect(page.page.selectedRange() == NSRange(location: 4, length: 0))
+            #expect(page.storage.string == "Ert\n\nI saw the cat")
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func undoInTheNotesAfterASceneSwitchAndBackRestylesAtOnce() async throws {
+        var one = scene("One", [[Run("The ferry left.")]])
+        one.notes = [[Run("Ert")], [], [Run("I saw the cat")]]
+        var two = scene("Two", [[Run("Elsewhere.")]])
+        two.notes = [[Run("Other notes.")]]
+        try await withPage([two, one]) { page in
+            #expect(page.book.openScene == two.id, "precondition: it opens on the other scene")
+            let notes = try await page.showNotes()
+            page.book.select(one.id)
+            await eventually { notes.string == "Ert\n\nI saw the cat" }
+            page.book.select(two.id)
+            await eventually { notes.string == "Other notes." }
+            page.book.select(one.id)
+            await eventually { notes.string == "Ert\n\nI saw the cat" }
+            let editor = try #require(notes.editor)
+            let undo = try #require(notes.undoManager)
+            #expect(undo === page.book.undo(for: one.id, .notes), "precondition: the scene's own manager")
+            page.focusNotes(notes, at: 4)
+            notes.insertText("C", replacementRange: notes.selectedRange())
+            notes.breakUndoCoalescing()
+            undo.undo()
+            #expect(!editor.restyleIsPending, "restyled as the undo ended")
+            #expect(notes.selectedRange() == NSRange(location: 4, length: 0))
+            #expect(notes.string == "Ert\n\nI saw the cat")
+            #expect(page.notesMirrorModel(notes))
         }
     }
 
