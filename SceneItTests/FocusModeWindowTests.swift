@@ -326,7 +326,12 @@ struct FocusModeWindowTests {
             #expect(await confirming.value == .failed(.archiveNotAFolder))
             #expect(filing.draft == typed, "the failed filing still has the draft")
             #expect(filing.stage == .editing)
-            try press(.escape, in: dialog)
+            // SwiftUI brings the editable dialog's Esc back on one of its next turns, which no
+            // AppKit state shows; so Esc is pressed until it takes, as the writer would press again.
+            await eventually {
+                _ = try? press(.escape, in: dialog)
+                return filing.draft == nil
+            }
             #expect(filing.draft == nil, "once it's editable again, Esc cancels it")
         }
     }
