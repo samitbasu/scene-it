@@ -162,6 +162,51 @@ struct ErrorEntryEditTests {
         }
     }
 
+    /// A fix that changes anything the page's undo edits (the body, the scene's comments or its
+    /// tags, #20) clears that history, so no step can act on what the fix changed; the notes'
+    /// history, which the fix didn't touch, is kept.
+    @Test(arguments: [ErrorTag.metadata, .marks, .comments])
+    func aRepairOfWhatThePageUndoesClearsItsHistory(tag: ErrorTag) async throws {
+        try await withTemporaryFolder { folder in
+            let text =
+                tag == .marks
+                ? Self.text.replacingOccurrences(
+                    of: "- [comments] \(Self.broken)", with: "- [marks] - color red | c12-19 | \"letter\"")
+                : Self.text
+            let payload =
+                switch tag {
+                case .metadata: "tags: grim"
+                case .marks: "- color red | c12-18 | \"letter\""
+                default: Self.fixed
+                }
+            let (store, book, _) = try await openBook(text, in: folder)
+            let scene = try #require(book.book.scenes.first?.id)
+            let page = book.pageUndo(for: scene)
+            let notes = book.notesUndo(for: scene)
+            #expect(book.addTag("storm", to: scene))
+            book.apply(BodyChange(lines: 0..<0, paragraphs: [[Run("Typed.")]]), to: scene, in: .notes)
+            notes.registerUndo(withTarget: book) { _ in }
+            try #require(page.canUndo && notes.canUndo, "precondition: histories to clear or keep")
+            let before = try #require(book.book.scenes.first)
+
+            #expect(book.repairError(try ref(tag, in: book), as: payload) == .repaired)
+            let after = try #require(book.book.scenes.first)
+            let changed = (
+                body: after.body != before.body, comments: after.comments != before.comments,
+                tags: after.tags != before.tags
+            )
+            switch tag {
+            case .metadata:
+                try #require(changed == (false, false, true), "precondition: only the tags changed")
+            case .marks: try #require(changed == (true, false, false), "precondition: only the body changed")
+            default: try #require(changed.comments, "precondition: the comments changed")
+            }
+            #expect(!page.canUndo, "the page's history is cleared")
+            #expect(notes.canUndo, "the notes' history is kept")
+            #expect(await store.closeBook() == .left)
+        }
+    }
+
     @Test(arguments: [ErrorTag.comments, .marks])
     func undoingARepairKeepsWhatWasTypedSince(tag: ErrorTag) async throws {
         try await withTemporaryFolder { folder in

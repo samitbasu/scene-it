@@ -61,37 +61,34 @@ spelled, so a tag that really starts with `#` stays that way.
 
 The owner chose to put tag edits on the scene's **page** undo manager, as comment actions are
 (PLAN §8.6). So ⌘Z on the page takes back a tag edit or the typing around it, in the order they
-happened. Two private primitives do all of it, and each registers the other as its inverse:
-- `takeTags` removes given spellings, each at its recorded index or, if the tags have moved, the
-  nearest index that has that spelling;
-- `putTags` inserts given spellings at their indices, skipping a spelling the scene already had
-  when it began.
-
-Each records what it actually did, and hands only that to its inverse:
+happened. Two private primitives do all of it, and each registers the other as its inverse, with
+exactly the (index, spelling) pairs it changed:
+- `takeTags` removes the recorded pairs;
+- `putTags` inserts them, each at its index.
 
 ```swift
         registerPageUndo(in: scene, named: name) { _ = $0.takeTags(put, from: scene, named: name) }
 ```
 
-This matters because something outside the page's undo can change the tags between an edit and
-its undo: an Errors-tab repair sets a scene's tags from a `tags:` line. Two earlier versions got
-this wrong:
-- Add's inverse removed the tag in every case, so undoing "Add `storm`" after a repair had also
-  added `STORM` lost `STORM`.
-- Remove's inverse inserted every spelling it took, unconditionally, so undoing a removal after a
-  repair had put the tag back duplicated it. (The version before that refused any spelling the
-  scene had in any case, and dropped a case variant taken in the same removal.)
+`removeTag` gathers every case variant and repeat the scene has, so one click turns a row off.
+`addTag` and the row's toggle apply the rules for a new edit (no duplicate in any case) before
+calling `putTags`. An inverse never re-applies those rules: it just undoes.
 
-An undo inverts exactly its own edit: it takes only the spellings it put, and puts back only the
-spellings it took that the scene hasn't got again. Repeats taken together come back together. The
-rules for a new edit (no duplicate in any case) belong to `addTag` and the row's toggle, which
-check before calling `putTags`. `removeTag` gathers every case variant and repeat, so one click
-turns a row off.
+**The invariant that keeps this simple.** An inverse is only right if it finds the tags exactly as
+its edit left them. Nothing in the app writes a scene's tags except these primitives, with one
+exception: an Errors-tab Fix of a `tags:` line, which has its own history. So a Fix that changes
+anything the page's history edits (the body, the scene's comments or its tags) clears that
+history, as a Fix to the text always did. One function says what each history covers,
+`TextPart.historyAgrees`, and `OpenBook.commit` asks it. The review of this PR first tried the
+other way round: inverses that coped with tags a repair had changed, by looking for the nearest
+copy and skipping spellings already present. Each patch lost a tag in some other interleaving.
+Ruling the interleavings out is the simpler design (CLAUDE.md, design rule 1).
 
 Each inverse changes only the tag list, never the whole scene, so undoing a tag edit can't take
 back typing made after it. The inverse registers its own inverse, which is how redo works:
-`UndoManager` turns what an undo registers into the redo step. `registerPageUndo` doesn't rename
-while undoing or redoing (#125), so Redo reads "Redo Add Tag".
+`UndoManager` turns what an undo registers into the redo step. An edit that changes nothing
+registers nothing, so Undo never holds a step that does nothing. `registerPageUndo` doesn't
+rename while undoing or redoing (#125), so Redo reads "Redo Add Tag".
 
 **Focus.** The owner chose to keep the focus where the writer is: Return in the + tag field leaves
 it in the field, ready for the next tag, and × and row clicks don't move it at all. ⌘Z goes to the
@@ -99,11 +96,6 @@ focused view's undo manager (`UndoRouter`), so in the field it undoes the field'
 undo a tag, the writer clicks the page first. Every tag edit still calls `breakUndoCoalescing()`
 on the page, so typing before and after it stay separate steps rather than one long "Typing".
 
-**Focus.** The owner chose to keep the focus where the writer is: Return in the + tag field leaves
-it in the field, ready for the next tag, and × and row clicks don't move it at all. ⌘Z goes to the
-focused view's undo manager (`UndoRouter`), so in the field it undoes the field's own typing; to
-undo a tag, the writer clicks the page first. Every tag edit still calls `breakUndoCoalescing()`
-on the page, so typing before and after it stay separate steps rather than one long "Typing".
 
 ## 3. A `Layout` for chips
 

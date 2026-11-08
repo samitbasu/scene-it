@@ -144,6 +144,16 @@ private func entries(_ tags: BookTags) -> [String] {
         #expect(fileTags("# x") == [" x"])
     }
 
+    /// The file's ` x` (a tag that starts with a space) saves and reads back unchanged.
+    @Test func aTagWithALeadingSpaceSavesAndReadsBack() throws {
+        let book = Book(title: "T", scenes: [scene("S", [" x"])])
+        try #require(book.scenes.first?.tags == [" x"], "precondition: the model keeps the space")
+        var ids = IDGenerator.system
+        let reread = BookFormat.parse(
+            try BookFormat.verifiedSerialization(of: book), opened: BookFormat.rereadTime, ids: &ids)
+        #expect(reread.book.scenes.first?.tags == [" x"])
+    }
+
     /// The ⌕'s search: one word as it is; words in one sentence as a phrase, a `"` in them a
     /// space; words a sentence break separates as words; and nothing for a tag with no word.
     @Test func theSearchForATag() {
