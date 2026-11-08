@@ -123,7 +123,7 @@ struct BookWindow: View {
                 confirm: { Task { await filing.confirm(in: store) } }
             )
             .background(EscapeKey(keys: keys))
-            .background(WindowEscapeFallback(keys: keys))
+            .background(WindowEscapeFallback(keys: keys, commands: .keyAndCancelOperation))
             .interactiveDismissDisabled()
             .environment(undo)
             .environment(\.windowKeys, keys)

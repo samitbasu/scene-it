@@ -78,7 +78,7 @@ final class FilingFlow {
     }
     @ObservationIgnored private var sheetObservers: [any NSObjectProtocol] = []
 
-    private func sheetsChanged() {
+    func sheetsChanged() {
         guard let window else { return }
         let lost = draft != nil && window.attachedSheet == nil
         if lost != presentationLost { presentationLost = lost }

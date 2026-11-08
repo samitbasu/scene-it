@@ -18,19 +18,6 @@ private func press(_ key: TestKey, in window: NSWindow) throws {
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
-/// Esc in File a Copy's dialog until `closed`, at most 50 times, 20 ms apart. SwiftUI makes the
-/// dialog's `EscapeKey` answer on one of its turns after the dialog shows or changes, which no
-/// AppKit state shows; an Esc before that reaches nothing, so it's pressed again, as the writer
-/// would. Nothing else can close the dialog (its binding ignores SwiftUI, and SwiftUI's own
-/// dismissal is off), and the tests check the resolver closed it (`WindowKeys.lastEscape`).
-@MainActor
-private func pressEscape(in dialog: NSWindow, until closed: () -> Bool) async throws {
-    for _ in 0..<50 where !closed() {
-        try press(.escape, in: dialog)
-        try await Task.sleep(for: .milliseconds(20))
-    }
-}
-
 /// Letters typed as the window gets them, one key at a time, into what has the focus.
 @MainActor
 private func type(_ text: String, in window: NSWindow) throws {
@@ -216,8 +203,8 @@ struct FocusModeWindowTests {
             try #require(filing.draft != nil, "precondition: its draft")
             #expect(keys.escapeContext.dialog == .editing)
 
-            try await pressEscape(in: dialog) { filing.draft == nil }
-            #expect(filing.draft == nil, "Esc cancels the dialog")
+            try press(.escape, in: dialog)
+            #expect(filing.draft == nil, "one Esc cancels the dialog")
             #expect(
                 keys.lastEscape?.result == .close(.dialog), "through the resolver, not SwiftUI's dismissal")
             #expect(keys.lastEscape?.entrance != .focusedView, "by the dialog's own Esc")
@@ -243,16 +230,62 @@ struct FocusModeWindowTests {
             // SwiftUI shows the sheet again itself, the model still saying it's up; if it didn't,
             // File a Copy… would be offered, and would bring it back.
             await eventually { harness.window.attachedSheet != nil || filing.canBegin(in: harness.store) }
+            // Which way it came back; the backstop is pinned down in
+            // `aDraftWhoseSheetWentIsOutOfEscsReachAndFileACopyBringsItBack`.
+            var path = "SwiftUI showed it again"
             if harness.window.attachedSheet == nil {
+                path = "File a Copy… showed it again"
                 #expect(filing.canBegin(in: harness.store), "File a Copy… is offered, to bring it back")
                 filing.begin()
                 await eventually { harness.window.attachedSheet != nil }
             }
-            #expect(harness.window.attachedSheet != nil, "the dialog is back")
+            #expect(harness.window.attachedSheet != nil, "the dialog is back (\(path))")
             #expect(filing.draft == typed, "with the same draft")
             await eventually { !filing.canBegin(in: harness.store) }
             #expect(!filing.canBegin(in: harness.store), "File a Copy… is off again while it shows")
             filing.cancel()
+        }
+    }
+
+    /// The backstop, driven directly: a draft whose window has no sheet is out of Esc's reach (an
+    /// Esc meant for the page closes what's on the page), and File a Copy… shows it again.
+    @Test func aDraftWhoseSheetWentIsOutOfEscsReachAndFileACopyBringsItBack() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController(role: .testHost)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let filing = FilingFlow(book: book)
+            let chrome = WindowChrome()
+            let keys = WindowKeys(chrome: chrome, filing: filing, page: PageFocus(), mode: .constant(.page))
+            let window = NSWindow(
+                contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled],
+                backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            filing.window = window
+            filing.begin()
+            filing.draft?.note = "Keep me"
+            let typed = try #require(filing.draft)
+            #expect(!filing.canBegin(in: books.store), "precondition: a draft, its dialog taken as up")
+
+            filing.sheetsChanged()
+            try #require(
+                window.attachedSheet == nil && filing.presentationLost, "precondition: its sheet went")
+            #expect(keys.escapeContext.dialog == nil, "the dialog isn't an Esc layer while it isn't shown")
+            chrome.set(.on)
+            #expect(keys.escape(from: .focusedView) == .handled)
+            #expect(keys.lastEscape?.result == .close(.focusMode), "Esc leaves focus mode")
+            #expect(filing.draft == typed, "and the draft stays")
+            #expect(keys.escape(from: .focusedView) == .passedOn, "with nothing else up, Esc passes on")
+            #expect(filing.draft == typed)
+
+            #expect(filing.canBegin(in: books.store), "File a Copy… is offered")
+            let before = filing.presentation
+            filing.begin()
+            #expect(filing.presentation != before, "and shows the dialog afresh")
+            #expect(filing.draft == typed, "with the same draft")
+            filing.cancel()
+            #expect(await books.store.closeBook() == .left)
         }
     }
 
@@ -379,8 +412,8 @@ struct FocusModeWindowTests {
             #expect(filing.draft == typed, "the failed filing still has the draft")
             #expect(filing.stage == .editing)
             #expect(harness.window.attachedSheet === dialog, "the dialog is still the one shown")
-            try await pressEscape(in: dialog) { filing.draft == nil }
-            #expect(filing.draft == nil, "once it's editable again, Esc cancels it")
+            try press(.escape, in: dialog)
+            #expect(filing.draft == nil, "once it's editable again, one Esc cancels it")
             #expect(keys.lastEscape?.result == .close(.dialog), "the resolver closed it")
             #expect(keys.lastEscape?.entrance != .focusedView, "through the dialog's own Esc")
         }

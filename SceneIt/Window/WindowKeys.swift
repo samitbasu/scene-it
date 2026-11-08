@@ -32,9 +32,12 @@ final class WindowKeys {
         self.mode = mode
     }
 
+    /// File a Copy's dialog counts only while it's on screen: a draft whose sheet went (until File
+    /// a Copy… shows it again) can't be cancelled by an Esc meant for the page.
     var escapeContext: EscapeContext {
-        EscapeContext(
-            popover: popover == nil ? .absent : .present, dialog: filing.draft == nil ? nil : filing.stage,
+        let dialogShown = filing.draft != nil && !filing.presentationLost
+        return EscapeContext(
+            popover: popover == nil ? .absent : .present, dialog: dialogShown ? filing.stage : nil,
             mode: mode.wrappedValue, findBar: page.desk?.findField == nil ? .absent : .present,
             focusMode: chrome.focusMode)
     }
@@ -60,15 +63,20 @@ final class WindowKeys {
         return .handled
     }
 
-    /// The last Esc that reached the window's keys: where it came in and what it did.
-    @ObservationIgnored private(set) var lastEscape: (entrance: EscapeEntrance, result: EscapeResult)?
+    #if DEBUG
+        /// The last Esc that reached the window's keys: where it came in and what it did, for the
+        /// tests.
+        @ObservationIgnored private(set) var lastEscape: (entrance: EscapeEntrance, result: EscapeResult)?
+    #endif
 
     private func act(
         on result: EscapeResult, from entrance: EscapeEntrance, restoring focus: PageFocus.Focus?
     )
         -> EscapeOutcome
     {
-        lastEscape = (entrance, result)
+        #if DEBUG
+            lastEscape = (entrance, result)
+        #endif
         switch result {
         case .passOn:
             return .passedOn

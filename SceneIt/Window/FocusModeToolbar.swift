@@ -115,8 +115,21 @@ struct FocusModeToolbar: NSViewRepresentable {
 /// opens, say), the window is the first responder and nothing of ours hears the key. It's
 /// put at the end of the window's responder chain, which hands it any key nothing took,
 /// so a view that handles Esc never passes the key on, and Esc is never handled twice.
+///
+/// In File a Copy's dialog it also takes `cancelOperation:`, the command a text field or text
+/// view makes of Esc, which goes up the chain unanswered there. Not in the main window: there
+/// the page and the notes, and the other views that take Esc, answer it themselves, and an
+/// `NSTextView` that finds `cancelOperation:` answered up its chain no longer runs its own Esc.
 struct WindowEscapeFallback: NSViewRepresentable {
     let keys: WindowKeys
+    var commands = EscapeCommands.keyOnly
+
+    nonisolated enum EscapeCommands: Equatable, Sendable {
+        /// Only an Esc key nothing took.
+        case keyOnly
+        /// That, and a `cancelOperation:` nothing answered.
+        case keyAndCancelOperation
+    }
 
     func makeNSView(context: Context) -> FocusModeToolbar.WindowWatcher {
         let view = FocusModeToolbar.WindowWatcher()
@@ -126,7 +139,7 @@ struct WindowEscapeFallback: NSViewRepresentable {
     }
 
     func makeCoordinator() -> EscapeResponder {
-        EscapeResponder(keys: keys)
+        EscapeResponder(keys: keys, commands: commands)
     }
 
     func updateNSView(_ view: FocusModeToolbar.WindowWatcher, context: Context) {}
@@ -138,10 +151,21 @@ struct WindowEscapeFallback: NSViewRepresentable {
     final class EscapeResponder: NSResponder {
         private weak var keys: WindowKeys?
         private weak var window: NSWindow?
+        nonisolated private let commands: EscapeCommands
 
-        init(keys: WindowKeys) {
+        init(keys: WindowKeys, commands: EscapeCommands) {
             self.keys = keys
+            self.commands = commands
             super.init()
+        }
+
+        nonisolated override func responds(to selector: Selector!) -> Bool {
+            if selector == #selector(cancelOperation(_:)) { return commands == .keyAndCancelOperation }
+            return super.responds(to: selector)
+        }
+
+        override func cancelOperation(_ sender: Any?) {
+            keys?.escape(from: .window)
         }
 
         @available(*, unavailable)
