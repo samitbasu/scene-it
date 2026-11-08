@@ -226,8 +226,9 @@ public struct CommentUnderline: Hashable, Sendable {
     }
 }
 
-/// A paragraph laid out as TextKit does, with its comments' underlines drawn below its lines.
-public final class CommentUnderlineFragment: NSTextLayoutFragment, @unchecked Sendable {
+/// A paragraph laid out as `EndLineFragment` does, with its comments' underlines drawn below its
+/// lines.
+public final class CommentUnderlineFragment: EndLineFragment, @unchecked Sendable {
     /// TextKit keeps a fragment when its layout is invalidated, so it reads the palette from
     /// here each time rather than keeping the one it was made with.
     private let underliner: CommentUnderliner

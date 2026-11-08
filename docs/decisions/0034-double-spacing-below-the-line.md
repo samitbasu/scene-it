@@ -21,8 +21,8 @@ height. The owner chose instead to put the spacing below each line, so that the 
 - **The empty paragraph at the very end** (after a final Return, or an empty scene) has no character to carry a style:
   TextKit lays it out in the typing attributes, which `SceneTextView` gives the style of the caret's paragraph. After
   a line of text it gets the body's indent and no spacing, since that line has its spacing below it; after an empty
-  paragraph, whose gap is above it, it's spaced as an empty paragraph, with the gap before it. (TextKit doesn't always
-  honour that last case; see the known issue below.)
+  paragraph, whose gap is above it, it's spaced as an empty paragraph, with the gap before it. (TextKit doesn't honour
+  that last case; the page places that line itself, below.)
 - One rule, `ParagraphRole.paragraphStyle(for: ParagraphContent)`, decides the style from what the paragraph holds. The
   codec applies it as it renders text, the editor re-applies it to the paragraphs an edit touches
   (`styleParagraphs(of:around:)`), and `SceneTextView` gives the typing attributes the style of the caret's paragraph,
@@ -85,15 +85,17 @@ was rejected: it's the glyphs' height (≈ 12 pt, not the cursor's) and never re
   (print, export), a page break falls after a line's gap, not before its letters.
 - An edit that empties a paragraph, or types into an empty one, restyles that paragraph in the same edit; the page
   fuzz's check that the page mirrors the model covers it.
-- **Known issue, accepted (#102): text ending in an empty paragraph** (Return pressed twice at the end). TextKit puts
-  the empty line after it straight under the empty one, whatever the typing attributes or the last paragraph's style
-  ask for (spacing before, paragraph spacing and line spacing were all tried, #102), so the caret there is text height
-  but sits 14 pt higher than the multiple put it (at 157 pt instead of 171 pt below the view's top, for "Hello" and
-  two Returns), and the page's text ends 14–15 pt short. Every other ending is where the multiple put it, with the
-  caret anywhere: after text, after a mid-text empty paragraph, and in an empty scene. `EndLineTests` measures what
-  the writer sees (the system caret and where the page ends, without forcing a layout) and records this case as a
-  steady known issue, so a fix makes it fail. To be revisited when pagination lands, which has to decide where a
-  page's last line ends anyway.
+- **Text ending in an empty paragraph** (Return pressed twice at the end, #102). TextKit lays the end line out
+  inside the last paragraph's layout fragment, so it ignores its spacing before, and line spacing, before or
+  after, goes inside an empty line and doubles its caret (spacing before, paragraph spacing, line spacing, a
+  line-height multiple and a minimum line height were all measured, on the paragraph and in the typing
+  attributes). It put the line straight under the empty one, 14 pt high (at 157 pt instead of 171 pt below the
+  view's top, for "Hello" and two Returns), and how tall it made it depended on where the caret was, so the
+  page ended 14–15 pt short. The page's layout fragments (`EndLineFragment`, which `CommentUnderlineFragment`
+  extends) now place that one line themselves: a copy of the empty line above it, one spacing before lower,
+  with the fragment's frame stretched down to it. TextKit's caret, hit-testing and the page's height all read
+  it through `textLineFragments` and `layoutFragmentFrame`. Every ending is now where the multiple put it, with
+  the caret anywhere (`EndLineTests`, including Return typed twice).
 - When the typing attributes' style changes, the end line is laid out again at once, not later: until then the page
   measured short (a scene with an empty paragraph in it ended 57 pt short while the caret was in that paragraph).
 - **RTF copied to other apps** carries the new paragraph styles: `lineSpacing` on text, and `paragraphSpacingBefore`
