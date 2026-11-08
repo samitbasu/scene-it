@@ -128,19 +128,23 @@ xcodebuild. A step still running at its limit fails. Swift Testing's own time li
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
 check.sh kills two sets of processes: the step's own process tree, and any process that runs
 something from the step's own build folder (`.build/` for `swift test`, `build/` for
-xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`. So
-a timeout in one of steps 7 and 8 never kills the other.
+xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`.
 That spares a Debug app or an IDE build that was already running, and an app the step didn't
-start itself. Before it kills them, check.sh samples up to four of them that are test runners
+start itself. So a timeout in one of steps 7 and 8 never kills the other. Before it kills them, check.sh samples up to four of them that are test runners
 (`swiftpm-testing-helper`, an `.xctest` bundle or a test host app), all at once, for 3 seconds,
 into `build/check/<step>-hang-<pid>.txt`.
+
+**Interrupted** (Ctrl-C or `SIGTERM`): check.sh kills everything it started, as a timeout does
+(children before parents, sparing `Scene It.app` unless it's in the gate's own process tree),
+and exits with status 130 (Ctrl-C) or 143 (`SIGTERM`). No step keeps running in the background.
 
 **Output on success:** nothing, exit status 0.
 
 **Output on failure:** exit status 1, and on stderr, for each failed step:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
-`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. If both
-steps 7 and 8 fail, both are reported, `swift-test` first, once both have finished.
+`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. Steps 7
+and 8 don't stop at the first failure: each failed one is reported. `swift-test`'s report
+prints as soon as it ends; xcodebuild's prints once both have finished.
 A step that ran out of time adds `error: still running after <n> min (or s), so it was killed: <command>`
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.

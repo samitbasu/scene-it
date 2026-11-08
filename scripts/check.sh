@@ -11,6 +11,30 @@ source scripts/guards.sh
 
 readonly log_dir=build/check
 readonly result_bundle="$log_dir/SceneIt.xcresult"
+readonly products_before=" $(built_here "$every_build_folder" | tr '\n' ' ') "
+
+# stop_everything <status>: kills what the gate started, as a timeout does, and exits. The
+# steps run in the background, where Ctrl-C doesn't reach them, so without this they would
+# outlive the gate and keep writing to build/.
+stop_everything() {
+    trap '' INT TERM
+    local pass process alive
+    for pass in 1 2 3 4 5; do
+        alive=()
+        for process in $(doomed $$ "$every_build_folder" "$products_before"); do
+            if [[ $process != "$$" ]] && kill -0 "$process" 2>/dev/null; then
+                alive+=("$process")
+            fi
+        done
+        ((${#alive[@]} > 0)) || break
+        kill -9 "${alive[@]}" 2>/dev/null || true
+        sleep 0.1
+    done
+    exit "$1"
+}
+trap 'stop_everything 130' INT
+trap 'stop_everything 143' TERM
+
 rm -rf "$result_bundle"
 mkdir -p "$log_dir"
 

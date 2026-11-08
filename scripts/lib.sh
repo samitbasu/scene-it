@@ -25,7 +25,8 @@ descendants() {
 readonly every_build_folder='\.?build'
 
 # built_here <folders>: processes running this checkout's build products from the build folders
-# whose names match the extended regular expression <folders>. A test helper or test host can
+# whose names match <folders>. <folders> is an extended regular expression, used unescaped, so
+# a literal dot is written `\.`, as in `every_build_folder`. A test helper or test host can
 # outlive the `swift test` or `xcodebuild` that started it, so it isn't always a descendant.
 built_here() {
     local folders=$1 root
