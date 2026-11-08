@@ -18,6 +18,7 @@ attributed strings are new to you.
 | [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
 | [`Sources/SceneItCore/Text/CommentUnderlines.swift`](../../Sources/SceneItCore/Text/CommentUnderlines.swift) | comment underlines: a custom `NSTextLayoutFragment`, its delegate, and hit-testing (ADR 0032) |
+| [`Sources/SceneItCore/Text/EndLineFragment.swift`](../../Sources/SceneItCore/Text/EndLineFragment.swift) | the page's fragments' base: the end line after a final empty paragraph, placed (#102) |
 | [`Sources/SceneItCore/Window/CommentSelection.swift`](../../Sources/SceneItCore/Window/CommentSelection.swift) | the selected comment, which a click on commented text changes |
 | [`Sources/SceneItCore/Text/BodyChange.swift`](../../Sources/SceneItCore/Text/BodyChange.swift) | an edit as "these paragraphs replace those", found from the edited range |
 | [`Sources/SceneItCore/Text/PageClip.swift`](../../Sources/SceneItCore/Text/PageClip.swift) | the app's own pasteboard data (decision 0017) |
@@ -190,11 +191,17 @@ line spacing *inside* it, which put the caret back at double height:
 - **An empty paragraph** gets its gap as `paragraphSpacingBefore`, which puts its line exactly
   where typed text will go.
 - **The empty paragraph at the very end** (after a final Return) has no character to hold a
-  style: TextKit lays it out in the typing attributes. After an empty paragraph it's spaced as
-  one, but TextKit ignores that spacing there, so after Return twice at the end the caret sits
-  14 pt high: an accepted known issue (#102, ADR 0034). `SceneTextView` overrides
+  style: TextKit lays it out in the typing attributes. `SceneTextView` overrides
   `typingAttributes` so they always take the style of the caret's paragraph, and lays the end
   line out again when that style changes.
+- **The end line after an empty paragraph** (Return twice at the end, #102) is the one TextKit
+  can't be talked into. It isn't a paragraph of its own but an extra line inside the last
+  paragraph's layout fragment, so its spacing before is ignored; line spacing either way goes
+  inside an empty line and doubles the caret. TextKit put it straight under the empty line, 14 pt
+  high, at a height that depended on where the caret was. So the page's layout fragments
+  (`EndLineFragment`, below) place that one line themselves, as a copy of the empty line above it,
+  one spacing before lower, and stretch the fragment's frame down to it. Everything else is still
+  TextKit's layout.
 
 `ParagraphRole.paragraphStyle(for: ParagraphContent)` is the one place that decides. The codec
 applies it as it renders, and the editor re-applies it to the paragraphs an edit touches, so a
@@ -255,6 +262,18 @@ TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws
 TextKit's own drawing, then a line per comment below the baseline, in the comment's colour. A
 Rust analogy: the delegate is a factory closure the layout engine calls, and the fragment is a
 type that wraps the default `draw` and adds to it.
+
+`CommentUnderlineFragment` is a subclass of `EndLineFragment`
+([`EndLineFragment.swift`](../../Sources/SceneItCore/Text/EndLineFragment.swift)), which
+overrides two read-only properties TextKit itself reads: `textLineFragments`, to hand back the
+end line after a final empty paragraph moved down (an `NSTextLineFragment` subclass that reports
+the bounds it's given), and `layoutFragmentFrame`, so that the page grows to it. TextKit's caret,
+the arrow keys, clicks and the page's height all ask through those properties, so they all agree
+(`EndLineTests` checks each). Two lessons from writing it: read only the lines' own text, never
+the paragraph's (`textElement`), which can be ahead of the lines in the middle of an edit and
+throw when read; and leave alone the moment between an edit and the editor's restyle, when an
+empty paragraph still has the text's style: in our measurements TextKit only grew the page's height
+within a pass, so a frame that is briefly too tall leaves the page too long.
 
 Three things about fragments are worth knowing:
 

@@ -550,28 +550,91 @@ struct EndLineTests {
             as [[Paragraph]])
     func theEndLineIsWhereTheMultiplePutItWhereverTheCaretIs(body: [Paragraph]) async throws {
         try await withPage([scene("One", body)], in: KeyWindow.self) { page in
-            let expected = try endLine(of: try multipleSpaced(page.page))
-            let seen = try await whatTheWriterSees(page)
-            #expect(
-                seen.caretsAtTheEnd.allSatisfy { abs($0 - expected.caretTop) < 0.01 },
-                "\(seen) vs \(expected)")
-            #expect(seen.pageEnds.allSatisfy { abs($0 - expected.bottom) < 0.01 }, "\(seen) vs \(expected)")
+            try await expectTheEndLineWhereTheMultiplePutIt(page)
         }
     }
 
-    /// Text ending in an empty paragraph (Return twice at the end; #102): TextKit puts the end line
-    /// straight under the empty one, 14 pt higher than the multiple did, whatever paragraph style or
-    /// typing attributes ask for, so the caret there sits high and the page ends short. Accepted
-    /// for now (ADR 0034); a fix makes this fail.
-    @Test func afterAFinalEmptyParagraph() async throws {
+    /// Text ending in an empty paragraph (Return twice at the end; #102), however many, and an
+    /// empty paragraph alone, where TextKit put the end line straight under the empty one.
+    @Test(
+        arguments: [[[Run("Hello")], [], []], [[Run("A")], [], [], []], [[], []]] as [[Paragraph]])
+    func afterAFinalEmptyParagraph(body: [Paragraph]) async throws {
+        try await withPage([scene("One", body)], in: KeyWindow.self) { page in
+            try #require(page.storage.string.hasSuffix("\n\n") || page.storage.string == "\n", "precondition")
+            try await expectTheEndLineWhereTheMultiplePutIt(page)
+        }
+    }
+
+    /// Up from the end line after a final empty paragraph goes to that paragraph, and Down comes
+    /// back: the arrows move through the placed line as through TextKit's own.
+    @Test func theArrowsMoveBetweenAFinalEmptyParagraphAndTheEndLine() async throws {
         try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
-            let expected = try endLine(of: try multipleSpaced(page.page))
-            let seen = try await whatTheWriterSees(page)
-            withKnownIssue("#102: the end line after a final empty paragraph sits 14 pt high") {
-                #expect(seen.caretsAtTheEnd.allSatisfy { abs($0 - expected.caretTop) < 0.01 }, "\(seen)")
-                #expect(seen.pageEnds.allSatisfy { abs($0 - expected.bottom) < 0.01 }, "\(seen)")
+            let end = page.storage.length
+            try #require(page.storage.string == "Hello\n\n", "precondition")
+            _ = try await keyAndFocused(page, at: end)
+            page.page.moveUp(nil)
+            #expect(page.page.selectedRange() == NSRange(location: end - 1, length: 0))
+            page.page.moveDown(nil)
+            #expect(page.page.selectedRange() == NSRange(location: end, length: 0))
+            page.page.moveUp(nil)
+            page.page.moveUp(nil)
+            #expect(page.page.selectedRange().location <= 5, "on up to Hello: \(page.page.selectedRange())")
+        }
+    }
+
+    /// A click on the end line, or in the spacing above it (which the multiple put inside it),
+    /// puts the caret at the end; a click on the empty paragraph, in it.
+    @Test func aClickOnOrJustAboveTheEndLinePutsTheCaretAtTheEnd() async throws {
+        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
+            let end = page.storage.length
+            let atEnd = try await keyAndFocused(page, at: end)
+            let inEmpty = try await keyAndFocused(page, at: end - 1)
+            let gap = ParagraphRole.doubleSpacingGap
+            try #require(
+                abs(atEnd.minY - (inEmpty.maxY + gap)) < 0.01,
+                "precondition: the gap between \(inEmpty), \(atEnd)")
+            let x = atEnd.minX + 1
+            for (y, expected) in [
+                (inEmpty.midY, end - 1), (inEmpty.maxY + gap / 2, end), (atEnd.midY, end),
+            ] {
+                #expect(
+                    page.page.characterIndexForInsertion(at: NSPoint(x: x, y: y)) == expected,
+                    "at \(y), between \(inEmpty) and \(atEnd)")
             }
         }
+    }
+
+    /// #102 as the writer met it: Return pressed twice at the end of the text.
+    @Test func afterReturnTwiceAtTheEnd() async throws {
+        try await withPage([scene("One", [[Run("Hello")]])], in: KeyWindow.self) { page in
+            _ = try await keyAndFocused(page, at: 5)
+            let caret = try systemCaret(of: page)
+            page.page.insertNewline(nil)
+            page.page.insertNewline(nil)
+            try #require(page.storage.string == "Hello\n\n", "precondition: two Returns at the end")
+            #expect(page.pageMirrorsModel)
+            let expected = try endLine(of: try multipleSpaced(page.page))
+            // The system moves its caret on a later turn of the run loop.
+            await eventually { abs(caret.frame.minY - expected.caretTop) < 0.01 && !caret.isHidden }
+            #expect(abs(caret.frame.minY - expected.caretTop) < 0.01, "\(caret.frame) vs \(expected)")
+            #expect(abs(caret.frame.height - (try singleSpacedLine()).height) < 0.01, "\(caret.frame)")
+            try await expectTheEndLineWhereTheMultiplePutIt(page)
+            try await expectCaretFitsTypedText(page, at: page.storage.length)
+        }
+    }
+
+    @MainActor
+    private func expectTheEndLineWhereTheMultiplePutIt(
+        _ page: PageHarness, sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        let expected = try endLine(of: try multipleSpaced(page.page))
+        let seen = try await whatTheWriterSees(page)
+        #expect(
+            seen.caretsAtTheEnd.allSatisfy { abs($0 - expected.caretTop) < 0.01 }, "\(seen) vs \(expected)",
+            sourceLocation: sourceLocation)
+        #expect(
+            seen.pageEnds.allSatisfy { abs($0 - expected.bottom) < 0.01 }, "\(seen) vs \(expected)",
+            sourceLocation: sourceLocation)
     }
 
     /// The caret's top each time it's at the end, and where the page's text ends, as the caret goes
