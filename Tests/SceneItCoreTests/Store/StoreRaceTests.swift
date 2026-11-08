@@ -18,19 +18,17 @@ private final class Gate: Sendable {
         proceed.wait()
     }
 
-    /// Records an issue, rather than hanging, if nothing arrives within 10 s.
+    /// Records an issue, rather than hanging, if nothing arrives within `eventually`'s budget.
+    @MainActor
     func waitForArrival(sourceLocation: SourceLocation = #_sourceLocation) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while ContinuousClock.now < deadline {
-            let arrived = arrivals.withLock { arrivals in
-                guard arrivals > 0 else { return false }
-                arrivals -= 1
-                return true
-            }
-            if arrived { return }
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-        Issue.record("nothing reached the gate", sourceLocation: sourceLocation)
+        await eventually(
+            {
+                arrivals.withLock { arrivals in
+                    guard arrivals > 0 else { return false }
+                    arrivals -= 1
+                    return true
+                }
+            }, sourceLocation: sourceLocation)
     }
 
     func open() {
