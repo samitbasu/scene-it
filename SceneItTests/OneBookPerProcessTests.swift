@@ -162,8 +162,8 @@ extension BookStoreIntegrationTests {
     /// until that path runs, then is saved and released there.
     @Test func theCloseButtonWithABookOpenQuitsThroughTheQuitPath() async throws {
         let books = BookController.shared
-        try await books.settlingQuits {
-            try await withTemporaryFolder { folder in
+        try await withTemporaryFolder { folder in
+            try await books.settlingQuits {
                 _ = books.takeRequests()
                 let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
                 #expect(await books.store.create(at: url) == .created)
@@ -207,8 +207,8 @@ extension BookStoreIntegrationTests {
     /// next press to be decided afresh.
     @Test func cancelInTheQuitPromptAfterTheCloseButtonKeepsTheBookOpen() async throws {
         let books = BookController.shared
-        try await books.settlingQuits {
-            try await withTemporaryFolder { folder in
+        try await withTemporaryFolder { folder in
+            try await books.settlingQuits {
                 let headless = try #require(books.prompts as? HeadlessPrompts)
                 _ = books.takeRequests()
                 let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
@@ -295,7 +295,22 @@ extension BookStoreIntegrationTests {
     }
 
     /// If AppKit's `terminate` returns without the quit path running (AppKit never asked
-    /// `applicationShouldTerminate`), the quit's backstop ends it, so presses work again.
+    /// `applicationShouldTerminate`), the press's backstop ends the quit, so the red button and
+    /// ⌘W work again.
+    @Test func aQuitWhoseTerminateReturnsIsOverAndPressesWorkAgain() async throws {
+        let books = BookController(role: .testHost, recordedTerminate: .over)
+        #expect(books.press(.closeButton) == nil)
+        #expect(books.isQuitUnderWay, "precondition: the quit is under way")
+        #expect(books.closeAction(from: .closeButton) == .nothing)
+
+        await eventually { !books.isQuitUnderWay }
+        #expect(books.takeRequests() == [.init(request: .quit, storeWasBusy: false)])
+        #expect(books.closeAction(from: .closeButton) == .quit, "pressing works again")
+        #expect(books.closeAction(from: .menu(keyWindow: nil)) == .quit)
+    }
+
+    /// The same backstop, for `AppRequests` alone: it runs once a `terminate` that returns is
+    /// done, and not for the test host's recorder, whose quit the test settles itself.
     @Test func aQuitThatTerminateReturnsFromIsOver() async throws {
         let requests = AppRequests(carryOut: { _ in .over })
         var over = 0

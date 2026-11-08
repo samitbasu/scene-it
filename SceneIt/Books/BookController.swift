@@ -16,6 +16,8 @@ final class BookController {
     /// held it), or before AppKit's quit got to `applicationShouldTerminate`. Each is cleared only
     /// by its own owner, matched by identity.
     private var closeUnderWay: Attempt?
+    /// Also covers the time between a press and `applicationShouldTerminate`, which the app
+    /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
     private var quitUnderWay: Attempt?
 
     private final class Attempt {}
@@ -37,11 +39,18 @@ final class BookController {
     private let role: ProcessRole
 
     /// `prompts` replaces the role's own, for a test that answers from a script.
-    init(role: ProcessRole, prompts: (any StorePrompts)? = nil) {
+    /// `recordedTerminate` is, in the test host, what the recorded `terminate` does: by default
+    /// it leaves the quit to the test; `.over` plays a `terminate` that returned without the quit
+    /// path having run.
+    init(
+        role: ProcessRole, prompts: (any StorePrompts)? = nil,
+        recordedTerminate: AppRequests.CarriedOut = .leftToTheTest
+    ) {
         self.role = role
         let standard: any StorePrompts
         let storage: any PreferenceStorage
         (memory, mirror, standard, storage, recorded) = Self.surroundings(for: role)
+        recorded?.terminate = recordedTerminate
         requests = AppRequests(carryOut: recorded.map { recorder in recorder.record } ?? AppRequests.appKit)
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
@@ -162,9 +171,11 @@ final class BookController {
     /// The quit path's own work, for `applicationShouldTerminate`, whether a press or Quit
     /// started it: saves and releases the book, asking (Retry / Cancel / Quit Anyway) when that
     /// can't finish. Presses do nothing until it ends. Then the quit is over either way: a quit a
-    /// click queued meanwhile is dropped, and after Cancel the next press is decided afresh.
+    /// click queued before `applicationShouldTerminate` ran, and AppKit hadn't started, is
+    /// dropped, and after Cancel the next press is decided afresh. Its attempt is its own, so a
+    /// press's backstop can never end it.
     func settleQuit() async -> AppBookStore.LeaveOutcome {
-        let attempt = quitUnderWay ?? Attempt()
+        let attempt = Attempt()
         quitUnderWay = attempt
         defer {
             if quitUnderWay === attempt { quitUnderWay = nil }
@@ -253,9 +264,10 @@ final class AppRequests: NSObject {
     /// The one quit asked for and not yet carried out, with what to run once it's over.
     private var pendingQuit: (() -> Void)?
 
-    /// Whether a request is over once `carryOut` returns. AppKit's `terminate` returns only once
-    /// the quit has gone through or been refused (or never reached `applicationShouldTerminate`);
-    /// the test host's recorder returns at once, and the test plays the quit path itself.
+    /// Whether a request is over once `carryOut` returns. AppKit's `terminate` returns only when
+    /// the quit was refused (the writer's Cancel) or never asked of `applicationShouldTerminate`;
+    /// when the quit goes through, it never returns. The test host's recorder returns at once,
+    /// and the test plays the quit path itself.
     enum CarriedOut {
         case over
         case leftToTheTest
@@ -271,7 +283,8 @@ final class AppRequests: NSObject {
     }
 
     /// Asks AppKit to quit from a run-loop source; `whenOver` runs once `terminate` has
-    /// returned, as a backstop for a quit that never reached `applicationShouldTerminate`.
+    /// returned, as a backstop for a quit that never reached `applicationShouldTerminate`. It
+    /// also runs, harmlessly, after every Cancel: by then the quit path has ended the quit.
     func quit(whenOver: @escaping () -> Void) {
         dropPendingQuit()
         pendingQuit = whenOver
@@ -315,10 +328,12 @@ final class RecordedRequests {
 
     private(set) var carried: [Carried] = []
     var storeIsBusy: () -> Bool = { false }
+    /// What a recorded `terminate` does once it returns.
+    var terminate = AppRequests.CarriedOut.leftToTheTest
 
     func record(_ request: AppRequest) -> AppRequests.CarriedOut {
         carried.append(Carried(request: request, storeWasBusy: storeIsBusy()))
-        return .leftToTheTest
+        return terminate
     }
 
     /// The requests so far, which are then forgotten.
