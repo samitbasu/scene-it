@@ -101,11 +101,15 @@ All in `OneBookWording`; the alerts have only an OK button. Renders: `OneBookRen
   "“My Novel (my edits)” is first in Recent Books."
 - Several books asked for at once on the start screen (the first opens): "Scene It opens one book at a time." /
   "“A” is open. “B” and “C” are in Recent Books: to open one, choose File → Close Book, then choose it there."
+- Several books asked for at once on the start screen, and none opens (the first can't be read): "Scene It
+  opens one book at a time." / "“B” and “C” are in Recent Books: to open one, choose it there." (the owner's
+  pick, 2026-11-08, #129).
 
 ## Not chosen
 - **Other wording:** shorter refusals ("Close “My Novel” first."), a lost-book title saying the book was
-  closed, the pre-ADR several-books wording ("added to Recent Books instead"), "Close Book" on the start screen
-  too, and ⌘W doing nothing there.
+  closed, the pre-ADR several-books wording ("added to Recent Books instead", kept for the none-opens case
+  until #129), the none-opens notice starting "None of them opened.", "Close Book" on the start screen too,
+  and ⌘W doing nothing there.
 - **Close Book quits Scene It (one book per process).** Accepted on 2026-11-06 and implemented, then rejected
   by the owner's hand test: launch reopens the last book, Close Book quit, and New and Open were offered only
   on the start screen, so the start screen could never be reached and there was no way to switch books.

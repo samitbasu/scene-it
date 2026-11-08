@@ -202,6 +202,18 @@ struct BookStoreTests {
 
     // MARK: ADR 0038: one book at a time; Close Book returns to the start state
 
+    /// The owner's pick (#129) for several books asked for when none opens.
+    @Test func whenNoneOfSeveralBooksOpensTheNoticeNamesTheRestInRecentBooks() {
+        let others = ["The Lighthouse", "Other Book"].map { URL(filePath: "/tmp/\($0).sceneit") }
+        #expect(
+            OneBookWording.severalBooks(open: nil, addedToRecents: others)
+                == Notice(
+                    title: "Scene It opens one book at a time.",
+                    message:
+                        "“The Lighthouse” and “Other Book” are in Recent Books: to open one, choose it there."
+                ))
+    }
+
     @Test func anotherBookIsRefusedUnreadAndTheWriterIsTold() async throws {
         try await withTemporaryFolder { folder in
             let other = folder.appending(path: "Other.sceneit", directoryHint: .isDirectory)

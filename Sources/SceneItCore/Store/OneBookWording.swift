@@ -41,17 +41,16 @@ public enum OneBookWording {
     /// Finder or a launch asked for several books on the start screen: the first opens, the rest
     /// go to Recent Books. `open` is the book that opened, if one did.
     public static func severalBooks(open: URL?, addedToRecents others: [URL]) -> Notice {
-        let title = "Scene It opens one book at a time."
-        guard let open else {
-            let listed = others.map { quoted(StoreWording.bookName($0)) }.joined(separator: ", ")
-            return Notice(title: title, message: "These books were added to Recent Books instead: \(listed).")
-        }
         let names = joined(others.map { quoted(StoreWording.bookName($0)) })
-        return Notice(
-            title: title,
-            message:
-                "\(quoted(StoreWording.bookName(open))) is open. \(names) \(others.count == 1 ? "is" : "are") "
-                + "in Recent Books: to open one, choose File → \(closeBookMenuItem), then choose it there.")
+        let inRecents = "\(names) \(others.count == 1 ? "is" : "are") in Recent Books: to open one, "
+        let message =
+            if let open {
+                "\(quoted(StoreWording.bookName(open))) is open. \(inRecents)choose File → "
+                    + "\(closeBookMenuItem), then choose it there."
+            } else {
+                "\(inRecents)choose it there."
+            }
+        return Notice(title: "Scene It opens one book at a time.", message: message)
     }
 
     /// "“A”", "“A” and “B”", "“A”, “B” and “C”".
