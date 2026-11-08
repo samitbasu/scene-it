@@ -602,6 +602,13 @@ final class SceneTextEditor: NSObject {
     }
 }
 
+extension Editability {
+    /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
+    init(_ book: AppOpenBook, in environment: EnvironmentValues) {
+        self = book.isEditable && environment.isEnabled ? .editable : .readOnly
+    }
+}
+
 extension SceneTextEditor: NSTextViewDelegate {
     func undoManager(for view: NSTextView) -> UndoManager? {
         scene.map { book.undo(for: $0, part) }

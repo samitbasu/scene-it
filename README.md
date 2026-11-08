@@ -97,7 +97,8 @@ runs, in order, stopping at the first failure:
    and accept what they should.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
-   `textLayoutManager` is allowed.
+   `textLayoutManager` is allowed, and so is `SceneItTests/TextKit1Alarm.swift`, the test alarm that
+   names the notification a text view posts as it falls back to TextKit 1, to fail any page test on it.
 3. **Logging guard:** fails on `Logger(`, `os_log`, `OSLog…` or `NSLog(` outside
    `Sources/SceneItCore/Diagnostics/Log.swift` and `CurrentProcessLog.swift`. All logging
    goes through `Log`, whose types keep manuscript text out (ADR 0006).

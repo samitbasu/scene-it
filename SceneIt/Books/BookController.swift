@@ -16,16 +16,17 @@ final class BookController {
     /// (while another operation held it); a quit under way does so everywhere, even before
     /// AppKit's quit got to `applicationShouldTerminate`. Each is cleared only by its own owner,
     /// matched by identity.
-    private var closeUnderWay: Attempt?
+    private var closeUnderWay: CloseAttempt?
     /// Also covers the time between a press and `applicationShouldTerminate`, which the app
     /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
-    private var quitUnderWay: Attempt?
+    private var quitUnderWay: QuitAttempt?
 
-    private final class Attempt {
-        /// A close's own task, which a quit pressed while it's still releasing the book waits
-        /// for.
+    private final class CloseAttempt {
+        /// Its own task, which a quit pressed while it's still releasing the book waits for.
         var task: Task<Void, Never>?
     }
+
+    private final class QuitAttempt {}
 
     /// A quit has been asked for and its path hasn't ended.
     var isQuitUnderWay: Bool {
@@ -168,7 +169,7 @@ final class BookController {
     func press(_ source: CloseSource) -> Task<Void, Never>? {
         switch closeAction(from: source) {
         case .closeBook:
-            let attempt = Attempt()
+            let attempt = CloseAttempt()
             closeUnderWay = attempt
             let task = Task {
                 await store.closeBook()
@@ -177,7 +178,7 @@ final class BookController {
             attempt.task = task
             return task
         case .quit:
-            let attempt = Attempt()
+            let attempt = QuitAttempt()
             quitUnderWay = attempt
             guard let releasing = closeUnderWay?.task else {
                 requestQuit(attempt)
@@ -195,7 +196,7 @@ final class BookController {
         return nil
     }
 
-    private func requestQuit(_ attempt: Attempt) {
+    private func requestQuit(_ attempt: QuitAttempt) {
         requests.quit { [weak self] in
             if self?.quitUnderWay === attempt { self?.quitUnderWay = nil }
         }
@@ -208,7 +209,7 @@ final class BookController {
     /// dropped, and after Cancel the next press is decided afresh. Its attempt is its own, so a
     /// press's backstop can never end it.
     func settleQuit() async -> AppBookStore.LeaveOutcome {
-        let attempt = Attempt()
+        let attempt = QuitAttempt()
         quitUnderWay = attempt
         defer {
             if quitUnderWay === attempt { quitUnderWay = nil }

@@ -125,6 +125,8 @@ func withPage(
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
+        let textKit1 = failOnTextKit1()
+        defer { NotificationCenter.default.removeObserver(textKit1) }
         let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
         let store = books.store
         let holder: EditableBook?

@@ -13,6 +13,17 @@ struct PageTests {
         #expect(Bundle.main.object(forInfoDictionaryKey: "NSApplicationCrashOnExceptions") as? Bool == true)
     }
 
+    /// Every editor of the book's text is a `KeyboardTextView`, which builds its TextKit 2
+    /// stack itself: one layout manager, its content storage's primary, and the view's container.
+    @Test func aKeyboardTextViewIsWiredForTextKit2() throws {
+        let view = KeyboardTextView(editability: { .editable })
+        let layout = try #require(view.textLayoutManager, "TextKit 2")
+        #expect(view.textContentStorage?.primaryTextLayoutManager === layout)
+        #expect(view.textContainer?.textLayoutManager === layout)
+        #expect(view.textContainer?.textView === view)
+        #expect(view.textContainer?.widthTracksTextView == true)
+    }
+
     @Test func thePageIsATextKit2TextViewWithTheBodyStyle() async throws {
         try await withPage([scene("One", [[Run("Hello.")]])]) { page in
             #expect(page.page.textLayoutManager != nil, "TextKit 2")

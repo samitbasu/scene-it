@@ -1,5 +1,5 @@
 import AppKit
-import SwiftUI
+import SceneItCore
 
 /// Whether a text view's text takes changes.
 enum Editability {
@@ -8,11 +8,6 @@ enum Editability {
     /// As `book` takes edits: a detached (closed) book doesn't.
     init(_ book: AppOpenBook?) {
         self = book?.isEditable == true ? .editable : .readOnly
-    }
-
-    /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
-    init(_ book: AppOpenBook, in environment: EnvironmentValues) {
-        self = book.isEditable && environment.isEnabled ? .editable : .readOnly
     }
 }
 
@@ -36,6 +31,7 @@ class KeyboardTextView: NSTextView {
         let content = NSTextContentStorage()
         let layout = NSTextLayoutManager()
         content.addTextLayoutManager(layout)
+        content.primaryTextLayoutManager = layout
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         layout.textContainer = container
