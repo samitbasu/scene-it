@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         UnwoundTaskTrap.install()
         AutomaticTextChanges.keepOutOfEveryMenu()
+        #if DEBUG  // TEMPORARY (#127)
+            MenuDiagnostics.launch()
+        #endif
         NSApp.appearance = NSAppearance(named: .aqua)
         let launch = LaunchGate.open(
             role: .current, acquire: { LaunchGate.acquire(SupportFolder.instanceLock) },

@@ -56,6 +56,9 @@ enum AutomaticTextChanges {
                 if let menu = note.object as? NSMenu, let index = note.userInfo?["NSMenuItemIndex"] as? Int,
                     menu.items.indices.contains(index), isAutomatic(menu.items[index])
                 {
+                    #if DEBUG  // TEMPORARY (#127)
+                        MenuDiagnostics.added(menu.items[index], to: menu)
+                    #endif
                     menu.items[index].isHidden = true
                 }
                 guard !mainMenuPassPending else { return }
@@ -66,7 +69,15 @@ enum AutomaticTextChanges {
         center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
             nonisolated(unsafe) let note = note
             MainActor.assumeIsolated {
-                if let menu = note.object as? NSMenu, menu !== NSApp.mainMenu { hide(in: menu) }
+                if let menu = note.object as? NSMenu, menu !== NSApp.mainMenu {
+                    #if DEBUG  // TEMPORARY (#127)
+                        MenuDiagnostics.beganTracking("before hiding", menu)
+                    #endif
+                    hide(in: menu)
+                    #if DEBUG  // TEMPORARY (#127)
+                        MenuDiagnostics.beganTracking("after hiding", menu)
+                    #endif
+                }
                 hideInMainMenu()
             }
         }

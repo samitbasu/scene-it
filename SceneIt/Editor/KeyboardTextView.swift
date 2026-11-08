@@ -102,14 +102,24 @@ class KeyboardTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let menu = super.menu(for: event)?.copy() as? NSMenu else { return nil }
+        let appKits = super.menu(for: event)
+        guard let menu = appKits?.copy() as? NSMenu else { return nil }
         AutomaticTextChanges.hide(in: menu)
+        #if DEBUG  // TEMPORARY (#127)
+            MenuDiagnostics.menuForEvent(event, view: self, appKits: appKits, returned: menu)
+        #endif
         return menu
     }
 
     /// AppKit's own preparation of a context menu as it opens may add to it again.
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        #if DEBUG  // TEMPORARY (#127)
+            MenuDiagnostics.willOpen("before super", menu, view: self)
+        #endif
         super.willOpenMenu(menu, with: event)
+        #if DEBUG  // TEMPORARY (#127)
+            MenuDiagnostics.willOpen("after super", menu, view: self)
+        #endif
         AutomaticTextChanges.hide(in: menu)
     }
 

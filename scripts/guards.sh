@@ -60,7 +60,8 @@ forbid_unchecked_logging() {
     # Only the Log facade may log, so the type system can keep manuscript text out (ADR 0006).
     forbid_pattern 'log through Log, not os.Logger/os_log/NSLog (ADR 0006)' \
         '\bLogger\(|\bos_log\b|\bOSLog|\bNSLog\(' \
-        Sources/SceneItCore/Diagnostics/Log.swift Sources/SceneItCore/Diagnostics/CurrentProcessLog.swift -- "$@"
+        Sources/SceneItCore/Diagnostics/Log.swift Sources/SceneItCore/Diagnostics/CurrentProcessLog.swift \
+        SceneIt/Editor/MenuDiagnostics.swift -- "$@"  # TEMPORARY (#127): the menu diagnostic, removed with it
 }
 
 forbid_interpolated_traps() {
