@@ -39,8 +39,9 @@ final class WindowKeys {
     }
 
     /// Closes what Esc closes now, or says there's nothing, so the focused view's own Esc applies.
+    /// `focus` is where the focus was when the key came, if that was recorded earlier.
     @discardableResult
-    func escape() -> EscapeOutcome {
+    func escape(restoring focus: PageFocus.Focus? = nil) -> EscapeOutcome {
         switch EscapeLayer.escape(in: escapeContext) {
         case .passOn:
             return .passedOn
@@ -53,7 +54,7 @@ final class WindowKeys {
         case .close(.sheet):
             mode.wrappedValue = mode.wrappedValue.closingSheet
         case .close(.findBar):
-            page.closeFindBar()
+            page.closeFindBar(restoring: focus)
         case .close(.focusMode):
             chrome.set(.off)
         }
@@ -65,7 +66,8 @@ final class WindowKeys {
     /// closing the find bar does) loses what was typed in it.
     func escapeAfterThisKey() -> EscapeOutcome {
         if EscapeLayer.escape(in: escapeContext) == .passOn { return .passedOn }
-        DispatchQueue.main.async { [weak self] in self?.escape() }
+        let focus = page.currentFocus
+        DispatchQueue.main.async { [weak self] in self?.escape(restoring: focus) }
         return .handled
     }
 

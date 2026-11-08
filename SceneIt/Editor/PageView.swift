@@ -68,10 +68,11 @@ final class PageFocus {
     /// If the focus was elsewhere (the title, the notes, a field in the panel) and hiding moved
     /// it, it goes back, a field with its own selection: making a field first responder would
     /// otherwise select all its text, for the next keystroke to replace. If it was in the find
-    /// bar, it goes to the body, never to the window.
-    func closeFindBar() {
+    /// bar, it goes to the body, never to the window. `focus` is where it was, if that was
+    /// recorded earlier (`currentFocus`); otherwise where it is now.
+    func closeFindBar(restoring focus: Focus? = nil) {
         guard let body, let window = body.window else { return }
-        let before = Focus(window.firstResponder)
+        let before = focus ?? Focus(window.firstResponder)
         let bar = desk?.findBarView
         let item = NSMenuItem()
         item.tag = NSTextFinder.Action.hideFindInterface.rawValue
@@ -88,9 +89,14 @@ final class PageFocus {
         }
     }
 
+    /// Where the page's window has the focus now.
+    var currentFocus: Focus {
+        Focus(body?.window?.firstResponder)
+    }
+
     /// Where a window's focus is: a field (whose shared field editor is the first responder),
     /// with its selection; another view; or the window itself.
-    private enum Focus: Equatable {
+    enum Focus: Equatable {
         case field(NSTextField, selection: [NSValue])
         case view(NSView)
         case window
