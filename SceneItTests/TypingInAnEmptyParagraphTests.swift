@@ -90,6 +90,7 @@ struct TypingInAnEmptyParagraphTests {
             #expect(page.pageMirrorsModel)
             undo.redo()
             #expect(!undo.canRedo)
+            #expect(page.page.selectedRange() == NSRange(location: 9, length: 0))
             #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .text))
             #expect(page.storage.string == "Ert\nClown\nI saw the cat")
             #expect(page.pageMirrorsModel)
@@ -142,8 +143,79 @@ struct TypingInAnEmptyParagraphTests {
             let log = steps.joined(separator: "\n")
             #expect(page.storage.string == expected, "\(log)")
             #expect(page.page.selectedRange() == NSRange(location: location + 5, length: 0), "\(log)")
+            #expect(paragraphStyle(of: page, at: location) == ParagraphRole.body.paragraphStyle(for: .text))
+            #expect(page.pageMirrorsModel)
         }
     }
+
+    // MARK: Storage edits that don't come through the view's `didChangeText`
+
+    @Test func twoStorageEditsBeforeOneRestyleAreBothStyled() async throws {
+        try await withPage([scene("One", [[Run("Ert")], [], [Run("I saw the cat")]])]) { page in
+            page.storage.replaceCharacters(in: NSRange(location: 4, length: 0), with: typed("Two"))
+            page.storage.replaceCharacters(in: NSRange(location: 0, length: 3), with: typed(""))
+            #expect(page.storage.string == "\nTwo\nI saw the cat")
+            #expect(page.body() == [[], [Run("Two")], [Run("I saw the cat")]])
+            #expect(!page.pageMirrorsModel, "precondition: \"Ert\"'s break keeps the style of text")
+            page.page.didChangeText()
+            #expect(paragraphStyle(of: page, at: 0) == ParagraphRole.body.paragraphStyle(for: .empty))
+            #expect(paragraphStyle(of: page, at: 1) == ParagraphRole.body.paragraphStyle(for: .text))
+            #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .text))
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func aStorageEditWithoutDidChangeTextIsStyledOnTheNextTurn() async throws {
+        try await withPage([scene("One", [[Run("Ert")], [Run("C")], [Run("I saw the cat")]])]) { page in
+            page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
+            #expect(page.body() == [[Run("Ert")], [], [Run("I saw the cat")]])
+            #expect(!page.pageMirrorsModel, "precondition: the break keeps the style of text")
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(paragraphStyle(of: page, at: 4) == ParagraphRole.body.paragraphStyle(for: .empty))
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func aRestyleAskedForInsideAnotherEditWaitsForTheNextTurn() async throws {
+        try await withPage([scene("One", [[Run("Ert")], [Run("C")], [Run("I saw the cat")]])]) { page in
+            page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
+            page.storage.beginEditing()
+            page.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: typed("X"))
+            page.page.didChangeText()
+            page.storage.endEditing()
+            #expect(page.storage.string == "XErt\n\nI saw the cat")
+            #expect(
+                paragraphStyle(of: page, at: 5) == ParagraphRole.body.paragraphStyle(for: .text),
+                "not restyled inside the outer edit")
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(paragraphStyle(of: page, at: 5) == ParagraphRole.body.paragraphStyle(for: .empty))
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
+    @Test func showingAnotherSceneDropsAPendingRestyle() async throws {
+        let long = scene(
+            "One", [[Run("A long first paragraph.")], [Run("C")], [Run("And another one after it.")]])
+        let short = scene("Two", [[Run("Hi.")]])
+        try await withPage([long, short]) { page in
+            page.storage.replaceCharacters(in: NSRange(location: 24, length: 1), with: typed(""))
+            #expect(!page.pageMirrorsModel, "precondition: a restyle is pending")
+            page.book.select(short.id)
+            let editor = try #require(page.page.editor)
+            editor.show(short.id, .editable)
+            #expect(page.storage.string == "Hi.")
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(page.storage.string == "Hi.")
+            #expect(page.pageMirrorsModel)
+            #expect(page.body(long.id)[1] == [])
+            #expect(page.body(short.id) == short.body)
+        }
+    }
+}
+
+/// `string` with the attributes typing would give it, so only the paragraph style can be wrong.
+private func typed(_ string: String) -> NSAttributedString {
+    NSAttributedString(string: string, attributes: ParagraphRole.body.typingAttributes)
 }
 
 @MainActor private func paragraphStyle(of page: PageHarness, at index: Int) -> NSParagraphStyle? {

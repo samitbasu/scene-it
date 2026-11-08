@@ -85,7 +85,9 @@ final class SceneTextEditor: NSObject {
 
     /// The view's undo and redo of typing change the storage without its `didChangeText`.
     @objc private func undoManagerDidUndoOrRedo(_ notification: Notification) {
-        guard let undo = notification.object as? UndoManager, undo === textView?.undoManager else { return }
+        guard paragraphsToRestyle != nil, let undo = notification.object as? UndoManager,
+            undo === textView?.undoManager
+        else { return }
         restyleEditedParagraphs()
     }
 
@@ -159,10 +161,13 @@ final class SceneTextEditor: NSObject {
         guard let view = textView, let storage = view.textStorage else { return }
         view.breakUndoCoalescing()
         self.scene = scene
-        storageEdit = .loading
-        storage.setAttributedString(RunCodec.attributedString(text, in: part))
-        storageEdit = .byTheView
         paragraphsToRestyle = nil
+        do {
+            let previous = storageEdit
+            storageEdit = .loading
+            defer { storageEdit = previous }
+            storage.setAttributedString(RunCodec.attributedString(text, in: part))
+        }
         sync = .inStep
         shown = text
         view.setSelectedRange(NSRange(location: min(caret, storage.length), length: 0))
@@ -229,16 +234,21 @@ final class SceneTextEditor: NSObject {
         case restyling
     }
 
-    /// Gives the paragraphs the last edits touched the style for what they now hold:
-    /// a change of the storage's attributes alone, so neither the model's nor undoable. It can't
-    /// be made while the storage processes the edit: a change of attributes then grows the
-    /// edited range, and the view puts the caret at the end of the edited range, so a character
-    /// typed into an empty paragraph would leave the caret after its break (#133).
+    /// Gives the paragraphs the last edits touched the style for what they now hold, as an
+    /// attribute-only edit that neither the model nor undo hears of. Never during another edit:
+    /// a change of attributes then grows that edit's range, and the view puts the caret at the
+    /// end of it.
     func restyleEditedParagraphs() {
-        guard let range = paragraphsToRestyle, let storage = textView?.textStorage else { return }
+        guard storageEdit == .byTheView, let range = paragraphsToRestyle, let storage = textView?.textStorage
+        else { return }
+        guard storage.editedMask.isEmpty else {
+            restyleOnTheNextTurn()
+            return
+        }
         paragraphsToRestyle = nil
+        let previous = storageEdit
         storageEdit = .restyling
-        defer { storageEdit = .byTheView }
+        defer { storageEdit = previous }
         storage.beginEditing()
         role.styleParagraphs(of: storage, around: range.clamped(toLength: storage.length))
         storage.endEditing()
@@ -252,9 +262,7 @@ final class SceneTextEditor: NSObject {
             location: edited.location, length: min(edited.length + 1, storage.length - edited.location))
         guard let waiting = paragraphsToRestyle else {
             paragraphsToRestyle = touched
-            // The view's `didChangeText` restyles as the edit ends; this is for an edit that
-            // never reaches it.
-            DispatchQueue.main.async { [weak self] in self?.restyleEditedParagraphs() }
+            restyleOnTheNextTurn()
             return
         }
         let waitingEnd =
@@ -263,6 +271,12 @@ final class SceneTextEditor: NSObject {
         let location = min(waiting.location, touched.location)
         paragraphsToRestyle = NSRange(
             location: location, length: max(waitingEnd, touched.upperBound) - location)
+    }
+
+    /// The view's `didChangeText` restyles as an edit ends; this is for an edit that never
+    /// reaches it.
+    private func restyleOnTheNextTurn() {
+        DispatchQueue.main.async { [weak self] in self?.restyleEditedParagraphs() }
     }
 
     enum UndoClearing {
