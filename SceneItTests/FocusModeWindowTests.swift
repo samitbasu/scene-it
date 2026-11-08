@@ -81,7 +81,7 @@ extension PageHarness {
 struct FocusModeWindowTests {
     /// Focus mode hides the rail, panel and status bar, so the desk takes their room; leaving it
     /// gives each back exactly, the panel open or collapsed as it was. (The toolbar is the app
-    /// window's: `FocusModeInTheAppsWindowTests`.)
+    /// window's: `focusModeHidesTheAppWindowsToolbarAndLeavingBringsItBack`.)
     @Test(arguments: [PanelVisibility.open, .closed])
     func enteringAndLeavingRestoresTheChromeExactly(panel: PanelVisibility) async throws {
         try await withPage([ferry]) { harness in
@@ -142,27 +142,6 @@ struct FocusModeWindowTests {
             await eventually { harness.window.firstResponder === harness.page }
             #expect(harness.window.firstResponder === harness.page)
             #expect(harness.page.selectedRange() == NSRange(location: 9, length: 0))
-        }
-    }
-
-    @Test func escWithAPaletteOpenClosesOnlyThePalette() async throws {
-        try await withPage([ferry]) { harness in
-            harness.focusPage(at: 4)
-            harness.chrome.set(.on)
-            let keys = try harness.keys
-            let palette = WindowPopover.palette(.body, .textColor)
-            keys.popover = palette
-            await eventually { Self.popoverWindow() != nil }
-            let popover = try #require(Self.popoverWindow(), "precondition: the palette is showing")
-
-            try press(.escape, in: popover)
-            #expect(keys.popover == nil, "Esc closes the palette")
-            #expect(harness.chrome.focusMode == .on, "and only the palette")
-            await eventually { Self.popoverWindow() == nil }
-            #expect(Self.popoverWindow() == nil, "the palette is gone")
-
-            try press(.escape, in: harness.window)
-            #expect(harness.chrome.focusMode == .off, "the next Esc leaves focus mode")
         }
     }
 
@@ -328,32 +307,6 @@ struct FocusModeWindowTests {
         }
     }
 
-    /// A palette whose bar goes (the Notes tab's, as focus mode hides the panel) doesn't stay
-    /// open in the window's keys, so it neither takes the next Esc nor opens again (M1).
-    @Test func aPaletteWhoseBarGoesIsForgotten() async throws {
-        try await withPage([ferry]) { harness in
-            harness.preferences.showRightPanelTab(.notes)
-            defer { harness.preferences.showRightPanelTab(.comments) }
-            await eventually { harness.notesView?.window != nil }
-            harness.focusPage(at: 4)
-            let keys = try harness.keys
-            keys.popover = .palette(.notes, .highlight)
-            await eventually { Self.popoverWindow() != nil }
-            try #require(Self.popoverWindow() != nil, "precondition: the notes' palette is showing")
-
-            harness.chrome.set(.on)
-            await eventually { keys.popover == nil }
-            #expect(keys.popover == nil, "the hidden bar's palette is forgotten")
-            await eventually { Self.popoverWindow() == nil }
-
-            try press(.escape, in: harness.window)
-            #expect(harness.chrome.focusMode == .off, "so Esc leaves focus mode")
-            try await settle(harness)
-            #expect(keys.popover == nil, "and the palette doesn't open again with its bar")
-            #expect(Self.popoverWindow() == nil)
-        }
-    }
-
     /// Under a sheet, Tab reaches nothing the sheet covers: not the page, its title or its find
     /// bar (M3).
     @Test func tabUnderASheetReachesNothingItCovers() async throws {
@@ -385,6 +338,7 @@ struct FocusModeWindowTests {
             try press(.escape, in: harness.window)
             await eventually { (try? harness.desk.findField) == nil }
             #expect(try harness.desk.findField == nil, "Esc in the page closes the find bar")
+            #expect(harness.focused === harness.page, "and the page keeps the focus")
             #expect(harness.chrome.focusMode == .off)
 
             _ = try await harness.showFindBar()
@@ -395,23 +349,35 @@ struct FocusModeWindowTests {
             await eventually { (try? harness.desk.findField) == nil }
             #expect(
                 try harness.desk.findField == nil, "Esc in its field closes it, through the window's keys")
+            await eventually { harness.focused === harness.page }
+            #expect(harness.focused === harness.page, "the focus goes back to the page")
+            #expect(harness.page.selectedRange() == NSRange(location: 4, length: 0), "its caret where it was")
         }
     }
 
+    /// A sheet covers the find bar, so Esc closes the sheet and leaves the find bar. The Esc is
+    /// pressed once the sheet holds the focus: its own focus view, or the Search field. (Just
+    /// after a sheet opens, the window itself can be the first responder for a moment, before
+    /// SwiftUI has made the sheet's key equivalent; an Esc there finds nothing to take it.)
     @Test func escWithASheetOverTheFindBarClosesOnlyTheSheet() async throws {
         try await withPage([ferry]) { harness in
             _ = try await harness.showFindBar()
             harness.focusPage(at: 4)
             harness.modes.mode = .search
             let desk = try harness.desk
-            await eventually {
-                harness.focused != nil && harness.focused !== harness.page
-                    && (harness.focused as? NSView)?.isDescendant(of: desk) != true
+            @MainActor func sheetHasTheFocus() -> Bool {
+                switch harness.focused {
+                case is UndoFocusView: true
+                case let field as NSTextField: !field.isDescendant(of: desk)
+                default: false
+                }
             }
-            try #require(harness.focused !== harness.page, "precondition: the sheet has the focus")
+            await eventually { sheetHasTheFocus() }
+            try #require(sheetHasTheFocus(), "precondition: the sheet has the focus")
+            #expect(EscapeLayer.escape(in: try harness.keys.escapeContext) == .close(.sheet))
+
             try press(.escape, in: harness.window)
             #expect(harness.modes.mode == .page, "Esc closes the sheet")
-            try await settle(harness)
             #expect(try harness.desk.findField != nil, "and not the find bar it covered")
         }
     }
@@ -428,9 +394,33 @@ struct FocusModeWindowTests {
             await eventually { (try? harness.desk.findField) == nil }
             #expect(try harness.desk.findField == nil, "the first Esc closes the find bar")
             #expect(harness.chrome.focusMode == .on)
-            harness.focusPage(at: 4)
+            await eventually { harness.focused === harness.page }
+            #expect(harness.focused === harness.page, "the focus goes back to the page")
             try press(.escape, in: harness.window)
-            #expect(harness.chrome.focusMode == .off, "the next leaves focus mode")
+            #expect(harness.chrome.focusMode == .off, "so the next Esc leaves focus mode")
+        }
+    }
+
+    /// Esc in Comments' search field asks the window first: it closes the page's find bar, and
+    /// with nothing to close, the field keeps the focus.
+    @Test func escInTheCommentsSearchFieldAsksTheWindowFirst() async throws {
+        try await withPage([ferry]) { harness in
+            _ = try await harness.showFindBar()
+            harness.focusPage(at: 4)
+            try press(.tab, in: harness.window)
+            let search = try #require(harness.focused as? NSTextField)
+            try #require(
+                search.placeholderString == CommentWording.searchPlaceholder, "precondition: the field")
+
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(try harness.desk.findField == nil, "Esc there closes the page's find bar")
+            #expect(harness.focused === search, "and the search field keeps the focus")
+
+            try press(.escape, in: harness.window)
+            #expect(harness.focused === search, "with nothing to close, the field's own Esc applies")
+            #expect(harness.modes.mode == .page)
+            #expect(harness.chrome.focusMode == .off)
         }
     }
 
@@ -472,16 +462,75 @@ struct FocusModeWindowTests {
                 .command, .shift,
             ])
     }
+}
 
-    // MARK: Helpers
+/// The palettes, one test at a time: a palette is a transient popover, and showing one closes
+/// any other in the app, so two tests showing palettes at once close each other's.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct FocusModePaletteTests {
+    @Test func escWithAPaletteOpenClosesOnlyThePalette() async throws {
+        try await withPage([ferry]) { harness in
+            await eventually { popoverWindow() == nil }
+            harness.focusPage(at: 4)
+            harness.chrome.set(.on)
+            // SwiftUI drops a popover asked for while its anchor is still moving, so the palette
+            // opens once focus mode's layout is done: the desk at the window's left edge.
+            await eventually { (try? harness.deskFrame.minX) == 0 }
+            let keys = try harness.keys
+            keys.popover = .palette(.body, .textColor)
+            await eventually { popoverWindow() != nil }
+            let popover = try #require(popoverWindow(), "precondition: the palette is showing")
 
-    /// SwiftUI's layout of a change, done.
-    private func settle(_ harness: PageHarness) async throws {
-        try await Task.sleep(for: .milliseconds(300))
-        harness.window.contentView?.layoutSubtreeIfNeeded()
+            try press(.escape, in: popover)
+            #expect(keys.popover == nil, "Esc closes the palette")
+            #expect(harness.chrome.focusMode == .on, "and only the palette")
+            await eventually { popoverWindow() == nil }
+            #expect(popoverWindow() == nil, "the palette is gone")
+
+            try press(.escape, in: harness.window)
+            #expect(harness.chrome.focusMode == .off, "the next Esc leaves focus mode")
+        }
     }
 
-    private static func popoverWindow() -> NSWindow? {
-        NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
+    /// A palette whose bar goes (the Notes tab's, as focus mode hides the panel) doesn't stay
+    /// open in the window's keys, so it neither takes the next Esc nor opens again (M1).
+    @Test func aPaletteWhoseBarGoesIsForgotten() async throws {
+        try await withPage([ferry]) { harness in
+            await eventually { popoverWindow() == nil }
+            harness.preferences.showRightPanelTab(.notes)
+            defer { harness.preferences.showRightPanelTab(.comments) }
+            await eventually { harness.notesView?.window != nil }
+            harness.focusPage(at: 4)
+            let keys = try harness.keys
+            keys.popover = .palette(.notes, .highlight)
+            await eventually { popoverWindow() != nil }
+            try #require(popoverWindow() != nil, "precondition: the notes' palette is showing")
+
+            harness.chrome.set(.on)
+            await eventually { keys.popover == nil }
+            #expect(keys.popover == nil, "the hidden bar's palette is forgotten")
+            await eventually { popoverWindow() == nil }
+
+            try press(.escape, in: harness.window)
+            #expect(harness.chrome.focusMode == .off, "so Esc leaves focus mode")
+            try await settle(harness)
+            #expect(keys.popover == nil, "and the palette doesn't open again with its bar")
+            #expect(popoverWindow() == nil)
+        }
     }
+}
+
+// MARK: Helpers
+
+/// SwiftUI's layout of a change, done.
+@MainActor
+private func settle(_ harness: PageHarness) async throws {
+    try await Task.sleep(for: .milliseconds(300))
+    harness.window.contentView?.layoutSubtreeIfNeeded()
+}
+
+@MainActor
+private func popoverWindow() -> NSWindow? {
+    NSApp.windows.first { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
 }

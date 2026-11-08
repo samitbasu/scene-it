@@ -18,7 +18,7 @@ final class WindowKeys {
     @ObservationIgnored let chrome: WindowChrome
     @ObservationIgnored let filing: FilingFlow
     @ObservationIgnored private let page: PageFocus
-    @ObservationIgnored private let mode: Binding<WindowMode>
+    @ObservationIgnored let mode: Binding<WindowMode>
     /// The right panel's tab while the panel shows; `nil` while it's collapsed or hidden.
     @ObservationIgnored var shownPanelTab: RightPanelTab?
     /// How each tab takes the focus: its editor, or its first control. `true` only if it did.
@@ -53,7 +53,7 @@ final class WindowKeys {
         case .close(.sheet):
             mode.wrappedValue = mode.wrappedValue.closingSheet
         case .close(.findBar):
-            page.closeFindBar()
+            page.closeFindBar(keepingFocus: page.focusedView)
         case .close(.focusMode):
             chrome.set(.off)
         }

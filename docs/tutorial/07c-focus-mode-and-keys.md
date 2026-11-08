@@ -199,9 +199,10 @@ they get `WindowKeys` from the environment (`@Entry var windowKeys`) and call it
 In the app's `Window` scene, `.toolbarVisibility(.hidden, for: .windowToolbar)` left the toolbar
 showing (a hosted test in the app's own window found it). `FocusModeToolbar` steps down to AppKit:
 an `NSViewRepresentable` that sets `window.toolbar?.isVisible`, the same pattern as
-`MainWindowCloseButton` (ADR 0038). Two details make it honest: its coordinator remembers that
-*it* hid the toolbar, so leaving focus mode never shows a toolbar the writer hid with View → Hide
-Toolbar; and `dismantleNSView` shows it again, so closing a book in focus mode doesn't leave the
+`MainWindowCloseButton` (ADR 0038). Three details make it honest: its coordinator decides once, as focus mode
+begins, whether the toolbar was showing, so leaving focus mode never shows a toolbar the writer hid
+with View → Hide Toolbar; it hides the toolbar again on every update while focus mode is on, in
+case SwiftUI shows it again; and `dismantleNSView` shows it again, so closing a book in focus mode doesn't leave the
 window without one.
 
 ## Tests

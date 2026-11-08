@@ -62,17 +62,28 @@ struct FocusModeToolbar: NSViewRepresentable {
     }
 
     final class Coordinator {
-        /// The window whose toolbar focus mode hid, while it's hidden.
-        private weak var hidden: NSWindow?
+        /// While focus mode is on: the window, and whether its toolbar showed as focus mode
+        /// began, which is decided once.
+        private var hiding: (window: Weak<NSWindow>, wasShowing: Bool)?
 
         func show(_ shown: Bool, in window: NSWindow?) {
             if shown {
-                hidden?.toolbar?.isVisible = true
-                hidden = nil
-            } else if let window, hidden == nil, window.toolbar?.isVisible == true {
-                window.toolbar?.isVisible = false
-                hidden = window
+                if let hiding, hiding.wasShowing { hiding.window.value?.toolbar?.isVisible = true }
+                hiding = nil
+                return
             }
+            guard let window = window ?? hiding?.window.value else { return }
+            if hiding == nil { hiding = (Weak(window), window.toolbar?.isVisible == true) }
+            // Every update, so a toolbar SwiftUI shows again (or makes anew) is hidden again.
+            if window.toolbar?.isVisible == true { window.toolbar?.isVisible = false }
+        }
+    }
+
+    struct Weak<T: AnyObject> {
+        weak var value: T?
+
+        init(_ value: T) {
+            self.value = value
         }
     }
 }

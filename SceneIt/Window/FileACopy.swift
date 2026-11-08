@@ -50,7 +50,10 @@ final class FilingFlow {
         draft = FilingDraft(today: today)
     }
 
+    /// Closes the dialog, dropping the draft; never while the copy is being filed, which still
+    /// needs it if the filing fails.
     func cancel() {
+        guard stage == .editing else { return }
         draft = nil
     }
 

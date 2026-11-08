@@ -63,11 +63,28 @@ final class PageFocus {
         }
     }
 
-    /// Hides the body's find bar, as its Done button does.
-    func closeFindBar() {
+    /// The view with the window's focus: a field's own view while its field editor has it.
+    var focusedView: NSView? {
+        switch body?.window?.firstResponder {
+        case let editor as NSTextView where editor.isFieldEditor: editor.delegate as? NSView
+        case let view as NSView: view
+        default: nil
+        }
+    }
+
+    /// Hides the body's find bar, as its Done button does, which hands the body the focus. The
+    /// focus goes back to `focused` instead if that's elsewhere, and to the body if it was the
+    /// find bar's field, so it's never left with the window, where no Esc is heard.
+    func closeFindBar(keepingFocus focused: NSView?) {
+        let field = desk?.findField
         let item = NSMenuItem()
         item.tag = NSTextFinder.Action.hideFindInterface.rawValue
         body?.performFindPanelAction(item)
+        if let focused, focused !== field, focused !== body, let window = focused.window {
+            window.makeFirstResponder(focused)
+        } else if !holdsFocus {
+            focusBody()
+        }
     }
 
     /// Puts the caret at the start of the body.

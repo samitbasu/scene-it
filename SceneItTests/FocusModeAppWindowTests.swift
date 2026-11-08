@@ -36,6 +36,61 @@ extension BookStoreIntegrationTests {
             chrome.set(.off)
             await eventually { window.toolbar?.isVisible == true }
             #expect(window.toolbar?.isVisible == true, "leaving shows it again")
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    /// What can happen in focus mode, other than leaving it, leaves the toolbar hidden.
+    @Test func theToolbarStaysHiddenThroughoutFocusMode() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let first = try #require(book.addScene(after: nil))
+            let second = try #require(book.addScene(after: first))
+            book.select(first)
+            let (window, chrome) = try await openBook(at: url, in: books)
+            let desks = subviewTree(of: window.contentView).compactMap { $0 as? DeskView }
+            let keys = try #require(desks.compactMap(\.keys).first)
+            @MainActor func stillHidden(_ what: String) async throws {
+                try await Task.sleep(for: .milliseconds(400))
+                #expect(window.toolbar?.isVisible == false, "the toolbar stays hidden: \(what)")
+            }
+
+            chrome.set(.on)
+            await eventually { window.toolbar?.isVisible == false }
+            book.select(second)
+            try await stillHidden("another scene opened")
+            keys.mode.wrappedValue = .scenes
+            try await stillHidden("a sheet opened")
+            keys.mode.wrappedValue = .page
+            try await stillHidden("the sheet closed")
+            keys.filing.begin()
+            await eventually { window.attachedSheet != nil }
+            try await stillHidden("File a Copy's dialog up")
+            keys.filing.cancel()
+            await eventually { window.attachedSheet == nil }
+            try await stillHidden("the dialog gone")
+            #expect(chrome.focusMode == .on, "precondition: still in focus mode")
+
+            chrome.set(.off)
+            await eventually { window.toolbar?.isVisible == true }
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    @Test func aToolbarTheWriterHidStaysHiddenAndCloseBookGivesItBack() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
+            let (window, chrome) = try await openBook(at: url, in: books)
 
             // The writer's own View → Hide Toolbar stays as they left it.
             window.toggleToolbarShown(nil)
