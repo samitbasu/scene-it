@@ -27,7 +27,6 @@ struct EndLineFragmentTests {
         #expect(
             abs(last.layoutFragmentFrame.height - end.typographicBounds.maxY) < 0.01,
             "\(last.layoutFragmentFrame)")
-        #expect(last.textLineFragments.last === end, "the same line each time it's asked for")
     }
 
     /// Every other ending, and an empty paragraph TextKit lays out without spacing before (as the
@@ -64,6 +63,30 @@ struct EndLineFragmentTests {
             #expect(fragment.layoutFragmentFrame == its.layoutFragmentFrame)
         }
         #expect(mine.last?.layoutFragmentFrame.minY == theirs.last?.layoutFragmentFrame.minY)
+    }
+
+    /// Backspace at the end of three Returns, and undoing both Returns after "Hello": the page
+    /// is laid out as if the text had been opened that way.
+    @Test(arguments: [(3, 1), (2, 2)])
+    func deletingAtTheEndLeavesTheLayoutTheTextWouldHave(returns: Int, deleted: Int) throws {
+        let body: [Paragraph] = [[Run("Hello")]] + Array(repeating: [], count: returns)
+        let ours = Layout(RunCodec.attributedString(forBody: body), in: .ours)
+        try #require(ours.fragments.last?.textLineFragments.count == 2, "precondition: an end line")
+        let after = ours.delete(deleted)
+        let fresh = Layout(after, in: .ours).fragments
+        let mine = ours.fragments
+        try #require(mine.count == fresh.count, "precondition")
+        for (fragment, its) in zip(mine, fresh) {
+            #expect(fragment.layoutFragmentFrame == its.layoutFragmentFrame)
+            #expect(
+                fragment.textLineFragments.map(\.typographicBounds)
+                    == its.textLineFragments.map(\.typographicBounds))
+        }
+        let theirs = Layout(after, in: .textKits).fragments
+        for (fragment, its) in zip(mine.dropLast(), theirs.dropLast()) {
+            #expect(
+                fragment.layoutFragmentFrame == its.layoutFragmentFrame, "every other paragraph is TextKit's")
+        }
     }
 
     private func expectTextKitsLines(
@@ -108,6 +131,17 @@ struct EndLineFragmentTests {
             content.performEditingTransaction {
                 storage.append(
                     NSAttributedString(string: typed, attributes: ParagraphRole.body.typingAttributes))
+                ParagraphRole.body.styleParagraphs(
+                    of: storage, around: NSRange(location: 0, length: storage.length))
+            }
+            return NSAttributedString(attributedString: storage)
+        }
+
+        /// Deletes the last `count` characters, restyled as the editor restyles them, and returns
+        /// the text.
+        func delete(_ count: Int) -> NSAttributedString {
+            content.performEditingTransaction {
+                storage.deleteCharacters(in: NSRange(location: storage.length - count, length: count))
                 ParagraphRole.body.styleParagraphs(
                     of: storage, around: NSRange(location: 0, length: storage.length))
             }

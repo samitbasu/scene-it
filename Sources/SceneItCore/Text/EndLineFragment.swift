@@ -8,36 +8,37 @@ import AppKit
 /// the only spacing an empty line takes without growing its caret (ADR 0034); it puts the line
 /// straight under the empty one, and how tall it makes it depends on where the caret is.
 public class EndLineFragment: NSTextLayoutFragment, @unchecked Sendable {
-    private let lock = NSLock()
-    /// The end line as placed, the same object for as long as it stays where it is, as TextKit's
-    /// own lines are.
-    private var placed: PlacedLineFragment?
-
     override public var textLineFragments: [NSTextLineFragment] {
         let lines = super.textLineFragments
-        guard let end = placedEndLine(of: lines) else { return lines }
-        return lines.dropLast() + [end]
+        guard let end = endLine(of: lines), let laidOut = lines.last else { return lines }
+        return lines.dropLast() + [
+            PlacedLineFragment(laidOut, at: end.bounds, glyphOrigin: end.glyphOrigin)
+        ]
     }
 
     /// Down to the end line as placed.
     override public var layoutFragmentFrame: CGRect {
         var frame = super.layoutFragmentFrame
         let lines = super.textLineFragments
-        guard let end = placedEndLine(of: lines), let laidOut = lines.last else { return frame }
-        frame.size.height += end.typographicBounds.maxY - laidOut.typographicBounds.maxY
+        guard let end = endLine(of: lines), let laidOut = lines.last else { return frame }
+        frame.size.height += end.bounds.maxY - laidOut.typographicBounds.maxY
         return frame
     }
 
-    /// The end line as placed, if `lines` are a final empty paragraph's line, with spacing before
-    /// it, and the end line.
-    private func placedEndLine(of lines: [NSTextLineFragment]) -> NSTextLineFragment? {
-        // The lines' own text: the paragraph's can be out of step with them during an edit.
-        // Only the last paragraph ends in the end line, but TextKit can still give one to a
-        // paragraph that text has just been typed after.
-        guard state == .layoutAvailable, let document = textLayoutManager?.documentRange,
-            rangeInElement.endLocation.compare(document.endLocation) == .orderedSame,
-            lines.count == 2, let empty = lines.first, let laidOut = lines.last,
+    /// Where the end line goes, if `lines` are a final empty paragraph's line, with spacing
+    /// before it, and the end line.
+    private func endLine(of lines: [NSTextLineFragment]) -> (bounds: CGRect, glyphOrigin: CGPoint)? {
+        guard lines.count == 2, let empty = lines.first, let laidOut = lines.last,
             laidOut.characterRange.length == 0, empty.characterRange.length > 0,
+            NSMaxRange(laidOut.characterRange) <= laidOut.attributedString.length,
+            NSMaxRange(empty.characterRange) <= empty.attributedString.length,
+            state == .layoutAvailable,
+            // Only the last paragraph ends in the end line, but TextKit can still give one to a
+            // paragraph that text has just been typed after.
+            let document = textLayoutManager?.documentRange,
+            rangeInElement.endLocation.compare(document.endLocation) == .orderedSame,
+            // The lines' own text: the paragraph's can be out of step with them during an edit,
+            // and reading it then can throw.
             ParagraphContent(
                 ofParagraphAt: empty.characterRange.location, in: empty.attributedString.string as NSString)
                 == .empty,
@@ -47,19 +48,7 @@ public class EndLineFragment: NSTextLayoutFragment, @unchecked Sendable {
         else { return nil }
         var bounds = empty.typographicBounds
         bounds.origin.y = bounds.maxY + style.paragraphSpacingBefore
-        return lock.withLock {
-            if let placed, placed.typographicBounds == bounds, placed.glyphOrigin == empty.glyphOrigin,
-                placed.characterRange == laidOut.characterRange,
-                placed.attributedString.isEqual(to: laidOut.attributedString)
-            {
-                return placed
-            }
-            let line = PlacedLineFragment(
-                laidOut.attributedString, range: laidOut.characterRange, bounds: bounds,
-                glyphOrigin: empty.glyphOrigin)
-            placed = line
-            return line
-        }
+        return (bounds, empty.glyphOrigin)
     }
 }
 
@@ -68,10 +57,10 @@ private final class PlacedLineFragment: NSTextLineFragment, @unchecked Sendable 
     private let bounds: CGRect
     private let origin: CGPoint
 
-    init(_ text: NSAttributedString, range: NSRange, bounds: CGRect, glyphOrigin: CGPoint) {
+    init(_ line: NSTextLineFragment, at bounds: CGRect, glyphOrigin: CGPoint) {
         self.bounds = bounds
         origin = glyphOrigin
-        super.init(attributedString: text, range: range)
+        super.init(attributedString: line.attributedString, range: line.characterRange)
     }
 
     required init?(coder: NSCoder) {

@@ -565,6 +565,45 @@ struct EndLineTests {
         }
     }
 
+    /// Up from the end line after a final empty paragraph goes to that paragraph, and Down comes
+    /// back: the arrows move through the placed line as through TextKit's own.
+    @Test func theArrowsMoveBetweenAFinalEmptyParagraphAndTheEndLine() async throws {
+        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
+            let end = page.storage.length
+            try #require(page.storage.string == "Hello\n\n", "precondition")
+            _ = try await keyAndFocused(page, at: end)
+            page.page.moveUp(nil)
+            #expect(page.page.selectedRange() == NSRange(location: end - 1, length: 0))
+            page.page.moveDown(nil)
+            #expect(page.page.selectedRange() == NSRange(location: end, length: 0))
+            page.page.moveUp(nil)
+            page.page.moveUp(nil)
+            #expect(page.page.selectedRange().location <= 5, "on up to Hello: \(page.page.selectedRange())")
+        }
+    }
+
+    /// A click on the end line, or in the spacing above it (which the multiple put inside it),
+    /// puts the caret at the end; a click on the empty paragraph, in it.
+    @Test func aClickOnOrJustAboveTheEndLinePutsTheCaretAtTheEnd() async throws {
+        try await withPage([scene("One", [[Run("Hello")], [], []])], in: KeyWindow.self) { page in
+            let end = page.storage.length
+            let atEnd = try await keyAndFocused(page, at: end)
+            let inEmpty = try await keyAndFocused(page, at: end - 1)
+            let gap = ParagraphRole.doubleSpacingGap
+            try #require(
+                abs(atEnd.minY - (inEmpty.maxY + gap)) < 0.01,
+                "precondition: the gap between \(inEmpty), \(atEnd)")
+            let x = atEnd.minX + 1
+            for (y, expected) in [
+                (inEmpty.midY, end - 1), (inEmpty.maxY + gap / 2, end), (atEnd.midY, end),
+            ] {
+                #expect(
+                    page.page.characterIndexForInsertion(at: NSPoint(x: x, y: y)) == expected,
+                    "at \(y), between \(inEmpty) and \(atEnd)")
+            }
+        }
+    }
+
     /// #102 as the writer met it: Return pressed twice at the end of the text.
     @Test func afterReturnTwiceAtTheEnd() async throws {
         try await withPage([scene("One", [[Run("Hello")]])], in: KeyWindow.self) { page in

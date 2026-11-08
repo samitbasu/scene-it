@@ -94,8 +94,13 @@ was rejected: it's the glyphs' height (≈ 12 pt, not the cursor's) and never re
   page ended 14–15 pt short. The page's layout fragments (`EndLineFragment`, which `CommentUnderlineFragment`
   extends) now place that one line themselves: a copy of the empty line above it, one spacing before lower,
   with the fragment's frame stretched down to it. TextKit's caret, hit-testing and the page's height all read
-  it through `textLineFragments` and `layoutFragmentFrame`. Every ending is now where the multiple put it, with
-  the caret anywhere (`EndLineTests`, including Return typed twice).
+  it through `textLineFragments` and `layoutFragmentFrame`, and so do the arrow keys and clicks
+  (`EndLineTests`). Every ending is now where the multiple put it, with the caret anywhere (`EndLineTests`,
+  including Return typed twice).
+  - Only the page uses it: the notes keep TextKit's own fragments, single spaced with `paragraphSpacing`,
+    and where their end line goes after an empty paragraph is a separate question, untouched here.
+  - Pagination, print and export (PLAN §10) must lay the page out with these fragments, or apply the same rule,
+    or a scene ending in an empty paragraph will end 14 pt short there.
 - When the typing attributes' style changes, the end line is laid out again at once, not later: until then the page
   measured short (a scene with an empty paragraph in it ended 57 pt short while the caret was in that paragraph).
 - **RTF copied to other apps** carries the new paragraph styles: `lineSpacing` on text, and `paragraphSpacingBefore`

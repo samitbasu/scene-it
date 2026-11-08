@@ -266,12 +266,14 @@ type that wraps the default `draw` and adds to it.
 `CommentUnderlineFragment` is a subclass of `EndLineFragment`
 ([`EndLineFragment.swift`](../../Sources/SceneItCore/Text/EndLineFragment.swift)), which
 overrides two read-only properties TextKit itself reads: `textLineFragments`, to hand back the
-end line after a final empty paragraph moved down (a `NSTextLineFragment` subclass that reports
+end line after a final empty paragraph moved down (an `NSTextLineFragment` subclass that reports
 the bounds it's given), and `layoutFragmentFrame`, so that the page grows to it. TextKit's caret,
-hit-testing and the page's height all ask through those properties, so they all agree. Two
-lessons from writing it: hand TextKit the same line object each time (it reuses its own), and
-read only the lines' own text, never the paragraph's (`textElement`), which can be ahead of the
-lines in the middle of an edit and throw when read.
+the arrow keys, clicks and the page's height all ask through those properties, so they all agree
+(`EndLineTests` checks each). Two lessons from writing it: read only the lines' own text, never
+the paragraph's (`textElement`), which can be ahead of the lines in the middle of an edit and
+throw when read; and leave alone the moment between an edit and the editor's restyle, when an
+empty paragraph still has the text's style: in our measurements TextKit only grew the page's height
+within a pass, so a frame that is briefly too tall leaves the page too long.
 
 Three things about fragments are worth knowing:
 
