@@ -6,8 +6,7 @@ import Testing
 
 /// The Errors tab's fix field (#127) as it was, a SwiftUI `TextField`, above the
 /// `AdmittingTextField` that replaces it, with the same long line at the panel's width, then both
-/// empty, showing their placeholder, into a
-/// `fix-field/` subfolder.
+/// empty, showing their placeholder, into a `fix-field/` subfolder.
 extension WindowRenders {
     @Test func fixField() async throws {
         let output = try #require(renderFolder).appending(path: "fix-field", directoryHint: .isDirectory)

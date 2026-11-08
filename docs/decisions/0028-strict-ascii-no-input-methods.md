@@ -71,6 +71,11 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
     without writing the app's real defaults; AppKit has no `NSAutomaticTextReplacementEnabled`-style key in its
     strings, unlike the others. To be checked by hand in a trial build.
   - Smart copy/paste has no key and starts on, as before.
+  - Check Spelling While Typing (the underlines) stays on in every editor, set as each is made, as before: the
+    owner's call. No AppKit key sets its starting value (`NSContinuousSpellCheckingEnabled`,
+    `NSAllowContinuousSpellChecking` and `WebContinuousSpellCheckingEnabled` were registered, at launch and later, and
+    a new text view still started without it). Unticking it hides the underlines only until that editor is made
+    again. It never changes a word.
   - Link and data detection have no key; AppKit starts them off, and the writer may turn them on. They only mark text
     for display: the run codec reads no link, so nothing they add reaches the scene or the saved book (tested).
   Smart quotes and dashes, turned on, still don't change the manuscript: the character policy spells what they type

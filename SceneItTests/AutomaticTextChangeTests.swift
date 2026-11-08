@@ -21,12 +21,13 @@ struct AutomaticTextChangeTests {
     }
 
     /// A key no saved domain sets (neither the app's, where a menu toggle goes, nor System
-    /// Settings') is off, because the registration says so; and AppKit reads it.
-    @Test func whatTheWriterHasntChosenStartsOff() {
+    /// Settings') is off, because the registration says so; and AppKit reads it. Which keys
+    /// those are depends on the writer's own choices on this Mac (the test host is the real app),
+    /// so the test runs on whichever are left, and only if one is.
+    @Test(
+        .enabled("the writer has chosen every one") { await !keysAppKitReadsThatNoSavedDomainSets().isEmpty })
+    func whatTheWriterHasntChosenStartsOff() {
         let undecided = Self.keysNoSavedDomainSets()
-        #expect(
-            undecided.contains("NSAutomaticSpellingCorrectionEnabled"),
-            "precondition: spelling correction is left to the registration on this Mac")
         for key in undecided {
             #expect(UserDefaults.standard.object(forKey: key) as? Bool == false, "\(key)")
         }
@@ -38,7 +39,7 @@ struct AutomaticTextChangeTests {
     /// Every editor takes the automatic changes as the defaults say, and none sets them itself.
     @Test func everyEditorTakesWhatTheDefaultsSay() async throws {
         let expected = Self.whatTheDefaultsSay()
-        try await withEditors { editors in
+        try await withEditors { _, editors in
             for (name, editor) in editors {
                 #expect(Self.switches(of: editor) == expected, "\(name)")
             }
@@ -48,17 +49,23 @@ struct AutomaticTextChangeTests {
         }
     }
 
-    /// What a menu toggle does to an editor stays done: nothing turns it back.
+    /// What a menu toggle does to an editor stays done: SwiftUI updating the window around it
+    /// doesn't turn it back.
     @Test func anEditorTurnedOnStaysOn() async throws {
-        try await withEditors { editors in
-            for (name, editor) in editors {
-                let was = editor.isAutomaticSpellingCorrectionEnabled
-                editor.isAutomaticSpellingCorrectionEnabled = !was
+        try await withEditors { page, editors in
+            let were = editors.map { $0.1.isAutomaticSpellingCorrectionEnabled }
+            for (_, editor) in editors {
+                editor.isAutomaticSpellingCorrectionEnabled.toggle()
                 editor.isAutomaticTextReplacementEnabled = true
-                try await Task.sleep(for: .milliseconds(50))
+            }
+            page.preferences.showRightPanelTab(.notes)
+            await eventually { page.notesView != nil }
+            page.preferences.showRightPanelTab(.comments)
+            await eventually { page.notesView == nil }
+            #expect(page.notesView == nil, "precondition: SwiftUI showed the notes, then the comments again")
+            for ((name, editor), was) in zip(editors, were) {
                 #expect(editor.isAutomaticSpellingCorrectionEnabled == !was, "\(name)")
                 #expect(editor.isAutomaticTextReplacementEnabled, "\(name)")
-                editor.isAutomaticSpellingCorrectionEnabled = was
             }
         }
     }
@@ -96,7 +103,7 @@ struct AutomaticTextChangeTests {
     }
 
     @Test func everyEditorsContextMenuOffersTheToggles() async throws {
-        try await withEditors { editors in
+        try await withEditors { _, editors in
             for (name, editor) in editors {
                 let menu = try #require(
                     editor.menu(for: try rightClick(on: editor)), "\(name)'s context menu")
@@ -332,8 +339,9 @@ private func nextUpdate(of editor: AdmittingTextView) async {
 /// Every editor of the book's text, each named: the page, the title's own editor while it edits,
 /// the notes, a comment card, and File a Copy's tag and note.
 @MainActor
-func withEditors(_ body: ([(String, NSTextView)]) async throws -> Void) async throws {
-    try await withPage([scene("One", letterScene, .withTooEarly)]) { page in
+func withEditors(_ body: (PageHarness, [(String, NSTextView)]) async throws -> Void) async throws {
+    try await withPage([scene("One", letterScene, .withTooEarly)], automaticChanges: .asTheDefaultsSay) {
+        page in
         #expect(page.window.makeFirstResponder(page.title))
         let title = try #require(
             page.title.currentEditor() as? AdmittingTextView, "the title's own field editor, editing")
@@ -348,19 +356,23 @@ func withEditors(_ body: ([(String, NSTextView)]) async throws -> Void) async th
         let note = try #require(
             NoteTextView.scrollView("", NoteTextView.Coordinator(draft: flow.draftBinding)).documentView
                 as? AdmittingTextView)
-        try await body([
-            ("page", page.page), ("title", title), ("notes", notes), ("comment card", card),
-            ("File a Copy's tags", tags), ("File a Copy's note", note),
-        ])
+        try await body(
+            page,
+            [
+                ("page", page.page), ("title", title), ("notes", notes), ("comment card", card),
+                ("File a Copy's tags", tags), ("File a Copy's note", note),
+            ])
     }
-}
-
-/// Every item of `menu` and its submenus.
-func allItems(of menu: NSMenu) -> [NSMenuItem] {
-    menu.items.flatMap { [$0] + ($0.submenu.map(allItems) ?? []) }
 }
 
 /// The items of `menu` and its submenus that show when it opens.
 func shownItems(of menu: NSMenu) -> [NSMenuItem] {
     menu.items.filter { !$0.isHidden }.flatMap { [$0] + ($0.submenu.map(shownItems) ?? []) }
+}
+
+/// The keys `whatAppKitReads` reports that no saved domain sets.
+@MainActor
+func keysAppKitReadsThatNoSavedDomainSets() -> Set<String> {
+    AutomaticTextChangeTests.keysNoSavedDomainSets().intersection(
+        AutomaticTextChangeTests.whatAppKitReads().keys)
 }

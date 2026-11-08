@@ -567,15 +567,30 @@ struct AdversarialPageTests {
         }
     }
 
+    /// Smart quotes and dashes turned on (#127): AppKit offers curled quotes and an em dash, the
+    /// character policy gives back the straight ones already there, and that's no edit at all:
+    /// the book stays saved and Undo undoes the typing, not a substitution.
     @Test func turnedOnSubstitutionsStillGoThroughThePolicy() async throws {
         try await withPage([scene("One", [[Run("ab")]])]) { page in
             let view = page.page
             view.isAutomaticQuoteSubstitutionEnabled = true
             view.isAutomaticDashSubstitutionEnabled = true
             page.focusPage(at: 2)
-            view.insertText(" \"hi\" -- ok", replacementRange: view.selectedRange())
+            let typed = " \"hi\" -- ok"
+            view.insertText(typed, replacementRange: view.selectedRange())
+            await eventually { page.book.status == .saved }
+            let recorder = ReplacementRecorder(view)
+            defer { recorder.restore() }
             view.checkTextInDocument(nil)
+            let offered = recorder.replacements.joined()
+            #expect(offered.contains("\u{201C}"), "precondition: AppKit offered a curled quote")
+            #expect(offered.contains("\u{2014}"), "precondition: AppKit offered an em dash")
+            #expect(view.string == "ab" + typed)
+            #expect(page.body() == [[Run("ab" + typed)]])
             #expect(page.pageMirrorsModel)
+            #expect(page.book.status == .saved, "nothing was edited")
+            page.book.pageUndo(for: try #require(page.book.openScene)).undo()
+            #expect(page.body() == [[Run("ab")]], "Undo undoes the typing")
         }
     }
 
@@ -594,5 +609,45 @@ struct AdversarialPageTests {
             finderReplace(page.page, NSRange(location: 0, length: 3), "ONE")
             #expect(page.book.status == .unsaved, "find and replace")
         }
+    }
+}
+
+/// Stands in as a text view's delegate, recording each replacement string AppKit offers before
+/// handing everything on to the real delegate, which it puts back when done.
+@MainActor
+final class ReplacementRecorder: NSObject, NSTextViewDelegate {
+    private let view: NSTextView
+    /// Set once, as it's made; read by the forwarding AppKit asks for on the main thread.
+    nonisolated(unsafe) private let original: (any NSTextViewDelegate)?
+    private(set) var replacements: [String] = []
+
+    init(_ view: NSTextView) {
+        self.view = view
+        original = view.delegate
+        super.init()
+        view.delegate = self
+    }
+
+    func restore() {
+        view.delegate = original
+    }
+
+    nonisolated override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector)
+            || MainActor.assumeIsolated { original?.responds(to: aSelector) == true }
+    }
+
+    nonisolated override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        original
+    }
+
+    func textView(
+        _ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
+        replacementStrings: [String]?
+    ) -> Bool {
+        replacements += replacementStrings ?? []
+        return original?.textView?(
+            textView, shouldChangeTextInRanges: affectedRanges, replacementStrings: replacementStrings)
+            ?? true
     }
 }

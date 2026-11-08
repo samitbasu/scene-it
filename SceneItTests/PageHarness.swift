@@ -48,6 +48,20 @@ struct PageHarness {
     let modes: ModeBox
     /// The window's Search sheet.
     let search: SearchSheetModel
+    /// Whether the editors keep the writer's automatic-change preferences or have them off.
+    let automaticChanges: AutomaticChangesInTests
+
+    /// Turns `view`'s automatic changes off, unless the test asked for the defaults: the test host
+    /// is the real app, so the writer's own menu choices would otherwise reach every page test.
+    func settle(_ view: NSTextView) {
+        guard automaticChanges == .off else { return }
+        view.isAutomaticSpellingCorrectionEnabled = false
+        view.isAutomaticTextReplacementEnabled = false
+        view.isAutomaticQuoteSubstitutionEnabled = false
+        view.isAutomaticDashSubstitutionEnabled = false
+        view.isAutomaticLinkDetectionEnabled = false
+        view.isAutomaticDataDetectionEnabled = false
+    }
 
     /// The window's undo router, as the toolbar uses it.
     var undo: UndoRouter {
@@ -95,6 +109,11 @@ final class KeyWindow: NSWindow {
     override var isKeyWindow: Bool { Self.isKey }
 }
 
+/// Whether a page test's editors have the automatic text changes off, or as the defaults say.
+enum AutomaticChangesInTests {
+    case off, asTheDefaultsSay
+}
+
 /// `scenes` in a book written to a temporary folder, then opened and shown in a window of
 /// `windowType`.
 @MainActor
@@ -102,6 +121,7 @@ func withPage(
     _ scenes: [BookScene], boneyard: [BookScene] = [], holdingTheLock: Bool = false,
     books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
+    automaticChanges: AutomaticChangesInTests = .off,
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
@@ -148,7 +168,9 @@ func withPage(
             })
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
-            formatting: books.formatting, preferences: books.preferences, modes: modes, search: search)
+            formatting: books.formatting, preferences: books.preferences, modes: modes, search: search,
+            automaticChanges: automaticChanges)
+        harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)
         #expect(await store.closeBook() == .left)

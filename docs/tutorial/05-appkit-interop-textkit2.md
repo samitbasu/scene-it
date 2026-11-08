@@ -482,7 +482,7 @@ Two subtleties:
   defaults. The app's starting values go in the *registration domain*:
 
   ```swift
-          AutomaticTextChanges.registerStartingValues()  // first thing in applicationWillFinishLaunching
+      AutomaticTextChanges.registerStartingValues()  // first thing in applicationWillFinishLaunching
   ```
 
   `UserDefaults` looks a key up through a stack of domains: the app's saved defaults, the global
