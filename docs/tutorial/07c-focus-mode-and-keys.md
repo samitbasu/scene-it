@@ -20,24 +20,21 @@ selected tab: none is touched. Focus mode is a second input to the views, and ea
 one question:
 
 ```swift
-public func shows(_ part: ChromePart, under rules: FocusModeRules) -> Bool {
-    switch (self, part) {
-    case (.off, _): true
-    case (.on, .formattingBar): rules.formattingBar == .shown
-    case (.on, .rail), (.on, .toolbar), (.on, .rightPanel), (.on, .statusBar): false
+public func shows(_ part: ChromePart) -> Bool {
+    switch part {
+    case .rail, .toolbar, .rightPanel, .statusBar: self == .off
     }
 }
 ```
 
-In Rust terms it's a pure `fn shows(&self, part: ChromePart, rules: &Rules) -> bool` with an
-exhaustive `match`; add a `ChromePart` and the compiler finds every arm you forgot. The window
-then writes `if chrome.shows(.rail) { IconRail(...) }`. The alternative, "save the panel state,
-hide it, restore it later", is a second copy of the state that can drift from the first (what if
-the writer presses ⌘] in between?). Here there is nothing to restore.
+In Rust terms it's a pure `fn shows(&self, part: ChromePart) -> bool` with an exhaustive `match`:
+add a `ChromePart` and the compiler finds the arm you forgot. The window then writes
+`if chrome.shows(.rail) { IconRail(...) }`. The alternative, "save the panel state, hide it,
+restore it later", is a second copy of the state that can drift from the first (what if the writer
+presses ⌘] in between?). Here there is nothing to restore.
 
-`FocusModeRules` holds the answers PLAN leaves open (does the formatting bar hide? does
-opening a scene leave focus mode?) as enums, one field each, with `recommended` as the shipped
-value. A test can build a window with any other value, so each switch is exercised.
+The state lives in `WindowChrome`, an `@Observable` object the window creates with the book's
+window, so a book always opens out of focus mode (the owner's pick).
 
 ## 2. How a key reaches your code on macOS
 
@@ -60,37 +57,47 @@ keyboard, so Esc closes the menu and none of our code runs. That's why the resol
 
 ## 3. One resolver, every entrance
 
-PLAN's Esc order: menus and popovers, then sheets, then focus mode. The order is data, the order
-of an enum's cases:
+The Esc order (PLAN §8.4, with the page's find bar placed): popovers, then the dialog and sheets,
+then the find bar, then focus mode. The order is the order of an enum's cases:
 
 ```swift
 public enum EscapeLayer: CaseIterable, Hashable, Sendable {
     case popover
     case dialog
     case sheet
+    case findBar
     case focusMode
-
-    public static func closedByEscape(in context: EscapeContext) -> EscapeLayer? {
-        allCases.first { $0.isUp(in: context) }
-    }
 ```
 
-`closedByEscape` is a pure function, tested without a window. A test even unwinds a window with
-every layer up, Esc by Esc, and checks the order it closed them in equals `allCases`.
-
-The window's `WindowKeys` is the only thing that *acts* on it:
+and the resolver is a pure function over a snapshot of the window:
 
 ```swift
-func escape() -> EscapeOutcome {
-    guard let layer = EscapeLayer.closedByEscape(in: escapeContext) else { return .passedOn }
-    switch layer {
-    case .popover: popover = nil
-    case .dialog: filing.cancel()
-    case .sheet: mode.wrappedValue = mode.wrappedValue.closingSheet
-    case .focusMode: chrome.set(.off)
-    }
-    return .handled
+public static func escape(in context: EscapeContext) -> EscapeResult {
+    guard let layer = allCases.first(where: { $0.isUp(in: context) }) else { return .passOn }
+    return layer.canClose(in: context) ? .close(layer) : .hold(layer)
 }
+```
+
+`.hold` is the interesting case. While File a Copy's dialog is filing, closing it would throw
+away what the writer typed, which a failed filing still needs; so Esc closes nothing, not even
+what's under the dialog. Putting the stage *into the resolver's input* (`dialog: FilingStage?`)
+is what makes that rule impossible to forget at any one call site. A sheet covers the find bar,
+which is why `.sheet` comes before `.findBar`: Esc can't close a find bar the writer can't see.
+
+A test unwinds a window with every layer up, Esc by Esc, and checks the order it closed them in
+equals `allCases`. In Rust you'd reach for the same shape: a `#[derive(PartialOrd)]` enum and
+`iter().find(...)`.
+
+The window's `WindowKeys` is the only thing that *acts* on the result:
+
+```swift
+switch EscapeLayer.escape(in: escapeContext) {
+case .passOn:
+    return .passedOn
+case .hold:
+    NSSound.beep()
+case .close(.popover):
+    popover = nil
 ```
 
 Then every place Esc can arrive calls `escape()`, and only falls back to its own meaning when
@@ -100,15 +107,17 @@ told `.passedOn`:
 | --- | --- | --- |
 | A sheet, the File a Copy dialog, a palette popover | `EscapeKey`, a hidden `.cancelAction` button (a key equivalent, step 1) | none |
 | The page or the notes (`SceneTextView`) | `doCommand(by: cancelOperation:)` | the text view's own Esc |
-| The title field | its delegate's `control(_:textView:doCommandBy:)` | the field's own |
+| The title field, the page's find bar field | the field's delegate, `control(_:textView:doCommandBy:)` | the field's own |
+| Comments' search field | `.onKeyPress(.escape)` | the field's own |
 | A comment card | `cancelOperation` | ends the edit |
 | The Errors tab | `cancelOperation` | focus back to the page |
 
+(The notes' own find bar keeps AppKit's Esc, which closes that bar.)
+
 Why a key equivalent for sheets and popovers? Their focus is often in a SwiftUI `TextField`,
 whose field editor would see the key first otherwise; key equivalents run before it (step 1).
-Why *not* one for focus mode? Because it would also run first in the page's find bar, and Esc
-there should close the find bar, which AppKit does in the bar's own field. Step 2 gives the find
-bar its turn.
+Why *not* one for the page? Because it would run first everywhere in the window, including fields
+that have their own Esc.
 
 One trap worth knowing: neither `NSTextView` nor `NSResponder` actually *implements*
 `cancelOperation:`. Swift lets you write `override func cancelOperation` (the method is declared
@@ -123,8 +132,11 @@ override func doCommand(by selector: Selector) {
 }
 ```
 
-`#selector` names an Objective-C method; `Selector` is a runtime string-like key. Rust has no
-analogue in safe code; think of a `&'static str` method name looked up in a vtable at runtime.
+`#selector` names an Objective-C method; `Selector` is a runtime key. Rust has no analogue in safe
+code; think of a `&'static str` method name looked up in a vtable at runtime.
+
+The same `doCommand(by:)` hook lets the sheet's focus holder (`UndoFocusView`) handle *no* Tab:
+the command goes on up the chain as before, so nothing the sheet covers can take the focus.
 
 ## 4. Tab: the same pattern
 
@@ -140,60 +152,66 @@ public func following(_ direction: TabDirection) -> [TabStop] {
 `WindowKeys.tab` tries those stops in turn and stops at the first that takes the focus
 (`stop.following(direction).contains { focus($0) }`: `contains` short-circuits, like Rust's
 `Iterator::any`). A hidden panel or a closed find bar simply refuses, so focus mode needs no Tab
-logic of its own.
+logic of its own. That only works if each stop's "take the focus" answers truthfully: the Comments
+tab makes the field or card first responder itself and returns what `makeFirstResponder` said.
 
 "The search field" is the page's find bar field (⌘F): the Search sheet covers and disables the
 page and the panel, so Tab could never move between them and its field.
 
-That field is AppKit's own, made by `NSTextFinder`, and we can't subclass it. Its Tab goes to its
-delegate, which is the find bar's. `DeskView` puts a stand-in delegate in front that handles Tab
-and Shift-Tab and forwards every other message, the Objective-C way:
+That field is AppKit's own, made by `NSTextFinder`, and we can't subclass it. Its keys go to its
+delegate, which is the find bar's. `DeskView` puts a stand-in delegate in front that handles Tab,
+Shift-Tab and Esc, and forwards every other message, the Objective-C way:
 
 ```swift
-override func forwardingTarget(for selector: Selector!) -> Any? {
+nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
     finderDelegate
 }
 ```
 
 `responds(to:)` says yes for anything the original answers; `forwardingTarget(for:)` sends those
 messages on. It's a dynamic proxy, decided per message at runtime: closer to a hand-written
-`Deref` to an inner object than to anything Rust's trait system does statically.
+`Deref` to an inner object than to anything Rust's trait system does statically. Those two
+overrides are `nonisolated` (they override `NSObject`'s), so the stored delegate they read is
+`nonisolated(unsafe)`: safe because AppKit only sends delegate messages on the main thread, the
+thread that set it. A test types into the field and presses Return, to prove finding still works
+through the stand-in.
 
-## 5. SwiftUI focus
+## 5. SwiftUI focus and keys
 
 SwiftUI's own focus model is `@FocusState`: a property bound to a view with `.focused(_:)`.
-Setting it to `true` asks SwiftUI to make that view the first responder, on a later turn. The
-Comments tab registers that as its "take the focus" action:
+Setting it asks SwiftUI to make that view the first responder, on a later turn, so it can't say
+whether it worked. That's why the Comments tab's Tab stop goes to AppKit instead
+(`window.makeFirstResponder(field)`), which answers at once.
+
+To catch keys in a SwiftUI `TextField`, `.onKeyPress` runs before the field acts on them and
+returns `.handled` or `.ignored`:
 
 ```swift
-.onAppear {
-    keys?.setPanelFocus(for: .comments) { [book, editors, $searchFocused] in
-        Self.takeFocus(book: book, editors: editors, search: $searchFocused)
-    }
-}
+.onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")]) { press in
 ```
 
-`$searchFocused` is a `FocusState<Bool>.Binding`, a handle you can capture and set later, much like
-capturing a `Binding`. The capture list `[book, editors, $searchFocused]` copies those values into
-the closure, the same idea as Rust's `move` closure over clones.
-
-To catch Tab in that SwiftUI field, `.onKeyPress(keys: [.tab])` runs before the field acts on it
-and returns `.handled` or `.ignored`. For AppKit views made through `NSViewRepresentable`,
-SwiftUI focus doesn't reach in, so they get `WindowKeys` from the environment
-(`@Entry var windowKeys`) and call it directly.
+Shift-Tab arrives as the backtab character U+0019, not as Tab with Shift, which is why it's
+listed. For AppKit views made through `NSViewRepresentable`, SwiftUI focus doesn't reach in, so
+they get `WindowKeys` from the environment (`@Entry var windowKeys`) and call it directly.
 
 ## 6. When SwiftUI's modifier isn't enough
 
-`.toolbarVisibility(.hidden, for: .windowToolbar)` left the toolbar showing in our hosted test
-windows. Rather than accept a difference between tests and the app, `WindowToolbarVisibility` is a
-tiny `NSViewRepresentable` that reaches `view.window?.toolbar` and sets `isVisible`: the same
-"step down to AppKit" pattern as `MainWindowCloseButton` (ADR 0038).
+In the app's `Window` scene, `.toolbarVisibility(.hidden, for: .windowToolbar)` left the toolbar
+showing (a hosted test in the app's own window found it). `FocusModeToolbar` steps down to AppKit:
+an `NSViewRepresentable` that sets `window.toolbar?.isVisible`, the same pattern as
+`MainWindowCloseButton` (ADR 0038). Two details make it honest: its coordinator remembers that
+*it* hid the toolbar, so leaving focus mode never shows a toolbar the writer hid with View → Hide
+Toolbar; and `dismantleNSView` shows it again, so closing a book in focus mode doesn't leave the
+window without one.
 
 ## Tests
 
-- `Tests/SceneItCoreTests/Window/FocusModeTests.swift`: the rules, the Esc order and the Tab
-  order as pure functions.
-- `SceneItTests/FocusModeWindowTests.swift`: through the window. The desk's frame proves the rail,
-  panel and status bar hide and come back to the pixel; the toolbar's `isVisible`; the caret kept;
-  Esc with a palette, a sheet and the dialog up; Tab round the stops. Keys are delivered the way
-  `NSApplication` does it, in-process: `performKeyEquivalent` first, then `sendEvent`.
+- `Tests/SceneItCoreTests/Window/FocusModeTests.swift`: the chrome, the Esc order (including
+  holding while File a Copy files) and the Tab order, as pure functions.
+- `SceneItTests/FocusModeWindowTests.swift`: through the window, with keys delivered the way
+  `NSApplication` does it, in-process (`performKeyEquivalent` first, then `sendEvent`). The desk's
+  frame proves the rail, panel and status bar hide and come back to the pixel; the caret is kept;
+  Esc with a palette, a sheet, the dialog (editing and filing) and the find bar; Tab round the
+  stops, and nowhere under a sheet.
+- `SceneItTests/FocusModeAppWindowTests.swift`: the toolbar in the app's own window, a toolbar the
+  writer hid, and Close Book in focus mode.

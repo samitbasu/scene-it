@@ -6,20 +6,27 @@ public enum Presence: Hashable, Sendable {
 /// What's up in the window, as far as Esc is concerned.
 public struct EscapeContext: Hashable, Sendable {
     public var popover: Presence
-    public var dialog: Presence
+    /// File a Copy's dialog, and its stage while it's up.
+    public var dialog: FilingStage?
     public var mode: WindowMode
+    /// The page's find bar.
+    public var findBar: Presence
     public var focusMode: FocusMode
 
-    public init(popover: Presence, dialog: Presence, mode: WindowMode, focusMode: FocusMode) {
+    public init(
+        popover: Presence, dialog: FilingStage?, mode: WindowMode, findBar: Presence, focusMode: FocusMode
+    ) {
         self.popover = popover
         self.dialog = dialog
         self.mode = mode
+        self.findBar = findBar
         self.focusMode = focusMode
     }
 }
 
-/// What Esc closes, in the order it closes them (PLAN §8.4): popovers first, then dialogs and
-/// sheets, then focus mode. Every Esc in the window asks `closedByEscape(in:)`.
+/// What Esc closes, in the order it closes them (PLAN §8.4): popovers first, then the dialog and
+/// sheets, then the page's find bar, then focus mode. `EscapeLayer.escape(in:)` is the one place
+/// that order lives.
 ///
 /// Menus come before all of these, and need no case: while a menu is open, AppKit's menu
 /// tracking takes every key, so Esc closes it and no Esc of ours runs.
@@ -28,24 +35,44 @@ public enum EscapeLayer: CaseIterable, Hashable, Sendable {
     case popover
     /// File a Copy's dialog, a sheet attached to the window.
     case dialog
-    /// A rail sheet: Scenes, Search or File Cabinet.
+    /// A rail sheet: Scenes, Search or File Cabinet. It covers the find bar.
     case sheet
+    /// The page's find bar (⌘F).
+    case findBar
     case focusMode
 
-    /// The layer Esc closes: the first that's up. `nil` when none is, and the focused view's
-    /// own Esc applies (a comment card's edit ends; the Errors tab hands the focus back).
-    public static func closedByEscape(in context: EscapeContext) -> EscapeLayer? {
-        allCases.first { $0.isUp(in: context) }
+    /// What Esc does: close the first layer that's up, or nothing while that layer can't close
+    /// (File a Copy's dialog while it files: closing it would drop what was typed, which a failed
+    /// filing still needs). `.passOn` when no layer is up, and the focused view's own Esc
+    /// applies (a comment card's edit ends; the Errors tab hands the focus back).
+    public static func escape(in context: EscapeContext) -> EscapeResult {
+        guard let layer = allCases.first(where: { $0.isUp(in: context) }) else { return .passOn }
+        return layer.canClose(in: context) ? .close(layer) : .hold(layer)
     }
 
     private func isUp(in context: EscapeContext) -> Bool {
         switch self {
         case .popover: context.popover == .present
-        case .dialog: context.dialog == .present
+        case .dialog: context.dialog != nil
         case .sheet: context.mode.isSheet
+        case .findBar: context.findBar == .present
         case .focusMode: context.focusMode == .on
         }
     }
+
+    private func canClose(in context: EscapeContext) -> Bool {
+        switch self {
+        case .dialog: context.dialog != .filing
+        case .popover, .sheet, .findBar, .focusMode: true
+        }
+    }
+}
+
+public enum EscapeResult: Hashable, Sendable {
+    case close(EscapeLayer)
+    /// The top layer stays, and so does everything under it.
+    case hold(EscapeLayer)
+    case passOn
 }
 
 /// Where Tab moves the focus (PLAN §8.4), in the order it moves: the page, the right panel, the

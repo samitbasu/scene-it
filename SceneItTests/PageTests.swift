@@ -344,9 +344,13 @@ struct PageTests {
                 #expect(
                     page.title.currentEditor() != nil, "Shift-Tab at the body's start returns to the title")
             }
+            // Elsewhere in the body, Shift-Tab leaves the page backwards (#21): with no find bar,
+            // to the panel, here Comments' search field.
             page.focusPage(at: 3)
             page.page.insertBacktab(nil)
-            #expect(page.window.firstResponder === page.page, "only at the very start")
+            #expect(page.title.currentEditor() == nil, "the title only from the very start")
+            let field = (page.window.firstResponder as? NSTextView)?.delegate as? NSTextField
+            #expect(field?.placeholderString == CommentWording.searchPlaceholder)
         }
     }
 

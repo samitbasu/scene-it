@@ -112,11 +112,6 @@ final class KeyWindow: NSWindow {
     override var isKeyWindow: Bool { Self.isKey }
 }
 
-/// Whether a page test's window has the window toolbar SwiftUI makes from `BookWindow`'s.
-enum HarnessToolbar {
-    case none, bridged
-}
-
 /// Whether a page test's editors have the automatic text changes off, or as the defaults say.
 enum AutomaticChangesInTests {
     case off, asTheDefaultsSay
@@ -129,8 +124,7 @@ func withPage(
     _ scenes: [BookScene], boneyard: [BookScene] = [], holdingTheLock: Bool = false,
     books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
-    automaticChanges: AutomaticChangesInTests = .off, chrome: WindowChrome = WindowChrome(),
-    toolbar: HarnessToolbar = .none,
+    automaticChanges: AutomaticChangesInTests = .off,
     _ body: (PageHarness) async throws -> Void
 ) async throws {
     try await withTemporaryFolder { folder in
@@ -155,17 +149,16 @@ func withPage(
 
         let size = WindowMetrics.defaultSize
         let modes = ModeBox()
+        let chrome = WindowChrome()
         let search = SearchSheetModel(book: book, indexing: searchIndexing)
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                 box: modes, search: search, chrome: chrome))
         controller.sizingOptions = []
-        if toolbar == .bridged { controller.sceneBridgingOptions = [.toolbars, .title] }
         let window = windowType.init(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: toolbar == .bridged ? [.titled, .closable, .miniaturizable, .resizable] : [.titled],
-            backing: .buffered, defer: false)
+            contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
+            defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = controller
         window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)

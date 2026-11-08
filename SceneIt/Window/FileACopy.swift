@@ -59,11 +59,17 @@ final class FilingFlow {
     /// typed. A copy filed, locked and indexed gets the toast; anything less gets the alert.
     @discardableResult
     func confirm(in store: AppBookStore) async -> FilingResult? {
+        await confirm { [book] in await store.fileACopy(of: book, as: $0) }
+    }
+
+    /// The same, filing through `file`.
+    @discardableResult
+    func confirm(filingWith file: (FilingRecord) async -> FilingResult) async -> FilingResult? {
         guard let draft, stage == .editing else { return nil }
         stage = .filing
         defer { stage = .editing }
         let record = draft.record
-        let result = await store.fileACopy(of: book, as: record)
+        let result = await file(record)
         switch result {
         case .filed(let outcome):
             self.draft = nil
@@ -84,12 +90,6 @@ final class FilingFlow {
             if self?.toast == toast { self?.toast = nil }
         }
     }
-}
-
-/// Whether the dialog's File copy is running: while it is, the whole dialog waits.
-enum FilingStage: Equatable {
-    case editing
-    case filing
 }
 
 // MARK: - The dialog

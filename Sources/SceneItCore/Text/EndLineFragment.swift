@@ -53,7 +53,7 @@ public class EndLineFragment: NSTextLayoutFragment, @unchecked Sendable {
 }
 
 /// A line with no glyphs, placed where it's given.
-private final class PlacedLineFragment: NSTextLineFragment {
+private final class PlacedLineFragment: NSTextLineFragment, @unchecked Sendable {
     private let bounds: CGRect
     private let origin: CGPoint
 

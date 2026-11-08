@@ -52,13 +52,22 @@ final class PageFocus {
         return window.makeFirstResponder(body)
     }
 
-    /// Whether the title or the body has the focus.
+    /// Whether the page has the focus: its title, its body, or its find bar's field.
     var holdsFocus: Bool {
         guard let window = body?.window ?? title?.window else { return false }
         switch window.firstResponder {
-        case let editor as NSTextView where editor.isFieldEditor: return editor.delegate === title
+        case let editor as NSTextView where editor.isFieldEditor:
+            guard let field = editor.delegate as? NSTextField else { return false }
+            return field === title || field === desk?.findField
         case let responder: return responder != nil && responder === body
         }
+    }
+
+    /// Hides the body's find bar, as its Done button does.
+    func closeFindBar() {
+        let item = NSMenuItem()
+        item.tag = NSTextFinder.Action.hideFindInterface.rawValue
+        body?.performFindPanelAction(item)
     }
 
     /// Puts the caret at the start of the body.

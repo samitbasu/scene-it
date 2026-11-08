@@ -332,13 +332,12 @@ subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` 
 `AdmittingTextField` it is now, holding the same long line at the panel's width, then both empty with their
 placeholder. To render only this, add `-only-testing:SceneItTests/WindowRenders/fixField\(\)`.
 
-`focusMode` renders focus mode (#21, `FocusModeRenders.swift`) into a `focus-mode/` subfolder, at 1× and 2×
-and 1440 × 900 pt, the page focused with a two-page formatted scene: normal mode (`normal`,
-`normal-panel-collapsed`); each candidate look in focus mode, also as `<name>-vs-normal.png` beside normal mode
-(`focus-a-hint`, the fading "Press Esc…" hint, shown as it first appears; `focus-b-no-cue`;
-`focus-c-corner-button`; `focus-desk-dimmed`; `focus-bar-hidden`, the formatting bar hidden too); and the Search
-sheet opened over focus mode (`focus-search-sheet`). To render only these, add
-`-only-testing:SceneItTests/WindowRenders/focusMode\(\)`.
+`focusModeRenders` renders focus mode (#21, `FocusModeRenders.swift`) into a `focus-mode/` subfolder, at 1×
+and 2× and 1440 × 900 pt, from the app's own window (its toolbar is the `Window` scene's, which the offscreen
+hosting windows don't have), the page focused with a two-page formatted scene: `normal`, `focus` (the "Press
+Esc…" hint as focus mode begins), `focus-vs-normal.png` side by side, and `normal-panel-collapsed` with
+`focus-from-panel-collapsed`. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to
+render only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/focusModeRenders\(\)`.
 
 ### `scripts/release.sh`: build a distributable app
 

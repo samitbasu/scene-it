@@ -174,6 +174,8 @@ private struct ColorControl: View {
                 }
                 .background(EscapeKey(keys: keys))
             }
+            // A bar that's gone (the panel hidden, a tab switched) takes its palette with it.
+            .onDisappear { showsPalette.wrappedValue = false }
         }
     }
 }

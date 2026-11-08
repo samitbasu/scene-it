@@ -159,10 +159,8 @@ public enum WindowWording {
 
     /// The View menu's item, ticked while focus mode is on.
     public static let focusMode = "Focus Mode"
-    /// The hint shown as focus mode begins (candidate B, #21).
+    /// The hint shown as focus mode begins, fading after a few seconds.
     public static let focusModeHint = "Press Esc to leave focus mode"
-    /// The tooltip of the corner button that leaves focus mode (candidate C, #21).
-    public static let leaveFocusMode = "Leave Focus Mode (Esc)"
 
     // MARK: Status bar (PLAN §4.5)
 

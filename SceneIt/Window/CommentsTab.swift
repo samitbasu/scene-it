@@ -11,7 +11,6 @@ struct CommentsTab: View {
     let formatting: EditorFormatting
     let editors: SceneEditors
     @State private var search = ""
-    @FocusState private var searchFocused: Bool
     @Environment(\.windowKeys) private var keys
 
     var body: some View {
@@ -33,33 +32,47 @@ struct CommentsTab: View {
             }
         }
         .onAppear {
-            keys?.setPanelFocus(for: .comments) { [book, editors, $searchFocused] in
-                Self.takeFocus(book: book, editors: editors, search: $searchFocused)
+            keys?.setPanelFocus(for: .comments) { [book, editors] in
+                Self.takeFocus(book: book, editors: editors)
             }
         }
     }
 
-    /// Tab into the tab: the selected card's text, or else the search field.
-    private static func takeFocus(
-        book: AppOpenBook, editors: SceneEditors, search: FocusState<Bool>.Binding
-    ) -> Bool {
-        if let scene = book.location.scene?.id, let card = editors.comments.comment(in: scene) {
-            editors.comments.open(card, in: scene)
-        } else {
-            search.wrappedValue = true
+    /// Tab into the tab: the selected card's text, or else the search field. `true` only if one
+    /// of them took the focus.
+    private static func takeFocus(book: AppOpenBook, editors: SceneEditors) -> Bool {
+        guard let window = editors.page.textView.window, let content = window.contentView else {
+            return false
         }
-        return true
+        func shown(in view: NSView) -> [NSView] {
+            view.isHidden ? [] : [view] + view.subviews.flatMap(shown)
+        }
+        let views = shown(in: content)
+        if let scene = book.location.scene?.id, let card = editors.comments.comment(in: scene),
+            let text = views.lazy.compactMap({ $0 as? CommentTextView }).first(where: { $0.comment == card })
+        {
+            text.takeFocusAtEnd()
+            return window.firstResponder === text
+        }
+        let field = views.lazy.compactMap { $0 as? NSTextField }.first {
+            $0.placeholderString == CommentWording.searchPlaceholder && $0.isEnabled
+        }
+        return field.map(window.makeFirstResponder) ?? false
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             TextField(CommentWording.searchPlaceholder, text: $search)
                 .textFieldStyle(.roundedBorder)
-                .focused($searchFocused)
-                .onKeyPress(keys: [.tab]) { press in
+                // Shift-Tab arrives as backtab, U+0019.
+                .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")]) { press in
                     guard let keys else { return .ignored }
-                    let direction: TabDirection = press.modifiers.contains(.shift) ? .backward : .forward
+                    let direction: TabDirection =
+                        press.key == .tab && !press.modifiers.contains(.shift) ? .forward : .backward
                     return keys.tab(direction, from: .panel) ? .handled : .ignored
+                }
+                .onKeyPress(.escape) {
+                    keys?.escape() == .handled ? .handled : .ignored
                 }
                 .help(CommentWording.searchHelp)
                 .overlay(alignment: .trailing) {

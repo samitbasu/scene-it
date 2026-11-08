@@ -233,17 +233,13 @@ final class UndoFocusView: NSView {
         if keys?.escape() != .handled { escape() }
     }
 
-    override func insertTab(_ sender: Any?) {
-        switch role {
-        case .errorsTab: keys?.tab(.forward, from: .panel)
-        case .sheet: window?.selectNextKeyView(sender)
-        }
-    }
-
-    override func insertBacktab(_ sender: Any?) {
-        switch role {
-        case .errorsTab: keys?.tab(.backward, from: .panel)
-        case .sheet: window?.selectPreviousKeyView(sender)
+    /// The Errors tab is a Tab stop. A sheet's holder handles no Tab, so nothing the sheet covers
+    /// can take the focus from it.
+    override func doCommand(by selector: Selector) {
+        switch (role, selector) {
+        case (.errorsTab, #selector(NSResponder.insertTab(_:))): keys?.tab(.forward, from: .panel)
+        case (.errorsTab, #selector(NSResponder.insertBacktab(_:))): keys?.tab(.backward, from: .panel)
+        default: super.doCommand(by: selector)
         }
     }
 

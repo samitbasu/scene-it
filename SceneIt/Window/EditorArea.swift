@@ -10,20 +10,17 @@ struct EditorArea: View {
     let formatting: EditorFormatting
     let focus: PageFocus
     let editors: SceneEditors
-    let chrome: WindowChrome
 
     var body: some View {
         let scene = book.location.scene
         VStack(spacing: 0) {
-            if chrome.shows(.formattingBar) {
-                HStack(spacing: 12) {
-                    FormattingBar(formatting: formatting, part: .body)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .frame(height: WindowMetrics.barHeight)
-                Divider()
+            HStack(spacing: 12) {
+                FormattingBar(formatting: formatting, part: .body)
+                Spacer()
             }
+            .padding(.horizontal, 12)
+            .frame(height: WindowMetrics.barHeight)
+            Divider()
             if let scene {
                 SceneTitleField(book: book, scene: scene.id, focus: focus)
                     .frame(width: WindowMetrics.pageSize.width)

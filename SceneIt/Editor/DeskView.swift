@@ -85,19 +85,19 @@ final class DeskView: NSScrollView {
         pinched(zoom)
     }
 
-    // MARK: The find bar's field, a Tab stop (PLAN §8.4)
+    // MARK: The find bar's field, a Tab stop and an Esc layer (PLAN §8.4)
 
-    /// The window's Tab order, which Tab and Shift-Tab in the find bar's field follow.
+    /// The window's Esc and Tab, which the find bar's field asks.
     weak var keys: WindowKeys?
-    private var findFieldTabs: FindFieldTabs?
+    private var findFieldKeys: FindFieldKeys?
 
     override var isFindBarVisible: Bool {
-        didSet { routeFindFieldTabs() }
+        didSet { routeFindFieldKeys() }
     }
 
     override func findBarViewDidChangeHeight() {
         super.findBarViewDidChangeHeight()
-        routeFindFieldTabs()
+        routeFindFieldKeys()
     }
 
     var findField: NSSearchField? {
@@ -110,37 +110,51 @@ final class DeskView: NSScrollView {
 
     func focusFindField() -> Bool {
         guard let field = findField, let window, !field.isHiddenOrHasHiddenAncestor else { return false }
-        routeFindFieldTabs()
+        routeFindFieldKeys()
         return window.makeFirstResponder(field)
     }
 
-    /// The field's delegate is the find bar's own; Tab and Shift-Tab are taken from it, and
-    /// everything else passes through.
-    private func routeFindFieldTabs() {
-        guard let field = findField, !(field.delegate is FindFieldTabs) else { return }
-        let tabs = FindFieldTabs(finderDelegate: field.delegate) { [weak self] direction in
-            self?.keys?.tab(direction, from: .searchField) ?? false
+    /// The field's delegate is the find bar's own; Tab, Shift-Tab and Esc are asked of the
+    /// window first, and everything else passes through.
+    private func routeFindFieldKeys() {
+        guard let field = findField, !(field.delegate is FindFieldKeys) else { return }
+        let routed = FindFieldKeys(finderDelegate: field.delegate) { [weak self] key in
+            guard let keys = self?.keys else { return false }
+            switch key {
+            case .tab(let direction): return keys.tab(direction, from: .searchField)
+            case .escape: return keys.escape() == .handled
+            }
         }
-        findFieldTabs = tabs
-        field.delegate = tabs
+        findFieldKeys = routed
+        field.delegate = routed
     }
 }
 
-/// Stands in as the find bar field's delegate: Tab and Shift-Tab go round the window's stops;
+/// Stands in as the find bar field's delegate: Tab, Shift-Tab and Esc go to the window's keys;
 /// every other message goes to the find bar's own delegate.
-private final class FindFieldTabs: NSObject, NSSearchFieldDelegate {
-    nonisolated(unsafe) private weak var finderDelegate: (any NSTextFieldDelegate)?
-    private let tab: (TabDirection) -> Bool
+private final class FindFieldKeys: NSObject, NSSearchFieldDelegate {
+    enum Key {
+        case tab(TabDirection)
+        case escape
+    }
 
-    init(finderDelegate: (any NSTextFieldDelegate)?, tab: @escaping (TabDirection) -> Bool) {
+    /// `nonisolated(unsafe)` because `responds(to:)` and `forwardingTarget(for:)` override
+    /// `NSObject`'s nonisolated methods. Only AppKit calls them, as it sends the field's
+    /// delegate messages, which it does on the main thread, the same thread that sets this once
+    /// in `init`.
+    nonisolated(unsafe) private weak var finderDelegate: (any NSTextFieldDelegate)?
+    private let route: (Key) -> Bool
+
+    init(finderDelegate: (any NSTextFieldDelegate)?, route: @escaping (Key) -> Bool) {
         self.finderDelegate = finderDelegate
-        self.tab = tab
+        self.route = route
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
-        case #selector(NSResponder.insertTab(_:)) where tab(.forward): return true
-        case #selector(NSResponder.insertBacktab(_:)) where tab(.backward): return true
+        case #selector(NSResponder.insertTab(_:)) where route(.tab(.forward)): return true
+        case #selector(NSResponder.insertBacktab(_:)) where route(.tab(.backward)): return true
+        case #selector(NSResponder.cancelOperation(_:)) where route(.escape): return true
         default: return finderDelegate?.control?(control, textView: textView, doCommandBy: selector) ?? false
         }
     }

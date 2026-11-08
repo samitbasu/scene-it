@@ -79,24 +79,21 @@ extension PageHarness {
 @MainActor
 @Suite(.timeLimit(.minutes(2)))
 struct FocusModeWindowTests {
-    /// Focus mode hides the rail, toolbar, panel and status bar, so the desk takes their room;
-    /// leaving it gives each back exactly, the panel open or collapsed as it was.
+    /// Focus mode hides the rail, panel and status bar, so the desk takes their room; leaving it
+    /// gives each back exactly, the panel open or collapsed as it was. (The toolbar is the app
+    /// window's: `FocusModeInTheAppsWindowTests`.)
     @Test(arguments: [PanelVisibility.open, .closed])
     func enteringAndLeavingRestoresTheChromeExactly(panel: PanelVisibility) async throws {
-        try await withPage([ferry], toolbar: .bridged) { harness in
+        try await withPage([ferry]) { harness in
             harness.preferences.setRightPanel(panel)
             defer { harness.preferences.setRightPanel(.open) }
             let window = harness.window
-            await eventually { window.toolbar?.isVisible == true }
             try await settle(harness)
             let before = try harness.deskFrame
-            #expect(window.toolbar?.isVisible == true, "precondition: the toolbar shows")
 
             harness.chrome.set(.on)
-            await eventually { window.toolbar?.isVisible != true }
             try await settle(harness)
             let focused = try harness.deskFrame
-            #expect(window.toolbar?.isVisible != true, "the toolbar hides")
             #expect(focused.minX < before.minX, "the rail hides: the desk reaches the window's left")
             #expect(focused.minX == 0, "nothing is left of the desk")
             #expect(focused.maxX > before.maxX, "the panel, open or collapsed, hides")
@@ -105,7 +102,6 @@ struct FocusModeWindowTests {
             #expect(harness.preferences.rightPanel == panel, "focus mode changes no preference")
 
             harness.chrome.set(.off)
-            await eventually { window.toolbar?.isVisible == true }
             try await settle(harness)
             #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
             #expect(harness.preferences.rightPanel == panel)
@@ -199,7 +195,7 @@ struct FocusModeWindowTests {
             filing.begin()
             await eventually { harness.window.attachedSheet != nil }
             let dialog = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
-            #expect(keys.escapeContext.dialog == .present)
+            #expect(keys.escapeContext.dialog == .editing)
 
             try press(.escape, in: dialog)
             #expect(filing.draft == nil, "Esc cancels the dialog")
@@ -282,19 +278,189 @@ struct FocusModeWindowTests {
         }
     }
 
-    /// Recommended: focus mode stays on as another scene opens; the other rule leaves it.
-    @Test(arguments: [SceneSwitchInFocusMode.staysInFocusMode, .leavesFocusMode])
-    func openingAnotherSceneFollowsTheRule(rule: SceneSwitchInFocusMode) async throws {
-        var rules = FocusModeRules.recommended
-        rules.sceneSwitch = rule
+    @Test func focusModeStaysOnAsAnotherSceneOpens() async throws {
         let other = scene("Arrival", [[Run("The island was smaller than she remembered.")]])
-        try await withPage([ferry, other], chrome: WindowChrome(rules: rules)) { harness in
+        try await withPage([ferry, other]) { harness in
             harness.focusPage(at: 4)
             harness.chrome.set(.on)
             harness.book.select(other.id)
             await eventually { harness.storage.string.hasPrefix("The island") }
             try await settle(harness)
-            #expect(harness.chrome.focusMode == (rule == .staysInFocusMode ? .on : .off))
+            #expect(harness.chrome.focusMode == .on)
+        }
+    }
+
+    /// While File a Copy files, Esc closes nothing: the draft stays, so a filing that fails
+    /// still has what the writer typed (H1).
+    @Test func escWhileTheDialogFilesKeepsItAndItsDraft() async throws {
+        try await withPage([ferry]) { harness in
+            harness.focusPage(at: 4)
+            harness.chrome.set(.on)
+            let keys = try harness.keys
+            let filing = keys.filing
+            filing.begin()
+            filing.draft?.note = "Keep me"
+            let typed = filing.draft
+            await eventually { harness.window.attachedSheet != nil }
+            let dialog = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
+            let (held, release) = AsyncStream<Void>.makeStream()
+            let confirming = Task {
+                await filing.confirm { _ in
+                    for await _ in held { break }
+                    return .failed(.archiveNotAFolder)
+                }
+            }
+            await eventually { filing.stage == .filing }
+            #expect(keys.escapeContext.dialog == .filing, "precondition: the copy is being filed")
+
+            try press(.escape, in: dialog)
+            try press(.escape, in: harness.window)
+            #expect(filing.draft == typed, "Esc keeps the dialog and what was typed")
+            #expect(harness.chrome.focusMode == .on, "and closes nothing under it")
+
+            release.yield()
+            release.finish()
+            #expect(await confirming.value == .failed(.archiveNotAFolder))
+            #expect(filing.draft == typed, "the failed filing still has the draft")
+            #expect(filing.stage == .editing)
+            try press(.escape, in: dialog)
+            #expect(filing.draft == nil, "once it's editable again, Esc cancels it")
+        }
+    }
+
+    /// A palette whose bar goes (the Notes tab's, as focus mode hides the panel) doesn't stay
+    /// open in the window's keys, so it neither takes the next Esc nor opens again (M1).
+    @Test func aPaletteWhoseBarGoesIsForgotten() async throws {
+        try await withPage([ferry]) { harness in
+            harness.preferences.showRightPanelTab(.notes)
+            defer { harness.preferences.showRightPanelTab(.comments) }
+            await eventually { harness.notesView?.window != nil }
+            harness.focusPage(at: 4)
+            let keys = try harness.keys
+            keys.popover = .palette(.notes, .highlight)
+            await eventually { Self.popoverWindow() != nil }
+            try #require(Self.popoverWindow() != nil, "precondition: the notes' palette is showing")
+
+            harness.chrome.set(.on)
+            await eventually { keys.popover == nil }
+            #expect(keys.popover == nil, "the hidden bar's palette is forgotten")
+            await eventually { Self.popoverWindow() == nil }
+
+            try press(.escape, in: harness.window)
+            #expect(harness.chrome.focusMode == .off, "so Esc leaves focus mode")
+            try await settle(harness)
+            #expect(keys.popover == nil, "and the palette doesn't open again with its bar")
+            #expect(Self.popoverWindow() == nil)
+        }
+    }
+
+    /// Under a sheet, Tab reaches nothing the sheet covers: not the page, its title or its find
+    /// bar (M3).
+    @Test func tabUnderASheetReachesNothingItCovers() async throws {
+        try await withPage([ferry]) { harness in
+            let find = try await harness.showFindBar()
+            harness.focusPage(at: 4)
+            harness.modes.mode = .scenes
+            await eventually { harness.window.firstResponder is UndoFocusView }
+            try #require(
+                harness.window.firstResponder is UndoFocusView, "precondition: the sheet has the focus")
+            let covered: [NSResponder] = [harness.page, harness.title, find]
+            let desk = try harness.desk
+            for key in [TestKey.tab, .shiftTab, .tab] {
+                try press(key, in: harness.window)
+                let focused = try #require(harness.focused)
+                #expect(!covered.contains { $0 === focused }, "\(key): the focus stays out of the page")
+                #expect((focused as? NSView)?.isDescendant(of: desk) != true, "\(key): nor on the desk")
+            }
+            #expect(harness.window.firstResponder is UndoFocusView, "the sheet keeps the focus")
+        }
+    }
+
+    // MARK: Esc and the find bar (M4)
+
+    @Test func escClosesTheFindBarAloneFromThePageOrItsField() async throws {
+        try await withPage([ferry]) { harness in
+            _ = try await harness.showFindBar()
+            harness.focusPage(at: 4)
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(try harness.desk.findField == nil, "Esc in the page closes the find bar")
+            #expect(harness.chrome.focusMode == .off)
+
+            _ = try await harness.showFindBar()
+            await eventually { (try? harness.desk.findField).map { harness.focused === $0 } == true }
+            try #require(
+                harness.focused === (try harness.desk.findField), "precondition: the field has the focus")
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(
+                try harness.desk.findField == nil, "Esc in its field closes it, through the window's keys")
+        }
+    }
+
+    @Test func escWithASheetOverTheFindBarClosesOnlyTheSheet() async throws {
+        try await withPage([ferry]) { harness in
+            _ = try await harness.showFindBar()
+            harness.focusPage(at: 4)
+            harness.modes.mode = .search
+            let desk = try harness.desk
+            await eventually {
+                harness.focused != nil && harness.focused !== harness.page
+                    && (harness.focused as? NSView)?.isDescendant(of: desk) != true
+            }
+            try #require(harness.focused !== harness.page, "precondition: the sheet has the focus")
+            try press(.escape, in: harness.window)
+            #expect(harness.modes.mode == .page, "Esc closes the sheet")
+            try await settle(harness)
+            #expect(try harness.desk.findField != nil, "and not the find bar it covered")
+        }
+    }
+
+    @Test func inFocusModeEscClosesTheFindBarThenLeaves() async throws {
+        try await withPage([ferry]) { harness in
+            let find = try await harness.showFindBar()
+            #expect(harness.window.makeFirstResponder(find))
+            harness.chrome.set(.on)
+            try await settle(harness)
+            #expect(harness.focused === find, "entering focus mode leaves the focus in the find field (L5)")
+
+            try press(.escape, in: harness.window)
+            await eventually { (try? harness.desk.findField) == nil }
+            #expect(try harness.desk.findField == nil, "the first Esc closes the find bar")
+            #expect(harness.chrome.focusMode == .on)
+            harness.focusPage(at: 4)
+            try press(.escape, in: harness.window)
+            #expect(harness.chrome.focusMode == .off, "the next leaves focus mode")
+        }
+    }
+
+    /// The find bar's field still finds after its delegate is stood in for (L2).
+    @Test func theFindFieldStillFinds() async throws {
+        try await withPage([ferry]) { harness in
+            let find = try await harness.showFindBar()
+            harness.focusPage(at: 0)
+            #expect(try harness.desk.focusFindField(), "precondition: the field takes the focus")
+            let editor = try #require(harness.window.firstResponder as? NSTextView)
+            try #require(editor.isFieldEditor && editor.delegate === find)
+            editor.insertText("harbor", replacementRange: editor.selectedRange())
+            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            let match = (harness.storage.string as NSString).range(of: "harbor")
+            await eventually { harness.page.selectedRange() == match }
+            #expect(harness.page.selectedRange() == match, "Return finds what was typed")
+        }
+    }
+
+    /// Shift-Tab out of Comments' search field goes back to the page (L3).
+    @Test func shiftTabLeavesTheCommentsSearchFieldBackwards() async throws {
+        try await withPage([ferry]) { harness in
+            harness.focusPage(at: 4)
+            try press(.tab, in: harness.window)
+            await eventually {
+                (harness.focused as? NSTextField)?.placeholderString == CommentWording.searchPlaceholder
+            }
+            try press(.shiftTab, in: harness.window)
+            await eventually { harness.focused === harness.page }
+            #expect(harness.focused === harness.page)
         }
     }
 

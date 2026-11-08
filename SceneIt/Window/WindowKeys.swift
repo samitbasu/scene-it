@@ -2,22 +2,26 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// One window's Esc and Tab (PLAN §8.4). Every view that takes Esc asks `escape()`, which
-/// closes what `EscapeLayer` says; every view that Tab leaves asks `tab(_:from:)`, which tries
-/// the stops in `TabStop`'s order. So the order of each is in one place, and no view can
-/// disagree with it.
+/// One window's Esc and Tab (PLAN §8.4). `escape()` closes what `EscapeLayer` says, and
+/// `tab(_:from:)` tries the stops in `TabStop`'s order, so each order is in one place.
+///
+/// Every Esc in the window asks `escape()` first: the page, the notes and the title; comment
+/// cards, Comments' search field and the Errors tab; the page's find bar field; and `EscapeKey`
+/// in the sheets, File a Copy's dialog and the palettes. The one exception is the notes' own find
+/// bar, whose Esc stays AppKit's: it closes that bar.
 @MainActor
 @Observable
 final class WindowKeys {
-    /// The palette open in a formatting bar, if one is.
+    /// The palette open in a formatting bar, if one is. Its control clears it when it goes, so
+    /// a palette whose bar is hidden can't hold Esc.
     var popover: WindowPopover?
-    @ObservationIgnored private let chrome: WindowChrome
+    @ObservationIgnored let chrome: WindowChrome
     @ObservationIgnored let filing: FilingFlow
     @ObservationIgnored private let page: PageFocus
     @ObservationIgnored private let mode: Binding<WindowMode>
     /// The right panel's tab while the panel shows; `nil` while it's collapsed or hidden.
     @ObservationIgnored var shownPanelTab: RightPanelTab?
-    /// How each tab takes the focus: its editor, or its first control.
+    /// How each tab takes the focus: its editor, or its first control. `true` only if it did.
     @ObservationIgnored private var panelFocus: [RightPanelTab: () -> Bool] = [:]
 
     init(chrome: WindowChrome, filing: FilingFlow, page: PageFocus, mode: Binding<WindowMode>) {
@@ -29,19 +33,29 @@ final class WindowKeys {
 
     var escapeContext: EscapeContext {
         EscapeContext(
-            popover: popover == nil ? .absent : .present, dialog: filing.draft == nil ? .absent : .present,
-            mode: mode.wrappedValue, focusMode: chrome.focusMode)
+            popover: popover == nil ? .absent : .present, dialog: filing.draft == nil ? nil : filing.stage,
+            mode: mode.wrappedValue, findBar: page.desk?.findField == nil ? .absent : .present,
+            focusMode: chrome.focusMode)
     }
 
     /// Closes what Esc closes now, or says there's nothing, so the focused view's own Esc applies.
     @discardableResult
     func escape() -> EscapeOutcome {
-        guard let layer = EscapeLayer.closedByEscape(in: escapeContext) else { return .passedOn }
-        switch layer {
-        case .popover: popover = nil
-        case .dialog: filing.cancel()
-        case .sheet: mode.wrappedValue = mode.wrappedValue.closingSheet
-        case .focusMode: chrome.set(.off)
+        switch EscapeLayer.escape(in: escapeContext) {
+        case .passOn:
+            return .passedOn
+        case .hold:
+            NSSound.beep()
+        case .close(.popover):
+            popover = nil
+        case .close(.dialog):
+            filing.cancel()
+        case .close(.sheet):
+            mode.wrappedValue = mode.wrappedValue.closingSheet
+        case .close(.findBar):
+            page.closeFindBar()
+        case .close(.focusMode):
+            chrome.set(.off)
         }
         return .handled
     }
@@ -76,7 +90,8 @@ enum WindowPopover: Hashable {
 }
 
 /// Esc for a layer whose focus may be in SwiftUI's controls (a sheet, File a Copy's dialog, a
-/// palette): a key equivalent, which AppKit offers before the focused control sees the key.
+/// palette): a key equivalent, which AppKit offers before the focused control sees the key. Never
+/// a Tab stop, even with Full Keyboard Access on.
 struct EscapeKey: View {
     let keys: WindowKeys?
 
@@ -84,6 +99,7 @@ struct EscapeKey: View {
         Button("") { keys?.escape() }
             .keyboardShortcut(.cancelAction)
             .buttonStyle(.plain)
+            .focusable(false)
             .frame(width: 0, height: 0)
             .opacity(0)
             .accessibilityHidden(true)

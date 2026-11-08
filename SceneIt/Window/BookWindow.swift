@@ -57,7 +57,7 @@ struct BookWindow: View {
                     HStack(spacing: 0) {
                         EditorArea(
                             book: book, preferences: preferences, formatting: formatting, focus: pageFocus,
-                            editors: editors, chrome: chrome)
+                            editors: editors)
                         if chrome.shows(.rightPanel) {
                             Divider()
                             RightPanel(
@@ -65,7 +65,7 @@ struct BookWindow: View {
                             )
                         }
                     }
-                    .overlay { FocusExitCueView(chrome: chrome) }
+                    .overlay { FocusModeHint(chrome: chrome) }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)
                     if mode == .search {
@@ -88,21 +88,13 @@ struct BookWindow: View {
         .environment(\.windowKeys, keys)
         .focusedSceneValue(\.undoRouter, undo)
         .focusedSceneValue(\.windowChrome, chrome)
-        .background(WindowToolbarVisibility(chrome: chrome))
+        .background(FocusModeToolbar(chrome: chrome))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
-            if new.isSheet, !old.isSheet { chrome.note(.sheetOpened) }
             if old.isSheet, !new.isSheet, chrome.focusMode == .on { pageFocus.focusBody() }
         }
-        .onChange(of: filing.draft != nil) { _, up in
-            if up { chrome.note(.sheetOpened) }
-        }
-        .onChange(of: book.openScene) {
-            chrome.note(.sceneOpened)
-        }
         .onChange(of: chrome.focusMode) {
-            editors.page.scrollView.backgroundColor = deskColor
             // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.
             if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
@@ -130,13 +122,6 @@ struct BookWindow: View {
 
     private var isDialogUp: Binding<Bool> {
         Binding(get: { filing.draft != nil }, set: { if !$0 { filing.cancel() } })
-    }
-
-    private var deskColor: NSColor {
-        switch (chrome.focusMode, chrome.look.desk) {
-        case (.on, .dimmed): WindowMetrics.Focus.dimmedDesk
-        case (.on, .unchanged), (.off, _): NSColor(WindowMetrics.deskColor)
-        }
     }
 }
 
