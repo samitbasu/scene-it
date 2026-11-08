@@ -7,10 +7,14 @@ import Testing
 
 /// Runs the main run loop for a moment inside a pool of its own, so whatever the turns it runs
 /// autorelease is released when they end. The test host's outermost pool is never drained.
+/// It runs from the run loop, never inside the test's job: a run loop nested in a job makes
+/// every block it runs, other tests' included, run with a task current (`UnwoundTaskTrapTests`).
 @MainActor
-private func drainARunLoopTurn() {
-    autoreleasepool {
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+private func drainARunLoopTurn() async {
+    await onTheRunLoop {
+        autoreleasepool {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 }
 
@@ -48,9 +52,8 @@ extension BookStoreIntegrationTests {
             await eventually { books.store.isChoosing && page() == nil }
             #expect(window.isVisible, "the window stays up for the start screen")
 
-            await eventually {
-                drainARunLoopTurn()
-                return book == nil && editor == nil
+            for _ in 0..<1000 where book != nil || editor != nil {
+                await drainARunLoopTurn()
             }
             #expect(book == nil, "the closed OpenBook was released")
             #expect(editor == nil, "the page's editor was released")

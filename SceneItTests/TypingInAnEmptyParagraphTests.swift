@@ -214,6 +214,23 @@ struct TypingInAnEmptyParagraphTests {
         }
     }
 
+    /// An undo elsewhere in the app, here from a task whose autorelease pool is never drained,
+    /// neither restyles this page nor touches its editor, which would be left in that pool.
+    @Test func anotherUndoManagersUndoLeavesThePagesEditorAlone() async throws {
+        try await withPage([scene("One", [[Run("Ert")], [Run("C")], [Run("I saw the cat")]])]) { page in
+            let editor = try #require(page.page.editor)
+            page.storage.replaceCharacters(in: NSRange(location: 4, length: 1), with: typed(""))
+            #expect(editor.restyleIsPending, "precondition")
+            let retains = CFGetRetainCount(editor)
+            let elsewhere = UndoManager()
+            elsewhere.registerUndo(withTarget: page.book) { _ in }
+            elsewhere.undo()
+            elsewhere.redo()
+            #expect(editor.restyleIsPending, "not restyled by another manager's undo or redo")
+            #expect(CFGetRetainCount(editor) == retains, "nothing retained it")
+        }
+    }
+
     @Test func showingAnotherSceneDropsAPendingRestyle() async throws {
         let long = scene(
             "One", [[Run("A long first paragraph.")], [Run("C")], [Run("And another one after it.")]])
