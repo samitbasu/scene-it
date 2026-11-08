@@ -120,8 +120,8 @@ at the same time and waits for both:
    are not fatal.
 
 Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
-builds its own copy into `build/DerivedData`. Running them together saves about a minute on
-an incremental build.
+builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
+an incremental build on a quiet machine, and less when the machine is busy.
 
 Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
