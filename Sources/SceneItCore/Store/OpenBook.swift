@@ -273,7 +273,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             book[keyPath: place.list][place.index].comments.remove(at: offset)
         }
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
+        registerPageUndo(in: scene, named: name) {
             $0.restoreComments(removed.map { ($0.offset, $0.element) }, to: scene, named: name)
         }
         driver.send(.edited)
@@ -290,7 +290,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         for (index, comment) in restored { list.insert(comment, at: min(index, list.count)) }
         book[keyPath: place.list][place.index].comments = list
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
+        registerPageUndo(in: scene, named: name) {
             $0.removeComments(Set(restored.map(\.comment.id)), from: scene, named: name)
         }
         driver.send(.edited)
@@ -317,14 +317,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             driver.send(.edited)
         }
         if let name, old != changed[new] {
-            registerCommentUndo(in: scene, named: name) {
+            registerPageUndo(in: scene, named: name) {
                 _ = $0.change(id, in: scene, named: name, to: old)
             }
         }
         return true
     }
 
-    private func registerCommentUndo(
+    private func registerPageUndo(
         in scene: SceneID, named name: String?, _ inverse: @escaping (OpenBook) -> Void
     ) {
         let undo = pageUndo(for: scene)
@@ -332,6 +332,65 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         // An undo or redo keeps the name of the step it takes back: an inverse run later in it
         // would rename a dismiss that committed an edit first "Edit Comment".
         if let name, !undo.isUndoing, !undo.isRedoing { undo.setActionName(name) }
+    }
+
+    // MARK: Tags (PLAN §8.3), on the page's undo like comments (the owner, #20)
+
+    /// The tags of the scenes the writer can see, most-used first.
+    public var tags: BookTags {
+        BookTags(book)
+    }
+
+    /// Adds the tag the writer typed (`BookTags.spelling(of:)`: no `#`, in the book's spelling)
+    /// at the end of `scene`'s tags, as one change on its page's undo. `false`, changing nothing,
+    /// if the book is read-only, there's no such scene, `typed` is no tag or the scene already
+    /// has it in any case.
+    @discardableResult
+    public func addTag(_ typed: String, to scene: SceneID) -> Bool {
+        guard let tag = tags.spelling(of: typed) else { return false }
+        return insertTag(tag, at: nil, in: scene, named: TagWording.addUndoName)
+    }
+
+    /// Takes `tag`, in any case, off `scene`, as one change on its page's undo. `false`, changing
+    /// nothing, if the book is read-only, there's no such scene or it hasn't the tag.
+    @discardableResult
+    public func removeTag(_ tag: String, from scene: SceneID) -> Bool {
+        deleteTag(tag, from: scene, named: TagWording.removeUndoName)
+    }
+
+    /// A row of the book's tags clicked: `removeTag` if `scene` has the tag, `addTag` if not.
+    @discardableResult
+    public func toggleTag(_ tag: String, on scene: SceneID) -> Bool {
+        guard let current = book.scene(scene) else { return false }
+        return SceneTag.contains(current.tags, tag) ? removeTag(tag, from: scene) : addTag(tag, to: scene)
+    }
+
+    /// Puts `tag` among `scene`'s tags at `index` (the end if `nil`), unless it has it in any case.
+    private func insertTag(_ tag: String, at index: Int?, in scene: SceneID, named name: String) -> Bool {
+        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        var tags = book[keyPath: place.list][place.index].tags
+        guard !SceneTag.contains(tags, tag) else { return false }
+        tags.insert(tag, at: min(index ?? tags.count, tags.count))
+        book[keyPath: place.list][place.index].tags = tags
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerPageUndo(in: scene, named: name) { _ = $0.deleteTag(tag, from: scene, named: name) }
+        driver.send(.edited)
+        return true
+    }
+
+    private func deleteTag(_ tag: String, from scene: SceneID, named name: String) -> Bool {
+        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        let tags = book[keyPath: place.list][place.index].tags
+        guard let index = tags.firstIndex(where: { SceneTag.key($0) == SceneTag.key(tag) }) else {
+            return false
+        }
+        book[keyPath: place.list][place.index].tags.remove(at: index)
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerPageUndo(in: scene, named: name) { [removed = tags[index]] in
+            _ = $0.insertTag(removed, at: index, in: scene, named: name)
+        }
+        driver.send(.edited)
+        return true
     }
 
     /// The undo history of `scene`'s page or notes (PLAN §8.6), each its own, kept while the

@@ -50,7 +50,8 @@ struct BookWindow: View {
                             editors: editors)
                         Divider()
                         RightPanel(
-                            book: book, preferences: preferences, formatting: formatting, editors: editors)
+                            book: book, preferences: preferences, formatting: formatting, editors: editors,
+                            search: search, mode: $mode)
                     }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)

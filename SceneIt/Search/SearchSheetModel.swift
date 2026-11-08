@@ -107,6 +107,14 @@ final class SearchSheetModel {
         case on, off
     }
 
+    /// The Tags tab's ⌕ (PLAN §8.3): `tag` searched in the whole book, with only Search tags
+    /// ticked, for the sheet opening next.
+    func prepare(searchingFor tag: String) {
+        scope = .wholeBook
+        options = [.searchTags]
+        text = SceneTag.searchText(tag)
+    }
+
     func showAllNearMatches() {
         nearMatches = .all
     }
