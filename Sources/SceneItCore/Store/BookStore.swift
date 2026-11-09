@@ -342,10 +342,15 @@ public final class BookStore<C: Clock<Duration>> {
     /// The dialog's File copy: saves the book, files a copy with `record`, and tells the writer
     /// about anything that went wrong. A copy that was filed but couldn't be locked or indexed
     /// is still `.filed`.
+    ///
+    /// Only `book` is filed. A book read again in its place since (a filing queued behind Open
+    /// Other Version) files nothing and tells nothing: the new book's dialog holds the same draft,
+    /// for the writer to file deliberately.
     @discardableResult
-    public func fileACopy(as record: FilingRecord) async -> FilingResult {
+    public func fileACopy(of book: OpenBook<C>, as record: FilingRecord) async -> FilingResult {
         await exclusively {
-            let result = await current?.fileCopy(as: record) ?? .unavailable
+            if let current, current !== book { return .unavailable }
+            let result = current == nil ? .unavailable : await book.fileCopy(as: record)
             if let notice = ArchiveWording.notice(for: result, record: record) { await prompts.tell(notice) }
             return result
         }

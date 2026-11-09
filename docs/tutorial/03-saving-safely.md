@@ -1342,7 +1342,8 @@ asks "Quit without filing the copy?" (or "Close…") when tags or a note are typ
 as the default. Choosing to leave doesn't clear the draft: it goes with the book only if the
 book is really left, so a save that then fails, and the writer's Cancel, loses nothing. A book read
 again in place (Open Other Version, Open My Version, Open Anyway) isn't left: `BookStore.install` hands
-the new `OpenBook` the old one's draft, so the rebuilt window puts the dialog back up as it was (#146). The book window's first responder stays the page while the sheet is up, so
+the new `OpenBook` the old one's draft, so the rebuilt window puts the dialog back up as it was (#146). File copy names the book it files (`fileACopy(of:as:)`), so one pressed in the old dialog and queued
+behind the reload files nothing, silently: the draft is waiting in the new dialog. The book window's first responder stays the page while the sheet is up, so
 `UndoStack` takes a `dialog` input: while one is attached, Undo acts only on a text field in
 it, never on what's behind.
 

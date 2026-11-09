@@ -63,7 +63,7 @@ final class FilingFlow {
         stage = .filing
         defer { stage = .editing }
         let record = draft.record
-        let result = await store.fileACopy(as: record)
+        let result = await store.fileACopy(of: book, as: record)
         switch result {
         case .filed(let outcome):
             self.draft = nil

@@ -31,7 +31,7 @@ struct FileACopyTests {
             book.write("The ferry left at dawn.")
             #expect(book.status != .saved, "precondition: there are unsaved edits")
 
-            let result = await store.fileACopy(as: Self.record)
+            let result = await store.fileACopy(of: book, as: Self.record)
 
             guard case .filed(let outcome) = result else {
                 Issue.record("expected a filed copy, got \(result)")
@@ -54,8 +54,9 @@ struct FileACopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             book.write("One")
-            async let first = store.fileACopy(as: Self.record)
-            async let second = store.fileACopy(as: FilingRecord(filed: Self.record.filed, tags: ["second"]))
+            async let first = store.fileACopy(of: book, as: Self.record)
+            async let second = store.fileACopy(
+                of: book, as: FilingRecord(filed: Self.record.filed, tags: ["second"]))
             let results = await [first, second]
             let numbers = results.compactMap { result -> Int? in
                 if case .filed(let outcome) = result { outcome.number.value } else { nil }
@@ -73,7 +74,7 @@ struct FileACopyTests {
             #expect(await store.closeBook() == .left)
             let holder = try #require(try BookPackage.open(at: url).editable)
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
-            #expect(await store.fileACopy(as: Self.record) == .unavailable)
+            #expect(await store.fileACopy(of: try #require(store.current), as: Self.record) == .unavailable)
             #expect(
                 try FileManager.default.contentsOfDirectory(
                     atPath: PackageLayout(root: url).archive.path(percentEncoded: false)) == ["index.md"])
@@ -90,7 +91,7 @@ struct FileACopyTests {
             try await createBook("Novel", in: folder, store: store)
             fileSystem.inject(.fail(.makeImmutable("Archive/save0001.md"), cause: .unsupported))
 
-            let result = await store.fileACopy(as: Self.record)
+            let result = await store.fileACopy(of: try #require(store.current), as: Self.record)
 
             guard case .filed(let outcome) = result else {
                 Issue.record("expected a filed copy, got \(result)")
@@ -111,7 +112,9 @@ struct FileACopyTests {
             try await createBook("Novel", in: folder, store: store)
             fileSystem.inject(.fail(.writeTemporary("Archive/save0001.md"), cause: .noSpace))
 
-            guard case .failed(.fileSystem(let error)) = await store.fileACopy(as: Self.record) else {
+            let book = try #require(store.current)
+            guard case .failed(.fileSystem(let error)) = await store.fileACopy(of: book, as: Self.record)
+            else {
                 Issue.record("expected the filing to fail")
                 return
             }
@@ -124,11 +127,17 @@ struct FileACopyTests {
         }
     }
 
-    @Test func withNoBookOpenTheWriterIsToldNothingWasFiled() async throws {
+    @Test func aClosedBookFilesNothingAndTheWriterIsTold() async throws {
         try await withTemporaryFolder { folder in
             let prompts = ScriptedPrompts()
             let store = makeStore(in: folder, prompts: prompts)
-            #expect(await store.fileACopy(as: Self.record) == .unavailable)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            #expect(await store.closeBook() == .left)
+            #expect(await store.fileACopy(of: book, as: Self.record) == .unavailable)
+            #expect(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: PackageLayout(root: url).archive.path(percentEncoded: false)) == ["index.md"])
             #expect(prompts.notices.map(\.title) == ["Scene It couldn't file a copy."])
             #expect(prompts.notices.first?.message.contains("\u{201C}draft 4\u{201D}") == true)
         }
@@ -144,7 +153,7 @@ struct FileACopyTests {
             let book = try #require(store.current)
             fileSystem.inject(.fail(.move("Archive/temporary index.md", over: "Archive/index.md")))
 
-            guard case .filed(let outcome) = await store.fileACopy(as: Self.record) else {
+            guard case .filed(let outcome) = await store.fileACopy(of: book, as: Self.record) else {
                 Issue.record("expected a filed copy")
                 return
             }
@@ -174,11 +183,12 @@ struct FileACopyTests {
             let fileSystem = FaultInjectingFileSystem(root: url)
             let store = makeStore(in: folder, fileSystem: fileSystem)
             try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
             fileSystem.inject(.fail(.read("Archive/index.md"), cause: .permissionDenied))
-            _ = await store.fileACopy(as: Self.record)
+            _ = await store.fileACopy(of: book, as: Self.record)
             fileSystem.clearFault()
 
-            _ = await store.fileACopy(as: FilingRecord(filed: Self.record.filed, tags: ["second"]))
+            _ = await store.fileACopy(of: book, as: FilingRecord(filed: Self.record.filed, tags: ["second"]))
 
             #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["draft 4"], ["second"]])
             #expect(store.current?.pendingRecords.isEmpty == true)
@@ -372,7 +382,7 @@ struct FileACopyTests {
             #expect(reopened.book == (try draft(7)), "precondition: their version was read again")
             #expect(prompts.titles == [Self.externalChangeTitle], "nothing asked about the dialog")
             #expect(reopened.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
-            guard case .filed = await store.fileACopy(as: Self.typedDraft().record) else {
+            guard case .filed = await store.fileACopy(of: reopened, as: Self.typedDraft().record) else {
                 Issue.record("the draft couldn't be filed on the book read again")
                 return
             }
@@ -402,29 +412,104 @@ struct FileACopyTests {
         }
     }
 
-    /// The original, read again, turns out to be open on another Mac; the writer chooses Open
-    /// Anyway, which reads it once more.
+    static let otherMac = LockRecord(
+        host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
+        since: Date(timeIntervalSince1970: 1_800_000_000))
+
+    /// Open Other Version, with the dialog up, where the original, read again, turns out to be
+    /// open on another Mac, and the writer answers the read-only alert with `choice`. Returns
+    /// the book read last and the original's package.
+    private static func openOtherVersionFindingAnotherMac(
+        in folder: URL, prompts: ScriptedPrompts, then choice: ReadOnlyChoice
+    ) async throws -> (store: TestStore, book: OpenBook<ManualClock>, url: URL) {
+        let fileSystem = FaultInjectingFileSystem(root: folder)
+        fileSystem.override(locality: .network)
+        prompts.answer([ExternalChangeChoice.openOtherVersion, choice])
+        let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+        let url = try await createBook("Novel", in: folder, store: store)
+        let lock = url.appending(path: ".lock")
+        let other = otherMac
+        fileSystem.before(.lock("Novel.sceneit/.lock")) { try? other.encoded().write(to: lock) }
+
+        let book = try await draftThenExternalChange(url, store: store)
+        let editable = choice == .openAnyway(otherMac)
+        await eventually {
+            prompts.titles.count == 2 && store.current !== book && store.current?.isEditable == editable
+        }
+        #expect(prompts.labels.last == [ReadOnlyWording.keepReadOnly, ReadOnlyWording.openAnyway])
+        return (store, try #require(store.current), url)
+    }
+
     @Test func openOtherVersionThenOpenAnywayKeepsTheDialogAsTyped() async throws {
         try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let (_, book, _) = try await Self.openOtherVersionFindingAnotherMac(
+                in: folder, prompts: prompts, then: .openAnyway(Self.otherMac))
+
+            #expect(book.isEditable)
+            #expect(prompts.titles.count == 2, "asked about the change, then about the other Mac")
+            #expect(book.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+        }
+    }
+
+    /// The dialog stays up over the read-only book, but nothing can be filed there: File copy
+    /// says so and quotes what was typed, so it isn't lost silently.
+    @Test func openOtherVersionThenKeepReadOnlyQuotesWhatWasTypedOnFiling() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let (store, book, url) = try await Self.openOtherVersionFindingAnotherMac(
+                in: folder, prompts: prompts, then: .keepReadOnly)
+            try #require(!book.isEditable, "precondition: kept read-only")
+            #expect(book.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+
+            #expect(await store.fileACopy(of: book, as: Self.typedDraft().record) == .unavailable)
+
+            #expect(prompts.titles.count == 2, "nothing asked about the dialog")
+            #expect(prompts.notices.map(\.title) == ["Scene It couldn't file a copy."])
+            let message = try #require(prompts.notices.first?.message)
+            #expect(message.contains("\u{201C}draft 4\u{201D}"))
+            #expect(message.contains("\u{201C}half typ\u{201D}"))
+            #expect(message.contains("\u{201C}Before the ending\u{201D}"))
+            #expect(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: PackageLayout(root: url).archive.path(percentEncoded: false)) == ["index.md"])
+        }
+    }
+
+    /// File copy pressed in the old dialog while Open Other Version saves my version waits
+    /// behind the reload, then files nothing, silently: the new book's dialog holds the draft.
+    @Test func aFilingQueuedBehindOpenOtherVersionFilesNothing() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let fileSystem = FaultInjectingFileSystem(root: folder)
-            fileSystem.override(locality: .network)
-            let other = LockRecord(
-                host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
-                since: Date(timeIntervalSince1970: 1_800_000_000))
-            let prompts = ScriptedPrompts([
-                ExternalChangeChoice.openOtherVersion, ReadOnlyChoice.openAnyway(other),
-            ])
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
             let url = try await createBook("Novel", in: folder, store: store)
-            let lock = url.appending(path: ".lock")
-            fileSystem.before(.lock("Novel.sceneit/.lock")) { try? other.encoded().write(to: lock) }
+            let old = try #require(store.current)
+            let queued = QueuedFiling()
+            let record = Self.typedDraft().record
+            fileSystem.before(.writeTemporary("Novel (my edits).sceneit/book.md")) {
+                Task { @MainActor in
+                    queued.startedOnTheOldBook = store.current === old
+                    queued.result = await store.fileACopy(of: old, as: record)
+                }
+            }
 
-            let book = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { store.current?.isEditable == true && store.current !== book }
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { queued.result != nil }
+            try #require(queued.startedOnTheOldBook, "precondition: pressed before the reload")
+            let reopened = try #require(store.current)
+            try #require(reopened !== old, "precondition: the book was read again")
 
-            #expect(prompts.titles.count == 2, "asked about the change, then about the other Mac")
-            #expect(prompts.labels.last == [ReadOnlyWording.keepReadOnly, ReadOnlyWording.openAnyway])
-            #expect(store.current?.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+            #expect(queued.result == .unavailable)
+            #expect(prompts.notices.isEmpty, "nothing to tell: the dialog is still up")
+            #expect(reopened.filingDraft == Self.typedDraft(), "the new book's dialog keeps the draft")
+            #expect(reopened.archive.copies.isEmpty)
+            for package in [url, folder.appending(path: "Novel (my edits).sceneit")] {
+                let archive = PackageLayout(root: package).archive.path(percentEncoded: false)
+                let entries = (try? FileManager.default.contentsOfDirectory(atPath: archive)) ?? []
+                #expect(
+                    entries.allSatisfy { $0 == "index.md" }, "nothing filed in \(package.lastPathComponent)")
+            }
         }
     }
 
@@ -480,4 +565,12 @@ struct FileACopyTests {
             _ = holder
         }
     }
+}
+
+/// A File copy started from a file-system hook.
+@MainActor
+private final class QueuedFiling {
+    var result: FilingResult?
+    /// Whether the book being filed was still the store's when the filing started.
+    var startedOnTheOldBook = false
 }
