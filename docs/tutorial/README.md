@@ -15,6 +15,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 06 | [Attributed strings and the `RunCodec`](06-attributed-strings.md): `NovelAttributes`, runs to `NSAttributedString` and back | written |
 | 07 | [Undo](07-undo.md): `UndoManager` versus the command pattern, grouping and coalescing, per-scene and structural histories, routing Undo to the right one | written |
 | 07a | [The comments panel](07a-the-comments-panel.md): pure core types the views only show, an AppKit text view in SwiftUI with the model as the truth, a real `NSMenu` built per click, a button over a text view, `#selector` and `NSObject`'s names | written |
+| 07c | [Focus mode, Esc and Tab](07c-focus-mode-and-keys.md): state that never edits the chrome, how keys reach a view (key equivalents, the first responder, the responder chain), one Esc resolver with many entrances, a forwarding delegate, `@FocusState` and `onKeyPress` | written |
 | 08 | [The search engine](08-search-engine.md): search units as `Sendable` snapshots, the `SearchIndex` protocol as a trait object, `AsyncSequence` versus Rust's `Stream`, cooperative cancellation, words and endings, ranking as one comparison, near matches, the Search sheet's one task per query | written |
 | 09 | Printing and export: `NSPrintOperation`, Word export | planned, lands with #35 |
 | 10 | [Shipping](10-shipping.md): certificates and identities, Developer ID, the hardened runtime, timestamps, notarization and stapling, Gatekeeper, the DMG, dSYMs | written |

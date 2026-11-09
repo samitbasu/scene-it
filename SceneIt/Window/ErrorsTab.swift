@@ -15,13 +15,21 @@ struct ErrorsTab: View {
     /// tab's own operations.
     @State private var focus = UndoFocusAnchor()
     @Environment(\.pageFocus) private var pageFocus
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         entries
             .background(
                 UndoFocusHolder(
                     role: .errorsTab, anchor: focus,
-                    escape: { [pageFocus] in pageFocus?.focusBody() }))
+                    escape: { [pageFocus] in pageFocus?.focusBody() })
+            )
+            .onAppear {
+                keys?.setPanelFocus(for: .errors) { [focus] in
+                    focus.takeFocus()
+                    return focus.view?.hasFocus ?? false
+                }
+            }
     }
 
     @ViewBuilder private var entries: some View {

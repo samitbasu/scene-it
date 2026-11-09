@@ -7,6 +7,7 @@ struct SearchSheet: View {
     @Bindable var model: SearchSheetModel
     @Binding var mode: WindowMode
     @FocusState private var fieldFocused: Bool
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,6 +22,7 @@ struct SearchSheet: View {
         }
         .background(.background)
         .background(UndoFocusHolder(role: .sheet))
+        .background(EscapeKey(keys: keys))
         .onAppear {
             DispatchQueue.main.async { fieldFocused = true }
         }
@@ -75,7 +77,6 @@ struct SearchSheet: View {
             Image(systemName: "xmark")
         }
         .buttonStyle(.borderless)
-        .keyboardShortcut(.cancelAction)
         .help(WindowWording.closeSheet)
     }
 }

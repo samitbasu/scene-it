@@ -9,11 +9,13 @@ struct RightPanel: View {
     let preferences: AppPreferences
     let formatting: EditorFormatting
     let editors: SceneEditors
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         let errorCount = book.book.errorCount
         let tabs = RightPanelTab.shown(errorCount: errorCount)
         let selected = RightPanelTab.selected(preferences.rightPanelTab, among: tabs)
+        let shown: RightPanelTab? = preferences.rightPanel == .open ? selected : nil
         Group {
             panel(tabs: tabs, selected: selected, errorCount: errorCount)
         }
@@ -21,6 +23,8 @@ struct RightPanel: View {
         .onChange(of: tabs, initial: true) {
             if !tabs.contains(preferences.rightPanelTab) { preferences.showRightPanelTab(.comments) }
         }
+        .onChange(of: shown, initial: true) { keys?.shownPanelTab = shown }
+        .onDisappear { keys?.shownPanelTab = nil }
     }
 
     @ViewBuilder private func panel(tabs: [RightPanelTab], selected: RightPanelTab, errorCount: Int)
@@ -113,6 +117,7 @@ private struct NotesTab: View {
     let book: AppOpenBook
     let formatting: EditorFormatting
     let editors: SceneEditors
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         VStack(spacing: 0) {
@@ -127,6 +132,12 @@ private struct NotesTab: View {
                 NotesView(book: book, editors: editors, scene: scene.id, notes: scene.notes)
             } else {
                 Spacer()
+            }
+        }
+        .onAppear {
+            keys?.setPanelFocus(for: .notes) { [editors] in
+                let notes = editors.notes.textView
+                return notes.window?.makeFirstResponder(notes) ?? false
             }
         }
     }

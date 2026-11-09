@@ -10,6 +10,8 @@ final class BookController {
     static let shared = BookController(role: .current)
 
     let store: AppBookStore
+    /// The main window's focus mode and toolbar, for the View menu.
+    let mainWindowChrome = MainWindowChrome()
     /// The Close Book and the quit a press (or Quit) started and that haven't finished, tracked
     /// apart so neither can clear the other's. While the book is still open, a close under way
     /// makes a close press do nothing, even one decided before the store reached `closing`

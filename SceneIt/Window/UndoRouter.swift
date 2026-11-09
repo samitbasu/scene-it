@@ -180,8 +180,10 @@ final class UndoFocusView: NSView {
     var role = Role.sheet {
         didSet { needsDisplay = true }
     }
-    /// Esc gives the focus back to where the writer was typing.
+    /// Esc gives the focus back to where the writer was typing, when the window has nothing
+    /// for Esc to close.
     var escape: () -> Void = {}
+    weak var keys: WindowKeys?
 
     var focus: UndoFocus {
         switch role {
@@ -228,7 +230,17 @@ final class UndoFocusView: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        escape()
+        if keys?.escape(from: .focusedView) != .handled { escape() }
+    }
+
+    /// The Errors tab is a Tab stop. A sheet's holder handles no Tab, so nothing the sheet covers
+    /// can take the focus from it.
+    override func doCommand(by selector: Selector) {
+        switch (role, selector) {
+        case (.errorsTab, #selector(NSResponder.insertTab(_:))): keys?.tab(.forward, from: .panel)
+        case (.errorsTab, #selector(NSResponder.insertBacktab(_:))): keys?.tab(.backward, from: .panel)
+        default: super.doCommand(by: selector)
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -248,6 +260,7 @@ struct UndoFocusHolder: NSViewRepresentable {
     var anchor: UndoFocusAnchor?
     var escape: () -> Void = {}
     @Environment(UndoRouter.self) private var router: UndoRouter?
+    @Environment(\.windowKeys) private var keys
 
     func makeNSView(context: Context) -> UndoFocusView {
         let view = UndoFocusView()
@@ -259,6 +272,7 @@ struct UndoFocusHolder: NSViewRepresentable {
         view.router = router
         view.role = role
         view.escape = escape
+        view.keys = keys
         anchor?.view = view
     }
 }

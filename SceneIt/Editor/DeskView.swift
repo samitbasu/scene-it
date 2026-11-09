@@ -84,4 +84,97 @@ final class DeskView: NSScrollView {
         isPinching = false
         pinched(zoom)
     }
+
+    // MARK: The find bar's field, a Tab stop and an Esc layer (PLAN §8.4)
+
+    /// The window's Esc and Tab, which the find bar's field asks.
+    weak var keys: WindowKeys?
+    private var findFieldKeys: FindFieldKeys?
+
+    override var isFindBarVisible: Bool {
+        didSet { routeFindFieldKeys() }
+    }
+
+    override func findBarViewDidChangeHeight() {
+        super.findBarViewDidChangeHeight()
+        routeFindFieldKeys()
+    }
+
+    /// Whether the find bar's field sends its Tab and Esc to the window's keys.
+    var findFieldRoutesKeys: Bool {
+        findField?.delegate is FindFieldKeys
+    }
+
+    /// The find bar's field may be built after it shows; laying out the bar finds it.
+    override func tile() {
+        super.tile()
+        routeFindFieldKeys()
+    }
+
+    var findField: NSSearchField? {
+        guard isFindBarVisible, let bar = findBarView else { return nil }
+        func fields(in view: NSView) -> [NSSearchField] {
+            (view as? NSSearchField).map { [$0] } ?? view.subviews.flatMap(fields)
+        }
+        return fields(in: bar).first
+    }
+
+    func focusFindField() -> Bool {
+        guard let field = findField, let window, !field.isHiddenOrHasHiddenAncestor else { return false }
+        routeFindFieldKeys()
+        return window.makeFirstResponder(field)
+    }
+
+    /// The field's delegate is the find bar's own; Tab, Shift-Tab and Esc are asked of the
+    /// window first, and everything else passes through.
+    private func routeFindFieldKeys() {
+        guard let field = findField, !(field.delegate is FindFieldKeys) else { return }
+        let routed = FindFieldKeys(finderDelegate: field.delegate) { [weak self] key in
+            guard let keys = self?.keys else { return false }
+            switch key {
+            case .tab(let direction): return keys.tab(direction, from: .searchField)
+            case .escape: return keys.escape(from: .focusedView) == .handled
+            }
+        }
+        findFieldKeys = routed
+        field.delegate = routed
+    }
+}
+
+/// Stands in as the find bar field's delegate: Tab, Shift-Tab and Esc go to the window's keys;
+/// every other message goes to the find bar's own delegate.
+private final class FindFieldKeys: NSObject, NSSearchFieldDelegate {
+    enum Key {
+        case tab(TabDirection)
+        case escape
+    }
+
+    /// `nonisolated(unsafe)` because `responds(to:)` and `forwardingTarget(for:)` override
+    /// `NSObject`'s nonisolated methods. Only AppKit calls them, as it sends the field's
+    /// delegate messages, which it does on the main thread, the same thread that sets this once
+    /// in `init`.
+    nonisolated(unsafe) private weak var finderDelegate: (any NSTextFieldDelegate)?
+    private let route: (Key) -> Bool
+
+    init(finderDelegate: (any NSTextFieldDelegate)?, route: @escaping (Key) -> Bool) {
+        self.finderDelegate = finderDelegate
+        self.route = route
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertTab(_:)) where route(.tab(.forward)): return true
+        case #selector(NSResponder.insertBacktab(_:)) where route(.tab(.backward)): return true
+        case #selector(NSResponder.cancelOperation(_:)) where route(.escape): return true
+        default: return finderDelegate?.control?(control, textView: textView, doCommandBy: selector) ?? false
+        }
+    }
+
+    nonisolated override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || finderDelegate?.responds(to: selector) == true
+    }
+
+    nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
+        finderDelegate
+    }
 }

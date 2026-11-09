@@ -155,6 +155,21 @@ public enum WindowWording {
     public static let showPanel = "Show the panel"
     public static let toggleRightPanel = "Toggle Right Panel"
 
+    // MARK: Focus mode (PLAN §4.6)
+
+    /// The View menu's item, ticked while focus mode is on.
+    public static let focusMode = "Focus Mode"
+    /// The View menu's toolbar item, as macOS words it; disabled in focus mode.
+    public static func toolbarItem(_ action: ToolbarItemAction) -> String {
+        switch action {
+        case .show: "Show Toolbar"
+        case .hide: "Hide Toolbar"
+        }
+    }
+
+    /// The hint shown as focus mode begins, fading after a few seconds.
+    public static let focusModeHint = "Press Esc to leave focus mode"
+
     // MARK: Status bar (PLAN §4.5)
 
     /// The status bar's left-hand parts. The save state follows them (`StoreWording.status`).
@@ -175,4 +190,9 @@ public enum WindowWording {
     public static func words(_ count: WordCount) -> String {
         count.words == 1 ? "1 word" : "\(count.words.formatted()) words"
     }
+}
+
+/// What View → Show/Hide Toolbar would do.
+public enum ToolbarItemAction: Hashable, Sendable {
+    case show, hide
 }

@@ -107,6 +107,7 @@ private struct TitleTextField: NSViewRepresentable {
     let scene: SceneID
     let title: String
     let focus: PageFocus
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -136,6 +137,7 @@ private struct TitleTextField: NSViewRepresentable {
         coordinator.book = book
         coordinator.scene = scene
         coordinator.focus = focus
+        coordinator.keys = keys
         let history = book.titleUndo(for: scene)
         field.editor?.history = history
         coordinator.heardUndo.hear(history, by: coordinator, calling: #selector(Coordinator.historyChanged))
@@ -168,6 +170,7 @@ private struct TitleTextField: NSViewRepresentable {
         var book: AppOpenBook?
         var scene: SceneID?
         var focus: PageFocus?
+        weak var keys: WindowKeys?
         weak var field: NSTextField?
         /// The scene whose title is being edited: fixed when the editing begins, so typing
         /// can't reach a scene opened since.
@@ -229,6 +232,10 @@ private struct TitleTextField: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
                 focus?.focusBodyStart()
                 return true
+            case #selector(NSResponder.insertBacktab(_:)):
+                return keys?.tab(.backward, from: .page) ?? false
+            case #selector(NSResponder.cancelOperation(_:)):
+                return keys?.escape(from: .focusedView) == .handled
             default:
                 return false
             }

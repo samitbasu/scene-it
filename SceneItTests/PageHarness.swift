@@ -24,12 +24,13 @@ struct BookWindowWithMode: View {
     var formatting: EditorFormatting?
     @Bindable var box: ModeBox
     var search: SearchSheetModel?
+    var chrome: WindowChrome?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
             formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
-            search: search)
+            search: search, chrome: chrome)
     }
 }
 
@@ -48,6 +49,8 @@ struct PageHarness {
     let modes: ModeBox
     /// The window's Search sheet.
     let search: SearchSheetModel
+    /// The window's focus mode.
+    let chrome: WindowChrome
     /// Whether the editors keep the writer's automatic-change preferences or have them off.
     let automaticChanges: AutomaticChangesInTests
 
@@ -146,11 +149,12 @@ func withPage(
 
         let size = WindowMetrics.defaultSize
         let modes = ModeBox()
+        let chrome = WindowChrome()
         let search = SearchSheetModel(book: book, indexing: searchIndexing)
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
-                box: modes, search: search))
+                box: modes, search: search, chrome: chrome))
         controller.sizingOptions = []
         let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -171,7 +175,7 @@ func withPage(
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
             formatting: books.formatting, preferences: books.preferences, modes: modes, search: search,
-            automaticChanges: automaticChanges)
+            chrome: chrome, automaticChanges: automaticChanges)
         harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)

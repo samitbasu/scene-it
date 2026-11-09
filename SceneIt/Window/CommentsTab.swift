@@ -11,6 +11,7 @@ struct CommentsTab: View {
     let formatting: EditorFormatting
     let editors: SceneEditors
     @State private var search = ""
+    @Environment(\.windowKeys) private var keys
 
     var body: some View {
         let query = CommentQuery(search)
@@ -30,12 +31,49 @@ struct CommentsTab: View {
                 Spacer()
             }
         }
+        .onAppear {
+            keys?.setPanelFocus(for: .comments) { [book, editors] in
+                Self.takeFocus(book: book, editors: editors)
+            }
+        }
+    }
+
+    /// Tab into the tab: the selected card's text, or else the search field. `true` only if one
+    /// of them took the focus.
+    private static func takeFocus(book: AppOpenBook, editors: SceneEditors) -> Bool {
+        guard let window = editors.page.textView.window, let content = window.contentView else {
+            return false
+        }
+        func shown(in view: NSView) -> [NSView] {
+            view.isHidden ? [] : [view] + view.subviews.flatMap(shown)
+        }
+        let views = shown(in: content)
+        if let scene = book.location.scene?.id, let card = editors.comments.comment(in: scene),
+            let text = views.lazy.compactMap({ $0 as? CommentTextView }).first(where: { $0.comment == card })
+        {
+            text.takeFocusAtEnd()
+            return window.firstResponder === text
+        }
+        let field = views.lazy.compactMap { $0 as? NSTextField }.first {
+            $0.placeholderString == CommentWording.searchPlaceholder && $0.isEnabled
+        }
+        return field.map(window.makeFirstResponder) ?? false
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             TextField(CommentWording.searchPlaceholder, text: $search)
                 .textFieldStyle(.roundedBorder)
+                // Shift-Tab arrives as backtab, U+0019.
+                .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")]) { press in
+                    guard let keys else { return .ignored }
+                    let direction: TabDirection =
+                        press.key == .tab && !press.modifiers.contains(.shift) ? .forward : .backward
+                    return keys.tab(direction, from: .panel) ? .handled : .ignored
+                }
+                .onKeyPress(.escape) {
+                    keys?.escapeAfterThisKey(from: .focusedView) == .handled ? .handled : .ignored
+                }
                 .help(CommentWording.searchHelp)
                 .overlay(alignment: .trailing) {
                     if !search.isEmpty {
@@ -267,6 +305,7 @@ private struct CommentTextEditor: NSViewRepresentable {
     let scene: SceneID
     let comment: CommentID
     let text: String
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -303,6 +342,7 @@ private struct CommentTextEditor: NSViewRepresentable {
         coordinator.heardUndo.hear(
             book.pageUndo(for: scene), by: coordinator, calling: #selector(Coordinator.historyChanged))
         view.comment = comment
+        view.keys = keys
         view.history = coordinator.history
         let editable = Editability(book, in: context.environment) == .editable
         // As the title field does: a book that stops taking edits ends the edit under way, and
@@ -402,6 +442,7 @@ final class CommentTextView: AdmittingTextView {
     var onFinish: (() -> Void)?
     /// The comment whose text this is.
     var comment: CommentID?
+    weak var keys: WindowKeys?
 
     private var focusOnArrival = false
 
@@ -436,15 +477,17 @@ final class CommentTextView: AdmittingTextView {
     }
 
     override func insertTab(_ sender: Any?) {
-        window?.selectNextKeyView(sender)
+        guard let keys else { return window?.selectNextKeyView(sender) ?? () }
+        keys.tab(.forward, from: .panel)
     }
 
     override func insertBacktab(_ sender: Any?) {
-        window?.selectPreviousKeyView(sender)
+        guard let keys else { return window?.selectPreviousKeyView(sender) ?? () }
+        keys.tab(.backward, from: .panel)
     }
 
     override func cancelOperation(_ sender: Any?) {
-        finishEditing()
+        if keys?.escape(from: .focusedView) != .handled { finishEditing() }
     }
 
     /// Ends the edit under way, the focus going back to the page.

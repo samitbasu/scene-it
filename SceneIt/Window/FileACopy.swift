@@ -41,16 +41,53 @@ final class FilingFlow {
     }
 
     /// File a Copy… can begin: the store's book can be filed (`BookStore.fileableBook`), and
-    /// the dialog isn't already up. The toolbar's button and the File menu's item both ask.
+    /// the dialog isn't already showing. The toolbar's button and the File menu's item both ask.
     func canBegin(in store: AppBookStore) -> Bool {
-        store.fileableBook === book && draft == nil
+        store.fileableBook === book && (draft == nil || presentationLost)
     }
 
+    /// A new draft; or, with one whose dialog went without being closed (which only SwiftUI
+    /// could do), the same draft's dialog again.
     func begin(today: CalendarDay = CalendarDay(.now, in: .current)) {
-        draft = FilingDraft(today: today)
+        if draft == nil {
+            draft = FilingDraft(today: today)
+        } else if presentationLost {
+            presentation = FilingPresentation(id: presentation.id + 1)
+        }
     }
 
+    /// The dialog's presentation: a new one shows the dialog afresh.
+    private(set) var presentation = FilingPresentation(id: 0)
+    /// Whether the dialog's sheet went while its draft stayed, as the window's sheets say.
+    private(set) var presentationLost = false
+    /// The window the dialog is a sheet of, whose sheets are watched for one that ends.
+    @ObservationIgnored weak var window: NSWindow? {
+        didSet {
+            guard window !== oldValue else { return }
+            let center = NotificationCenter.default
+            for observer in sheetObservers { center.removeObserver(observer) }
+            sheetObservers = []
+            guard let window else { return }
+            sheetObservers = [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification].map {
+                center.addObserver(forName: $0, object: window, queue: .main) { [weak self] _ in
+                    // The sheet is attached, or detached, once AppKit's own turn is over.
+                    DispatchQueue.main.async { MainActor.assumeIsolated { self?.sheetsChanged() } }
+                }
+            }
+        }
+    }
+    @ObservationIgnored private var sheetObservers: [any NSObjectProtocol] = []
+
+    func sheetsChanged() {
+        guard let window else { return }
+        let lost = draft != nil && window.attachedSheet == nil
+        if lost != presentationLost { presentationLost = lost }
+    }
+
+    /// Closes the dialog, dropping the draft; never while the copy is being filed, which still
+    /// needs it if the filing fails.
     func cancel() {
+        guard stage == .editing else { return }
         draft = nil
     }
 
@@ -59,11 +96,17 @@ final class FilingFlow {
     /// typed. A copy filed, locked and indexed gets the toast; anything less gets the alert.
     @discardableResult
     func confirm(in store: AppBookStore) async -> FilingResult? {
+        await confirm { [book] in await store.fileACopy(of: book, as: $0) }
+    }
+
+    /// The same, filing through `file`.
+    @discardableResult
+    func confirm(filingWith file: (FilingRecord) async -> FilingResult) async -> FilingResult? {
         guard let draft, stage == .editing else { return nil }
         stage = .filing
         defer { stage = .editing }
         let record = draft.record
-        let result = await store.fileACopy(of: book, as: record)
+        let result = await file(record)
         switch result {
         case .filed(let outcome):
             self.draft = nil
@@ -86,10 +129,16 @@ final class FilingFlow {
     }
 }
 
-/// Whether the dialog's File copy is running: while it is, the whole dialog waits.
-enum FilingStage: Equatable {
-    case editing
-    case filing
+/// What Esc in one of the dialog's text views does: it asks the window's keys, which close the
+/// dialog (or hold it while it files).
+private func escape(to keys: WindowKeys?) -> (() -> Bool)? {
+    guard let keys else { return nil }
+    return { [weak keys] in keys?.escape(from: .focusedView) == .handled }
+}
+
+/// One showing of File a Copy's dialog, for `.sheet(item:)`.
+struct FilingPresentation: Identifiable, Hashable {
+    let id: Int
 }
 
 // MARK: - The dialog
@@ -155,8 +204,9 @@ struct FileACopyDialog: View {
     private var buttons: some View {
         HStack {
             Spacer()
+            // Esc is the window's (`EscapeKey`), which cancels this dialog only when it's the
+            // top layer.
             Button(ArchiveWording.cancel, action: cancel)
-                .keyboardShortcut(.cancelAction)
             Button(ArchiveWording.confirm, action: confirm)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
@@ -214,6 +264,7 @@ private struct TagChip: View {
 /// a tag clears it, since the text it would bring back is the tag's.
 struct TagTextField: NSViewRepresentable {
     @Binding var draft: FilingDraft
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: $draft)
@@ -241,6 +292,7 @@ struct TagTextField: NSViewRepresentable {
 
     func updateNSView(_ field: AdmittingTextField, context: Context) {
         context.coordinator.draft = $draft
+        field.editor?.escape = escape(to: keys)
         if field.stringValue != draft.pendingTag { field.stringValue = draft.pendingTag }
     }
 
@@ -303,6 +355,7 @@ struct TagTextField: NSViewRepresentable {
 /// closes, never through the notification center.
 struct NoteTextView: NSViewRepresentable {
     @Binding var draft: FilingDraft
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: $draft)
@@ -332,7 +385,8 @@ struct NoteTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.draft = $draft
-        guard let view = scroll.documentView as? NSTextView else { return }
+        guard let view = scroll.documentView as? AdmittingTextView else { return }
+        view.escape = escape(to: keys)
         if view.string != draft.note { view.string = draft.note }
     }
 

@@ -57,3 +57,10 @@ public struct FilingDraft: Hashable, Sendable {
         return FilingRecord(filed: draft.filed, tags: draft.tags, note: draft.note)
     }
 }
+
+/// Whether File a Copy's dialog is being edited, or its File copy is running: while it is, the
+/// whole dialog waits, and nothing closes it.
+public enum FilingStage: Hashable, Sendable {
+    case editing
+    case filing
+}
