@@ -26,10 +26,13 @@ private func id(_ raw: String) -> SceneID {
     @Test func theSlotGoesWhenThePointerLeavesTheGrid() {
         var drop = SceneDropState.idle
         drop.begin(.tile(id("x")))
+        #expect(drop.isOutsideEveryZone)
         drop.enter(.end)
-        #expect(drop.slot == .end)
+        #expect(drop.slot == .end && !drop.isOutsideEveryZone)
         drop.exit(.end)
-        #expect(drop.slot == nil)
+        #expect(drop.slot == nil && drop.isOutsideEveryZone)
+        drop.end()
+        #expect(!drop.isOutsideEveryZone, "no drag")
     }
 
     @Test func aCardOverTheTrayLightsItAndIsCutThere() {

@@ -246,6 +246,8 @@ extension WindowMetrics {
         static let slotFillOpacity = 0.08
         static let focusRing: CGFloat = 3
         static let draggedOpacity = 0.4
+        /// How often a drag outside every zone looks for the mouse button's release.
+        static let releaseCheck = Interval(clamping: .milliseconds(100))
 
         /// How many columns the grid's adaptive layout makes across `size`, as `LazyVGrid` counts
         /// them.

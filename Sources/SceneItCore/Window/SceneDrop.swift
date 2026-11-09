@@ -76,6 +76,12 @@ public enum SceneDropState: Hashable, Sendable {
         return book.destination(of: .move(scene, to: slot)) == here ? nil : slot
     }
 
+    /// A drag under way that the pointer took out of every zone: dropped nowhere, once the mouse
+    /// button is up.
+    public var isOutsideEveryZone: Bool {
+        if case .dragging(_, let inside, _) = self { inside.isEmpty } else { false }
+    }
+
     public var isOverTray: Bool {
         if case .dragging(_, let inside, _) = self { inside.contains(.tray) } else { false }
     }

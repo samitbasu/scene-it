@@ -190,7 +190,8 @@ struct BoneyardTests {
             await actions.deletePermanently(brother.id)
             #expect(
                 prompts.titles == [
-                    BoneyardWording.confirmDelete(brother).title, BoneyardWording.notDeleted(brother).title,
+                    BoneyardWording.confirmDelete(brother).title,
+                    BoneyardWording.notDeleted(brother, .bookClosed).title,
                 ])
             #expect(harness.book.book.boneyard.map(\.id) == [brother.id])
             let saved = String(
@@ -339,14 +340,56 @@ struct BoneyardTests {
         }
     }
 
-    /// A drag dropped nowhere tells no drop zone; the mouse button's release ends it, so the card
-    /// doesn't stay faded.
-    @Test func aDragDroppedNowhereEndsWhenTheMouseButtonGoesUp() async throws {
+    /// The book is still open, but the scene left the Boneyard while the writer was asked: nothing
+    /// is deleted, and the writer is told why.
+    @Test func aDeleteRefusedAfterTheQuestionTellsTheWriter() async throws {
+        let prompts = AnsweringPrompts([DeleteChoice.delete])
+        try await withScenesSheet(
+            boneyard: [brother], books: BookController(role: .testHost, prompts: prompts)
+        ) {
+            harness, actions in
+            let book = harness.book
+            prompts.beforeAnswering = { _ = book.change(.restore(brother.id, to: .end)) }
+            await actions.deletePermanently(brother.id)
+            #expect(
+                prompts.titles == [
+                    BoneyardWording.confirmDelete(brother).title,
+                    BoneyardWording.notDeleted(brother, .refused).title,
+                ])
+            #expect(
+                BoneyardWording.notDeleted(brother, .refused)
+                    != BoneyardWording.notDeleted(brother, .bookClosed))
+            #expect(book.book.scenes.last?.id == brother.id, "restored, not deleted")
+        }
+    }
+
+    /// A drag the pointer took out of every zone, as into a gap or out of the sheet, ends as soon
+    /// as no mouse button is down, so the card doesn't stay faded; while one is, it goes on.
+    @Test func aDragOutsideEveryZoneEndsOnceNoMouseButtonIsDown() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            let buttons = ButtonsDown()
+            harness.scenes.mouseButtonsDown = { buttons.count }
+            defer { harness.scenes.mouseButtonsDown = { NSEvent.pressedMouseButtons } }
+            _ = actions.beginDrag(.card(story[0]))
+            actions.enter(.card(story[1]))
+            actions.exit(.card(story[1]))
+            for _ in 0..<20 { await Task.yield() }
+            #expect(harness.scenes.drop.drag == .card(story[0]), "the button is down: still dragging")
+            buttons.count = 0
+            await eventually { harness.scenes.drop == .idle }
+            #expect(harness.scenes.drop == .idle)
+            #expect(harness.book.book.scenes.map(\.id) == story)
+        }
+    }
+
+    /// The backstop: a mouse button event the app sees after a drag began ends the drag, if no
+    /// drop did first.
+    @Test func aMouseButtonEventTheAppSeesEndsADrag() async throws {
         try await withScenesSheet { harness, actions in
             let story = harness.book.book.scenes.map(\.id)
             _ = actions.beginDrag(.card(story[0]))
             actions.enter(.card(story[1]))
-            actions.exit(.card(story[1]))
             #expect(harness.scenes.drop.drag == .card(story[0]), "precondition: the drag is under way")
             let up = try #require(
                 NSEvent.mouseEvent(
@@ -357,6 +400,25 @@ struct BoneyardTests {
             await eventually { harness.scenes.drop == .idle }
             #expect(harness.scenes.drop == .idle)
             #expect(harness.book.book.scenes.map(\.id) == story)
+        }
+    }
+
+    /// A tag half typed on a card that's cut is dropped, as Esc drops it.
+    @Test func aHalfTypedTagIsDroppedWhenItsCardIsCut() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            let tags = harness.book.book.scene(story[1])?.tags
+            actions.startTagging(story[1])
+            await eventually { harness.window.firstResponder is NSTextView }
+            let editor = try #require(harness.window.firstResponder as? NSTextView, "precondition: + tag")
+            editor.insertText("storm", replacementRange: editor.selectedRange())
+            _ = actions.beginDrag(.card(story[1]))
+            actions.enter(.tray)
+            #expect(actions.drop(on: .tray))
+            await eventually { harness.scenes.field == nil }
+            for _ in 0..<20 { await Task.yield() }
+            #expect(harness.book.book.boneyard.first?.id == story[1])
+            #expect(harness.book.book.boneyard.first?.tags == tags, "no storm tag")
         }
     }
 
@@ -403,6 +465,11 @@ struct BoneyardTests {
             #expect(harness.book.openScene == brother.id, "a tile still opens its scene")
         }
     }
+}
+
+/// The mouse buttons a test says are down.
+private final class ButtonsDown {
+    var count = 1
 }
 
 /// What a scene holds that the writer wrote, as the file keeps it (its time to the second).

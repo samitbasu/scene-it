@@ -23,11 +23,24 @@ public enum BoneyardWording {
     public static let openHelp = "Open this scene, or drag it onto the grid to restore it"
     public static let deletePermanently = "Delete Permanently\u{2026}"
 
-    /// The book closed, or was read again, while Delete Permanently… asked.
-    public static func notDeleted(_ scene: BookScene) -> Notice {
-        Notice(
+    /// Why Delete Permanently… deleted nothing after the writer chose Delete.
+    public enum NotDeleted: Hashable, Sendable {
+        /// The book closed, or was read again, while it asked.
+        case bookClosed
+        /// The book is still open, but the scene had left the Boneyard or the book wasn't taking
+        /// changes just then.
+        case refused
+    }
+
+    public static func notDeleted(_ scene: BookScene, _ reason: NotDeleted) -> Notice {
+        let message =
+            switch reason {
+            case .bookClosed: "The book was closed or read again before it could be deleted."
+            case .refused: "It had left the Boneyard, or the book wasn't taking changes just then."
+            }
+        return Notice(
             title: "\u{201C}\(WindowWording.sceneName(scene))\u{201D} wasn't deleted.",
-            message: "The book closed before it could be deleted. Nothing was changed.")
+            message: message + " Nothing was changed.")
     }
     /// What Undo and Redo name the delete: "Undo Delete Scene".
     public static let deleteUndoName = "Delete Scene"

@@ -28,9 +28,13 @@ final class ScenesSheetModel {
     @ObservationIgnored let ticker: MinuteTicker
     /// The sheet's own focus, which takes the keys when no field has them.
     @ObservationIgnored let keyFocus = UndoFocusAnchor()
-    /// Watches for the mouse button's release while a drag is under way, since a drag dropped
-    /// nowhere tells no drop zone it ended.
+    /// Watches the mouse button while a drag is under way, since a drag dropped nowhere tells no
+    /// drop zone it ended. The drag's own tracking takes the release, so the release is looked
+    /// for while the pointer is outside every zone; a later click is the backstop.
     @ObservationIgnored private var dragEndMonitor: Any?
+    @ObservationIgnored private var releaseWatch: Task<Void, Never>?
+    /// How many mouse buttons are down; a test can stand in for the hardware.
+    @ObservationIgnored var mouseButtonsDown: () -> Int = { NSEvent.pressedMouseButtons }
 
     /// The scene whose title is being typed on its card.
     var titling: SceneID? {
@@ -48,6 +52,7 @@ final class ScenesSheetModel {
 
     isolated deinit {
         stopWatchingTheDrag()
+        releaseWatch?.cancel()
     }
 
     /// A card of the grid: a story scene and its place in the whole story, from 1.
@@ -127,6 +132,24 @@ final class ScenesSheetModel {
         }
     }
 
+    /// The pointer left `zone`. Once it's outside every zone, the drag is over as soon as no mouse
+    /// button is down: it was dropped in a gap or outside the sheet.
+    func exitDrop(_ zone: DropZone) {
+        drop.exit(zone)
+        guard drop.isOutsideEveryZone, releaseWatch == nil else { return }
+        releaseWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.drop.isOutsideEveryZone else { break }
+                if self.mouseButtonsDown() == 0 {
+                    self.drop.end()
+                    break
+                }
+                try? await Task.sleep(for: WindowMetrics.Scenes.releaseCheck.duration)
+            }
+            self?.releaseWatch = nil
+        }
+    }
+
     private func stopWatchingTheDrag() {
         if let dragEndMonitor { NSEvent.removeMonitor(dragEndMonitor) }
         dragEndMonitor = nil
@@ -138,6 +161,8 @@ final class ScenesSheetModel {
         focused = nil
         drop.end()
         stopWatchingTheDrag()
+        releaseWatch?.cancel()
+        releaseWatch = nil
     }
 }
 
@@ -215,8 +240,12 @@ struct ScenesActions {
     func deletePermanently(_ scene: SceneID) async {
         guard book.isEditable, let shown = book.book.boneyard.first(where: { $0.id == scene }) else { return }
         guard await store.ask(BoneyardWording.confirmDelete(shown)) == .delete else { return }
-        guard store.current === book, book.deleteFromBoneyard(scene) else {
-            await store.tell(BoneyardWording.notDeleted(shown))
+        guard store.current === book else {
+            await store.tell(BoneyardWording.notDeleted(shown, .bookClosed))
+            return
+        }
+        guard book.deleteFromBoneyard(scene) else {
+            await store.tell(BoneyardWording.notDeleted(shown, .refused))
             return
         }
     }
@@ -244,7 +273,7 @@ struct ScenesActions {
     }
 
     func exit(_ zone: DropZone) {
-        model.drop.exit(zone)
+        model.exitDrop(zone)
     }
 
     /// The drop on `zone`: the move, cut or restore it makes, if any.

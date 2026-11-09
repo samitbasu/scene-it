@@ -224,9 +224,13 @@ because inserting the slot pushes the card it stands before out from under the p
 enum, `.idle` or `.dragging(drag, inside:, lastSlot:)`, so there's no "inside" set without a drag.
 `slot(in:)` hides a "Move here" that would leave the card where it is.
 
-A drag dropped nowhere tells no drop zone that it ended, and `onDrag` has no end callback. So
-`beginDrag` installs a local event monitor (`NSEvent.addLocalMonitorForEvents`) for the mouse
-button; when it fires, the drag still recorded on the next turn, after any drop, is over.
+A drag dropped nowhere tells no drop zone that it ended, and `onDrag` has no end callback. The
+drag's own tracking loop takes the mouse button's release, so the app never sees it. Instead, once
+the pointer has left every zone (`isOutsideEveryZone`), the sheet looks at
+`NSEvent.pressedMouseButtons` every tenth of a second until no button is down, and then the drag
+is over. As a backstop, `beginDrag` also installs a local event monitor
+(`NSEvent.addLocalMonitorForEvents`) for the mouse button, so the next click the app does see
+ends a drag still recorded, on the next turn, after any drop.
 
 The drop zones and drag sources are attached only while the book takes edits. A modifier that's
 added or removed changes the view's identity (`_ConditionalContent`), so it's decided by
