@@ -142,6 +142,37 @@ struct ReadAloudTests {
         }
     }
 
+    /// Deleting or typing over the sentence being read, at the very end of the text or in the
+    /// middle, through the text view as a key would: the reading stops while the storage still
+    /// processes the edit, with the selection not yet moved off the deleted text.
+    @Test(arguments: [EditOverReading.deleteAtTheEnd, .typeOverAtTheEnd, .deleteInTheMiddle])
+    func editingTheSentenceBeingReadStopsTheReading(_ edit: EditOverReading) async throws {
+        try await withPage([ferry]) { page in
+            page.focusPage(at: 0)
+            let sentence = edit.sentence
+            try #require(
+                (edit == .deleteInTheMiddle) != page.storage.string.hasSuffix(sentence),
+                "precondition: the sentence ends the text or doesn't, as the case says")
+            try page.startReading(sentence)
+            let utterance = try #require(try page.speech.requests.last?.text) as NSString
+            try page.speech.report(.willSpeak(NSRange(location: 0, length: min(4, utterance.length))))
+            try #require(page.page.spoken == [page.range(of: sentence)], "precondition: highlighted")
+
+            await onTheRunLoop {
+                switch edit {
+                case .deleteAtTheEnd, .deleteInTheMiddle: page.page.deleteBackward(nil)
+                case .typeOverAtTheEnd: page.page.insertText("X", replacementRange: page.page.selectedRange())
+                }
+            }
+            #expect(!page.storage.string.contains(sentence), "the edit went through")
+            #expect(page.readAloud.state == .idle)
+            #expect(page.page.spoken.isEmpty)
+            await afterTheMainQueue()
+            #expect(page.renderedBackgrounds(in: NSRange(location: 0, length: page.storage.length)).isEmpty)
+            #expect(page.pageMirrorsModel)
+        }
+    }
+
     @Test func openingAnotherSceneStopsTheReading() async throws {
         try await withPage([ferry, station]) { page in
             page.focusPage(at: 0)
@@ -227,6 +258,17 @@ struct ReadAloudTests {
             #expect(page.page.spoken.isEmpty)
             #expect(page.readAloud.control == .unavailable, "the new page has nothing selected")
             #expect(try page.speech.stops == 1)
+        }
+    }
+}
+
+enum EditOverReading: CaseIterable, Sendable {
+    case deleteAtTheEnd, typeOverAtTheEnd, deleteInTheMiddle
+
+    var sentence: String {
+        switch self {
+        case .deleteAtTheEnd, .typeOverAtTheEnd: "Dawn came late."
+        case .deleteInTheMiddle: "The tide was already turning."
         }
     }
 }

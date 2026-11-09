@@ -189,7 +189,8 @@ class SceneTextView: KeyboardTextView {
     /// a rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
     /// The sentence being read aloud is set last, over both, so it shows as one band. They're set
     /// by character offsets, which an edit or a new scene can't leave pointing at the wrong text,
-    /// and every one goes before new ones are set: no other code sets this attribute.
+    /// and every one goes before new ones are set: no other code sets this attribute. Mid-edit the
+    /// selection can still reach past the shortened text, so every range is cut to it.
     private func overrideHighlights(in ranges: [NSTextRange]) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
             let storage = textStorage
@@ -199,7 +200,8 @@ class SceneTextView: KeyboardTextView {
         for range in ranges {
             let offsets = NSRange(
                 location: content.offset(from: start, to: range.location),
-                length: content.offset(from: range.location, to: range.endLocation))
+                length: content.offset(from: range.location, to: range.endLocation)
+            ).clamped(toLength: storage.length)
             storage.enumerateAttribute(.backgroundColor, in: offsets) { value, run, _ in
                 if value != nil { highlighted.append(run) }
             }
@@ -227,10 +229,17 @@ class SceneTextView: KeyboardTextView {
     // MARK: Read aloud (PLAN §10.3)
 
     /// The sentence being read aloud, as ranges of the text: drawn over the selection and the
-    /// highlights, and never in the text storage.
+    /// highlights, and never in the text storage. Set while the storage processes an edit (an edit
+    /// stops the reading), it's drawn once the edit is through, when the selection has caught up.
     var spoken: [NSRange] = [] {
         didSet {
-            if spoken != oldValue { overrideHighlights(in: visibleSelection()) }
+            guard spoken != oldValue else { return }
+            renderedBackgrounds = RenderedBackgrounds()
+            if textStorage?.editedMask.isEmpty == false {
+                DispatchQueue.main.async { [weak self] in self?.refreshSelectionBands() }
+            } else {
+                overrideHighlights(in: visibleSelection())
+            }
         }
     }
 
@@ -239,8 +248,11 @@ class SceneTextView: KeyboardTextView {
 
     /// The text range of `offsets`, a range of the storage's UTF-16 offsets.
     private func textRange(of offsets: NSRange) -> NSTextRange? {
-        guard let content = textLayoutManager?.textContentManager,
-            let from = content.location(content.documentRange.location, offsetBy: offsets.location),
+        guard let content = textLayoutManager?.textContentManager, let storage = textStorage else {
+            return nil
+        }
+        let offsets = offsets.clamped(toLength: storage.length)
+        guard let from = content.location(content.documentRange.location, offsetBy: offsets.location),
             let to = content.location(from, offsetBy: offsets.length)
         else { return nil }
         return NSTextRange(location: from, end: to)
