@@ -7,6 +7,8 @@ Renders and trial builds are kept under `build/review/<issue>/` in the main chec
 (ignored by git, so they're never deleted by a merge).
 
 Status: **pending review** until the owner confirms or reverses an entry.
+Rows whose Kind is **owner** record the owner's own decisions, not defaults; they're listed so
+M6 can be reviewed in one place. M6's entries start at 38.
 
 | # | Date | Issue/PR | Kind | Decision | Alternatives | Why | To reverse |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -47,6 +49,49 @@ Status: **pending review** until the owner confirms or reverses an entry.
 | 35 | 2026-11-09 | #168 (#81) | aesthetic | Copy Review and the saved review page use the spec's draft look (A): Georgia, gray context, the commented passage on yellow `#FFF2A8`, the comment indented beneath, ticked items at half opacity. There are no comment colours, as spec §9 Q7 says. Renders: `build/review/81/compare-pages.png` and `page-*` / `email-*`. | B: sans-serif, each comment in a tinted box; C: the passage underlined, the comment in blue | It's the spec's draft and reads like a manuscript. | `ReviewLook.standard` |
 | 36 | 2026-11-09 | #168 | wording | File → Copy Review and Save Review…, after Export as SceneIt…, with no shortcuts, enabled only when the open review has comments or notes. The report keeps the spec's wording ("Review of …", "General notes", "(untitled scene)"). The default file name is `<copy name> review.html`. A literal `[` or `]` in quoted plain text is shown as itself. Failures read "Scene It couldn't save the review." with reasons shared with Export. | — | It's the spec's draft. | `ReviewWording`, `ReviewOutput.swift` |
 | 37 | 2026-11-09 | #172, ADR 0043 (owner request) | behaviour/wording | The owner asked that opening a scene from the Scenes sheet take a double click. Defaults: a single click on a story card selects it at once (the sheet takes the keys and the card gets the focus ring, so the arrows, Return and Delete act on it), as in the Finder. A single click on a Boneyard tile selects nothing, because the card focus is the story grid's. A click doesn't scroll; only the keys scroll the focused card into view. A double click opens only the card or tile its first click landed on (one remembered `SceneDrag?`), so a click on a tile's ↩ that slides another tile under the pointer can't open that tile; a key, any change to the story's or the Boneyard's order, or a change to a card's tags forgets the click. The tooltips read "Double-click to open this scene" and "Double-click to open this scene, or drag it onto the grid to restore it". The context menu's Open and the accessibility action still open. | A single click does nothing on cards too; a tile selectable as well (the keys would need Boneyard meanings); scroll a clicked card into view (it can move another card under the second click) | The Finder's convention, and it reuses the existing card focus. | `ScenesActions.click(_:on:)`, `ScenesWording.openHelp`, `BoneyardWording.openHelp` |
+| 38 | 2026-11-09 | #38, #173, ADR 0044 | owner | Read aloud starts with the system voice (the one set in System Settings › Spoken Content) at rate 0.5. The owner chose after hearing samples. | The best installed voice; rate 0.45 or 0.55 | It follows the writer's own OS setting. | ADR 0044 |
+| 39 | 2026-11-09 | #36, #173, ADR 0045 | owner | Export to Word makes the scene title Word's Heading 1, defined as Times New Roman 18 pt bold, so it looks as before. | Direct formatting only | The title shows in Word's Navigation pane, a table of contents and screen readers. | ADR 0045 |
+| 40 | 2026-11-09 | #174 (#37), ADR 0047 | owner | Scene It writes the .docx itself (six standard parts, its own small zip writer), not with macOS's `.officeOpenXML` writer. Amends PLAN §10.2 and ADR 0045's "after macOS writes the .docx". | Patch macOS's output | macOS's writer drops line spacing and highlights, darkens colours and writes a non-standard dialect; patching it relies on undocumented behaviour. | ADR 0047 |
+| 41 | 2026-11-09 | #33, #173, ADR 0046 | owner | In the File Cabinet, a single click selects a card and a double click opens the filed copy read-only, as in the Scenes sheet (ADR 0043). Deviates from PLAN §7.4. | A single click opens, as PLAN says | One rule for both sheets; a stray click can't swap the window into a copy. | ADR 0046 |
+| 42 | 2026-11-09 | #175 (#33) | owner | The File Cabinet sheet's look is approved as rendered: the Scenes sheet's cards, header, grid and focus ring; outlined filter chips; card tags without `#`. The dates are native date fields in the plain `.field` style (no stepper), with ⓧ to clear both. Renders: `build/review/33/final-cabinet*`. | The `.compact` date picker, which drew steppers | The owner's pick. | `WindowMetrics.Cabinet` |
+| 43 | 2026-11-09 | #177 (#33) | owner | A filed copy's banner has a split "Close ▾" button: Close, plus a menu with "Restore This Scene to My Book" and "New Book from This Copy…". Renders: `build/review/33/final-filed-copy*`. | A separate secondary menu (PLAN); Close only (mockup 13) | Both actions sit beside Close without another control. | `FiledCopyBanner` |
+| 44 | 2026-11-09 | #179 (#35) | owner | Print's choices (layout and range) are an accessory inside the standard macOS print dialog, not the mockup's separate dialog before it. | Mockup 15's own dialog, then the system one | One dialog; the system preview follows the choices; Save as PDF, paper and copies are where users expect them. | `PrintAccessoryController` |
+| 45 | 2026-11-09 | #179 | owner | Print's look is approved as rendered: margins, fonts, the comment column and boxes, dotted connectors, the page number top right, the accessory's cards. Renders: `build/review/35/print/`. | — | The owner's pick. | `ManuscriptPages` |
+| 46 | 2026-11-09 | #179 | owner | Printing the whole manuscript starts each scene on a new page; pages are numbered straight through. | Scenes run on | The owner's pick. | `PrintPagination` |
+| 47 | 2026-11-09 | #180 (#34) | owner | The File Cabinet search scope's look and wording are approved as rendered: a second header row with a copy picker and "filed from [date] to [date] ⓧ"; groups headed by the copy's date and tags with "opens read-only"; "Tags of this copy" groups; the summary, empty and ⚠ unreadable lines. Match case and Whole word stay on row 1. Renders: `build/review/34/search/`. | Options on row 2, as in mockup 11 | Nothing moves when the scope changes. | `SearchWording`, the Search sheet |
+| 48 | 2026-11-09 | #180 | owner | Search results open on a single click in every scope, the File Cabinet scope included. The double click stays with the File Cabinet sheet's cards. | A double click in the File Cabinet scope | The Search sheet keeps one rule (PLAN §9.1). | Search sheet rows |
+| 49 | 2026-11-09 | #180 | owner | The File Cabinet search's memory is accepted: about 190 MB for 50 copies of 120,000 words (about 262 MB with a realistic vocabulary). Follow-up #181 packs the index. | Pack the index first | It works now; packing is a separate job. | #181 |
+| 50 | 2026-11-09 | #183 | owner (pending) | Export to Word can include comments, through an "Include comments" checkbox that is off by default. The PR is in progress. Changes entry 56's "never comments". | Never export comments | The owner's pick. | #183 |
+| 51 | 2026-11-09 | #177 | behaviour | ⌘W (or Close Book) while a filed copy shows closes the copy, as the banner's Close does; the next ⌘W closes the book. A held ⌘W, or a fresh one within 700 ms of the last, is ignored, so it can't go on to close the book. Coordinator's default. | ⌘W closes the book under the copy | The copy is what the writer sees. The guard follows ADR 0038's guard against key repeats. | `BookController.closeCopyGrace` |
+| 52 | 2026-11-09 | #177 | wording | File → Close Book reads "Close Copy" while a copy shows. Coordinator's default. | Keep "Close Book" | The menu says what ⌘W will do. | `OneBookWording` |
+| 53 | 2026-11-09 | #177 | behaviour | Restore's undo step ("Restore Scene from Filed Copy") is on `structureUndo`. ⌘Z on the page undoes typing; the restore is undone from the Scenes sheet, or the Edit menu while the sheet is open. Coordinator's default. | Put it on the page's undo | It changes the book's structure, like adding a scene. | `BookStore.restoreScene(from:)` |
+| 54 | 2026-11-09 | #179 | aesthetic | Deviation from PLAN §10.1 ("the right third"): the comment column is a quarter of the paper's width (2.75 in on Letter), and the text keeps the page's 6.5 in column. Column, gutter and margin take the right 32 % of the sheet. Coordinator's default, approved by the owner as rendered. | A strict right third (a narrower text column, different line breaks) | Lines break as on screen. | `ManuscriptPages` |
+| 55 | 2026-11-09 | #179 | aesthetic | Each connector has its own lane in the gap below its line, and a line's comment boxes go into the column right to left, so connectors never cross or share a height. Coordinator's default. | Boxes left to right (connectors cross) | Every connector can be followed to its text. | `ConnectorLanes` |
+| 56 | 2026-11-09 | #174 | wording | "Export to Word…" (with an ellipsis, though PLAN §11 has none) sits after Export as SceneIt…, with no shortcut. The save panel reads "Export to Word" / "Export"; the default name is "<scene title>.docx" (`/` and `:` become `-`) or "Untitled scene.docx". Only the title and body are exported, never notes, tags or comments (but see entry 50). | — | A save panel follows, as for the other exports. | `WordExportWording` |
+| 57 | 2026-11-09 | #174 | wording | Word export failures read "Scene It couldn't export the scene to Word." + reason + "Nothing was written." The reasons: the name must end in .docx; the scene is too long; the scene holds a character a Word document can't contain; the scene closed before it could be exported; and the shared file reasons. | — | Matches Export as SceneIt. | `WordExportWording` |
+| 58 | 2026-11-09 | #174 | behaviour | An untitled scene has no heading paragraph. Blank lines are kept as empty paragraphs, at the end too. | An empty Heading 1, or "Untitled scene" | It exports what the writer wrote. | `WordExport` |
+| 59 | 2026-11-09 | #174 | aesthetic | The Heading 1 title is single-spaced, black (Word's built-in one is blue), not indented, with no space around it, and kept with the next paragraph. The body's double spacing gives the gap. | Word's built-in Heading 1 look | It looks like the page. | `WordStyles` |
+| 60 | 2026-11-09 | #174 | aesthetic | Highlights are written as run shading (`w:shd`) in the palette's exact colour, not `w:highlight`. Word's highlighter button won't remove them. Waiting for the owner. | `w:highlight` (16 fixed colours, none of ours) | Keeps the app's pastels. | `WordExport` |
+| 61 | 2026-11-09 | #174 | behaviour | No page setup (`sectPr`), document properties or theme: Word's default page size and margins apply, with no page numbers or header. | Set a manuscript page in `sectPr` | Minimal; page setup is a look decision for later (hand-test 9.8). | `WordExport` |
+| 62 | 2026-11-09 | #179 (supersedes #174's default) | behaviour | Export to Word smartens punctuation as print does (curly quotes, em dash, ellipsis), and joins runs split only by a comment. #174 had exported the text exactly as stored; decision 0022 names both outputs. In print, a `--` or `...` split by a comment's edge stays as typed. | The text exactly as stored | One smartening function for print and Word. | `OutputParagraph.shown(_:)` |
+| 63 | 2026-11-09 | #176 (#39), ADR 0044 | architecture | Read aloud's voice and rate are app preferences (UserDefaults), not the book's `settings` as PLAN §5.2/§10.3 say. There's no voice or rate picker yet; it follows Spoken Content. | Book settings; a picker now | ADR 0022 moved settings out of the book. | `AppPreferences.setReadAloudVoice/Rate` |
+| 64 | 2026-11-09 | #176 | behaviour | Read aloud stops on any change to the page's text (edit, undo, reload), a scene switch, a rail sheet opening, or the window closing. It keeps reading through focus mode, File a Copy's dialog, and the window losing key, hiding or minimising. | Stop on any window change | It stops when the text being read could change, and otherwise leaves it alone. | `Speech.swift` |
+| 65 | 2026-11-09 | #176 | behaviour | ▶ reads the page's selection even while the title or notes have the focus (the selection stays, grey). ⌘⇧R is the button's own shortcut, not a menu item's. A discontiguous selection is read in text order, with a line break between ranges. The page doesn't scroll to follow the voice. | A Speech menu item; scroll to follow | — | `Speech.swift` |
+| 66 | 2026-11-09 | #176 | aesthetic | The spoken sentence is shown with the system Find yellow band over the selection. The button is play.fill / stop.fill, with the tooltip "Stop" while reading. Waiting for the owner. | — | System defaults. | `Speech.swift`, `EditorArea` |
+| 67 | 2026-11-09 | #175 | behaviour | Tag chips filter with "all of" (as search words do), ignoring case; a chip is spelled as the newest copy that has it spells it. A chosen chip whose last copy loses the tag is dropped from the filter. | "Any of"; keep showing such chips | No tag filters without its chip showing. | `CabinetFilter` |
+| 68 | 2026-11-09 | #175 | behaviour | Card tag edits are written at once and have no undo (PLAN §8.6 lists no File Cabinet undo). | Undo for tag edits | A removed tag can be typed again. | `Archive.edit` |
+| 69 | 2026-11-09 | #175 | behaviour | Return opens the selected card; the arrows don't move between cards (unlike the Scenes sheet). Any change to the cards, their tags or notes included, forgets the last click (ADR 0043 §5). | Arrow-key focus as in the Scenes sheet | — | `CardClicks` |
+| 70 | 2026-11-09 | #175 | wording | Subtitle "5 filed copies · double-click one to open it read-only"; empty "No filed copies yet." / "File a Copy… keeps a read-only copy of the whole book here."; no matches "No filed copies match." / "The search looks in tags and notes."; tooltip "Double-click to open this copy read-only"; failure "The tag wasn't changed." + reason; ages "today", "yesterday", then as on scene cards. The stats line breaks only before a "·". | — | — | `FileCabinetWording` |
+| 71 | 2026-11-09 | #177 | behaviour | A copy opens at the scene the book has open if it has it, otherwise at its first scene. Restore copies the whole scene (title, text, notes, tags, comments) to the end of the book with a fresh id, then shows the book at that scene. | Stay in the copy after Restore | It shows the result and puts Undo within reach. | `BookStore.restoreScene(from:)` |
+| 72 | 2026-11-09 | #177 | behaviour/wording | New Book from This Copy… suggests "<title>, Oct 13, 2026", never replaces an existing name, and doesn't open the new book (ADR 0038); the book goes second in Recent Books. Alert: "“<name>” was made from this copy." / "It's in Recent Books. Close this book to open it." If the save fails after the package was made, the package is removed (only if it holds no filed copy). | Open the new book | One book window (ADR 0038). | `BookWriter.discardCopy` |
+| 73 | 2026-11-09 | #177 | behaviour | A copy written by a newer Scene It opens to read, but Restore and New Book refuse it ("This copy can only be read here."). Restore into a book that takes no edits is refused ("The scene wasn't restored."). Both menu items stay enabled and say why when refused. | Disable the items | macOS shows no tooltip on a menu item. | `FiledCopyActions` |
+| 74 | 2026-11-09 | #177, #179, #180 | behaviour | Over a filed copy, Previous/Next Scene, read aloud, Print and Export to Word act on the copy, never the book under it (Word's suggested name adds the copy's date). The File Cabinet sheet, and the Search sheet's File Cabinet scope, aren't offered over a copy or a review. | — | PLAN §7.5: what's shown is what's acted on. | `store.shown` |
+| 75 | 2026-11-09 | #177 | aesthetic/wording | A copy's page is #EBE9E4, near mockup 13's grey. Banner "Filed copy" + the detail + "— read only"; Close's tooltip "Back to your book, at the scene you had open"; open failure "The filed copy couldn't be opened."; the Comments tab reads "No comments in this scene." | — | — | `FiledCopyBanner`, `CommentWording.noCommentsReadOnly` |
+| 76 | 2026-11-09 | #179 | architecture | Print lays out with TextKit 2's storage, layout manager and container and the page's own fragment delegate, not an offscreen `NSTextView` (PLAN §10.1). File → Print… reaches the window through `MainWindowChrome`, not a focused value. | An `NSTextView`; a focused value | A text view draws one column with no page breaks; there's one book window (ADR 0038). | `ManuscriptPages`, `PrintFlow` |
+| 77 | 2026-11-09 | #179 | behaviour | The paper is the system default (Letter in the US), not forced to Letter; the layout sets the orientation only as a starting value. Detached comments aren't printed; comments that don't fit carry to the next page's column without a connector. Boxes show the comment only, not its quote. An open Boneyard scene prints under This scene; Whole manuscript never includes the Boneyard. The job title is "Book – Scene" or the book's title. | Force Letter; print the quote | Don't fight the OS. | `PrintPagination`, `ManuscriptPrinting` |
+| 78 | 2026-11-09 | #180 | behaviour | File Cabinet results are grouped by copy, newest first, with scenes ranked inside each copy. | The copy with the best hit first | Matches mockup 11 and the cabinet. | `VersionHits.grouped` |
+| 79 | 2026-11-09 | #180 | behaviour | A copy whose file can't be read is skipped with a note; a damaged or newer-format copy is still searched. Copies are read only once the first File Cabinet search runs; after that, a newly filed copy is read at once. | Skip newer-format copies; read every copy when the book opens | It searches what would open, and a writer who never searches the cabinet never pays. | `FiledCopyIndexes` |
+| 80 | 2026-11-09 | #180 | behaviour | The Search sheet's query, options, scope, picker and range stay with the open book, across opening and closing a copy; they're lost when the book closes. | Reset each time | — | `OpenBook.searchSettings` |
 
 ## What landed while the owner was offline (2026-11-08 → 09)
 
@@ -69,10 +114,28 @@ Status: **pending review** until the owner confirms or reverses an entry.
 
 Milestones closed: **M3**, **M5**, **M4b**. Follow-ups filed: #155, #161, #166, #167, #169.
 
+### M6 Archive & output
+
+| PR | Issue | What it gives the writer |
+| --- | --- | --- |
+| #172 | — | Scenes sheet: a click selects a card, a double click opens it (ADR 0043) |
+| #173 | #38, #36, #33 | Records the owner's choices: system voice, Word Heading 1, double click in the File Cabinet |
+| #174 | #37 | File → Export to Word… saves the open scene as a .docx Scene It writes itself |
+| #176 | #39 | Read aloud: ▶ reads the selection in the system voice, highlighting each sentence |
+| #175 | #33 | File Cabinet sheet: filed copies as cards, with search, date and tag filters, and tags edited on a card |
+| #177 | #33 | A filed copy opens read-only over the book; Close returns, Restore brings a scene back, New Book makes a book from it |
+| #179 | #35 | Print: a portrait manuscript, or landscape with the comments in a column |
+| #180 | #34 | Search's File Cabinet scope: search every filed copy, and open a result read-only |
+
+Open follow-ups: #178 (a test flaky under load), #181 (pack the File Cabinet search index),
+#182 (don't retry an unreadable copy on every keystroke). In progress: #183 (Word export with
+comments, entry 50).
+
 ## Hand-test checklist (one session)
 
 Everything has been reviewed independently and gated. These are the things agents can't test, because no test can synthesize real input.
-Use the trial app built from `main` (path given in the chat), with a throwaway book.
+Use the trial app at `/private/tmp/claude-501/trials/pr180-bd2620c/Scene It.app` (built from a tree
+identical to main at 5ed80b6), with a throwaway book that has a few filed copies.
 
 1. **Scenes sheet (⌘1)**
    1. Click into a card's title field and its + tag field. The field should take the click, without opening the scene or closing the sheet.
@@ -104,15 +167,76 @@ Use the trial app built from `main` (path given in the chat), with a throwaway b
    4. Double-click a Boneyard tile: it opens. A single click on a tile does nothing.
    5. Double-click the ↩ of the first tile, then of a later one: each time the tile is restored, and the tile that slides along does not open.
    6. Clicks in a card's title field, + tag and tag chips still go to them, and dragging a card or tile still works. Check the tooltips.
+8. **Read aloud**
+   1. Select a few sentences and press ▶. You hear the Spoken Content voice at a normal pace, the highlight moves sentence by sentence with it, and ▶ shows ■.
+   2. Press ■ (or ⌘⇧R) mid-sentence: the voice stops at once and the highlight goes. The selection stays, and the book isn't marked unsaved.
+   3. Let a reading finish: the highlight goes and ■ turns back to ▶.
+   4. Start with a selection that begins mid-sentence: the first highlight starts where the selection does.
+   5. While reading, type a letter, open another scene, open the Scenes sheet, or close the book: each stops the voice.
+   6. With no selection, ▶ is dimmed and ⌘⇧R does nothing. Selecting text in the Notes tab leaves it dimmed.
+   7. Read-only: in a book open elsewhere and in a filed copy, select text and press ▶; it reads.
+   8. Pick another voice in System Settings › Accessibility › Spoken Content: the next reading uses it.
+9. **Export to Word…**
+   1. Export a scene with a title, bold, italic, strikethrough, two colours, two highlights, a comment, blank lines, quotes, `--` and `...`. In Word: no repair prompt and no "Compatibility Mode"; the Navigation pane lists the title; the Styles pane shows Heading 1 (TNR 18 pt bold black); the body is TNR 12 pt, double-spaced, with a 0.5 in first-line indent; colours match the app and highlights show in its pastels; no comments; curly quotes, an em dash and an ellipsis; a commented word isn't a separate run (Reveal Formatting).
+   2. Pages opens the same file without warnings; the title is a heading, and spacing, indent and highlights are right.
+   3. Quick Look in the Finder shows the text and formatting.
+   4. In Word, a new paragraph after the body is TNR 12 pt, double-spaced.
+   5. Export from a read-only book, a review and a Boneyard scene: it works, and nothing in the book changes.
+   6. Export over an existing .docx (replace in the save panel); a name ending in `.doc` is refused with the notice.
+   7. File → Export to Word… sits after Export as SceneIt… and is enabled only while a scene is open.
+   8. In Word's Page Setup, note the page size and margins it opens with, and whether they suit a manuscript (entry 61).
+   9. With Word in dark mode, uncoloured text follows Word, and palette colours stay as they are.
+10. **File Cabinet sheet**
+    1. Open it from the rail on a book with filed copies. Check the cards and their ages, and the filters: type, pick dates, click chips; ⓧ clears the dates.
+    2. + tag on a card: type, Return, type another, Esc. × removes a tag. Reopen the book: the tags are kept.
+    3. A click selects a card (focus ring); a double click or Return opens the copy. Check the double click is read as two clicks with the real mouse.
+    4. In a book opened read-only, cards have no × and no + tag.
+11. **Filed copy**
+    1. The copy shows with the yellow banner and grey page, at your open scene. Typing beeps; select and ⌘C still copy.
+    2. Close returns to your book at the scene you had open.
+    3. Close ▾ → Restore This Scene to My Book: the book shows with the restored scene at the end. Undo it from the Scenes sheet.
+    4. Close ▾ → New Book from This Copy…: pick a name; the alert says it's in Recent Books. Close the book and open the new one.
+    5. ⌘W closes the copy and the next ⌘W closes the book. Holding ⌘W closes only the copy. The File menu reads Close Copy while a copy shows.
+    6. ⌘⌥↑ / ⌘⌥↓ move between the copy's scenes; Close still returns to the book's scene.
+    7. The File Cabinet rail icon is dimmed over a copy.
+    8. Export to Word… over a copy: the suggested name has the copy's date, and the document holds the copy's text.
+12. **Print**
+    1. File → Print… (⌘P) and the toolbar's Print open the system print dialog as a sheet, with the Layout/Range accessory under its details. Collapsed, the dialog summarises Layout and Range.
+    2. Text with comments turns the preview landscape with the comment column; Text only turns it back. Whole manuscript adds the other story scenes, no Boneyard.
+    3. Save as PDF writes the same pages; open the PDF in Preview.
+    4. Landscape, on paper or in the PDF: each comment sits level with its line, none overlap, the pushed-down ones' connectors reach their text, and no comment is split across pages. Look at a line with three comments (entry 55).
+    5. Print from a read-only book and from a filed copy.
+    6. Change the paper to A4: the pages re-lay out without clipping.
+    7. With the Scenes, Search or File Cabinet sheet up, or File a Copy's dialog, ⌘P and the toolbar's Print are disabled; with the print dialog up, a second ⌘P does nothing.
+13. **Search: File Cabinet scope**
+    1. Switch to File Cabinet and type a word. "Reading filed copies…" shows briefly, then the groups. Search again: it's instant.
+    2. The copy picker lists every copy newest first; picking one narrows the results.
+    3. Type a from date: the picker reads "in range", and a picked copy outside the range drops back to All. ⓧ clears both dates.
+    4. Click a result: the copy opens read-only at that scene with the match selected.
+    5. File a copy, then search the File Cabinet: the new copy is in the results.
+    6. Tick Search tags and search a copy tag (for example `draft`): "Tags of this copy" groups appear.
+    7. Tab reaches the picker and the date fields from the search field.
+    8. In a copy opened from a result, open Search: only This scene and Whole book show, and a result opens in the copy with its match selected.
 
 ## Decisions waiting for the owner (not made by default)
 
 - #155: wording for telling the writer that an export leaves out a damaged book's unparsed text.
 - ADR 0041 (Proposed): undoing a new scene keeps its words (entries 17 and 20).
 - ADR 0042: the review lock doesn't protect across Macs or users (entry 28).
+- Entry 37: the Scenes sheet's double-click defaults (a tile's single click selects nothing, a click
+  doesn't scroll, the remembered-click guard, the tooltips).
+- Read aloud's look (entry 66): the Find yellow band, the "Stop" tooltip on ■, and the play.fill /
+  stop.fill symbols. Still unpicked.
+- Print's connector lanes (entry 55): with three comments on one line the lanes are tight, at 2.5 pt
+  apart. Renders: `build/review/35/print/landscape-page-1@2x.png`.
+- Word highlights as shading rather than `w:highlight` (entry 60).
 
 ## Decided by the owner
 
-- 2026-11-09, M6: read aloud starts with the system voice at rate 0.5 (ADR 0044, #38); Export to
-  Word makes the title Heading 1 (ADR 0045, #36); the File Cabinet opens a copy on a double click
-  (ADR 0046, #33). The owner heard voice samples before choosing.
+The M6 rows marked **owner** (entries 38–50; entry 50 waits on #183's PR). In short: read aloud
+starts with the system voice at rate 0.5 (ADR 0044); Export to Word makes the title Heading 1 (ADR
+0045) and Scene It writes the .docx itself (ADR 0047); the File Cabinet opens a copy on a double click
+(ADR 0046); the File Cabinet, Print and File Cabinet search looks are approved as rendered, with
+the plain date field and ⓧ and the split Close button; Print's options live in the system dialog and each scene starts a page; search results open
+on a single click; the search's memory is accepted (follow-up #181). The owner heard voice samples
+before choosing.
