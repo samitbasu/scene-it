@@ -19,6 +19,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Anyway, say) makes a new `OpenBook` at the same `layout`, which the window mustn't take
     /// for the old one.
     @ObservationIgnored public let instanceID = UUID()
+    /// The package's identity as the book opened, which a rename or move in Finder doesn't
+    /// change; `nil` if it couldn't be identified.
+    @ObservationIgnored let packageIdentity: MountedIdentity?
     public private(set) var book: Book
     /// Kept in step with `book` by every edit, so the status bar never recounts the book.
     public private(set) var wordCounts: SceneWordCounts
@@ -31,13 +34,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public private(set) var archiveNotices: [ArchiveNotice]
     /// What the writer gave copies whose filing couldn't save their section in the index:
     /// recorded by the next save or reconciliation that can write it.
-    public private(set) var pendingRecords: [FiledCopyNumber: FilingRecord] = [:]
+    public private(set) var pendingRecords: [FiledCopyNumber: PendingRecord] = [:]
     /// File a Copy's dialog while it's up (PLAN §7.1): what the writer has typed there, which
     /// leaving the book asks about first.
     public var filingDraft: FilingDraft?
-    /// Pending records whose copies the index turned out to give other sections (another
-    /// program wrote them): forgotten, for the store to tell the writer.
-    @ObservationIgnored private var overwrittenRecords: Archive.Pending = [:]
+    /// Pending records whose copies the index turned out to give other sections, or whose
+    /// numbers turned out to hold other files (another program wrote them): forgotten, for the
+    /// store to tell the writer. A number can appear twice.
+    @ObservationIgnored private var overwrittenRecords: UnrecordedCopies = []
     /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
@@ -67,10 +71,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// `pending`: the records the book this one replaces still had pending; `archive` was
     /// reconciled with them.
     init(
-        _ opened: OpenedBook, archive: ReconciledArchive, pending: Archive.Pending, clock: C,
-        mirror: BackupMirror, store: BookStore<C>
+        _ opened: OpenedBook, identity: MountedIdentity?, archive: ReconciledArchive,
+        pending: Archive.Pending,
+        clock: C, mirror: BackupMirror, store: BookStore<C>
     ) {
         self.store = store
+        packageIdentity = identity
         book = opened.book
         self.archive = archive.index
         archiveNotices = archive.notices
@@ -88,13 +94,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             access = .readOnly(reason)
         }
         pendingRecords = pending
-        settlePending(against: archive.index, isEditable && archive.isSaved ? .saved : .notSaved)
+        settlePending(against: archive.indexToWrite, isEditable && archive.isSaved ? .saved : .notSaved)
         openScene = book.scenes.first?.id
     }
 
     /// A review, as Review Book… opened it (ADR 0042). It has no archive.
     init(_ review: LoadedReview, clock: C, store: BookStore<C>) {
         self.store = store
+        packageIdentity = nil
         book = review.book
         archive = ArchiveIndex()
         archiveNotices = []
@@ -689,11 +696,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let result: FilingResult
         do throws(FilingFailure) {
             let outcome = try await writer.fileCopy(of: book, as: record, pending: pendingRecords)
+            forgetPending(at: outcome.number, filedAgainAs: record)
             switch outcome.index {
             case .updated(let index):
                 settlePending(against: index, .saved)
             case .notUpdated(.couldNotRead), .notUpdated(.notWritten):
-                pendingRecords[outcome.number] = record
+                pendingRecords[outcome.number] = PendingRecord(record, digest: outcome.digest)
             case .notUpdated(.newerFormat):
                 break
             }
@@ -705,9 +713,19 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         if let reconciled = await writer.reconcileArchive(.readOnly, pending: pendingRecords) {
             show(reconciled)
-            settlePending(against: reconciled.index, .notSaved)
+            settlePending(against: reconciled.indexToWrite, .notSaved)
         }
         return result
+    }
+
+    /// A new copy was filed as `number`, which was free, so the file a pending record there
+    /// was given is gone (another program emptied `Archive/`). Unless the writer gave the new
+    /// copy the same record, the old one moves to `overwrittenRecords`.
+    private func forgetPending(at number: FiledCopyNumber, filedAgainAs record: FilingRecord) {
+        guard let earlier = pendingRecords.removeValue(forKey: number), earlier.record != record else {
+            return
+        }
+        overwritten([(number, earlier.record)])
     }
 
     /// Records the pending records, if any, now that a save may have cleared what stopped them.
@@ -723,7 +741,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             return
         }
         show(reconciled)
-        settlePending(against: reconciled.index, reconciled.isSaved ? .saved : .notSaved)
+        settlePending(against: reconciled.indexToWrite, reconciled.isSaved ? .saved : .notSaved)
     }
 
     private enum IndexState {
@@ -732,34 +750,39 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Forgets the pending records `index` holds, once it's saved. A copy that `index` gives
-    /// a section of its own (another program wrote it) keeps that section, and its record
-    /// moves to `overwrittenRecords`.
+    /// a section of its own (another program wrote it), or lists without its record (a
+    /// different file has its number), keeps that section, and its record moves to
+    /// `overwrittenRecords`. A copy `index` leaves out keeps its record pending.
     private func settlePending(against index: ArchiveIndex, _ state: IndexState) {
-        var overwritten: Archive.Pending = [:]
+        var overwritten: UnrecordedCopies = []
         for copy in index.copies {
-            guard let record = pendingRecords[copy.number] else { continue }
-            if !copy.holds(record) {
-                overwritten[copy.number] = record
+            guard let pending = pendingRecords[copy.number] else { continue }
+            if !copy.holds(pending.record) {
+                overwritten.append((copy.number, pending.record))
                 pendingRecords[copy.number] = nil
             } else if state == .saved {
                 pendingRecords[copy.number] = nil
             }
         }
-        if !overwritten.isEmpty {
-            Log.store.error(
-                "the archive index has other sections for filed copies whose records were pending",
-                ["count": .count(overwritten.count)])
-            overwrittenRecords.merge(overwritten) { _, new in new }
-        }
+        self.overwritten(overwritten)
+    }
+
+    private func overwritten(_ records: UnrecordedCopies) {
+        guard !records.isEmpty else { return }
+        Log.store.error(
+            "the archive has other sections or files for filed copies whose records were pending",
+            ["count": .count(records.count)])
+        overwrittenRecords += records
     }
 
     /// The records the store must tell the writer about now, emptied as they're taken.
     /// `leaving` adds the ones still pending, which nothing will record once the book is gone.
-    func takeRecordsToTell(_ leaving: PendingFate) -> Archive.Pending {
-        defer { overwrittenRecords = [:] }
+    func takeRecordsToTell(_ leaving: PendingFate) -> UnrecordedCopies {
+        defer { overwrittenRecords = [] }
         switch leaving {
         case .kept: return overwrittenRecords
-        case .lost: return overwrittenRecords.merging(pendingRecords) { _, pending in pending }
+        case .lost:
+            return overwrittenRecords + pendingRecords.map { (number: $0.key, record: $0.value.record) }
         }
     }
 
@@ -914,7 +937,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             lastSave = (now, backups)
             store?.bookSaved(at: now)
             if let writer = writer.book { await recordPending(writer) }
-            if !overwrittenRecords.isEmpty { store?.tellRecords(of: self) }
+            if !overwrittenRecords.isEmpty, !isDetached { store?.tellRecords(of: self) }
         } catch {
             Log.store.error("a save failed", ["error": .error(LoggedError(error))])
             // Runs after the driver has handled this failure, so it sees the pause, if any.
@@ -990,6 +1013,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     func detach() -> DocumentWriter? {
         defer { access = .closed }
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
+    }
+
+    /// Once the book is detached, the store has told its records as lost or carried them to the
+    /// book read again, so a save still running then mustn't tell them again.
+    private var isDetached: Bool {
+        if case .closed = access { true } else { false }
     }
 }
 

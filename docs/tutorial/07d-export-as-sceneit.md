@@ -72,8 +72,14 @@ scenes), and serializes to the same bytes. `ReviewCopyWriter.write` then follows
 pipeline from chapter 03: `writeTemporary` (durable under a hidden name), then `publish` for a new
 name or `move` over an existing file. Before any of it, it refuses a destination inside the open
 book's package, comparing canonical paths (`.`, `..` and links resolved, case ignored) and file
-identities (`FileSystem.identity`, the volume and file number) of the folders above it, and refuses
-anything at the destination that isn't a plain file the writer can write. The store runs it through
+identities (`FileSystem.mountedIdentity`, the device and file number from `stat`) of the folders
+above it, and refuses anything at the destination that isn't a plain file the writer can write.
+Unlike the backups' `FileIdentity`, that identity needs no volume UUID, so it works on network
+shares too; it only has to hold while the book is open. The package's identity is the one read as
+the book opened (`OpenBook.packageIdentity`), along with the one at its path now: if the writer
+renames or moves the package in Finder while it's open, the old path names nothing, but the renamed
+folder still has the identity read at open (#157). A package that can't be identified either way
+exports nothing, since nothing could tell a destination inside it apart. The store runs it through
 `exclusively` and a `@concurrent` hop (chapter 04), and tells the writer through `StorePrompts` when
 nothing was written.
 

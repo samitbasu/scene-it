@@ -1,5 +1,7 @@
+import Dispatch
 import Foundation
 import SceneItTestSupport
+import Synchronization
 import Testing
 
 @testable import SceneItCore
@@ -106,4 +108,34 @@ func createBook(_ name: String, in folder: URL, store: TestStore) async throws -
     let url = folder.appending(path: "\(name).sceneit", directoryHint: .isDirectory)
     try #require(await store.create(at: url) == .created)
     return url
+}
+
+/// Holds a file-system call (on the thread making it) until the test opens the gate, so the
+/// test can act on the main actor while the store waits for the disk.
+final class Gate: Sendable {
+    private let arrivals = Mutex(0)
+    private let proceed = DispatchSemaphore(value: 0)
+
+    /// Called by the blocked call.
+    func pass() {
+        arrivals.withLock { $0 += 1 }
+        proceed.wait()
+    }
+
+    /// Records an issue, rather than hanging, if nothing arrives within `eventually`'s budget.
+    @MainActor
+    func waitForArrival(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await eventually(
+            {
+                arrivals.withLock { arrivals in
+                    guard arrivals > 0 else { return false }
+                    arrivals -= 1
+                    return true
+                }
+            }, sourceLocation: sourceLocation)
+    }
+
+    func open() {
+        proceed.signal()
+    }
 }

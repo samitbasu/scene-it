@@ -258,7 +258,7 @@ public final class BookPackage: Sendable {
     /// does), checks that `book.md` now holds exactly its verified bytes, and files those bytes
     /// as the next `Archive/saveNNNN.md` (`Archive.file`). No save can run in between.
     public func fileCopy(
-        of book: Book, as record: FilingRecord, pending: [FiledCopyNumber: FilingRecord] = [:]
+        of book: Book, as record: FilingRecord, pending: [FiledCopyNumber: PendingRecord] = [:]
     ) throws(FilingFailure) -> FiledBook {
         let data: Data
         do {
@@ -289,7 +289,7 @@ public final class BookPackage: Sendable {
     /// Reconciles `Archive/` with its index (PLAN §5.5), locking any filed copy that isn't
     /// and saving the index if it changes: this package holds the book's lock. `pending`
     /// gives sections for filed copies whose filing couldn't save theirs.
-    public func reconcileArchive(pending: [FiledCopyNumber: FilingRecord] = [:]) -> ReconciledArchive {
+    public func reconcileArchive(pending: [FiledCopyNumber: PendingRecord] = [:]) -> ReconciledArchive {
         Archive(layout: layout, fileSystem: fileSystem).reconcile(.writable, pending: pending)
     }
 
@@ -383,6 +383,13 @@ public enum OpenedBook: Sendable {
         case .readOnly(let readOnly, _): readOnly.book
         }
     }
+
+    public var layout: PackageLayout {
+        switch self {
+        case .editing(let editable): editable.package.layout
+        case .readOnly(let readOnly, _): readOnly.layout
+        }
+    }
 }
 
 public struct EditableBook: Sendable {
@@ -399,7 +406,7 @@ public struct ReadOnlyBook: Sendable {
     /// What the File Cabinet lists, read and reconciled without writing anything. `pending`
     /// gives sections for filed copies whose filing couldn't save theirs.
     public func reconcileArchive(
-        pending: [FiledCopyNumber: FilingRecord] = [:], fileSystem: any FileSystem = LocalFileSystem()
+        pending: [FiledCopyNumber: PendingRecord] = [:], fileSystem: any FileSystem = LocalFileSystem()
     ) -> ReconciledArchive {
         Archive(layout: layout, fileSystem: fileSystem).reconcile(.readOnly, pending: pending)
     }

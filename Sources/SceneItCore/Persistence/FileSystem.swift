@@ -67,6 +67,11 @@ public protocol FileSystem: Sendable {
     /// `nil`, when the volume's UUID can't be read, so a failure isn't taken for "no UUID".
     func identity(of url: URL) throws(FileSystemError) -> FileIdentity?
 
+    /// Which file or directory is at `url` while its volume stays mounted. Needs no volume UUID,
+    /// unlike `identity(of:)`, so it serves on every volume, but only for as long as the volume
+    /// stays mounted. Follows a symbolic link at `url`.
+    func mountedIdentity(of url: URL) throws(FileSystemError) -> MountedIdentity
+
     /// An exclusive, non-blocking `flock` on `file`, created empty if it's missing.
     func lock(_ file: URL) -> LockAttempt
 
@@ -91,6 +96,18 @@ public struct FileIdentity: Hashable, Sendable, Codable {
 
     public init(volume: String, file: UInt64) {
         self.volume = volume
+        self.file = file
+    }
+}
+
+/// A device number and the file number within it (`st_dev`, `st_ino`). A rename or move
+/// within the volume keeps it; a remount can change the device number.
+public struct MountedIdentity: Hashable, Sendable {
+    public let device: UInt64
+    public let file: UInt64
+
+    public init(device: UInt64, file: UInt64) {
+        self.device = device
         self.file = file
     }
 }

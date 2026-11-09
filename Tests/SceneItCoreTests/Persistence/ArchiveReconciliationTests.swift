@@ -23,7 +23,8 @@ import Testing
         _ listing: [DirectoryEntry], _ index: ParsedArchiveIndex, counts: FiledCopyCounts? = counted
     ) -> ReconciledArchive {
         ArchiveReconciliation.reconcile(
-            listing: listing, index: index, modified: { _ in fileDay }, counts: { _ in counts })
+            listing: listing, index: index, modified: { _ in fileDay },
+            facts: { _ in FiledCopyFacts(counts: counts, digest: filedBytes) }, pending: [:])
     }
 
     static let twoCopies = """
@@ -104,12 +105,16 @@ import Testing
         #expect(Self.reconcile(Self.files(1), rewritten).rewrite == .unneeded)
     }
 
+    static let filedBytes = ContentDigest(Data("the copy as filed".utf8))
+
     @Test func aPendingRecordGivesACopyWithNoEntryItsTagsNoteAndDate() throws {
         let record = FilingRecord(
             filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["draft 5"], note: "Kept")
+        let pending = PendingRecord(record, digest: Self.filedBytes)
         let reconciled = ArchiveReconciliation.reconcile(
             listing: Self.files(1, 2, 3), index: Self.parse(Self.twoCopies), modified: { _ in Self.fileDay },
-            counts: { _ in Self.counted }, pending: [Self.number(3): record, Self.number(1): record])
+            facts: { _ in Self.facts(Self.filedBytes) },
+            pending: [Self.number(3): pending, Self.number(1): pending])
         #expect(
             reconciled.index.copies.last
                 == FiledCopy(
@@ -118,6 +123,46 @@ import Testing
         #expect(
             reconciled.index.copies.first == Self.parse(Self.twoCopies).index.copies.first, "an entry wins")
         #expect(reconciled.notices == [.recordedPendingEntry(Self.number(3))])
+    }
+
+    static func facts(_ digest: ContentDigest) -> FiledCopyFacts {
+        FiledCopyFacts(counts: counted, digest: digest)
+    }
+
+    static func reconcilePending(at number: Int, facts: FiledCopyFacts?) throws -> ReconciledArchive {
+        let record = FilingRecord(
+            filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["mine"])
+        return ArchiveReconciliation.reconcile(
+            listing: Self.files(1, 2, 3), index: Self.parse(Self.twoCopies), modified: { _ in Self.fileDay },
+            facts: { _ in facts },
+            pending: [Self.number(number): PendingRecord(record, digest: Self.filedBytes)])
+    }
+
+    /// Another Mac or a sync tool replaced `Archive/`, so a different file has the record's number.
+    @Test func aPendingRecordForAnotherFileAtItsNumberIsntGivenToIt() throws {
+        let reconciled = try Self.reconcilePending(
+            at: 3, facts: Self.facts(ContentDigest(Data("another".utf8))))
+        #expect(
+            reconciled.index.copies.last
+                == FiledCopy(number: Self.number(3), filed: Self.fileDay, counts: Self.counted))
+        #expect(reconciled.notices == [.pendingEntryForAnotherCopy(Self.number(3))])
+        #expect(reconciled.unverified.isEmpty)
+        #expect(reconciled.indexToWrite == reconciled.index, "the other file's section is written")
+        #expect(reconciled.rewrite == .needed)
+    }
+
+    /// The copy can't be read (a sync service evicted it, say), so its record can't be checked:
+    /// it's listed with no tags, but not written to the index, so the next reconciliation checks
+    /// again.
+    @Test func aPendingRecordWhoseCopyCantBeReadIsLeftUnverified() throws {
+        let reconciled = try Self.reconcilePending(at: 3, facts: nil)
+        #expect(
+            reconciled.index.copies.last
+                == FiledCopy(number: Self.number(3), filed: Self.fileDay, counts: nil))
+        #expect(reconciled.notices == [.pendingEntryUnverified(Self.number(3))])
+        #expect(reconciled.unverified == [Self.number(3)])
+        #expect(reconciled.indexToWrite == Self.parse(Self.twoCopies).index)
+        #expect(reconciled.rewrite == .unneeded, "the index already says all that may be written")
     }
 
     @Test func aNumberPastTheHighestIsNotCountedAndDoesntBlockNumbering() {

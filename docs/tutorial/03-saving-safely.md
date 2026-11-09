@@ -1364,7 +1364,12 @@ its opening reconciliation records it. Open My Version switches to another packa
 has none of the original's copies, so whatever the last try couldn't write is quoted in a notice.
 Closing or quitting tries once more and quotes what's left the same way, and so does a reload that
 fails to open. If another program has given the copy a section of its own meanwhile, that section is
-kept, never overwritten, and the record is quoted instead. Every alert that might lose text quotes the tags and note back.
+kept, never overwritten, and the record is quoted instead. A pending record also holds the SHA-256
+digest of the copy it was given to (`PendingRecord`), so if another Mac or a sync tool replaced
+`Archive/` and a different file now has that number, reconciliation lists that file without the
+record, and the record is quoted (#153). A copy that can't be read (a sync service evicted it, say)
+can't be checked, so it's listed without the record but left out of the index on disk, and the
+record waits for a reconciliation that can read it, or is quoted when the book is closed. Every alert that might lose text quotes the tags and note back.
 
 ### Three layers keep a filed copy unchanged
 

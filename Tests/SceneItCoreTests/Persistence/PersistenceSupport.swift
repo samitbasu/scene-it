@@ -24,13 +24,14 @@ final class FaultInjectingFileSystem: FileSystem {
         case remove(String)
         case removeDirectory(String)
         case identify(String)
+        case identifyMounted(String)
         /// Creates the lock file if it's missing.
         case lock(String)
         case makeImmutable(String)
 
         var isMutation: Bool {
             switch self {
-            case .inspect, .read, .open, .list, .identify: false
+            case .inspect, .read, .open, .list, .identify, .identifyMounted: false
             case .writeTemporary, .publish, .exchange, .discard, .move, .createDirectory, .remove,
                 .removeDirectory, .lock, .makeImmutable:
                 true
@@ -52,6 +53,7 @@ final class FaultInjectingFileSystem: FileSystem {
             case .remove(let name): "remove \(name)"
             case .removeDirectory(let name): "remove directory \(name)"
             case .identify(let name): "identify \(name)"
+            case .identifyMounted(let name): "identify \(name) while mounted"
             case .lock(let name): "lock \(name)"
             case .makeImmutable(let name): "make \(name) immutable"
             }
@@ -77,6 +79,7 @@ final class FaultInjectingFileSystem: FileSystem {
         var matched = 0
         var hooks: [(call: Call, action: @Sendable () -> Void)] = []
         var identities: [String: FileIdentity?] = [:]
+        var mountedIdentities: [String: MountedIdentity] = [:]
         var locality: VolumeLocality?
         var enforcement = LockEnforcement.kernel
     }
@@ -205,6 +208,20 @@ final class FaultInjectingFileSystem: FileSystem {
         return try perform(.identify(key), .inspect, url) { () throws(FileSystemError) in
             if let overridden = state.withLock({ $0.identities[key] }) { return overridden }
             return try base.identity(of: url)
+        }
+    }
+
+    /// Makes `mountedIdentity(of: url)` answer `identity` instead of asking the volume.
+    func override(mountedIdentityOf url: URL, with identity: MountedIdentity) {
+        let key = name(url)
+        state.withLock { $0.mountedIdentities[key] = identity }
+    }
+
+    func mountedIdentity(of url: URL) throws(FileSystemError) -> MountedIdentity {
+        let key = name(url)
+        return try perform(.identifyMounted(key), .inspect, url) { () throws(FileSystemError) in
+            if let overridden = state.withLock({ $0.mountedIdentities[key] }) { return overridden }
+            return try base.mountedIdentity(of: url)
         }
     }
 
