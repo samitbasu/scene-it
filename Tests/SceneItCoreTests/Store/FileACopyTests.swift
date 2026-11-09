@@ -626,7 +626,8 @@ struct FileACopyTests {
             await eventually { prompts.notices.count == 3 }
 
             #expect(store.current !== old && store.current?.pendingRecords.isEmpty == true)
-            let told = ArchiveWording.unrecorded([FiledCopyNumber.first: Self.record], in: url)
+            let told = ArchiveWording.unrecorded(
+                [FiledCopyNumber.first: Self.record], listedOn: Self.listedToday, in: url)
             #expect(prompts.notices.last == told)
             #expect(
                 prompts.notices.map(\.title) == [
@@ -640,50 +641,90 @@ struct FileACopyTests {
         }
     }
 
+    /// What the store passes for `listedOn` in these tests: a copy filed today is listed today.
+    static let listedToday: (FiledCopyNumber) -> CalendarDay = { _ in CalendarDay(.now, in: .current) }
+
     @Test func theUnrecordedNoticeQuotesEveryCopyWithTheWritersDate() throws {
         let url = URL(filePath: "/Books/Novel.sceneit", directoryHint: .isDirectory)
         let second = FilingRecord(filed: CalendarDay(year: 2026, month: 11, day: 2)!, note: "After")
-        let dateOnly = FilingRecord(filed: Self.record.filed)
+        let listed = CalendarDay(year: 2026, month: 11, day: 5)!
+        let asListed = FilingRecord(filed: listed)
+        let backDated = FilingRecord(filed: CalendarDay(year: 2026, month: 10, day: 31)!)
         let notice = try #require(
             ArchiveWording.unrecorded(
-                [FiledCopyNumber(2)!: second, .first: Self.record, FiledCopyNumber(3)!: dateOnly], in: url))
+                [
+                    FiledCopyNumber(2)!: second, .first: Self.record, FiledCopyNumber(3)!: asListed,
+                    FiledCopyNumber(4)!: backDated,
+                ], listedOn: { _ in listed }, in: url))
         #expect(notice.title == "Scene It couldn't save some filed copies' tags and notes.")
         let first = ArchiveWording.day(Self.record.filed)
         let next = ArchiveWording.day(second.filed)
+        let back = ArchiveWording.day(backDated.filed)
         #expect(
             notice.message
                 == "Scene It couldn't save them to the File Cabinet's list in \u{201C}Novel\u{201D}, so it "
                 + "lists those copies without them.\n\nYour date: \u{201C}\(first)\u{201D}. Your tags: "
                 + "\u{201C}draft 4\u{201D}. Your note: \u{201C}Before the ending\u{201D}.\n\nYour date: "
-                + "\u{201C}\(next)\u{201D}. Your note: \u{201C}After\u{201D}.",
-            "the copy with no tags and no note loses nothing, so it isn't quoted")
+                + "\u{201C}\(next)\u{201D}. Your note: \u{201C}After\u{201D}.\n\nYour date: \u{201C}\(back)\u{201D}.",
+            "a copy with only the date it's listed with anyway loses nothing, so it isn't quoted")
     }
 
     @Test func theUnrecordedNoticeNamesWhatWasTyped() throws {
         let url = URL(filePath: "/Books/Novel.sceneit", directoryHint: .isDirectory)
         let day = Self.record.filed
+        let listedOn: (FiledCopyNumber) -> CalendarDay = { _ in day }
         let tags = FilingRecord(filed: day, tags: ["a"])
         let note = FilingRecord(filed: day, note: "n")
+        let backDated = FilingRecord(filed: CalendarDay(year: 2026, month: 10, day: 1)!)
         let second = FiledCopyNumber(2)!
         let cases: [([FiledCopyNumber: FilingRecord], String, String)] = [
             ([.first: tags], "Scene It couldn't save a filed copy's tags.", "them"),
             ([.first: note], "Scene It couldn't save a filed copy's note.", "it"),
             ([.first: Self.record], "Scene It couldn't save a filed copy's tags and note.", "them"),
+            ([.first: backDated], "Scene It couldn't save a filed copy's date.", "it"),
             ([.first: tags, second: tags], "Scene It couldn't save some filed copies' tags.", "them"),
             ([.first: note, second: note], "Scene It couldn't save some filed copies' notes.", "them"),
+            (
+                [.first: backDated, second: backDated], "Scene It couldn't save some filed copies' dates.",
+                "them"
+            ),
             (
                 [.first: tags, second: note], "Scene It couldn't save some filed copies' tags and notes.",
                 "them"
             ),
         ]
         for (pending, title, pronoun) in cases {
-            let notice = try #require(ArchiveWording.unrecorded(pending, in: url))
+            let notice = try #require(ArchiveWording.unrecorded(pending, listedOn: listedOn, in: url))
             #expect(notice.title == title)
             #expect(notice.message.hasPrefix("Scene It couldn't save \(pronoun) "), "\(title)")
         }
-        #expect(ArchiveWording.unrecorded([:], in: url) == nil)
+        #expect(ArchiveWording.unrecorded([:], listedOn: listedOn, in: url) == nil)
         #expect(
-            ArchiveWording.unrecorded([.first: FilingRecord(filed: day)], in: url) == nil, "nothing to lose")
+            ArchiveWording.unrecorded([.first: FilingRecord(filed: day)], listedOn: listedOn, in: url) == nil,
+            "nothing to lose")
+    }
+
+    /// Quit's last try finds that another program gave the copy a section: the writer is told
+    /// before the app is allowed to quit.
+    @Test func quittingTellsATagOverwrittenByAnotherProgramBeforeLeaving() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            _ = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.clearFault()
+            try Data("---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-10-30\ntags: theirs\n".utf8)
+                .write(to: PackageLayout(root: url).archiveIndex)
+
+            #expect(await store.prepareToQuit() == .left)
+
+            #expect(prompts.notices.count == 2, "told within the quit, not after it")
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([.first: Self.record], listedOn: Self.listedToday, in: url))
+            #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]], "their section is kept")
+        }
     }
 
     // MARK: Leaving or losing a book with tags the index couldn't save (#148)
@@ -701,7 +742,9 @@ struct FileACopyTests {
 
             #expect(outcome == .left)
             #expect(store.current == nil)
-            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([.first: Self.record], listedOn: Self.listedToday, in: url))
             #expect(prompts.notices.count == 2, "the filing's notice, then what's lost")
         }
     }
@@ -744,7 +787,9 @@ struct FileACopyTests {
 
             #expect(store.current == nil, "precondition: the reload failed")
             #expect(prompts.notices[1].message.hasSuffix("is first in Recent Books."), "the book-lost notice")
-            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([.first: Self.record], listedOn: Self.listedToday, in: url))
         }
     }
 
@@ -820,7 +865,9 @@ struct FileACopyTests {
 
             #expect(book.pendingRecords.isEmpty)
             #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]], "their section is kept")
-            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([.first: Self.record], listedOn: Self.listedToday, in: url))
             #expect(await store.closeBook() == .left)
             #expect(prompts.notices.count == 2, "told once")
         }

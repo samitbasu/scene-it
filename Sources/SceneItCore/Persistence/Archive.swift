@@ -338,7 +338,8 @@ struct Archive {
     }
 
     /// The local day a filed copy was last modified, or today if it can't be inspected.
-    private func modifiedDay(_ number: FiledCopyNumber) -> CalendarDay {
+    /// The day a filed copy with no section is listed with: its file's modification day.
+    func modifiedDay(_ number: FiledCopyNumber) -> CalendarDay {
         let modified: Date =
             if case .file(let metadata, _)? = try? fileSystem.item(at: layout.filedCopy(number)) {
                 metadata.modified

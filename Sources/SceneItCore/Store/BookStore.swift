@@ -311,6 +311,7 @@ public final class BookStore<C: Clock<Duration>> {
             }
             book.becomeEditable(writer, clock: clock)
             await book.reconcileArchive(with: writer)
+            await tellRecords(book.takeRecordsToTell(.kept), in: book)
             return .editable
         case .readOnly(let kept, let reason):
             switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
@@ -344,6 +345,7 @@ public final class BookStore<C: Clock<Duration>> {
         session = .open(book)
         remember(target.url)
         await replaced?.release()
+        await tellRecords(book.takeRecordsToTell(.kept), in: book)
         return book
     }
 
@@ -362,6 +364,7 @@ public final class BookStore<C: Clock<Duration>> {
             if let current, current !== book { return .unavailable }
             let result = current == nil ? .unavailable : await book.fileCopy(as: record)
             if let notice = ArchiveWording.notice(for: result, record: record) { await prompts.tell(notice) }
+            await tellRecords(book.takeRecordsToTell(.kept), in: book)
             return result
         }
     }
@@ -465,7 +468,7 @@ public final class BookStore<C: Clock<Duration>> {
             await prompts.tell(OneBookWording.bookLost(failure, myVersion: copyURL))
         }
         let readAgainHoldsTheRecords = if case .again = replacement, current != nil { true } else { false }
-        if !readAgainHoldsTheRecords { await tellUnrecorded(book) }
+        await tellRecords(book.takeRecordsToTell(readAgainHoldsTheRecords ? .kept : .lost), in: book)
     }
 
     // MARK: Closing and quitting
@@ -505,6 +508,7 @@ public final class BookStore<C: Clock<Duration>> {
         session = .choosing
         switch (departure, leaving) {
         case (.discarding, .closeBook):
+            // Told as lost even if the stuck save later records it; a false alarm is the safe direction.
             if let writer { Task { await writer.release() } }
         case (.discarding, .quit):
             writer?.releaseUnlessSaving()
@@ -512,7 +516,7 @@ public final class BookStore<C: Clock<Duration>> {
             if let writer { await book.recordPending(writer) }
             await writer?.release()
         }
-        await tellUnrecorded(book)
+        await tellRecords(book.takeRecordsToTell(.lost), in: book)
         return .left
     }
 
@@ -540,19 +544,20 @@ public final class BookStore<C: Clock<Duration>> {
 
     // MARK: Helpers
 
-    /// Tells the writer of `book`'s pending records, which nothing will record once it's left.
-    private func tellUnrecorded(_ book: OpenBook<C>) async {
-        guard let notice = ArchiveWording.unrecorded(book.pendingRecords, in: book.layout.root) else {
-            return
-        }
+    /// Tells the writer of `records`, which `book`'s index won't hold.
+    private func tellRecords(_ records: Archive.Pending, in book: OpenBook<C>) async {
+        let archive = Archive(layout: book.layout, fileSystem: fileSystem)
+        guard
+            let notice = ArchiveWording.unrecorded(
+                records, listedOn: archive.modifiedDay, in: book.layout.root)
+        else { return }
         await prompts.tell(notice)
     }
 
-    /// For an open book whose index turned out to hold other sections for `records`' copies,
-    /// told after whatever operation is running.
-    func tellUnrecorded(_ records: Archive.Pending, in book: URL) {
-        guard let notice = ArchiveWording.unrecorded(records, in: book) else { return }
-        Task { await exclusively { await prompts.tell(notice) } }
+    /// For a save, which no operation of the store's runs: tells `book`'s records once the
+    /// running operation, if any, ends. One that leaves the book takes them first.
+    func tellRecords(of book: OpenBook<C>) {
+        Task { await exclusively { await tellRecords(book.takeRecordsToTell(.kept), in: book) } }
     }
 
     private func remember(_ book: URL) {

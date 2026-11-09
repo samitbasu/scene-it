@@ -31,6 +31,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// File a Copy's dialog while it's up (PLAN §7.1): what the writer has typed there, which
     /// leaving the book asks about first.
     public var filingDraft: FilingDraft?
+    /// Pending records whose copies the index turned out to give other sections (another
+    /// program wrote them): forgotten, for the store to tell the writer.
+    @ObservationIgnored private var overwrittenRecords: Archive.Pending = [:]
     /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
@@ -611,8 +614,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Forgets the pending records `index` holds, once it's saved. A copy that `index` gives
-    /// a section of its own (another program wrote it) keeps that section, and its record is
-    /// told to the writer and forgotten.
+    /// a section of its own (another program wrote it) keeps that section, and its record
+    /// moves to `overwrittenRecords`.
     private func settlePending(against index: ArchiveIndex, _ state: IndexState) {
         var overwritten: Archive.Pending = [:]
         for copy in index.copies {
@@ -628,8 +631,24 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             Log.store.error(
                 "the archive index has other sections for filed copies whose records were pending",
                 ["count": .count(overwritten.count)])
-            store?.tellUnrecorded(overwritten, in: layout.root)
+            overwrittenRecords.merge(overwritten) { _, new in new }
         }
+    }
+
+    /// The records the store must tell the writer about now, emptied as they're taken.
+    /// `leaving` adds the ones still pending, which nothing will record once the book is gone.
+    func takeRecordsToTell(_ leaving: PendingFate) -> Archive.Pending {
+        defer { overwrittenRecords = [:] }
+        switch leaving {
+        case .kept: return overwrittenRecords
+        case .lost: return overwrittenRecords.merging(pendingRecords) { _, pending in pending }
+        }
+    }
+
+    enum PendingFate {
+        /// This book, or the book read again in its place, still holds them.
+        case kept
+        case lost
     }
 
     // MARK: Error entries (book format §5.4)
@@ -766,6 +785,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             lastSave = (now, backups)
             store?.bookSaved(at: now)
             await recordPending(writer)
+            if !overwrittenRecords.isEmpty { store?.tellRecords(of: self) }
         } catch {
             Log.store.error("a save failed", ["error": .error(LoggedError(error))])
             // Runs after the driver has handled this failure, so it sees the pause, if any.
