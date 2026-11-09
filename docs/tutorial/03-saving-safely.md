@@ -1349,7 +1349,13 @@ it, never on what's behind.
 
 The dialog stays up, and not editable, until the copy is filed, so a failure loses nothing typed. If the copy is
 filed but the index can't be written, the open book keeps the record as pending, and the next
-save or filing writes it. Every alert that might lose text quotes the tags and note back.
+save or filing writes it. A reload doesn't drop it (#148): Open Other Version tries the write once
+more before it lets go of the book, the book read again in place takes what's still pending, and
+its opening reconciliation records it. Open My Version switches to another package, whose Archive
+has none of the original's copies, so whatever the last try couldn't write is quoted in a notice.
+Closing or quitting tries once more and quotes what's left the same way, and so does a reload that
+fails to open. If another program has given the copy a section of its own meanwhile, that section is
+kept, never overwritten, and the record is quoted instead. Every alert that might lose text quotes the tags and note back.
 
 ### Three layers keep a filed copy unchanged
 

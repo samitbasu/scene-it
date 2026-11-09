@@ -31,8 +31,10 @@ expect() {
 expect rejects forbid_textkit1 SceneIt/View.swift 'let manager = view.layoutManager'
 expect rejects forbid_textkit1 SceneIt/View.swift 'NSTextView(usingTextLayoutManager: false)'
 expect accepts forbid_textkit1 SceneIt/View.swift 'let manager = view.textLayoutManager'
+expect rejects forbid_textkit1 SceneIt/View.swift 'let manager = NSLayoutManager()'
 expect accepts forbid_textkit1 SceneItTests/TextKit1Alarm.swift 'forName: NSTextView.willSwitchToNSLayoutManagerNotification'
-expect rejects forbid_textkit1 SceneItTests/PageHarness.swift 'forName: NSTextView.willSwitchToNSLayoutManagerNotification'
+expect accepts forbid_textkit1 SceneItTests/PageHarness.swift 'forName: NSTextView.willSwitchToNSLayoutManagerNotification'
+expect rejects forbid_textkit1 SceneItTests/TextKit1Alarm.swift 'let manager = view.layoutManager'
 
 expect rejects forbid_unchecked_logging SceneIt/Store.swift 'let logger = Logger(subsystem: "x", category: "y")'
 expect rejects forbid_unchecked_logging SceneIt/Store.swift 'let logger = os.Logger(subsystem: "x", category: "y")'
