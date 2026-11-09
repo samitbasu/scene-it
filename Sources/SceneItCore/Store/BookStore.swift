@@ -521,6 +521,35 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
+    /// Export to Word (PLAN §10.2): the scene `scene` as it is now, saved or not, written as a .docx
+    /// to `destination`. The book's own files are never touched, and the writer is told when nothing
+    /// was written. Works on a read-only book or review too.
+    public func exportToWord(of book: OpenBook<C>, scene id: SceneID, to destination: URL) async
+        -> WordExportResult
+    {
+        await exclusively {
+            guard book === current, let scene = book.book.scene(id) else {
+                await prompts.tell(WordExportWording.sceneClosed)
+                return .unavailable
+            }
+            do throws(WordExportFailure) {
+                let document = try WordExport.document(of: scene)
+                try await Self.write(document, to: destination, fileSystem)
+                return .exported
+            } catch {
+                await prompts.tell(WordExportWording.notice(for: error))
+                return .failed(error)
+            }
+        }
+    }
+
+    @concurrent
+    private nonisolated static func write(
+        _ document: Data, to destination: URL, _ fileSystem: any FileSystem
+    ) async throws(WordExportFailure) {
+        try WordDocumentWriter.write(document, to: destination, fileSystem: fileSystem)
+    }
+
     @concurrent
     private nonisolated static func write(
         _ page: String, to destination: URL, for review: ReviewContext, _ fileSystem: any FileSystem

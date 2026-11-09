@@ -32,17 +32,28 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
             style.paragraphSpacing = Self.notesParagraphGap
         case (.body, .text):
             style.lineSpacing = Self.doubleSpacingGap
-            style.firstLineHeadIndent = 36
+            style.firstLineHeadIndent = Self.firstLineIndent
         case (.body, .empty):
             // TextKit lays an empty line out with its line spacing inside it, which makes the
             // cursor there double height; spacing before it puts the line where typed text goes.
             style.paragraphSpacingBefore = Self.doubleSpacingGap
-            style.firstLineHeadIndent = 36
+            style.firstLineHeadIndent = Self.firstLineIndent
         case (.body, .emptyEnd):
             // The text line above already has its spacing below it.
-            style.firstLineHeadIndent = 36
+            style.firstLineHeadIndent = Self.firstLineIndent
         }
         return style
+    }
+
+    /// The body's first-line indent, half an inch (PLAN §6.1).
+    public static let firstLineIndent: CGFloat = 36
+
+    /// The role's type size in points (PLAN §6.1).
+    public var pointSize: CGFloat {
+        switch self {
+        case .title: 18
+        case .body, .notes: 12
+        }
     }
 
     /// Gives each paragraph of `text` that `range` touches the style for what it holds.
@@ -114,8 +125,8 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
 
     /// Each looked up once, because a lookup is a synchronous request to the font server, and
     /// several at once from different threads can wait for its replies forever (#77).
-    private static let titleTypeface = Typeface(size: 18)
-    private static let textTypeface = Typeface(size: 12)
+    private static let titleTypeface = Typeface(size: ParagraphRole.title.pointSize)
+    private static let textTypeface = Typeface(size: ParagraphRole.body.pointSize)
 
     private var typeface: Typeface {
         switch self {
