@@ -25,28 +25,14 @@ public enum ReviewCopyWriter {
         } catch {
             throw .verification(error)
         }
-        let existing: FileItem?
-        do {
-            existing = try fileSystem.item(at: destination)
+        do throws(ChosenFileFailure) {
+            try ChosenFileWrite.write(bytes, to: destination, fileSystem: fileSystem)
         } catch {
-            throw .fileSystem(error)
-        }
-        switch existing {
-        case nil, .file(_, protection: nil): break
-        case .file(_, protection: let protection?): throw .writeProtected(protection)
-        case .directory, .symbolicLink, .other: throw .notAFile
-        }
-        do {
-            let temporary = try fileSystem.writeTemporary(
-                bytes, for: destination, permissionsFrom: destination)
-            defer { fileSystem.discard(temporary.url) }
-            if existing == nil {
-                try fileSystem.publish(temporary, as: destination)
-            } else {
-                try fileSystem.move(temporary.url, over: destination)
+            switch error {
+            case .notAFile: throw .notAFile
+            case .writeProtected(let protection): throw .writeProtected(protection)
+            case .fileSystem(let error): throw .fileSystem(error)
             }
-        } catch {
-            throw .fileSystem(error)
         }
     }
 

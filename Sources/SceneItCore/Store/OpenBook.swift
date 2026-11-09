@@ -161,6 +161,24 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
+    /// What Copy Review and Save Review… put out for the review as it is now (review format §5);
+    /// `nil` for a book, or a review with nothing to put out yet.
+    public func reviewReport(on day: CalendarDay) -> ReviewReport? {
+        guard let review, review.hasReport else { return nil }
+        return ReviewReport(review, on: day)
+    }
+
+    /// Whether Copy Review and Save Review… have anything to put out.
+    public var hasReviewReport: Bool {
+        review?.hasReport == true
+    }
+
+    /// The review as it is now; `nil` for a book.
+    private var review: Review? {
+        guard case .review(let context) = document else { return nil }
+        return context.review(of: book)
+    }
+
     /// Gives the scene at `index` of `list` the time it was changed. A review's scenes keep the copy's.
     private func stamp(_ list: WritableKeyPath<Book, [BookScene]>, _ index: Int) {
         guard case .book = document else { return }

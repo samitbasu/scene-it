@@ -9,13 +9,13 @@ import UniformTypeIdentifiers
 @Observable
 final class ExportFlow {
     @ObservationIgnored let book: AppOpenBook
-    @ObservationIgnored private let destination: () -> ExportDestination
+    @ObservationIgnored private let destination: () -> SaveDestination
     /// The chooser is up exactly while there's a choice.
     var choice: ExportChoice?
 
     /// `destination` is asked each time, so a test can set where the copy goes after the window
     /// is up.
-    init(book: AppOpenBook, destination: @escaping () -> ExportDestination) {
+    init(book: AppOpenBook, destination: @escaping () -> SaveDestination) {
         self.book = book
         self.destination = destination
     }
@@ -56,27 +56,35 @@ final class ExportFlow {
     }
 }
 
-/// Where Export as SceneIt… writes: the save panel in the app. The test host never shows one:
-/// by default nothing is chosen, and a test names a file in its own temporary folder.
-struct ExportDestination {
+/// Where a save panel's command writes (Export as SceneIt…, Save Review…): the save panel in the
+/// app. The test host never shows one: by default nothing is chosen, and a test names a file in its
+/// own temporary folder.
+struct SaveDestination {
     let choose: @MainActor (_ suggestedName: String) async -> URL?
 
-    static let savePanel = ExportDestination { name in
-        let panel = NSSavePanel()
-        panel.title = ExportWording.panelTitle
-        panel.prompt = ExportWording.panelPrompt
-        panel.nameFieldStringValue = name
-        panel.allowedContentTypes = [UTType(filenameExtension: ExportWording.fileExtension) ?? .plainText]
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden = false
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
+    /// The save panel, with its title and prompt, for files with `fileExtension`.
+    static func savePanel(title: String, prompt: String, fileExtension: String) -> SaveDestination {
+        SaveDestination { name in
+            let panel = NSSavePanel()
+            panel.title = title
+            panel.prompt = prompt
+            panel.nameFieldStringValue = name
+            panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+            guard panel.runModal() == .OK else { return nil }
+            return panel.url
+        }
     }
 
-    static let nowhere = ExportDestination { _ in nil }
+    static let exportPanel = savePanel(
+        title: ExportWording.panelTitle, prompt: ExportWording.panelPrompt,
+        fileExtension: ExportWording.fileExtension)
 
-    static func fixed(_ url: URL) -> ExportDestination {
-        ExportDestination { _ in url }
+    static let nowhere = SaveDestination { _ in nil }
+
+    static func fixed(_ url: URL) -> SaveDestination {
+        SaveDestination { _ in url }
     }
 }
 

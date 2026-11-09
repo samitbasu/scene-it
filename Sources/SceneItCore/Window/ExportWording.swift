@@ -59,18 +59,10 @@ public enum ExportWording {
         case .bookUnidentified:
             "Scene It couldn't identify the book on its disk, so it can't make sure the file stays "
                 + "outside the book."
-        case .notAFile: "Something that isn't a file already has that name."
-        case .writeProtected(.locked): "The file with that name is locked in Finder."
-        case .writeProtected(.readOnly): "The file with that name is read-only."
+        case .notAFile: ChosenFileWording.notAFile
+        case .writeProtected(let protection): ChosenFileWording.reason(protection)
         case .verification: "Scene It found a problem in the scenes while preparing the file."
-        case .fileSystem(let error):
-            switch error.cause {
-            case .noSpace: "The disk is full."
-            case .readOnlyVolume: "The disk is read-only."
-            case .permissionDenied: "Scene It doesn't have permission to write there."
-            case .notFound, .alreadyExists, .unsupported, .io, .filedCopy, .other:
-                "The disk reported an error."
-            }
+        case .fileSystem(let error): ChosenFileWording.reason(error)
         }
     }
 }

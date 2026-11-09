@@ -50,7 +50,12 @@ final class BookController {
     let reviews: ReviewsFolder
     /// Where Export as SceneIt… writes: the save panel in the app; in the test host and previews
     /// nowhere, unless a test names a file.
-    var exportDestination: ExportDestination
+    var exportDestination: SaveDestination
+    /// Where Save Review… writes, as `exportDestination`.
+    var reviewDestination: SaveDestination
+    /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
+    /// and previews a private one, so a test never replaces what the owner copied.
+    let reviewPasteboard: NSPasteboard
     let prompts: any StorePrompts
     let requests: AppRequests
     /// The test host's and previews' record of `requests`; nil in the app.
@@ -74,7 +79,9 @@ final class BookController {
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
         self.prompts = prompts ?? standard
-        exportDestination = role == .app ? .savePanel : .nowhere
+        exportDestination = role == .app ? .exportPanel : .nowhere
+        reviewDestination = role == .app ? .reviewPanel : .nowhere
+        reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(
             clock: ContinuousClock(), mirror: mirror, reviews: reviews, memory: memory, prompts: self.prompts)
         recorded?.storeIsBusy = { [store] in store.isBusy }
