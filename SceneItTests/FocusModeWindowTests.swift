@@ -218,7 +218,7 @@ struct FocusModeWindowTests {
             await eventually { harness.window.attachedSheet != nil }
             let dialog = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
             try #require(filing.draft != nil, "precondition: its draft")
-            #expect(keys.escapeContext.dialog == .editing)
+            #expect(keys.escapeContext.dialog == .open)
             await eventually { dialog.hasEscapeFallback }
             try #require(dialog.hasEscapeFallback, "precondition: the dialog's Esc fallback is in place")
 
@@ -276,7 +276,9 @@ struct FocusModeWindowTests {
             let book = try #require(books.store.current)
             let filing = FilingFlow(book: book)
             let chrome = WindowChrome()
-            let keys = WindowKeys(chrome: chrome, filing: filing, page: PageFocus(), mode: .constant(.page))
+            let keys = WindowKeys(
+                chrome: chrome, filing: filing, export: ExportFlow(book: book, destination: { .nowhere }),
+                page: PageFocus(), mode: .constant(.page))
             let window = NSWindow(
                 contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled],
                 backing: .buffered, defer: true)
@@ -416,7 +418,7 @@ struct FocusModeWindowTests {
                 }
             }
             await eventually { filing.stage == .filing }
-            #expect(keys.escapeContext.dialog == .filing, "precondition: the copy is being filed")
+            #expect(keys.escapeContext.dialog == .busy, "precondition: the copy is being filed")
 
             try press(.escape, in: dialog)
             try press(.escape, in: harness.window)

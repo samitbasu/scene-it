@@ -92,12 +92,17 @@ public enum StoreWording {
         package.deletingPathExtension().lastPathComponent
     }
 
-    /// "<Title> (my edits).sceneit", then "(my edits 2)", … when the name is taken. A title
-    /// that can't name a file (empty, or only slashes and colons) uses the original's name.
-    public static func myEditsFileName(title: String, original: URL, attempt: Int) -> String {
+    /// The book's title as the start of a file name: slashes and colons become dashes. A title
+    /// that can't name a file (empty, or only slashes and colons) gives the package's name.
+    public static func fileNameBase(title: String, package: URL) -> String {
         let cleaned = title.map { "/:".contains($0) ? "-" : $0 }.reduce(into: "") { $0.append($1) }
             .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "-.")))
-        let base = cleaned.isEmpty ? bookName(original) : cleaned
+        return cleaned.isEmpty ? bookName(package) : cleaned
+    }
+
+    /// "<Title> (my edits).sceneit", then "(my edits 2)", … when the name is taken.
+    public static func myEditsFileName(title: String, original: URL, attempt: Int) -> String {
+        let base = fileNameBase(title: title, package: original)
         let suffix = attempt > 1 ? "my edits \(attempt)" : "my edits"
         return "\(base) (\(suffix)).\(PackageLayout.pathExtension)"
     }

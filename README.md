@@ -324,6 +324,14 @@ only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 `06-tags-tab.png`, with a `-panel@2x.png` close-up. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/tagsTab\(\)`.
 
+`exportChooser` renders Export as SceneIt's scene chooser (#79, `ExportChooserRenders.swift`) into an
+`export/` subfolder, with the sample book's 24 story scenes and four unticked: the shipped sheet
+(`export-a-sheet`) and the alternative list sheet (`export-b-list-sheet`), each over the window at 1×
+and 2× beside `14-file-a-copy-dialog.png`, with a `-dialog@3x.png` close-up; and the save-panel
+accessory alternative alone (`export-c-panel-accessory`, 1× and 2×), since the system panel around it
+can't be drawn offscreen. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/exportChooser\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

@@ -12,6 +12,7 @@ struct BookWindow: View {
     let formatting: EditorFormatting
     @Binding var mode: WindowMode
     @State private var filing: FilingFlow
+    @State private var export: ExportFlow
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
@@ -21,8 +22,8 @@ struct BookWindow: View {
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mode: Binding<WindowMode>, filing: FilingFlow? = nil, search: SearchSheetModel? = nil,
-        chrome: WindowChrome? = nil
+        mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
+        search: SearchSheetModel? = nil, chrome: WindowChrome? = nil
     ) {
         self.book = book
         self.store = store
@@ -31,13 +32,15 @@ struct BookWindow: View {
         _mode = mode
         let filing = filing ?? FilingFlow(book: book)
         _filing = State(initialValue: filing)
+        let export = export ?? ExportFlow(book: book, destination: { .nowhere })
+        _export = State(initialValue: export)
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
         let chrome = chrome ?? WindowChrome()
         _chrome = State(initialValue: chrome)
-        let keys = WindowKeys(chrome: chrome, filing: filing, page: focus, mode: mode)
+        let keys = WindowKeys(chrome: chrome, filing: filing, export: export, page: focus, mode: mode)
         _keys = State(initialValue: keys)
         _editors = State(
             initialValue: SceneEditors(
@@ -117,6 +120,7 @@ struct BookWindow: View {
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.windowMode, $mode)
         .focusedSceneValue(\.filingFlow, filing)
+        .focusedSceneValue(\.exportFlow, export)
         .background(WindowReporter { [filing] in filing.window = $0 })
         .sheet(item: dialog) { _ in
             FileACopyDialog(
@@ -130,6 +134,18 @@ struct BookWindow: View {
             .environment(\.windowKeys, keys)
             .focusedSceneValue(\.undoRouter, undo)
         }
+        .sheet(isPresented: chooser) {
+            ExportChooserDialog(flow: export) { Task { await export.confirm(in: store) } }
+                .background(EscapeKey(keys: keys))
+                .background(WindowEscapeFallback(keys: keys, commands: .keyAndCancelOperation))
+                .environment(\.windowKeys, keys)
+        }
+    }
+
+    /// Export as SceneIt's chooser is up exactly while it has a choice, which holds nothing the
+    /// writer would mind losing: if SwiftUI ends the sheet itself, the export is cancelled.
+    private var chooser: Binding<Bool> {
+        Binding(get: { export.choice != nil }, set: { if !$0 { export.cancel() } })
     }
 
     /// The dialog is up exactly while there's a draft: only the model's own actions (Cancel,

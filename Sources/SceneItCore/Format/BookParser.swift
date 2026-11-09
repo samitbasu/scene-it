@@ -5,11 +5,54 @@ import Foundation
 /// was found in, so damage stays where it is.
 enum BookParser {
     static func parse(_ bytes: Data, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
+        read(bytes, as: .book).finish(opened: opened) { _, used in fresh(&ids, avoiding: &used) }
+    }
+
+    /// Review-copy mode (review format §2.4): the copy's two front-matter keys are known, and a
+    /// scene that needs a fresh id gets one from its position, so every open gives it the same.
+    static func parseReviewCopy(_ bytes: Data, opened: Timestamp) -> (ParsedBook, ReviewCopyFrontMatter) {
+        let reader = read(bytes, as: .reviewCopy)
+        let book = reader.finish(opened: opened, freshID: positional)
+        return (book, reader.reviewCopy)
+    }
+
+    private static func read(_ bytes: Data, as mode: ParseMode) -> Reader {
         let decoded = BookTextDecoder.decode(bytes)
         let admitted = CharacterPolicy.fileText(decoded.text)
-        let reader = Reader(lines: lines(admitted.bytes), changes: admitted.changes)
+        let reader = Reader(
+            lines: lines(admitted.bytes), changes: admitted.changes, mode: mode,
+            windows1252ByteCount: decoded.windows1252ByteCount)
         reader.read()
-        return reader.finish(windows1252ByteCount: decoded.windows1252ByteCount, opened: opened, ids: &ids)
+        return reader
+    }
+
+    /// A fresh id that no scene in the file uses. A source that keeps repeating itself gets
+    /// a few tries, then the first free `scene-<n>`.
+    private static func fresh(_ ids: inout some SceneIDSource, avoiding used: inout Set<SceneID>) -> SceneID {
+        for _ in 0..<8 {
+            let candidate = ids.sceneID()
+            if Lexical.isValidID(Array(candidate.rawValue.utf8)), used.insert(candidate).inserted {
+                return candidate
+            }
+        }
+        var counter = 1
+        while !used.insert(SceneID(rawValue: "scene-\(counter)")).inserted {
+            counter += 1
+        }
+        return SceneID(rawValue: "scene-\(counter)")
+    }
+
+    /// `scene-<N>`, `N` the 1-based place among the file's scenes, with `-2`, `-3`, … appended
+    /// until it's free.
+    private static func positional(_ index: Int, avoiding used: inout Set<SceneID>) -> SceneID {
+        let base = "scene-\(index + 1)"
+        var candidate = SceneID(rawValue: base)
+        var suffix = 1
+        while !used.insert(candidate).inserted {
+            suffix += 1
+            candidate = SceneID(rawValue: "\(base)-\(suffix)")
+        }
+        return candidate
     }
 
     /// §1.2 step 6 and §1.3: the text's physical lines, trimmed. A final `\n` ends the last
@@ -21,6 +64,24 @@ enum BookParser {
         }
         return lines.map(Lexical.trim)
     }
+}
+
+/// Which grammar's front matter the file has.
+enum ParseMode {
+    case book, reviewCopy
+
+    var frontMatterKeys: Set<String> {
+        switch self {
+        case .book: ["title", "format"]
+        case .reviewCopy: ["title", "format", "export", "exported"]
+        }
+    }
+}
+
+/// The two keys only a review copy has (review format §2.1), as the parser read them.
+struct ReviewCopyFrontMatter: Hashable, Sendable {
+    var export: ExportID?
+    var exported: Timestamp?
 }
 
 private enum SceneSection {
@@ -63,6 +124,9 @@ private final class Reader {
     private var frontMatterKeys: Set<String> = []
     private var title: String?
     private var format: Int?
+    private let mode: ParseMode
+    private(set) var reviewCopy = ReviewCopyFrontMatter()
+    private let windows1252ByteCount: Int
     /// Outside any scene, whether the lines are in a book-level `### Unparsed` section.
     private var inBookUnparsed = false
     private var part = FilePart.story
@@ -71,9 +135,11 @@ private final class Reader {
     private var paragraph: [[UInt8]] = []
     private var entry: LogicalLine?
 
-    init(lines: [[UInt8]], changes: [CharacterChange]) {
+    init(lines: [[UInt8]], changes: [CharacterChange], mode: ParseMode, windows1252ByteCount: Int) {
         self.lines = lines
         self.changes = ChangeCursor(changes)
+        self.mode = mode
+        self.windows1252ByteCount = windows1252ByteCount
     }
 
     func read() {
@@ -96,19 +162,32 @@ private final class Reader {
         guard let (key, value) = Lexical.keyValue(line) else {
             return bookEntry(.frontMatter, line, number, .frontMatter(.notAField))
         }
-        guard ["title", "format"].contains(key) else {
+        guard mode.frontMatterKeys.contains(key) else {
             return bookEntry(.frontMatter, line, number, .frontMatter(.unknownKey))
         }
         guard frontMatterKeys.insert(key).inserted else {
             return bookEntry(.frontMatter, line, number, .frontMatter(.repeatedKey))
         }
         let unescaped = Lexical.fieldUnescaped(value)
-        if key == "title" {
+        switch key {
+        case "title":
             title = Lexical.string(unescaped)
-        } else if let number = Lexical.formatNumber(unescaped) {
-            format = number
-        } else {
-            bookEntry(.frontMatter, line, number, .frontMatter(.badFormat))
+        case "format":
+            guard let format = Lexical.formatNumber(unescaped) else {
+                return bookEntry(.frontMatter, line, number, .frontMatter(.badFormat))
+            }
+            self.format = format
+        case "export":
+            let id = Lexical.string(value)
+            guard Lexical.isValidID(id.utf8) else {
+                return bookEntry(.frontMatter, line, number, .frontMatter(.badID))
+            }
+            reviewCopy.export = ExportID(rawValue: id)
+        default:
+            guard let exported = Timestamp(Lexical.string(value)) else {
+                return bookEntry(.frontMatter, line, number, .frontMatter(.badDate))
+            }
+            reviewCopy.exported = exported
         }
     }
 
@@ -354,19 +433,21 @@ private final class Reader {
 
     // MARK: The book
 
-    func finish(windows1252ByteCount: Int, opened: Timestamp, ids: inout some SceneIDSource) -> ParsedBook {
+    /// `freshID` gives the scene at an index among the file's scenes an id no other uses, and
+    /// adds it to `used`.
+    func finish(opened: Timestamp, freshID: (Int, inout Set<SceneID>) -> SceneID) -> ParsedBook {
         var used = Set(scenes.compactMap(\.id))
         var kept: Set<SceneID> = []
         var book = Book(title: title ?? BookFormat.untitled)
         var newInScenes: [ErrorEntry] = []
         var firstReasonInScenes: ErrorReason?
-        for draft in scenes {
+        for (index, draft) in scenes.enumerated() {
             var notices: [RepairNotice] = []
             let id: SceneID
             if let own = draft.id, kept.insert(own).inserted {
                 id = own
             } else {
-                id = Self.fresh(&ids, avoiding: &used)
+                id = freshID(index, &used)
                 notices.append(
                     draft.id.map { .duplicateSceneID($0, given: id) } ?? .missingSceneID(given: id))
             }
@@ -397,21 +478,5 @@ private final class Reader {
             newEntries: Positioned.new(entries) + notices.map(\.entry) + newInScenes,
             firstNewReason: Positioned.firstNewReason(entries) ?? notices.first.map(\.reason)
                 ?? firstReasonInScenes)
-    }
-
-    /// A fresh id that no scene in the file uses. A source that keeps repeating itself gets
-    /// a few tries, then the first free `scene-<n>`.
-    private static func fresh(_ ids: inout some SceneIDSource, avoiding used: inout Set<SceneID>) -> SceneID {
-        for _ in 0..<8 {
-            let candidate = ids.sceneID()
-            if Lexical.isValidID(Array(candidate.rawValue.utf8)), used.insert(candidate).inserted {
-                return candidate
-            }
-        }
-        var counter = 1
-        while !used.insert(SceneID(rawValue: "scene-\(counter)")).inserted {
-            counter += 1
-        }
-        return SceneID(rawValue: "scene-\(counter)")
     }
 }

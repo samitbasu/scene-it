@@ -19,7 +19,7 @@ import Testing
 
 @Suite struct EscapeOrderTests {
     private func context(
-        popover: Presence = .absent, dialog: FilingStage? = nil, mode: WindowMode = .page,
+        popover: Presence = .absent, dialog: DialogStage? = nil, mode: WindowMode = .page,
         findBar: Presence = .absent, focusMode: FocusMode = .off
     ) -> EscapeContext {
         EscapeContext(popover: popover, dialog: dialog, mode: mode, findBar: findBar, focusMode: focusMode)
@@ -29,11 +29,11 @@ import Testing
         #expect(
             EscapeLayer.escape(
                 in: context(
-                    popover: .present, dialog: .editing, mode: .search, findBar: .present, focusMode: .on))
+                    popover: .present, dialog: .open, mode: .search, findBar: .present, focusMode: .on))
                 == .close(.popover))
         #expect(
             EscapeLayer.escape(
-                in: context(dialog: .editing, mode: .search, findBar: .present, focusMode: .on))
+                in: context(dialog: .open, mode: .search, findBar: .present, focusMode: .on))
                 == .close(.dialog))
         #expect(
             EscapeLayer.escape(in: context(mode: .search, findBar: .present, focusMode: .on))
@@ -46,7 +46,7 @@ import Testing
 
     @Test func eachLayerAloneIsWhatEscCloses() {
         #expect(EscapeLayer.escape(in: context(popover: .present)) == .close(.popover))
-        #expect(EscapeLayer.escape(in: context(dialog: .editing)) == .close(.dialog))
+        #expect(EscapeLayer.escape(in: context(dialog: .open)) == .close(.dialog))
         for sheet in WindowMode.allCases.filter(\.isSheet) {
             #expect(EscapeLayer.escape(in: context(mode: sheet)) == .close(.sheet), "\(sheet)")
         }
@@ -56,16 +56,16 @@ import Testing
     /// While File a Copy files, Esc closes nothing: not the dialog, whose draft a failed filing
     /// still needs, and not what's under it.
     @Test func escHoldsWhileTheDialogFiles() {
-        #expect(EscapeLayer.escape(in: context(dialog: .filing)) == .hold(.dialog))
+        #expect(EscapeLayer.escape(in: context(dialog: .busy)) == .hold(.dialog))
         #expect(
-            EscapeLayer.escape(in: context(dialog: .filing, mode: .scenes, focusMode: .on)) == .hold(.dialog))
-        #expect(EscapeLayer.escape(in: context(popover: .present, dialog: .filing)) == .close(.popover))
+            EscapeLayer.escape(in: context(dialog: .busy, mode: .scenes, focusMode: .on)) == .hold(.dialog))
+        #expect(EscapeLayer.escape(in: context(popover: .present, dialog: .busy)) == .close(.popover))
     }
 
     /// Closing what Esc names, again and again, unwinds the window one layer at a time.
     @Test func repeatedEscUnwindsOneLayerAtATime() {
         var state = context(
-            popover: .present, dialog: .editing, mode: .scenes, findBar: .present, focusMode: .on)
+            popover: .present, dialog: .open, mode: .scenes, findBar: .present, focusMode: .on)
         var closed: [EscapeLayer] = []
         while case .close(let layer) = EscapeLayer.escape(in: state) {
             closed.append(layer)

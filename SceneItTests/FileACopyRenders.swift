@@ -84,7 +84,7 @@ extension WindowRenders {
     }
 
     /// The window with its sheet drawn where AppKit put it, with a shadow, at 1×, 2× and 3×.
-    private static func withSheet(_ window: NSWindow, _ sheet: NSWindow) throws -> Renders {
+    static func withSheet(_ window: NSWindow, _ sheet: NSWindow) throws -> Renders {
         let frameView = try #require(window.contentView?.superview)
         let sheetView = try #require(sheet.contentView?.superview)
         let offset = NSPoint(

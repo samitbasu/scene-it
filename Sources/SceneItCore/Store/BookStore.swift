@@ -356,6 +356,33 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
+    /// Export as SceneIt… (ADR 0029): the chosen story scenes of the book as it is now, saved or
+    /// not, written as a review copy to `destination`. The book's own files are never touched,
+    /// and the writer is told when nothing was written. Works on a read-only book too.
+    public func exportReviewCopy(
+        of book: OpenBook<C>, chosen: Set<SceneID>, to destination: URL, export: ExportID,
+        exported: Timestamp
+    ) async -> ExportResult {
+        await exclusively {
+            guard book === current else { return .unavailable }
+            let copy = ReviewCopy(projecting: book.book, chosen: chosen, export: export, exported: exported)
+            do throws(ExportFailure) {
+                try await Self.write(copy, to: destination, outside: book.layout, fileSystem)
+                return .exported
+            } catch {
+                await prompts.tell(ExportWording.notice(for: error))
+                return .failed(error)
+            }
+        }
+    }
+
+    @concurrent
+    private nonisolated static func write(
+        _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout, _ fileSystem: any FileSystem
+    ) async throws(ExportFailure) {
+        try ReviewCopyWriter.write(copy, to: destination, outside: book, fileSystem: fileSystem)
+    }
+
     // MARK: Saving
 
     /// Cmd+S. While autosave is paused on an external change, asks about it again instead.

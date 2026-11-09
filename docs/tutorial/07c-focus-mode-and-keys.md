@@ -80,7 +80,7 @@ public static func escape(in context: EscapeContext) -> EscapeResult {
 
 `.hold` is the interesting case. While File a Copy's dialog is filing, closing it would throw
 away what the writer typed, which a failed filing still needs; so Esc closes nothing, not even
-what's under the dialog. Putting the stage *into the resolver's input* (`dialog: FilingStage?`)
+what's under the dialog. Putting the stage *into the resolver's input* (`dialog: DialogStage?`, `busy` while filing)
 is what makes that rule impossible to forget at any one call site. A sheet covers the find bar,
 which is why `.sheet` comes before `.findBar`: Esc can't close a find bar the writer can't see.
 
