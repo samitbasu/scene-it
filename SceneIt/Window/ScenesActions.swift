@@ -22,6 +22,9 @@ final class ScenesSheetModel {
     var field: CardField?
     /// The card the arrow keys, Delete and Return act on (PLAN §7.2).
     var focused: SceneID?
+    /// The card or tile the last single click landed on, while nothing has moved since: the only
+    /// item a double click may open (ADR 0043).
+    var clicked: SceneDrag?
     var drop = SceneDropState.idle
     /// The size of the grid's cards, laid out: how many go across, for the up and down arrows.
     @ObservationIgnored var gridSize = CGSize.zero
@@ -105,8 +108,10 @@ final class ScenesSheetModel {
         if change == .lost { focused = nil }
     }
 
-    /// Forgets a card field or focus whose scene has left the story (cut, or its add undone).
+    /// Forgets a card field or focus whose scene has left the story (cut, or its add undone). The
+    /// cards and tiles may have moved under the pointer, so the last click is forgotten too.
     func keepToTheStory(of book: Book) {
+        clicked = nil
         let story = Set(book.scenes.map(\.id))
         if let scene = titling ?? tagging, !story.contains(scene) { field = nil }
         if let focused, !story.contains(focused) { self.focused = nil }
@@ -159,6 +164,7 @@ final class ScenesSheetModel {
         filter = ""
         field = nil
         focused = nil
+        clicked = nil
         drop.end()
         stopWatchingTheDrag()
         releaseWatch?.cancel()
@@ -192,17 +198,18 @@ struct ScenesActions {
 
     /// A click on a card or tile, as in the Finder: a double click opens its scene. A single click
     /// puts the card focus on a card at once, so the first click of a double click does too. The
-    /// focus is the story grid's, so a single click on a Boneyard tile does nothing.
+    /// focus is the story grid's, so a single click on a Boneyard tile only records the click.
     ///
-    /// Selecting a card scrolls it into view, which can move another card under the pointer before
-    /// the second click: a double click opens only the card its first click selected.
+    /// A double click opens only the item its first click landed on. Its first click may have gone
+    /// to a control (a tile's ↩, a chip's ×) that moved another item under the pointer; then the
+    /// second click counts as a first click.
     func click(_ click: SceneClick, on item: SceneDrag) {
-        switch (click, item) {
-        case (.double, .card(let scene)) where model.focused == scene: open(scene)
-        case (_, .card(let scene)): select(scene)
-        case (.double, .tile(let scene)): open(scene)
-        case (.single, .tile): break
+        if click == .double, model.clicked == item {
+            open(item.scene)
+            return
         }
+        model.clicked = item
+        if case .card(let scene) = item { select(scene) }
     }
 
     /// The sheet takes the keys, and they act on `scene`'s card.
@@ -313,6 +320,7 @@ struct ScenesActions {
     /// The arrows move the focus from card to card, and with Option move the card; Delete cuts
     /// the focused card, and Return opens it. The first arrow puts the focus on a card.
     func handle(_ key: CardKey) -> KeyOutcome {
+        model.clicked = nil
         let grid = model.grid(of: book.book, preferences.scenesView)
         guard let focused = model.focused, grid.cards.contains(focused) else {
             switch key {
@@ -381,9 +389,18 @@ enum CardKey: Equatable {
 enum SceneClick: Equatable {
     case single, double
 
+    /// Only a mouse button event has a click count; asking any other raises.
     init(_ event: NSEvent?) {
-        self = (event?.clickCount ?? 1) >= 2 ? .double : .single
+        guard let event, Self.buttonEvents.contains(event.type), event.clickCount >= 2 else {
+            self = .single
+            return
+        }
+        self = .double
     }
+
+    private static let buttonEvents: Set<NSEvent.EventType> = [
+        .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp,
+    ]
 }
 
 extension UTType {

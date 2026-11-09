@@ -258,11 +258,20 @@ the card gets the focus), and a double click on a card or tile opens its scene. 
 double click could no longer come, so the selection would lag. Instead `sceneClicks(_:actions:)` is
 one tap gesture that reads the click count AppKit already put on the event, `NSApp.currentEvent`'s
 `clickCount`, as `SceneClick.single` or `.double`; the second click of a double click arrives as
-its own tap with a count of 2. What each click does is one `switch` over `(SceneClick, SceneDrag)`
-in `ScenesActions.click(_:on:)`, shared by cards and tiles. A `where` guard on one case makes a
-double click open a card only if its first click selected it: selecting scrolls the grid, which can
-put another card under the pointer before the second click. A tile has no single-click meaning,
-because the card focus belongs to the story grid.
+its own tap with a count of 2. That rests on SwiftUI running the tap's action while the mouse-up is
+still the current event, which no test can show; it waits on the owner's hand test, and if it's
+wrong a double click opens nothing. `clickCount` raises on a key event, so `SceneClick` asks only
+mouse-button events.
+
+`ScenesActions.click(_:on:)`, shared by cards and tiles, decides what each click does. The model
+keeps the item the last single click landed on, `clicked: SceneDrag?`, and a double click opens
+only that item; anything else counts as a first click. So a click on a tile's ↩, which never
+reaches the tile's own gesture, can't make the tile that slides under the pointer open on the
+second click. A key, or any change in the order of the story or the Boneyard, forgets the click.
+A click doesn't scroll (the card is under the pointer); the sheet's `onChange(of: model.focused)`
+scrolls only when the focus didn't come from a click. A tile has no single-click selection,
+because the card focus belongs to the story grid. The tile behaviour, the tooltips and the
+no-scroll click are defaults awaiting the owner (decision log entry 37).
 
 ### Deleting for good
 

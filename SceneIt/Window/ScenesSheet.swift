@@ -32,7 +32,8 @@ struct ScenesSheet: View {
                     proxy.scrollTo(scene)
                 }
                 .onChange(of: model.focused) {
-                    guard let scene = model.focused else { return }
+                    // A clicked card is under the pointer: only the keys scroll, as in the Finder.
+                    guard let scene = model.focused, model.clicked != .card(scene) else { return }
                     proxy.scrollTo(scene)
                 }
             }
@@ -45,7 +46,9 @@ struct ScenesSheet: View {
                 keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
                 focusChanged: { model.sheetKeys($0) })
         )
-        .onChange(of: book.book.scenes.map(\.id)) { model.keepToTheStory(of: book.book) }
+        .onChange(of: book.book.scenes.map(\.id) + book.book.boneyard.map(\.id)) {
+            model.keepToTheStory(of: book.book)
+        }
         .background(EscapeKey(keys: keys, inner: { model.closeCardField() }))
         .task { await model.ticker.run() }
     }

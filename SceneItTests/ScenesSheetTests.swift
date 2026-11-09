@@ -221,15 +221,29 @@ extension OneAtATime {
         }
 
         /// A double click arrives as two clicks: the first selects the card, the second opens it. A
-        /// second click landing on another card (the first scrolled the grid) only selects that one.
+        /// second click landing on another card (something moved it under the pointer) only selects
+        /// that one, and a click there then makes the next double click open it.
         @Test func doubleClickingACardOpensItsSceneAndClosesTheSheet() async throws {
             try await withScenesSheet { harness, actions in
                 actions.click(.single, on: .card(arrival.id))
+                try #require(harness.scenes.clicked == .card(arrival.id), "precondition: the click is kept")
                 actions.click(.double, on: .card(letter.id))
                 #expect(harness.scenes.focused == letter.id, "the second click on another card selects it")
                 #expect(harness.book.openScene == ferry.id, "and opens nothing")
                 #expect(harness.modes.mode == .scenes)
 
+                try press(.arrow(.left), in: harness.window)
+                try #require(
+                    harness.scenes.focused == arrival.id && harness.scenes.clicked == nil,
+                    "precondition: the keys moved the focus off the letter and forgot the click")
+                actions.click(.double, on: .card(letter.id))
+                #expect(
+                    harness.book.openScene == ferry.id, "a double click without its first click opens nothing"
+                )
+                try #require(harness.scenes.focused == letter.id)
+
+                actions.click(.single, on: .card(ferry.id))
+                try #require(harness.scenes.focused == ferry.id, "precondition: the letter is unfocused")
                 actions.click(.single, on: .card(letter.id))
                 actions.click(.double, on: .card(letter.id))
                 #expect(harness.book.openScene == letter.id)
@@ -256,10 +270,14 @@ extension OneAtATime {
 
                 actions.click(.single, on: .card(ferry.id))
                 #expect(harness.scenes.focused == ferry.id, "another click moves the selection")
+                let next = try #require(
+                    harness.scenes.grid(of: harness.book.book, harness.preferences.scenesView)
+                        .neighbor(of: ferry.id, .right),
+                    "precondition: a card right of the ferry")
                 try press(.arrow(.right), in: harness.window)
-                #expect(harness.scenes.focused == arrival.id, "the arrows move on from the clicked card")
+                #expect(harness.scenes.focused == next, "the arrows move on from the clicked card")
                 try press(.return, in: harness.window)
-                #expect(harness.book.openScene == arrival.id, "Return opens the selected card")
+                #expect(harness.book.openScene == next, "Return opens the selected card")
                 await eventually { harness.modes.mode == .page }
             }
         }
@@ -277,6 +295,12 @@ extension OneAtATime {
             #expect(try click(2) == .double)
             #expect(try click(3) == .double)
             #expect(SceneClick(nil) == .single, "no event: never opens")
+            let key = try #require(
+                NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                    context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false,
+                    keyCode: 36))
+            #expect(SceneClick(key) == .single, "a key event has no click count to ask")
         }
 
         /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not

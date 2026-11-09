@@ -459,9 +459,24 @@ extension OneAtATime {
         }
 
         /// A double click opens a tile's scene. The card focus is the story grid's, so a single click
-        /// on a tile selects nothing and leaves a card's focus where it was (ADR 0043).
+        /// on a tile selects nothing and leaves a card's focus where it was (ADR 0043). A double
+        /// click opens only the tile its first click landed on: restoring one tile slides the next
+        /// under the pointer.
         @Test func aDoubleClickOpensATileAndAClickSelectsNothing() async throws {
-            try await withScenesSheet(boneyard: [brother]) { harness, actions in
+            let other = scene("The other", [[Run("Unread.")]])
+            try await withScenesSheet(boneyard: [brother, other]) { harness, actions in
+                actions.click(.single, on: .tile(other.id))
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.book.openScene != brother.id, "a double click on another tile opens nothing")
+                #expect(harness.modes.mode == .scenes)
+                try #require(harness.scenes.clicked == .tile(brother.id), "it counts as a first click")
+
+                #expect(actions.restoreToEnd(other.id))
+                await eventually { harness.scenes.clicked == nil }
+                #expect(harness.scenes.clicked == nil, "a restore forgets the click: the tiles moved")
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.modes.mode == .scenes, "so the next double click opens nothing")
+
                 let story = harness.book.book.scenes.map(\.id)
                 actions.click(.single, on: .card(story[1]))
                 try #require(harness.scenes.focused == story[1], "precondition: a card is selected")
@@ -489,6 +504,7 @@ extension OneAtATime {
                 #expect(actions.handle(.move(.right)) == .passedOn)
                 #expect(actions.handle(.cut) == .passedOn)
                 #expect(harness.book.book == before)
+                actions.click(.single, on: .tile(brother.id))
                 actions.click(.double, on: .tile(brother.id))
                 #expect(harness.book.openScene == brother.id, "a tile still opens its scene")
             }
