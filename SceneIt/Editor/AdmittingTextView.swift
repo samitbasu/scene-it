@@ -14,6 +14,9 @@ class AdmittingTextView: KeyboardTextView {
     /// and nothing else's. Unlike a delegate's `textDidChange`, which comes through the
     /// notification center keyed on the view's address, it can't reach anyone once cleared.
     var onChange: ((String) -> Void)?
+    /// Esc goes here first when it's set (File a Copy's fields): `true` if it was handled.
+    /// Otherwise `NSTextView` takes Esc as `complete:` and nothing else hears it.
+    var escape: (() -> Bool)?
 
     init(admitting admit: @escaping (String) -> String, editability: @escaping () -> Editability) {
         self.admit = admit
@@ -31,6 +34,11 @@ class AdmittingTextView: KeyboardTextView {
     override func didChangeText() {
         super.didChangeText()
         onChange?(string)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(NSResponder.cancelOperation(_:)), escape?() == true { return }
+        super.doCommand(by: selector)
     }
 
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?)

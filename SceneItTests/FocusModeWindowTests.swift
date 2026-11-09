@@ -18,6 +18,18 @@ private func press(_ key: TestKey, in window: NSWindow) throws {
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
+extension NSWindow {
+    /// Whether `WindowEscapeFallback` is in this window's responder chain.
+    var hasEscapeFallback: Bool {
+        var responder = nextResponder
+        while let current = responder {
+            if current is WindowEscapeFallback.EscapeResponder { return true }
+            responder = current.nextResponder
+        }
+        return false
+    }
+}
+
 /// Letters typed as the window gets them, one key at a time, into what has the focus.
 @MainActor
 private func type(_ text: String, in window: NSWindow) throws {
@@ -202,12 +214,14 @@ struct FocusModeWindowTests {
             let dialog = try #require(harness.window.attachedSheet, "precondition: the dialog is up")
             try #require(filing.draft != nil, "precondition: its draft")
             #expect(keys.escapeContext.dialog == .editing)
+            await eventually { dialog.hasEscapeFallback }
+            try #require(dialog.hasEscapeFallback, "precondition: the dialog's Esc fallback is in place")
 
+            let responder = String(describing: dialog.firstResponder)
             try press(.escape, in: dialog)
-            #expect(filing.draft == nil, "one Esc cancels the dialog")
+            #expect(filing.draft == nil, "one Esc cancels the dialog (first responder: \(responder))")
             #expect(
                 keys.lastEscape?.result == .close(.dialog), "through the resolver, not SwiftUI's dismissal")
-            #expect(keys.lastEscape?.entrance != .focusedView, "by the dialog's own Esc")
             #expect(harness.chrome.focusMode == .on, "and only the dialog")
         }
     }
@@ -415,7 +429,6 @@ struct FocusModeWindowTests {
             try press(.escape, in: dialog)
             #expect(filing.draft == nil, "once it's editable again, one Esc cancels it")
             #expect(keys.lastEscape?.result == .close(.dialog), "the resolver closed it")
-            #expect(keys.lastEscape?.entrance != .focusedView, "through the dialog's own Esc")
         }
     }
 

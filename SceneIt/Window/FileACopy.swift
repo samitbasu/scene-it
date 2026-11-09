@@ -129,6 +129,13 @@ final class FilingFlow {
     }
 }
 
+/// What Esc in one of the dialog's text views does: it asks the window's keys, which close the
+/// dialog (or hold it while it files).
+private func escape(to keys: WindowKeys?) -> (() -> Bool)? {
+    guard let keys else { return nil }
+    return { [weak keys] in keys?.escape(from: .focusedView) == .handled }
+}
+
 /// One showing of File a Copy's dialog, for `.sheet(item:)`.
 struct FilingPresentation: Identifiable, Hashable {
     let id: Int
@@ -257,6 +264,7 @@ private struct TagChip: View {
 /// a tag clears it, since the text it would bring back is the tag's.
 struct TagTextField: NSViewRepresentable {
     @Binding var draft: FilingDraft
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: $draft)
@@ -284,6 +292,7 @@ struct TagTextField: NSViewRepresentable {
 
     func updateNSView(_ field: AdmittingTextField, context: Context) {
         context.coordinator.draft = $draft
+        field.editor?.escape = escape(to: keys)
         if field.stringValue != draft.pendingTag { field.stringValue = draft.pendingTag }
     }
 
@@ -346,6 +355,7 @@ struct TagTextField: NSViewRepresentable {
 /// closes, never through the notification center.
 struct NoteTextView: NSViewRepresentable {
     @Binding var draft: FilingDraft
+    @Environment(\.windowKeys) private var keys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(draft: $draft)
@@ -375,7 +385,8 @@ struct NoteTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.draft = $draft
-        guard let view = scroll.documentView as? NSTextView else { return }
+        guard let view = scroll.documentView as? AdmittingTextView else { return }
+        view.escape = escape(to: keys)
         if view.string != draft.note { view.string = draft.note }
     }
 
