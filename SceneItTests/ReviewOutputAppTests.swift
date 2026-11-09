@@ -11,10 +11,10 @@ import WebKit
 /// The test host's clipboard is a private pasteboard and its save panel names a file in the test's
 /// own folder, so nothing here reaches the owner's clipboard or files.
 extension OneAtATime.BookStoreIntegrationTests {
-    @Test func theFileMenuHasCopyReviewAndSaveReviewAfterExport() throws {
+    @Test func theFileMenuHasCopyReviewAndSaveReviewAfterTheExports() throws {
         let copy = try #require(menuItem(titled: ReviewOutputWording.copyMenuItem, in: NSApp.mainMenu))
         let menu = try #require(copy.menu)
-        let export = try #require(menuItem(titled: ExportWording.menuItem, in: menu))
+        let export = try #require(menuItem(titled: WordExportWording.menuItem, in: menu))
         let save = try #require(menuItem(titled: ReviewOutputWording.saveMenuItem, in: menu))
         #expect(menu.index(of: copy) == menu.index(of: export) + 1)
         #expect(menu.index(of: save) == menu.index(of: copy) + 1)
