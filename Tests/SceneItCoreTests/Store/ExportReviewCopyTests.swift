@@ -23,6 +23,18 @@ struct ExportReviewCopyTests {
         return [first, second]
     }
 
+    /// What's in `folder`, sorted.
+    private static func listing(_ folder: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false)).sorted()
+    }
+
+    /// The entries of `listing` that an export to `name` writes: the copy, and its temporary
+    /// file. Only these are the export's: adding a scene saves at once, and that save may
+    /// still be writing the Mirror beside them.
+    private static func exported(as name: String, in listing: [String]) -> [String] {
+        listing.filter { $0 == name || TemporaryFile.destination(ofName: $0).map(String.init) == name }
+    }
+
     private func export(
         _ store: TestStore, _ chosen: Set<SceneID>, to destination: URL
     ) async throws -> ExportResult {
@@ -51,11 +63,10 @@ struct ExportReviewCopyTests {
             #expect(parsed.parsed.book.scenes.map(\.id) == [scenes[1]])
             #expect(try DirectorySnapshot(url) == package, "nothing in the book's package changed")
             #expect(prompts.notices.isEmpty)
+            let listing = try Self.listing(folder)
             #expect(
-                try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
-                    .sorted()
-                    == ["Mirror", "Novel.md", "Novel.sceneit"].sorted(),
-                "no temporary file is left behind")
+                Self.exported(as: "Novel.md", in: listing) == ["Novel.md"],
+                "no temporary file is left behind: \(listing)")
         }
     }
 
@@ -165,11 +176,10 @@ struct ExportReviewCopyTests {
             #expect(error.cause == .noSpace)
             #expect(fileSystem.calls.contains(.writeTemporary("Novel.md")), "precondition: it got that far")
             #expect(try Data(contentsOf: destination) == Data("the earlier copy".utf8))
+            let listing = try Self.listing(folder)
             #expect(
-                try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
-                    .sorted()
-                    == ["Mirror", "Novel.md", "Novel.sceneit"].sorted(),
-                "the temporary file was discarded")
+                Self.exported(as: "Novel.md", in: listing) == ["Novel.md"],
+                "the temporary file was discarded: \(listing)")
             #expect(prompts.notices.map(\.message) == ["The disk is full. Nothing was written."])
         }
     }
@@ -244,6 +254,7 @@ struct ExportReviewCopyTests {
             let scenes = try Self.prepare(try #require(store.current))
             let destination = folder.appending(path: "Novel.md")
             fileSystem.inject(.fail(.publish("Novel.md"), cause: .permissionDenied))
+            fileSystem.clearCalls()
 
             let result = try await export(store, Set(scenes), to: destination)
 
@@ -252,11 +263,19 @@ struct ExportReviewCopyTests {
                 return
             }
             #expect(error.cause == .permissionDenied)
+            #expect(fileSystem.calls.contains(.writeTemporary("Novel.md")), "precondition: it got that far")
+            let listing = try Self.listing(folder)
             #expect(
-                try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
-                    .sorted()
-                    == ["Mirror", "Novel.sceneit"], "no copy and no temporary file")
+                Self.exported(as: "Novel.md", in: listing) == [], "no copy and no temporary file: \(listing)")
         }
+    }
+
+    @Test func theExportsEntriesAreTheCopyAndItsTemporaryFiles() {
+        let temporary = TemporaryFile.name(for: "Novel.md", id: UUID())
+        let listing = [
+            "Mirror", "Novel.md", "Novel.sceneit", temporary, TemporaryFile.name(for: "book.md", id: UUID()),
+        ]
+        #expect(Self.exported(as: "Novel.md", in: listing) == ["Novel.md", temporary])
     }
 
     @Test func theDefaultFileNameIsTheBooksTitle() {
