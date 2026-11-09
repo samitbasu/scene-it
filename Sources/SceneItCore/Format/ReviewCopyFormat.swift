@@ -26,7 +26,7 @@ public struct ReviewCopy: Hashable, Sendable {
         self.exported = exported
     }
 
-    private static func projected(_ scene: BookScene) -> BookScene {
+    static func projected(_ scene: BookScene) -> BookScene {
         BookScene(
             id: scene.id, modified: scene.modified, title: scene.title,
             body: scene.body.map { paragraph in

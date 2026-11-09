@@ -26,7 +26,7 @@ enum BookSerializer {
         [keyValue("title", FieldEscaping.freeText.escape(title)), "format: \(FormatVersion.current)"]
     }
 
-    private static func keyValue(_ key: String, _ value: String) -> String {
+    static func keyValue(_ key: String, _ value: String) -> String {
         value.isEmpty ? key + ":" : key + ": " + value
     }
 
@@ -56,18 +56,27 @@ enum BookSerializer {
         }
         var blocks = [header.joined(separator: "\n")]
         blocks += scene.body.map(Inline.write)
-        for (index, paragraph) in scene.notes.enumerated() {
-            blocks.append((index == 0 ? "### Notes\n" : "") + Inline.write(paragraph))
-        }
-        let body = WrittenText(scene.body)
-        let notes = WrittenText(scene.notes)
-        let anchors = body.commentRanges()
-        blocks += section(
-            "### Comments",
-            scene.comments.map { comment($0, anchors[$0.id, default: []], body) })
-        blocks += section("### Marks", marks(body, notes))
+        blocks += notes(scene.notes)
+        blocks += comments(scene)
+        blocks += section("### Marks", marks(WrittenText(scene.body), WrittenText(scene.notes)))
         blocks += unparsed(scene.errors)
         return blocks
+    }
+
+    /// Notes paragraph blocks, the first starting with `### Notes`; none for no notes.
+    static func notes(_ notes: [Paragraph]) -> [String] {
+        notes.enumerated().map { index, paragraph in
+            (index == 0 ? "### Notes\n" : "") + Inline.write(paragraph)
+        }
+    }
+
+    /// The scene's `### Comments` block, anchored in its body; none for no comments.
+    static func comments(_ scene: BookScene) -> [String] {
+        let body = WrittenText(scene.body)
+        let anchors = body.commentRanges()
+        return section(
+            "### Comments",
+            scene.comments.map { comment($0, anchors[$0.id, default: []], body) })
     }
 
     /// §4.4, §4.5. A comment covers the body alone (ADR 0035).

@@ -118,6 +118,7 @@ struct StartView: View {
             HStack {
                 Button(StoreWording.newBookMenuItem) { Task { await books.newBook() } }
                 Button(StoreWording.openBookMenuItem) { Task { await books.openBook() } }
+                Button(ReviewWording.menuItem) { Task { await books.reviewBook() } }
             }
             Text(WindowWording.recentBooks)
                 .font(.headline)

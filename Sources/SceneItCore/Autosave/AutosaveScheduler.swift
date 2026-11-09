@@ -246,7 +246,7 @@ public struct AutosaveScheduler<Instant: InstantProtocol<Duration>>: Hashable, S
     private static func afterFailure(_ error: SaveError, of saving: Saving, at now: Instant) -> State {
         let edits = saving.covering.merged(with: saving.editsSince)
         switch error {
-        case .externallyModified(.changed(let theirs)):
+        case .externallyModified(.changed(let theirs)), .externallyModified(.changedAndKept(let theirs, _)):
             return .paused(
                 Paused(
                     edits: edits, error: error, keepingMine: .overwriteKeepingTheirsAsBackup(theirs: theirs)))

@@ -572,7 +572,7 @@ struct BookStoreTests {
             #expect(await store.prepareToQuit() == .left)
             store = makeStore(in: folder, prompts: prompts, memory: memory)
             await store.reopenLastBook()
-            #expect(store.current?.layout.root.canonicalPath == good.canonicalPath)
+            #expect(store.current?.document.url.canonicalPath == good.canonicalPath)
         }
     }
 

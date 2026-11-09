@@ -326,7 +326,7 @@ private struct LockHolder {
             #expect(
                 fileSystem.calls.contains(.lock(".lock")), "precondition: the change landed while locking")
             #expect(opened.book.errors.contains(ErrorEntry(.line, "{")), "the damaged version was read")
-            guard case .repairedOnOpen(let repair)? = opened.readOnlyReason else {
+            guard case .repairedOnOpen(.book(let repair))? = opened.readOnlyReason else {
                 Issue.record("expected repairedOnOpen, got \(String(describing: opened.readOnlyReason))")
                 return
             }

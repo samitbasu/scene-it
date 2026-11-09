@@ -27,7 +27,7 @@ struct PageView: NSViewRepresentable {
     func updateNSView(_ slot: HostingSlot, context: Context) {
         let page = editors.page
         page.mount(in: slot)
-        page.editor.show(scene, .init(book, in: context.environment))
+        page.editor.show(scene, .page(book, in: context.environment))
         page.scrollView.show(preferences.zoom)
     }
 

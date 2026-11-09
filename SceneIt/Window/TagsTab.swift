@@ -37,7 +37,7 @@ struct TagActions {
     }
 
     private func edit(_ change: () -> Bool) -> Bool {
-        guard book.isEditable else { return false }
+        guard book.accepts(.manuscript) else { return false }
         // Typing on the page before and after the tag edit are steps of their own.
         page.breakUndoCoalescing()
         return change()
@@ -53,7 +53,7 @@ struct TagsTab: View {
     @Environment(\.self) private var environment
 
     var body: some View {
-        let editability = Editability(book, in: environment)
+        let editability = Editability(book, for: .manuscript, in: environment)
         let scene = book.location.scene
         VStack(alignment: .leading, spacing: 0) {
             SceneTagsSection(scene: scene, actions: actions, editability: editability)

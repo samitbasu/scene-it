@@ -26,7 +26,7 @@ struct NotesView: NSViewRepresentable {
     func updateNSView(_ slot: HostingSlot, context: Context) {
         let notes = editors.notes
         notes.mount(in: slot)
-        notes.editor.show(scene, .init(book, in: context.environment))
+        notes.editor.show(scene, .init(book, for: .annotations, in: context.environment))
     }
 
     /// The focus goes back to the page, where the writer can go on typing, when the notes leave

@@ -24,6 +24,10 @@ public struct IDGenerator<Source: RandomNumberGenerator> {
         ExportID(rawValue: ulid())
     }
 
+    public mutating func reviewID() -> ReviewID {
+        ReviewID(rawValue: ulid())
+    }
+
     private mutating func ulid() -> String {
         let milliseconds = UInt64(max(0, (now().timeIntervalSince1970 * 1000).rounded(.down)))
         let time = UInt128(min(milliseconds, (1 << 48) - 1))
