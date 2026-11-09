@@ -42,6 +42,7 @@ final class SceneEditors {
         page.frame = NSRect(origin: .zero, size: scrollView.contentSize)
         scrollView.documentView = page
         page.focus = focus
+        if case .filedCopy = book.document { page.paper = NSColor(WindowMetrics.filedCopyPaper) }
         page.keys = keys
         scrollView.keys = keys
         focus.body = page

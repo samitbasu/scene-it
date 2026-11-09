@@ -14,6 +14,7 @@ struct IconRail: View {
                 .padding(.vertical, 4)
             ForEach(WindowMode.allCases.filter(\.isSheet), id: \.self) { sheet in
                 RailButton(item: sheet, mode: $mode, badge: nil)
+                    .disabled(!WindowMode.offers(sheet, over: book))
                     .help(WindowWording.railName(sheet))
             }
             Spacer()
@@ -78,5 +79,13 @@ private struct RailButton: View {
         case .search: "magnifyingglass"
         case .fileCabinet: "archivebox"
         }
+    }
+}
+
+extension WindowMode {
+    /// Whether the rail and the View menu offer `sheet` over `book`: a filed copy has no File
+    /// Cabinet of its own (PLAN §7.5).
+    static func offers(_ sheet: WindowMode, over book: AppOpenBook?) -> Bool {
+        sheet != .fileCabinet || book?.document.kind != .filedCopy
     }
 }

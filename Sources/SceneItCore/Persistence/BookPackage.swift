@@ -438,6 +438,9 @@ public enum ReadOnlyReason: Hashable, Sendable {
     /// A review file says it's in this newer review format (review format §3.2): the same, for
     /// a review.
     case newerReviewFormat(FormatVersion)
+    /// A filed copy of the book, opened from the File Cabinet (PLAN §7.5): it has no writer, so
+    /// nothing can ever save it.
+    case filedCopy
 
     var logSymbol: StaticString {
         switch self {
@@ -448,6 +451,7 @@ public enum ReadOnlyReason: Hashable, Sendable {
         case .repairedOnOpen: "repairedOnOpen"
         case .newerFormat: "newerFormat"
         case .newerReviewFormat: "newerReviewFormat"
+        case .filedCopy: "filedCopy"
         }
     }
 }

@@ -12,15 +12,16 @@ struct MainWindow: View {
             switch books.store.session {
             case .choosing:
                 StartView(books: books)
-            case .open(let book), .closing(let book):
+            case .open(let book), .closing(let book), .viewingCopy(_, copy: let book):
                 // A new identity per `OpenBook`, so window state (an open sheet, the editors,
                 // the undo router) never outlives the one it was made for when the book is
-                // read again (Open Anyway, Open Other Version).
+                // read again (Open Anyway, Open Other Version) or a filed copy shows over it.
                 OpenBookWindow(
                     book: book, store: books.store, preferences: books.preferences,
                     formatting: books.formatting, readAloud: books.readAloud,
                     mainChrome: books.mainWindowChrome,
-                    exportDestination: { [books] in books.exportDestination }
+                    exportDestination: { [books] in books.exportDestination },
+                    newBookDestination: books.newBookDestination
                 )
                 .id(book.instanceID)
             }
@@ -86,11 +87,15 @@ private struct OpenBookWindow: View {
     @State private var chrome = WindowChrome()
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
+    let newBookDestination: SaveDestination
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        readAloud: ReadAloud, mainChrome: MainWindowChrome, exportDestination: @escaping () -> SaveDestination
+        readAloud: ReadAloud, mainChrome: MainWindowChrome,
+        exportDestination: @escaping () -> SaveDestination,
+        newBookDestination: SaveDestination
     ) {
+        self.newBookDestination = newBookDestination
         self.book = book
         self.store = store
         self.preferences = preferences
@@ -104,7 +109,8 @@ private struct OpenBookWindow: View {
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            filing: filing, export: export, chrome: chrome, readAloud: readAloud
+            filing: filing, export: export, chrome: chrome, readAloud: readAloud,
+            newBookDestination: newBookDestination
         )
         .onAppear { mainChrome.show(chrome, mode: $mode) }
         .onDisappear { mainChrome.gone(chrome) }

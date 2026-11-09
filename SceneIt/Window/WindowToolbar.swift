@@ -48,6 +48,13 @@ struct WindowToolbar: ToolbarContent {
                 .labelStyle(.titleAndIcon)
                 .disabled(true)
         }
+        if book.document.kind != .filedCopy {
+            fileACopy
+        }
+    }
+
+    /// Hidden over a filed copy (PLAN §4.1).
+    @ToolbarContentBuilder private var fileACopy: some ToolbarContent {
         ToolbarSpacer(.fixed)
         ToolbarItem {
             Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }

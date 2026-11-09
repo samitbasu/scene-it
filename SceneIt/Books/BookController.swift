@@ -22,6 +22,12 @@ final class BookController {
     /// Also covers the time between a press and `applicationShouldTerminate`, which the app
     /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
     private var quitUnderWay: QuitAttempt?
+    /// When ⌘W last closed a filed copy. A press soon after, a held ⌘W repeating or a quick second
+    /// press, doesn't go on to close the book (ADR 0038's guard against key repeats).
+    private var copyClosed: ContinuousClock.Instant?
+    /// The time now; a test can stand in for the clock.
+    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    static let closeCopyGrace = Interval(clamping: .milliseconds(700))
 
     private final class CloseAttempt {
         /// Its own task, which a quit pressed while it's still releasing the book waits for.
@@ -58,6 +64,8 @@ final class BookController {
     var reviewDestination: SaveDestination
     /// Where Export to Word… writes, as `exportDestination`.
     var wordDestination: SaveDestination
+    /// Where New Book from This Copy… makes the book, as `exportDestination`.
+    var newBookDestination: SaveDestination
     /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
     /// and previews a private one, so a test never replaces what the owner copied.
     let reviewPasteboard: NSPasteboard
@@ -89,6 +97,7 @@ final class BookController {
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
         wordDestination = role == .app ? .wordPanel : .nowhere
+        newBookDestination = role == .app ? .newBookPanel : .nowhere
         reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(
             clock: ContinuousClock(), mirror: mirror, reviews: reviews, memory: memory, prompts: self.prompts)
@@ -150,6 +159,8 @@ final class BookController {
     enum CloseAction: Equatable {
         /// Close Book: save, release, show the start screen.
         case closeBook
+        /// A filed copy shows over the book: it closes, as its banner's Close does.
+        case closeCopy
         /// Quit, through AppKit's own path (`settleQuit`), which saves first.
         case quit
         /// Another window is key: it closes as usual.
@@ -158,8 +169,9 @@ final class BookController {
     }
 
     enum CloseSource {
-        /// File → Close Book (⌘W), with the key window at the time.
-        case menu(keyWindow: NSWindow?)
+        /// File → Close Book (⌘W), with the key window at the time, and whether it's a held ⌘W
+        /// repeating.
+        case menu(keyWindow: NSWindow?, press: MenuPress = .first)
         /// The main window's red close button.
         case closeButton
     }
@@ -171,15 +183,20 @@ final class BookController {
     /// book: `press` then asks for the quit once the close has ended (which, after Close Anyway,
     /// can be before the release has).
     func closeAction(from source: CloseSource) -> CloseAction {
-        if case .menu(let keyWindow) = source, case .window(let other) = closeTarget(keyWindow: keyWindow) {
+        if case .menu(let keyWindow, _) = source, case .window(let other) = closeTarget(keyWindow: keyWindow)
+        {
             return .closeWindow(other)
         }
         if quitUnderWay != nil { return .nothing }
         switch (source, store.session) {
         case (_, .closing): return .nothing
-        case (_, .open) where closeUnderWay != nil: return .nothing
+        case (_, .open) where closeUnderWay != nil, (_, .viewingCopy) where closeUnderWay != nil:
+            return .nothing
         case (.closeButton, _), (.menu, .choosing): return .quit
+        case (.menu(_, let press), .open) where copyClosed != nil && (press == .repeated || copyJustClosed):
+            return .nothing
         case (.menu, .open): return .closeBook
+        case (.menu, .viewingCopy): return .closeCopy
         }
     }
 
@@ -194,8 +211,12 @@ final class BookController {
     /// quit waiting for one.
     @discardableResult
     func press(_ source: CloseSource) -> Task<Void, Never>? {
-        switch closeAction(from: source) {
+        let action = closeAction(from: source)
+        // Each ⌘W swallowed after a copy closed starts the grace again, so a held ⌘W never runs on.
+        if action == .nothing, case .open = store.session, copyClosed != nil { copyClosed = now() }
+        switch action {
         case .closeBook:
+            copyClosed = nil
             let attempt = CloseAttempt()
             closeUnderWay = attempt
             let task = Task {
@@ -215,6 +236,9 @@ final class BookController {
                 await releasing.value
                 if quitUnderWay === attempt { requestQuit(attempt) }
             }
+        case .closeCopy:
+            store.closeFiledCopy()
+            copyClosed = now()
         case .closeWindow(let window):
             window.performClose(nil)
         case .nothing:
@@ -247,7 +271,13 @@ final class BookController {
 
     /// File → Close Book's title: on the start screen, where it quits, it says so.
     var closeItemTitle: String {
-        store.isChoosing ? OneBookWording.startScreenCloseMenuItem : OneBookWording.closeBookMenuItem
+        if store.isChoosing { return OneBookWording.startScreenCloseMenuItem }
+        if case .viewingCopy = store.session { return OneBookWording.closeCopyMenuItem }
+        return OneBookWording.closeBookMenuItem
+    }
+
+    private var copyJustClosed: Bool {
+        copyClosed.map { now() - $0 < Self.closeCopyGrace.duration } ?? false
     }
 
     enum CloseTarget: Equatable {
@@ -405,5 +435,37 @@ final class RecordedRequests {
     func take() -> [Carried] {
         defer { carried = [] }
         return carried
+    }
+}
+
+// MARK: View → Previous Scene and Next Scene
+
+extension BookController {
+    /// The scene Previous Scene or Next Scene opens, in what the window shows: a filed copy while
+    /// one shows over the book, never the book hidden under it.
+    func scene(_ step: SceneStep) -> SceneID? {
+        store.shown.flatMap { $0.book.scene(step, from: $0.openScene) }
+    }
+
+    /// Opens that scene; `false` if there's none.
+    @discardableResult
+    func take(_ step: SceneStep) -> Bool {
+        guard let book = store.shown, let scene = scene(step) else { return false }
+        book.select(scene)
+        return true
+    }
+}
+
+/// Whether a ⌘W is pressed afresh or is a held key repeating.
+enum MenuPress: Equatable {
+    case first, repeated
+
+    /// Only a key event can be a repeat; asking any other raises.
+    init(_ event: NSEvent?) {
+        guard let event, event.type == .keyDown, event.isARepeat else {
+            self = .first
+            return
+        }
+        self = .repeated
     }
 }

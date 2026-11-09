@@ -46,5 +46,7 @@ extension CommentWording {
     public static let detachedHelp = "The text these comments were on was deleted."
     public static let noComments =
         "No comments in this scene. Select text, then click \u{1F4AC} Comment beside it or +."
+    /// Where no comment can be made: a read-only book, or a filed copy.
+    public static let noCommentsReadOnly = "No comments in this scene."
     public static let noMatches = "No comments match."
 }

@@ -67,3 +67,72 @@ struct ReviewBanner: View {
         }
     }
 }
+
+/// The strip across a filed copy (PLAN §7.5, mockup 13), in the read-only banner's look: "Filed
+/// copy · Oct 13, 2026 · draft 3 — read only", and Close, which returns to the book at the scene
+/// that was open. Close's menu holds Restore This Scene to My Book and New Book from This Copy….
+struct FiledCopyBanner: View {
+    let book: AppOpenBook
+    let store: AppBookStore
+    let newBook: SaveDestination
+
+    var body: some View {
+        if case .filedCopy(let context) = book.document {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                    // One run of text, so the title, the date and tags, and "read only" are spaced as
+                    // words, not as views.
+                    let title = Text(FiledCopyWording.bannerTitle).fontWeight(.semibold)
+                    let detail = FiledCopyWording.bannerDetail(context)
+                    let readOnly = Text(FiledCopyWording.readOnly).foregroundStyle(.secondary)
+                    Text("\(title) \(detail) \(readOnly)")
+                    Spacer()
+                    Menu {
+                        let actions = FiledCopyActions(copy: book, store: store, newBook: newBook)
+                        Button(FiledCopyWording.restoreScene) { Task { await actions.restore() } }
+                        Button(FiledCopyWording.newBook) { Task { await actions.makeNewBook() } }
+                    } label: {
+                        Text(FiledCopyWording.close)
+                    } primaryAction: {
+                        store.closeFiledCopy()
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .help(FiledCopyWording.closeHelp)
+                    .accessibilityHint(FiledCopyWording.moreLabel)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: WindowMetrics.bannerHeight)
+                .background(WindowMetrics.bannerColor)
+                Divider()
+            }
+        }
+    }
+}
+
+/// The banner's Restore This Scene to My Book and New Book from This Copy…. Both stay enabled:
+/// macOS shows no tooltip on a menu item, so a refused one tells the writer why instead, through
+/// the store, and writes nothing.
+struct FiledCopyActions {
+    let copy: AppOpenBook
+    let store: AppBookStore
+    let newBook: SaveDestination
+
+    func restore() async {
+        await store.restoreScene(from: copy)
+    }
+
+    /// Refused before the save panel, so the writer isn't asked where for nothing.
+    func makeNewBook() async {
+        if let refusal = store.refusalToMakeBook(from: copy) {
+            await store.tell(refusal)
+            return
+        }
+        guard case .filedCopy(let context) = copy.document,
+            let url = await newBook.choose(FiledCopyWording.newBookName(title: copy.book.title, context))
+        else { return }
+        await store.newBook(from: copy, at: url)
+    }
+}
