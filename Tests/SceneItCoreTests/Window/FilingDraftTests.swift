@@ -26,6 +26,17 @@ import Testing
         #expect(draft.pendingTag.isEmpty)
     }
 
+    /// The Tags tab's reading of a typed tag (#20): one leading `#` dropped, and a tag the
+    /// draft has in another case is the same tag.
+    @Test func aTypedTagIsReadAsTheTagsTabReadsIt() {
+        var draft = FilingDraft(today: Self.today)
+        for typed in ["#draft 4", "DRAFT 4", " # ", "##ending"] {
+            draft.pendingTag = typed
+            draft.commitPendingTag()
+        }
+        #expect(draft.tags == ["draft 4", "#ending"])
+    }
+
     @Test func tagsAreAdmittedAsOneLine() {
         var draft = FilingDraft(today: Self.today)
         draft.pendingTag = "draft\n4"
