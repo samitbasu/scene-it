@@ -174,3 +174,95 @@ step on that scene's page undo, as in the Tags tab. The Search sheet's numbered 
   its undo; the real filter field; a card's click; the ages moving on with the clock; a title typed
   on a card saved when the book closes without Return; and a
   read-only book.
+
+## 7. Moving, cutting and restoring (#29)
+
+PLAN §7.2 and §7.3 add three changes to where a scene is: **move** (drag a card, or Option+arrow),
+**cut** (drag onto the Boneyard tray, or Delete) and **restore** (drag a tile onto the grid, or its
+↩). They're one enum, `SceneChange`, applied by one method, `OpenBook.change(_:)`.
+
+### The index arithmetic is pure
+
+`Sources/SceneItCore/Model/SceneMoves.swift` holds it, with no UI in sight:
+
+- `StorySlot` is where a scene lands: `.before(SceneID)` or `.end`. Naming a slot by the scene it
+  stands before, not by an index, means the answer doesn't depend on whether the moving scene was
+  counted. `Book.landing(of:in:)` turns it into an index *after* the scene is taken out.
+- `Book.relocate(_:to:)` moves a scene to a `ScenePlace` (a part of the book and an index) and
+  returns where it was. That return value is the undo: moving back to it puts everything as it was.
+  So `change(_:)` registers `relocate(target, to: from)` as its inverse, and the inverse registers
+  the forward move again. One function, its own inverse, for move, cut and restore alike: in Rust
+  terms, `fn relocate(&mut self, …) -> Option<Place>` where the `Some` is the undo token.
+- Option+arrow uses `Book.slot(takingThePlaceOf:from:)`: the card takes its neighbor's place, after
+  it going forward, before it going back. `CardGrid.neighbor(of:_:)` finds the neighbor among the
+  cards the filter shows, `columns` to a row, so up and down go a row.
+
+Cutting keeps everything the scene holds, because it's the same `BookScene` value moved from one
+array to the other; a test reads `book.md` back to prove it.
+
+### Drag and drop: `onDrag` and a `DropDelegate`
+
+SwiftUI has two drag-and-drop APIs. The newer `draggable(_:)`/`dropDestination(for:)` pair, with a
+`Transferable` payload, is the tidy one, but it tells a drop zone only *whether* a drag is over it,
+not what kind of drag. The sheet needs that while the drag is in flight: the tray lights red only
+for a card, and the slot reads "Restore here" for a Boneyard tile but "Move here" for a card. So it
+uses the older pair:
+
+- `onDrag { … }` runs its closure as a drag starts. `ScenesActions.beginDrag(_:)` records what's
+  dragged in the sheet's `SceneDropState` and returns an `NSItemProvider` carrying the scene's id
+  under the app's own type, `com.samitbasu.SceneIt.scene`, declared in `Config/Info.plist`
+  (`UTExportedTypeDeclarations`) and registered with `visibility: .ownProcess`, so no other app can
+  receive it.
+- `onDrop(of:delegate:)` hands AppKit's drag events to a `SceneDropDelegate`: `validateDrop`,
+  `dropEntered`, `dropExited`, `dropUpdated` (which answers `.move`, so the pointer shows no copy
+  badge) and `performDrop`. Each just tells `ScenesActions` which `DropZone` it is.
+
+`SceneDropState` (core, pure, tested) turns those enter and exit events into what the sheet draws:
+the slot shows before the card the pointer entered, or at the end over the + New scene tile, and it
+stays while the pointer is over any zone of the grid, including the slot itself. That matters
+because inserting the slot pushes the card it stands before out from under the pointer. It's an
+enum, `.idle` or `.dragging(drag, inside:, lastSlot:)`, so there's no "inside" set without a drag.
+`slot(in:)` hides a "Move here" that would leave the card where it is.
+
+A drag dropped nowhere tells no drop zone that it ended, and `onDrag` has no end callback. The
+drag's own tracking loop takes the mouse button's release, so the app never sees it. Instead, once
+the pointer has left every zone (`isOutsideEveryZone`), the sheet looks at
+`NSEvent.pressedMouseButtons` every tenth of a second until no button is down, and then the drag
+is over. As a backstop, `beginDrag` also installs a local event monitor
+(`NSEvent.addLocalMonitorForEvents`) for the mouse button, so the next click the app does see
+ends a drag still recorded, on the next turn, after any drop.
+
+The drop zones and drag sources are attached only while the book takes edits. A modifier that's
+added or removed changes the view's identity (`_ConditionalContent`), so it's decided by
+editability alone, never by a state that changes as the writer types: switching it while a new
+card's title field was open made SwiftUI keep the old field in the window.
+
+ADR 0036 (no drag and drop of *text*) is about the editors; it doesn't reach the sheet.
+
+### The keys
+
+The sheet's `UndoFocusView` (07) already holds the focus while the sheet is open, so it takes the
+keys too: its `keyHandler` gets each key before AppKit's key bindings, and `CardKey(event)` reads it
+as `.focus(step)`, `.move(step)` (with Option), `.cut` (Delete) or `.open` (Return). A key that does
+nothing (an arrow at the end of the grid) is passed on, and AppKit beeps. Arrows repeat while held;
+Delete and Return ignore `event.isARepeat`, so holding Delete cuts one card. When a card's title or
++ tag field closes, the sheet takes the keys back on the next turn, once SwiftUI has removed the
+field. The card focus goes whenever the sheet's view loses the keys (its `focusChanged`), so Delete
+can never act on a card the writer stopped looking at.
+
+### Deleting for good
+
+The tile's context menu asks with `BoneyardWording.confirmDelete` through `BookStore.ask(_:)`, the
+store's own `StorePrompts`, so hosted tests answer with a scripted prompt object. Then
+`deleteFromBoneyard` hides the scene in the Deleted section (ADR 0031), undoable on
+`structureUndo`. If it was open, no scene is, and the page says so.
+
+### Tests
+
+- **Core:** `SceneMovesTests` (landing indexes, moves either way, no-op slots, cut, restore, the
+  ends, the Deleted section), `SceneDropTests` (the slot, the tray, every drop; the arrow keys at
+  the grid's ends), `SceneChangeTests` (each change one named undo step; cut and restore keep notes,
+  comments, tags and error entries, in the file byte for byte; read-only).
+- **Hosted (`BoneyardTests`):** the drop handlers on the real sheet with the window's Undo and Redo
+  and `book.md` read back; the keys sent to the window; ↩; Delete Permanently… with Cancel and
+  Delete; a read-only book.

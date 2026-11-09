@@ -155,7 +155,7 @@ struct BookWindow: View {
 
     private var scenesActions: ScenesActions {
         ScenesActions(
-            book: book, preferences: preferences, model: scenes,
+            book: book, store: store, preferences: preferences, model: scenes,
             tags: TagActions(book: book, page: editors.page.textView, search: search, mode: $mode),
             mode: $mode)
     }
