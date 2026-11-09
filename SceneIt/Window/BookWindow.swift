@@ -132,7 +132,10 @@ struct BookWindow: View {
             // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.
             if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
-        .onDisappear { readAloud.stop() }
+        .onDisappear {
+            readAloud.stop()
+            search.close()
+        }
         .onAppear {
             // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
             chrome.keys = keys

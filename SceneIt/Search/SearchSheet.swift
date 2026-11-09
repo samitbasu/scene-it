@@ -72,7 +72,7 @@ struct SearchSheet: View {
 
     private var scopes: some View {
         Picker(SearchWording.scopeLabel, selection: $model.scope) {
-            ForEach(SearchScope.allCases, id: \.self) { scope in
+            ForEach(model.scopes, id: \.self) { scope in
                 Text(SearchWording.scope(scope)).tag(scope)
             }
         }
@@ -162,7 +162,14 @@ private struct SearchResults: View {
         model.reported?.scope == .fileCabinet
     }
 
+    /// The counts, and while filed copies are still being read, how many are.
     private func summaryText(_ listing: SearchListing) -> String {
+        let counts = countsText(listing)
+        guard let reading = model.reading else { return counts }
+        return "\(counts) \u{00B7} \(SearchWording.reading(reading.read, of: reading.of))"
+    }
+
+    private func countsText(_ listing: SearchListing) -> String {
         switch (listing.quality, isCabinet) {
         case (.exact, false): SearchWording.summary(matches: listing.hitCount, scenes: listing.sceneCount)
         case (.near, false): SearchWording.nearSummary(matches: listing.hitCount, scenes: listing.sceneCount)

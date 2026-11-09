@@ -122,34 +122,43 @@ import Testing
 
     // MARK: Several indexes as one
 
-    /// Searching the copies' indexes together ranks as one index over all their units would.
+    /// Searching the copies' indexes together ranks as one index over all their units would: the
+    /// keywords' rarity is counted over every copy, not per copy. Copy 1 alone has more units with
+    /// "harbor" than with "gull", and the copies together the other way round, so a copy searched
+    /// on its own would rank its hits differently.
     @Test func severalIndexesRankAsOne() async throws {
-        let copies = (1...3).map { number in
-            [
+        let texts = [
+            ["harbor harbor gull", "harbor", "harbor", "gull"],
+            ["harbor gull gull gull", "gull", "gull", "gull", "gull"],
+            ["the harbor gull", "quiet"],
+        ]
+        let copies = texts.enumerated().map { copy, texts in
+            texts.enumerated().map { scene, text in
                 SearchUnit(
-                    version: .filed(FiledCopyNumber(number)!), scene: SceneID(rawValue: "s1"),
-                    sceneTitle: "The letter", placement: .story(number: 1), field: .title, text: "The letter"),
-                SearchUnit(
-                    version: .filed(FiledCopyNumber(number)!), scene: SceneID(rawValue: "s2"),
-                    sceneTitle: "Dawn", placement: .story(number: 2), field: .body(paragraph: 0),
-                    text: number == 2
-                        ? "She burned the letter and the bear's claw." : "A letter came at dawn."),
-            ]
+                    version: .filed(FiledCopyNumber(copy + 1)!), scene: SceneID(rawValue: "s\(scene)"),
+                    sceneTitle: "Scene \(scene)", placement: .story(number: scene + 1),
+                    field: .body(paragraph: 0),
+                    text: text)
+            }
         }
-        let query = SearchQuery("letter claw")
-        var combined: [SearchUpdate] = []
-        for await update in CombinedKeywordSearch(copies.map { KeywordSearch(units: $0) }).search(query) {
-            combined.append(update)
+        let query = SearchQuery("harbor gull")
+        func last(_ index: some SearchIndex) async throws -> SearchUpdate {
+            var updates: [SearchUpdate] = []
+            for await update in index.search(query) { updates.append(update) }
+            let last = try #require(updates.last)
+            #expect(last.progress == .complete)
+            return last
         }
-        var single: [SearchUpdate] = []
-        for await update in KeywordSearch(units: copies.flatMap(\.self)).search(query) {
-            single.append(update)
-        }
-        let together = try #require(combined.last)
-        #expect(together.progress == .complete)
-        #expect(together.scenes == single.last?.scenes)
+        let together = try await last(CombinedKeywordSearch(copies.map { KeywordSearch(units: $0) }))
+        let single = try await last(KeywordSearch(units: copies.flatMap(\.self)))
+        #expect(together.scenes == single.scenes, "the same hits, ranks and order")
         #expect(together.quality == .exact)
-        #expect(together.scenes.map(\.version) == [.filed(FiledCopyNumber(2)!)])
+        #expect(Set(together.scenes.map(\.version)) == Set((1...3).map { .filed(FiledCopyNumber($0)!) }))
+        #expect(together.scenes.count == 3, "precondition: a scene in each copy survives")
+
+        let alone = try await last(KeywordSearch(units: copies[0])).scenes.first?.best.rank
+        let first = together.scenes.first { $0.version == .filed(FiledCopyNumber(1)!) }?.best.rank
+        #expect(alone != nil && alone != first, "precondition: copy 1 alone ranks its hit differently")
     }
 
     @Test func equalRanksKeepTheIndexesOrder() async throws {
@@ -230,18 +239,67 @@ import Testing
 }
 
 /// The File Cabinet search at scale (PLAN §9.2's target: about 500 ms across 50 filed copies once
-/// they're loaded). The gate runs 50 small copies in a debug build and asserts only a generous
-/// ceiling; `SCENEIT_CABINET_BENCHMARK_WORDS=120000 swift test -c release --filter
-/// CabinetSearchPerformance` runs 50 copies of a 120,000-word novel and prints the times.
+/// they're loaded), over a novel with a realistic vocabulary: 15,000 distinct words, the common
+/// ones far more often (a Zipf-like draw). The gate runs 50 small copies in a debug build and
+/// asserts only a generous ceiling; `SCENEIT_CABINET_BENCHMARK_WORDS=120000 swift test -c release
+/// --filter CabinetSearchPerformance` runs 50 copies of a 120,000-word novel and prints the times.
 @Suite struct CabinetSearchPerformanceTests {
     static let copies = 50
     static let words =
         ProcessInfo.processInfo.environment["SCENEIT_CABINET_BENCHMARK_WORDS"].flatMap { Int($0) } ?? 6_000
-    static let queries = ["harbor gulls", "\"the island\"", "Mara watched the letter", "cafe zebra"]
+    static let vocabularySize = 15_000
+
+    /// Common words first, so the draw favours them, then made-up words, each spelt from its index.
+    static let vocabulary: [String] = {
+        let common = [
+            "the", "and", "of", "a", "to", "she", "he", "was", "in", "her", "harbor", "Mara", "watched",
+            "letter", "island", "gulls", "ferry", "dawn",
+        ]
+        let letters = Array("abcdefghijklmnopqrstuvwxyz")
+        let made = (0..<(vocabularySize - common.count)).map { index in
+            var word = ""
+            var rest = index + 26 * 26
+            while rest > 0 {
+                word.append(letters[rest % 26])
+                rest /= 26
+            }
+            return word
+        }
+        return common + made
+    }()
+
+    static func novel(words: Int) -> Book {
+        var random = SplitMix64(seed: 34)
+        func word() -> String {
+            let draw = Double(random.next() % 1_000_000) / 1_000_000
+            return vocabulary[min(vocabulary.count - 1, Int(pow(draw, 4) * Double(vocabulary.count)))]
+        }
+        let sceneCount = 60
+        let scenes = (0..<sceneCount).map { number in
+            BookScene(
+                id: SceneID(rawValue: "scene\(number)"),
+                modified: Timestamp(secondsSince1970: 0, offset: .zero),
+                title: SceneTitle("Scene \(number) \(word())"),
+                body: (0..<max(1, words / sceneCount / 100)).map { _ in
+                    [Run((0..<100).map { _ in word() }.joined(separator: " ") + ".")]
+                })
+        }
+        return Book(title: "Long", scenes: scenes)
+    }
+
+    /// The last made-up word of the novel's last paragraph: a rare word it has.
+    static func rareWord(in book: Book) -> String {
+        let common = Set(vocabulary.prefix(1_000))
+        let words =
+            book.scenes.last?.body.last?.text.split(separator: " ").map {
+                $0.trimmingCharacters(in: .punctuationCharacters)
+            } ?? []
+        return words.last { !common.contains($0) } ?? "zebra"
+    }
 
     @Test func fiftyCopiesAreSearchedQuickly() async {
         let clock = ContinuousClock()
-        let book = PerformanceTests.novel(words: Self.words)
+        let book = Self.novel(words: Self.words)
         var indexes: [KeywordSearch] = []
         let footprint = Self.footprint()
         let indexing = clock.measure {
@@ -253,15 +311,23 @@ import Testing
         }
         let held = (Self.footprint() - footprint) / 1_000_000
         let units = indexes.reduce(0) { $0 + $1.units.count }
+        let distinct = indexes.first?.forms.count ?? 0
         #expect(units == Self.copies * SearchUnit.units(of: book, version: .working).count)
+        #expect(distinct > 3_000, "precondition: a realistic vocabulary")
+        func ms(_ duration: Duration) -> String { duration.formatted(.units(allowed: [.milliseconds])) }
         var times: [String] = []
         var total = Duration.zero
-        for text in Self.queries {
+        let queries = [
+            "harbor gulls", "\"the island\"", "Mara watched the letter", Self.rareWord(in: book),
+            "cafe zebra",
+        ]
+        for text in queries {
             let query = SearchQuery(text)
+            let start = clock.now
             var run = SearchRun(indexes: indexes, query: query)
+            let compiled = clock.now - start
             var updates = 0
             var first: Duration?
-            let start = clock.now
             var last: SearchUpdate
             repeat {
                 last = run.advance()!
@@ -272,12 +338,12 @@ import Testing
             total += elapsed
             #expect(Set(last.scenes.map(\.version)).count == Self.copies || last.scenes.isEmpty)
             times.append(
-                "\(text): \(elapsed.formatted(.units(allowed: [.milliseconds]))) "
-                    + "(first results after \((first ?? elapsed).formatted(.units(allowed: [.milliseconds]))), "
+                "\(text): \(ms(elapsed)) (compiling \(ms(compiled)), first results after \(ms(first ?? elapsed)), "
                     + "\(updates) updates, \(last.hitCount) hits)")
         }
         print(
-            "cabinet search, \(Self.copies) copies of \(Self.words) words (\(units) units): indexing \(indexing), about \(held) MB held; "
+            "cabinet search, \(Self.copies) copies of \(Self.words) words (\(units) units, \(distinct) "
+                + "distinct words a copy): indexing \(indexing), about \(held) MB held; "
                 + times.joined(separator: "; "))
         #expect(total < .seconds(Self.words > 6_000 ? 60 : 20))
     }

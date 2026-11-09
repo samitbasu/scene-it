@@ -76,17 +76,30 @@ public struct KeywordSearchUpdates: AsyncSequence, Sendable {
     let query: SearchQuery
 
     public func makeAsyncIterator() -> Iterator {
-        Iterator(run: SearchRun(indexes: indexes, query: query))
+        Iterator(stage: .notStarted(indexes, query))
     }
 
+    /// The query is compiled against each index in the first `next()`, off the awaiting actor:
+    /// its cost grows with the indexes' vocabularies, and the sheet awaits on the main actor.
     public struct Iterator: AsyncIteratorProtocol {
-        var run: SearchRun?
+        var stage: Stage
+
+        enum Stage {
+            case notStarted([KeywordSearch], SearchQuery)
+            case running(SearchRun)
+            case finished
+        }
 
         @concurrent public mutating func next() async -> SearchUpdate? {
-            guard var current = run else { return nil }
-            run = nil
-            guard let update = current.advance() else { return nil }
-            if update.progress != .complete { run = current }
+            var run: SearchRun
+            switch stage {
+            case .notStarted(let indexes, let query): run = SearchRun(indexes: indexes, query: query)
+            case .running(let current): run = current
+            case .finished: return nil
+            }
+            stage = .finished
+            guard let update = run.advance() else { return nil }
+            if update.progress != .complete { stage = .running(run) }
             return update
         }
     }

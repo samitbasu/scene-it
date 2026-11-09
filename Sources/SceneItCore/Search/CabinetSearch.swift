@@ -79,7 +79,8 @@ public enum FiledCopyIndex: Sendable {
 
 /// The filed copies' search indexes (PLAN §9.2): each copy is read, parsed and indexed off the
 /// main actor the first time a File Cabinet search asks for it, then kept until the book closes.
-/// Only each copy's search units and their words are kept, never its book.
+/// Only each copy's search units and their words are kept, never its book. A copy that couldn't
+/// be read isn't kept, so the next search tries it again.
 ///
 /// A filed copy is only ever read here.
 @MainActor
@@ -87,8 +88,15 @@ public final class FiledCopyIndexes {
     public typealias Load = @Sendable (FiledCopyNumber) async -> FiledCopyIndex
 
     private let load: Load
-    private var loads: [FiledCopyNumber: Task<FiledCopyIndex, Never>] = [:]
-    private var loaded: [FiledCopyNumber: FiledCopyIndex] = [:]
+    private var state = State.open(reads: [:], indexed: [:])
+
+    private enum State {
+        case open(
+            reads: [FiledCopyNumber: Task<FiledCopyIndex, Never>], indexed: [FiledCopyNumber: KeywordSearch])
+        /// The book closed: nothing is read or kept again.
+        case dropped
+
+    }
 
     public init(load: @escaping Load) {
         self.load = load
@@ -99,45 +107,57 @@ public final class FiledCopyIndexes {
         self.init { number in await Self.index(number, layout, fileSystem, defaults) }
     }
 
-    /// `number`'s index, read now unless it was already, or is being.
-    public func index(of number: FiledCopyNumber) async -> FiledCopyIndex {
-        if let index = loaded[number] { return index }
-        let index = await start(number).value
-        loaded[number] = index
-        loads[number] = nil
+    /// `number`'s index, read now unless it was already, or is being; `nil` once the book has
+    /// closed, even if it closed while this waited.
+    public func index(of number: FiledCopyNumber) async -> FiledCopyIndex? {
+        guard case .open(_, let indexed) = state else { return nil }
+        if let index = indexed[number] { return .indexed(index) }
+        guard let read = start(number) else { return nil }
+        let index = await read.value
+        guard case .open(var reads, var indexed) = state else { return nil }
+        if reads[number] == read { reads[number] = nil }
+        if case .indexed(let search) = index { indexed[number] = search }
+        state = .open(reads: reads, indexed: indexed)
         return index
     }
 
-    /// Starts reading each of `numbers` not yet read, all at once.
+    /// Starts reading each of `numbers` not yet read or being read, all at once.
     public func prepare(_ numbers: [FiledCopyNumber]) {
-        for number in numbers where loaded[number] == nil { _ = start(number) }
+        for number in numbers { _ = start(number) }
     }
 
-    /// Whether `number` has been read, so a search won't wait for it.
-    public func isLoaded(_ number: FiledCopyNumber) -> Bool {
-        loaded[number] != nil
+    /// Whether `number` is read or being read, so a search won't start reading it.
+    public func isRequested(_ number: FiledCopyNumber) -> Bool {
+        guard case .open(let reads, let indexed) = state else { return false }
+        return reads[number] != nil || indexed[number] != nil
     }
 
     /// A copy was just filed as `number`: once any File Cabinet search has run, it's read at once,
     /// so the next search doesn't wait for it.
     func filed(_ number: FiledCopyNumber) {
-        guard !loads.isEmpty || !loaded.isEmpty else { return }
+        guard case .open(let reads, let indexed) = state, !reads.isEmpty || !indexed.isEmpty else { return }
         _ = start(number)
     }
 
-    /// The book closed: every index goes.
+    /// The book closed: every index goes, reads under way are cancelled and their results are
+    /// never kept, and nothing is read again.
     func drop() {
-        for load in loads.values { load.cancel() }
-        loads = [:]
-        loaded = [:]
+        if case .open(let reads, _) = state {
+            for read in reads.values { read.cancel() }
+        }
+        state = .dropped
     }
 
-    private func start(_ number: FiledCopyNumber) -> Task<FiledCopyIndex, Never> {
-        if let task = loads[number] { return task }
+    /// The read of `number`, started unless it's under way; `nil` if it's indexed already or the
+    /// book has closed.
+    private func start(_ number: FiledCopyNumber) -> Task<FiledCopyIndex, Never>? {
+        guard case .open(var reads, let indexed) = state, indexed[number] == nil else { return nil }
+        if let read = reads[number] { return read }
         let load = self.load
-        let task = Task { await load(number) }
-        loads[number] = task
-        return task
+        let read = Task { await load(number) }
+        reads[number] = read
+        state = .open(reads: reads, indexed: indexed)
+        return read
     }
 
     @concurrent

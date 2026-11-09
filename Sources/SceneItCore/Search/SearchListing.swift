@@ -21,6 +21,25 @@ public enum SearchScope: Hashable, Sendable, CaseIterable {
     }
 }
 
+/// What the Search sheet was last asked over a book: kept with the open book, so it survives the
+/// window being rebuilt (a filed copy opened from a result, then closed).
+public struct SearchSheetSettings: Hashable, Sendable {
+    public var text: String
+    public var options: SearchOptions
+    public var scope: SearchScope
+    public var cabinet: CabinetChoice
+
+    public init(
+        text: String = "", options: SearchOptions = [], scope: SearchScope = .wholeBook,
+        cabinet: CabinetChoice = CabinetChoice()
+    ) {
+        self.text = text
+        self.options = options
+        self.scope = scope
+        self.cabinet = cabinet
+    }
+}
+
 /// One of the sheet's checkboxes, each turning on one of the query's `SearchOptions`.
 public enum SearchCheckbox: Hashable, Sendable, CaseIterable {
     case searchTags

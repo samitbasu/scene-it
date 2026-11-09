@@ -44,6 +44,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// A search result in this filed copy, which the window showing the copy selects as it
     /// opens (PLAN §9.1).
     @ObservationIgnored public private(set) var searchArrival: SearchHit?
+    /// What the Search sheet was last asked over this book.
+    @ObservationIgnored public var searchSettings = SearchSheetSettings()
     /// Pending records whose copies the index turned out to give other sections, or whose
     /// numbers turned out to hold other files (another program wrote them): forgotten, for the
     /// store to tell the writer. A number can appear twice.

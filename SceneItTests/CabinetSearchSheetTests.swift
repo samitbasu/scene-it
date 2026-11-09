@@ -171,6 +171,79 @@ struct CabinetSearchSheetTests {
         }
     }
 
+    /// A filed copy's own window searches the copy: its This scene and Whole book results open in
+    /// it and select their match, and it offers no File Cabinet (a copy has none).
+    @Test func aCopysOwnWindowSearchesAndOpensTheCopy() async throws {
+        try await withCabinetSearch { page, _ in
+            page.book.select(ferry.id)
+            #expect(await page.store.openFiledCopy(FiledCopyNumber(3)!, of: page.book) == .opened)
+            let copy = try #require(page.store.shown)
+            try #require(copy.document.kind == .filedCopy && copy.openScene == ferry.id, "precondition")
+            let model = SearchSheetModel(book: copy)
+            #expect(model.scopes == [.thisScene, .wholeBook])
+            #expect(model.scope == .wholeBook, "the copy's sheet starts in a scope it offers")
+
+            let modes = ModeBox()
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: WindowMetrics.defaultSize), styleMask: [.titled],
+                backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = NSHostingController(
+                rootView: BookWindowWithMode(
+                    book: copy, store: page.store, preferences: page.preferences, box: modes, search: model))
+            window.setFrame(
+                NSRect(origin: NSPoint(x: -30000, y: -30000), size: WindowMetrics.defaultSize), display: false
+            )
+            window.orderFront(nil)
+            defer { window.close() }
+            @MainActor func copyPage() -> ManuscriptTextView? {
+                subviewTree(of: window.contentView).compactMap { $0 as? ManuscriptTextView }.first
+            }
+            await eventually { copyPage()?.string == "The ferry left at dawn. Mara watched." }
+
+            modes.mode = .search
+            @MainActor func segments() -> Int? {
+                subviewTree(of: window.contentView).compactMap { $0 as? NSSegmentedControl }.first?
+                    .segmentCount
+            }
+            await eventually { segments() != nil }
+            #expect(segments() == 2, "This scene and Whole book")
+
+            model.text = "twice"
+            let hit = try #require(try await model.completed().scenes.first?.best)
+            #expect(hit.unit.version == .filed(FiledCopyNumber(3)!), "the copy's own version")
+            model.open(hit)
+            let text = "Dawn came. He read the letter twice."
+            let match = (text as NSString).range(of: "twice")
+            await eventually { copyPage()?.string == text && copyPage()?.selectedRange() == match }
+            #expect(copy.openScene == letter.id)
+            #expect(copyPage()?.selectedRange() == match)
+            #expect(modes.mode == .page)
+            page.store.closeFiledCopy()
+        }
+    }
+
+    /// The query, its options and scope, the picker and the range are kept with the book, so the
+    /// window rebuilt after a copy is opened and closed shows the sheet as the writer left it.
+    @Test func theSheetIsAsTheWriterLeftItAfterACopyIsClosed() async throws {
+        try await withCabinetSearch { page, _ in
+            let model = page.search
+            model.set(.searchTags, .on)
+            model.text = "ferry"
+            model.cabinet.copy = FiledCopyNumber(2)
+            let hit = try #require(model.versions(try await model.completed()).first?.scenes.first?.best)
+            model.open(hit)
+            await eventually { page.store.shown !== page.book }
+            page.store.closeFiledCopy()
+
+            let rebuilt = SearchSheetModel(book: page.book)
+            #expect(rebuilt.text == "ferry")
+            #expect(rebuilt.options == [.searchTags])
+            #expect(rebuilt.scope == .fileCabinet)
+            #expect(rebuilt.cabinet == CabinetChoice(copy: FiledCopyNumber(2)))
+        }
+    }
+
     /// The window's date fields, leftmost first.
     private static func datePickers(_ page: PageHarness) -> [NSDatePicker] {
         subviewTree(of: page.window.contentView).compactMap { $0 as? NSDatePicker }

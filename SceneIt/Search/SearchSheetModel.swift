@@ -15,25 +15,25 @@ final class SearchSheetModel {
     typealias Indexing = @Sendable ([SearchUnit]) async -> any SearchIndex
 
     let book: AppOpenBook
-    var text = "" {
-        didSet { if text != oldValue { search() } }
+    var text: String {
+        didSet { if text != oldValue { changed() } }
     }
-    var options: SearchOptions = [] {
-        didSet { if options != oldValue { search() } }
+    var options: SearchOptions {
+        didSet { if options != oldValue { changed() } }
     }
-    var scope = SearchScope.wholeBook {
-        didSet { if scope != oldValue { search() } }
+    var scope: SearchScope {
+        didSet { if scope != oldValue { changed() } }
     }
     /// The File Cabinet scope's copy picker and date range. A picked copy the range leaves out is
     /// forgotten.
-    var cabinet = CabinetChoice() {
+    var cabinet: CabinetChoice {
         didSet {
             let fitted = cabinet.fitted(to: book.archive)
             // Observation makes this a computed property, so setting it here comes back through didSet.
             if fitted != cabinet {
                 cabinet = fitted
             } else if cabinet != oldValue {
-                search()
+                changed()
             }
         }
     }
@@ -79,9 +79,32 @@ final class SearchSheetModel {
 
     static let keywordIndexing: Indexing = { await KeywordSearch.indexing($0) }
 
+    /// Starts from what the sheet was last asked over `book`, so the query survives the window
+    /// being rebuilt: a filed copy opened from a result, then closed.
     init(book: AppOpenBook, indexing: @escaping Indexing = keywordIndexing) {
         self.book = book
         self.indexing = indexing
+        let settings = book.searchSettings
+        text = settings.text
+        options = settings.options
+        scope = Self.scopes(over: book).contains(settings.scope) ? settings.scope : .wholeBook
+        cabinet = settings.cabinet.fitted(to: book.archive)
+    }
+
+    /// The scopes the sheet offers: File Cabinet only over a book with one, not over a filed copy
+    /// or a review.
+    var scopes: [SearchScope] {
+        Self.scopes(over: book)
+    }
+
+    private static func scopes(over book: AppOpenBook) -> [SearchScope] {
+        SearchScope.allCases.filter { $0 != .fileCabinet || book.filedCopyIndexes != nil }
+    }
+
+    private func changed() {
+        book.searchSettings = SearchSheetSettings(
+            text: text, options: options, scope: scope, cabinet: cabinet)
+        search()
     }
 
     isolated deinit {
@@ -131,10 +154,13 @@ final class SearchSheetModel {
         scope == .fileCabinet ? cabinet : nil
     }
 
-    /// The File Cabinet's results grouped by copy, newest first.
+    /// The File Cabinet's results grouped by copy, newest first: the copies of the search that
+    /// reported them, so the groups and the summary come from the same results while a newer
+    /// search is under way.
     func versions(_ listing: SearchListing) -> [VersionHits] {
-        VersionHits.grouped(
-            listing.scenes, by: cabinet.searched(in: book.archive).map { .filed($0.number) })
+        let choice = reported?.cabinet ?? cabinet
+        return VersionHits.grouped(
+            listing.scenes, by: choice.searched(in: book.archive).map { .filed($0.number) })
     }
 
     /// What the File Cabinet has filed as `version`.
@@ -257,7 +283,7 @@ final class SearchSheetModel {
                 reported = Reported(query: query, scope: .fileCabinet, cabinet: choice, update: update)
             }
         }
-        let unread = Set(numbers.filter { !indexes.isLoaded($0) })
+        let unread = Set(numbers.filter { !indexes.isRequested($0) })
         if !unread.isEmpty {
             indexes.prepare(numbers)
             reading = CabinetReading(read: numbers.count - unread.count, of: numbers.count)
@@ -269,6 +295,7 @@ final class SearchSheetModel {
             switch await indexes.index(of: number) {
             case .indexed(let index): found.append(index)
             case .unreadable: failed.append(number)
+            case nil: return
             }
             guard !Task.isCancelled else { return }
             if unread.contains(number) { reading?.read += 1 }
@@ -281,19 +308,21 @@ final class SearchSheetModel {
     private func index(for scope: SearchScope) -> Task<any SearchIndex, Never> {
         if let index = indexes[scope] { return index }
         let book = self.book.book
+        let version = self.book.searchVersion
         let openScene = self.book.openScene
         let indexing = self.indexing
         let index = Task {
-            await indexing(await Self.units(of: book, in: scope, openScene: openScene))
+            await indexing(await Self.units(of: book, version, in: scope, openScene: openScene))
         }
         indexes[scope] = index
         return index
     }
 
-    @concurrent private static func units(of book: Book, in scope: SearchScope, openScene: SceneID?) async
-        -> [SearchUnit]
-    {
-        scope.units(of: SearchUnit.units(of: book, version: .working), openScene: openScene)
+    /// `book`'s units as the version the window shows, so opening a hit finds it in this book.
+    @concurrent private static func units(
+        of book: Book, _ version: SearchVersion, in scope: SearchScope, openScene: SceneID?
+    ) async -> [SearchUnit] {
+        scope.units(of: SearchUnit.units(of: book, version: version), openScene: openScene)
     }
 }
 
