@@ -150,18 +150,10 @@ struct FileACopyDialog: View {
     let confirm: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "archivebox.fill")
-                    .font(.system(size: 30)).foregroundStyle(.tint)
-                    .frame(width: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(ArchiveWording.dialogTitle).font(.headline)
-                    Text(ArchiveWording.dialogExplanation)
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        WindowDialog(
+            icon: "archivebox.fill", title: ArchiveWording.dialogTitle,
+            explanation: ArchiveWording.dialogExplanation
+        ) {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 12) {
                 GridRow {
                     Text(ArchiveWording.tagsLabel + ":").gridColumnAlignment(.trailing)
@@ -181,8 +173,6 @@ struct FileACopyDialog: View {
             }
             buttons
         }
-        .padding(20)
-        .frame(width: 440)
         .disabled(stage == .filing)
     }
 
