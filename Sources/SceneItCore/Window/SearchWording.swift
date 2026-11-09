@@ -21,6 +21,7 @@ public enum SearchWording {
         switch scope {
         case .thisScene: "This scene"
         case .wholeBook: "Whole book"
+        case .fileCabinet: FileCabinetWording.title
         }
     }
 
@@ -30,7 +31,63 @@ public enum SearchWording {
         case .thisScene: "Type to search the title, text, notes and comments of this scene."
         case .wholeBook:
             "Type to search titles, text, notes and comments in every scene in the book, including the Boneyard."
+        case .fileCabinet:
+            "Type to search titles, text, notes and comments in the filed copies. Each opens read-only."
         }
+    }
+
+    // MARK: The File Cabinet scope (#34)
+
+    public static let copyPickerLabel = "Filed copies"
+    public static let filedFrom = "filed from"
+    public static let noFiledCopies = FileCabinetWording.noCopies
+    public static let noCopiesInRange = "No filed copies were filed in these dates."
+    public static let opensReadOnly = "opens read-only"
+    /// The group of a copy's own tags, in place of a scene's number and title.
+    public static let copyTags = "Tags of this copy"
+
+    /// The copy picker's first item: "All filed copies (5)", or "All filed copies in range (3)"
+    /// while the dates narrow them.
+    public static func allCopies(_ count: Int, _ dates: FiledDates) -> String {
+        dates.isOpen
+            ? "All filed copies (\(count.formatted()))" : "All filed copies in range (\(count.formatted()))"
+    }
+
+    /// A copy in the picker, and its result group's heading: "Oct 30, 2026 · beta readers, draft 3".
+    public static func copy(_ copy: FiledCopy) -> String {
+        ([ArchiveWording.day(copy.filed)] + (copy.tags.isEmpty ? [] : [copy.tags.joined(separator: ", ")]))
+            .joined(separator: " \u{00B7} ")
+    }
+
+    /// While copies are read for the first time: "Reading filed copies… 12 of 50".
+    public static func reading(_ read: Int, of count: Int) -> String {
+        "Reading filed copies\u{2026} \(read.formatted()) of \(count.formatted())"
+    }
+
+    /// "12 matches in 9 scenes across 3 filed copies · tags match on 2 copies" (PLAN §9.1).
+    public static func cabinetSummary(_ counts: CabinetCounts) -> String {
+        var parts: [String] = []
+        if counts.scenes > 0 {
+            let copies = counts.copies == 1 ? "1 filed copy" : "\(counts.copies.formatted()) filed copies"
+            parts.append("\(summary(matches: counts.matches, scenes: counts.scenes)) across \(copies)")
+        }
+        if counts.taggedCopies > 0 {
+            let copies = counts.taggedCopies == 1 ? "1 copy" : "\(counts.taggedCopies.formatted()) copies"
+            parts.append(parts.isEmpty ? "Tags match on \(copies)" : "tags match on \(copies)")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// "No exact matches · Near matches · …", in the File Cabinet.
+    public static func cabinetNearSummary(_ counts: CabinetCounts) -> String {
+        "\(noExactMatches) \u{00B7} \(cabinetSummary(counts))"
+    }
+
+    /// Copies that couldn't be read, so weren't searched.
+    public static func unreadable(_ count: Int) -> String {
+        count == 1
+            ? "1 filed copy couldn't be read, so it wasn't searched."
+            : "\(count.formatted()) filed copies couldn't be read, so they weren't searched."
     }
 
     /// Text with no words in it, such as `--` (ADR 0033).
@@ -72,13 +129,13 @@ public enum SearchWording {
         "Show all \(self.scenes(scenes))"
     }
 
-    public static func field(_ field: SearchField) -> String {
-        switch field {
-        case .title: "TITLE"
-        case .body: "TEXT"
-        case .notes: "NOTES"
-        case .comment: "COMMENT"
-        case .tags: "TAGS"
+    public static func field(_ source: SearchSource) -> String {
+        switch source {
+        case .scene(_, .title): "TITLE"
+        case .scene(_, .body): "TEXT"
+        case .scene(_, .notes): "NOTES"
+        case .scene(_, .comment): "COMMENT"
+        case .scene(_, .tags), .copyTags: "TAGS"
         }
     }
 

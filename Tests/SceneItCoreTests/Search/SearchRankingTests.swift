@@ -115,7 +115,7 @@ import Testing
             bodyUnits(["a bear", "a bear", "a bear"], scene: "weak", number: 1)
             + [unit("The bear", field: .title, scene: "strong", number: 2)]
         let update = try await finalUpdate(units, "bear")
-        #expect(update.scenes.map(\.scene.rawValue) == ["strong", "weak"])
+        #expect(update.scenes.map(\.scene?.rawValue) == ["strong", "weak"])
         #expect(update.scenes.map(\.moreCount) == [0, 2])
         #expect(
             update.scenes[1].hits.map(\.unit.field) == [

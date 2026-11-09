@@ -133,8 +133,8 @@ extension OneAtATime {
                     pickers.min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX })
                 from.dateValue = Self.day(9, 1).noon(in: .current)
                 from.sendAction(from.action, to: from.target)
-                await eventually { harness.cabinet.filter.from == Self.day(9, 1) }
-                #expect(harness.cabinet.filter.from == Self.day(9, 1))
+                await eventually { harness.cabinet.filter.dates.from == Self.day(9, 1) }
+                #expect(harness.cabinet.filter.dates.from == Self.day(9, 1))
                 #expect(shown() == [2, 3])
 
                 harness.cabinet.filter.toggle("draft 3")

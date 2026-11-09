@@ -1,30 +1,48 @@
 import Foundation
 
-/// One search in progress: the units searched so far and what they matched.
+/// One search in progress over one or more indexes, ranked together: the units searched so far
+/// and what they matched.
 struct SearchRun {
-    private let index: KeywordSearch
-    private let query: CompiledQuery
+    private let parts: [Part]
     private let options: SearchOptions
     /// The units this search reads: tag units only with `.searchTags`.
     private let unitCount: Int
+    private let keywordCount: Int
     private var interval: Duration
-    private var cursor = 0
+    private var cursor = UnitLocation(part: 0, unit: 0)
     private(set) var unitsSearched = 0
     /// Per keyword, how many of the units searched contain it.
     private var unitsContaining: [Int]
     private var matches: [UnitMatch] = []
 
-    init(index: KeywordSearch, query: SearchQuery) {
-        self.index = index
-        self.query = CompiledQuery(query, in: index)
-        options = query.options
-        interval = index.updateInterval
-        unitCount =
-            query.options.contains(.searchTags)
-            ? index.units.count : index.units.count { $0.unit.field != .tags }
-        unitsContaining = Array(repeating: 0, count: self.query.keywords.count)
-        if self.query.keywords.isEmpty { cursor = index.units.count }
+    /// An index and the query as it compares.
+    private struct Part {
+        let index: KeywordSearch
+        let query: CompiledQuery
     }
+
+    init(index: KeywordSearch, query: SearchQuery) {
+        self.init(indexes: [index], query: query)
+    }
+
+    /// Every index compiles the query to the same keywords (`CompiledKeyword.distinct` tells
+    /// keywords apart by the query alone), so the counts per keyword add up across indexes.
+    init(indexes: [KeywordSearch], query: SearchQuery) {
+        parts = indexes.map { Part(index: $0, query: CompiledQuery(query, in: $0)) }
+        options = query.options
+        interval = indexes.first?.updateInterval ?? .zero
+        unitCount = indexes.reduce(0) { total, index in
+            total
+                + (query.options.contains(.searchTags)
+                    ? index.units.count : index.units.count { !$0.unit.isTagSet })
+        }
+        keywordCount = CompiledKeyword.distinct(query, in: nil).count
+        unitsContaining = Array(repeating: 0, count: keywordCount)
+        if keywordCount == 0 { cursor = UnitLocation(part: parts.count, unit: 0) }
+        skipEmptyParts()
+    }
+
+    private var isComplete: Bool { cursor.part == parts.count }
 
     /// Searches units until `interval` has passed or none are left, then reports everything found
     /// so far; `nil` as soon as the task is cancelled.
@@ -33,20 +51,32 @@ struct SearchRun {
     /// intermediate rankings then cost at most about as much as the final one.
     mutating func advance(on clock: some Clock<Duration> = ContinuousClock()) -> SearchUpdate? {
         let deadline = clock.now.advanced(by: interval)
-        while cursor < index.units.count {
+        while !isComplete {
             guard !Task.isCancelled else { return nil }
-            search(index.units[cursor], at: cursor)
-            cursor += 1
+            search(at: cursor)
+            cursor.unit += 1
+            skipEmptyParts()
             if clock.now >= deadline { break }
         }
         interval *= 2
         return update()
     }
 
-    private mutating func search(_ unit: IndexedUnit, at unitIndex: Int) {
-        guard options.contains(.searchTags) || unit.unit.field != .tags else { return }
+    private mutating func skipEmptyParts() {
+        while !isComplete, cursor.unit == parts[cursor.part].index.units.count {
+            cursor = UnitLocation(part: cursor.part + 1, unit: 0)
+        }
+    }
+
+    private func unit(at location: UnitLocation) -> IndexedUnit {
+        parts[location.part].index.units[location.unit]
+    }
+
+    private mutating func search(at location: UnitLocation) {
+        let unit = unit(at: location)
+        guard options.contains(.searchTags) || !unit.unit.isTagSet else { return }
         unitsSearched += 1
-        guard let match = UnitMatch(unit, at: unitIndex, query: query) else { return }
+        guard let match = UnitMatch(unit, at: location, query: parts[location.part].query) else { return }
         for (keyword, count) in match.occurrenceCounts.enumerated() where count > 0 {
             unitsContaining[keyword] += 1
         }
@@ -54,32 +84,47 @@ struct SearchRun {
     }
 
     /// Every match so far, best first and grouped by scene; scenes are ordered by their best hit,
-    /// and equal ranks keep book order.
+    /// and equal ranks keep the order of the indexes and of the units in each.
     private func update() -> SearchUpdate {
-        let keywordCount = query.keywords.count
         let quality: MatchQuality =
             matches.contains { $0.coverage == keywordCount } || matches.isEmpty ? .exact : .near
         let rarity = unitsContaining.map { RankingWeights.rarity(unitsContaining: $0, of: unitsSearched) }
         let shown = matches.filter { quality == .near || $0.coverage == keywordCount }
-        let ranks = shown.map { $0.rank(rarity: rarity, field: index.units[$0.unitIndex].unit.field) }
+        let ranks = shown.map { $0.rank(rarity: rarity, source: unit(at: $0.location).unit.source) }
         let order = shown.indices.sorted {
-            ranks[$0] != ranks[$1] ? ranks[$0] > ranks[$1] : shown[$0].unitIndex < shown[$1].unitIndex
+            ranks[$0] != ranks[$1] ? ranks[$0] > ranks[$1] : shown[$0].location < shown[$1].location
+        }
+        struct SceneKey: Hashable {
+            let part: Int
+            let scene: Int
         }
         var groups: [[SearchHit]] = []
-        var groupOfScene: [Int: Int] = [:]
+        var groupOfScene: [SceneKey: Int] = [:]
         for position in order {
-            let unit = index.units[shown[position].unitIndex]
+            let location = shown[position].location
+            let unit = unit(at: location)
             let hit = shown[position].hit(unit.unit, rank: ranks[position], quality: quality)
-            if let group = groupOfScene[unit.scene] {
+            let key = SceneKey(part: location.part, scene: unit.scene)
+            if let group = groupOfScene[key] {
                 groups[group].append(hit)
             } else {
-                groupOfScene[unit.scene] = groups.count
+                groupOfScene[key] = groups.count
                 groups.append([hit])
             }
         }
         let progress: SearchProgress =
-            cursor == index.units.count ? .complete : .searching(unitsSearched: unitsSearched, of: unitCount)
+            isComplete ? .complete : .searching(unitsSearched: unitsSearched, of: unitCount)
         return SearchUpdate(scenes: groups.map(SceneHits.init(hits:)), quality: quality, progress: progress)
+    }
+}
+
+/// Where a unit is in a search's indexes; ordered as the search reads them.
+struct UnitLocation: Comparable {
+    var part: Int
+    var unit: Int
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        (lhs.part, lhs.unit) < (rhs.part, rhs.unit)
     }
 }
 
@@ -133,8 +178,9 @@ struct CompiledKeyword {
         }
     }
 
-    /// The query's keywords, without any that compare equal to an earlier one.
-    static func distinct(_ query: SearchQuery, in index: KeywordSearch) -> [CompiledKeyword] {
+    /// The query's keywords, without any that compare equal to an earlier one. Which they are
+    /// depends on the query alone; without an index, no word is known.
+    static func distinct(_ query: SearchQuery, in index: KeywordSearch?) -> [CompiledKeyword] {
         let sensitivity: SearchText.CaseSensitivity =
             query.options.contains(.matchCase) ? .sensitive : .insensitive
         let words = Comparison(
@@ -142,7 +188,7 @@ struct CompiledKeyword {
             endings: query.options.contains(.wholeWord) ? .possessiveIgnored : .ignored)
         let phrases = Comparison(sensitivity: sensitivity, endings: .significant)
         func key(_ word: String, _ comparison: Comparison) -> Int32? {
-            index.keyIDs[comparison.key(Array(word.utf16))]
+            index?.keyIDs[comparison.key(Array(word.utf16))]
         }
         var seen: Set<[[UInt16]]> = []
         return query.keywords.compactMap { keyword in
@@ -179,7 +225,7 @@ struct Occurrence {
 /// rarity of each keyword changes during the search. Building one is linear in the unit's words
 /// times the keywords.
 struct UnitMatch {
-    let unitIndex: Int
+    let location: UnitLocation
     /// Per keyword.
     let occurrenceCounts: [Int]
     let coverage: Int
@@ -191,7 +237,7 @@ struct UnitMatch {
     let matched: [Range<Int>]
     let differing: [Range<Int>]
 
-    init?(_ unit: IndexedUnit, at unitIndex: Int, query: CompiledQuery) {
+    init?(_ unit: IndexedUnit, at location: UnitLocation, query: CompiledQuery) {
         let occurrences = Self.occurrences(in: unit, query: query)
         guard !occurrences.isEmpty else { return nil }
         let keywords = query.keywords
@@ -208,7 +254,7 @@ struct UnitMatch {
             .min { $0.span < $1.span }!
         let matchedWidth = window.chosen.reduce(0) { $0 + keywords[$1.keyword].width }
 
-        self.unitIndex = unitIndex
+        self.location = location
         occurrenceCounts = counts
         self.coverage = coverage
         self.tier = tier
@@ -224,13 +270,13 @@ struct UnitMatch {
                 occurrences: occurrences)
     }
 
-    func rank(rarity: [Double], field: SearchField) -> Rank {
+    func rank(rarity: [Double], source: SearchSource) -> Rank {
         var fine = 0.0
         for (keyword, count) in occurrenceCounts.enumerated() where count > 0 {
             fine += rarity[keyword] * (1 + RankingWeights.repeats * log(Double(count)))
         }
         fine += RankingWeights.compactness * compactness + RankingWeights.adjacency * adjacency
-        fine += RankingWeights.boost(field)
+        fine += RankingWeights.boost(source)
         return Rank(coverage: coverage, tier: tier, fine: FineScore(value: fine))
     }
 
@@ -418,11 +464,11 @@ enum RankingWeights {
     static let compactness = 2.0
     static let adjacency = 1.0
 
-    static func boost(_ field: SearchField) -> Double {
-        switch field {
-        case .title: 1.0
-        case .tags: 0.5
-        case .body, .notes, .comment: 0
+    static func boost(_ source: SearchSource) -> Double {
+        switch source {
+        case .scene(_, .title): 1.0
+        case .scene(_, .tags), .copyTags: 0.5
+        case .scene(_, .body), .scene(_, .notes), .scene(_, .comment): 0
         }
     }
 

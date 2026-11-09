@@ -55,7 +55,8 @@ public struct SearchHit: Hashable, Sendable {
     public let highlights: [Highlight]
 }
 
-/// A scene's hits, best first. The Search sheet shows the first with "+N more in this scene".
+/// A scene's hits, best first, or a filed copy's own tag hit. The Search sheet shows the first
+/// with "+N more in this scene".
 public struct SceneHits: Hashable, Sendable {
     /// Never empty.
     public let hits: [SearchHit]
@@ -63,7 +64,8 @@ public struct SceneHits: Hashable, Sendable {
     public var best: SearchHit { hits[0] }
     public var moreCount: Int { hits.count - 1 }
     public var version: SearchVersion { best.unit.version }
-    public var scene: SceneID { best.unit.scene }
+    /// `nil` for a filed copy's own tags.
+    public var scene: SceneID? { best.unit.scene?.id }
 }
 
 /// Whether the hits contain every keyword.

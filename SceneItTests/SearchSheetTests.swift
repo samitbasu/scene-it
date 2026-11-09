@@ -204,16 +204,16 @@ private func scene(_ title: String, body: [String], notes: [String] = [], tags: 
 
 extension SearchSheetModel {
     /// What the sheet lists for the current query, complete or not.
-    fileprivate var currentListing: SearchListing? {
+    var currentListing: SearchListing? {
         if case .results(let listing, .current) = state { listing } else { nil }
     }
 
     /// What the sheet lists once the current query's search is complete.
-    fileprivate var completeListing: SearchListing? {
+    var completeListing: SearchListing? {
         currentListing.flatMap { $0.progress == .complete ? $0 : nil }
     }
 
-    fileprivate func completed() async throws -> SearchListing {
+    func completed() async throws -> SearchListing {
         await settle()
         return try #require(completeListing)
     }
@@ -222,7 +222,7 @@ extension SearchSheetModel {
 /// Opens the Search sheet as the rail does, and waits until it's up: it has taken the focus
 /// from the title and the page, as it does before the writer can open a result.
 @MainActor
-private func showSheet(_ page: PageHarness) async throws {
+func showSheet(_ page: PageHarness) async throws {
     page.modes.mode = .search
     await eventually {
         page.title.currentEditor() == nil && page.window.firstResponder !== page.page
@@ -303,7 +303,7 @@ struct SearchSheetTests {
 
             model.scope = .thisScene
             let open = try await model.completed()
-            #expect(recorder.indexed.last?.allSatisfy { $0.scene == paw.id } == true)
+            #expect(recorder.indexed.last?.allSatisfy { $0.scene?.id == paw.id } == true)
             #expect(recorder.indexed.last?.isEmpty == false, "precondition: the open scene has units")
             #expect(open.quality == .near)
             #expect(open.scenes.map(\.scene) == [paw.id])
@@ -607,8 +607,9 @@ struct SearchSheetTests {
             try await showSheet(page)
             model.text = "lantern"
             let hits = try #require(try await model.completed().scenes.first)
-            #expect(hits.best.unit.placement == .boneyard)
-            #expect(SearchWording.sceneNumber(hits.best.unit.placement) == WindowWording.boneyardBadge)
+            let placement = try #require(hits.best.unit.scene?.placement)
+            #expect(placement == .boneyard)
+            #expect(SearchWording.sceneNumber(placement) == WindowWording.boneyardBadge)
             #expect(SearchWording.boneyardSuffix == " · Boneyard")
             model.open(hits.best)
             let opened = try #require(page.book.book.scene(cut.id))

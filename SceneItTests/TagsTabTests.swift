@@ -275,7 +275,8 @@ extension PageHarness {
         await eventually { search.reported?.query == search.query }
         await search.settle()
         let update = try #require(search.reported?.update)
-        let tagged = update.scenes.flatMap(\.hits).filter { $0.unit.field == .tags }.map(\.unit.scene)
+        let tagged = update.scenes.flatMap(\.hits).filter { $0.unit.field == .tags }.compactMap(
+            \.unit.scene?.id)
         #expect(tagged == scenes)
         modes.mode = .page
     }

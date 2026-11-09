@@ -22,11 +22,11 @@ public struct KeywordSearch: SearchIndex {
         }
         struct SceneKey: Hashable {
             let version: SearchVersion
-            let scene: SceneID
+            let scene: SceneID?
         }
         var sceneOrdinals: [SceneKey: Int] = [:]
         self.units = units.map { unit in
-            let sceneKey = SceneKey(version: unit.version, scene: unit.scene)
+            let sceneKey = SceneKey(version: unit.version, scene: unit.scene?.id)
             let scene = sceneOrdinals[sceneKey] ?? sceneOrdinals.count
             sceneOrdinals[sceneKey] = scene
             let text = Array(unit.text.utf16)
@@ -51,27 +51,55 @@ public struct KeywordSearch: SearchIndex {
     }
 
     public func search(_ query: SearchQuery) -> KeywordSearchUpdates {
-        KeywordSearchUpdates(index: self, query: query)
+        KeywordSearchUpdates(indexes: [self], query: query)
     }
 }
 
-/// The updates of one `KeywordSearch.search`.
+/// Several keyword indexes searched as one, ranked together as if they were one index: the File
+/// Cabinet's, one per filed copy, so a copy filed later is indexed on its own. Reports as the
+/// first index's `updateInterval` says.
+public struct CombinedKeywordSearch: SearchIndex {
+    let indexes: [KeywordSearch]
+
+    public init(_ indexes: [KeywordSearch]) {
+        self.indexes = indexes
+    }
+
+    public func search(_ query: SearchQuery) -> KeywordSearchUpdates {
+        KeywordSearchUpdates(indexes: indexes, query: query)
+    }
+}
+
+/// The updates of one `KeywordSearch.search` or `CombinedKeywordSearch.search`.
 public struct KeywordSearchUpdates: AsyncSequence, Sendable {
-    let index: KeywordSearch
+    let indexes: [KeywordSearch]
     let query: SearchQuery
 
     public func makeAsyncIterator() -> Iterator {
-        Iterator(run: SearchRun(index: index, query: query))
+        Iterator(stage: .notStarted(indexes, query))
     }
 
+    /// The query is compiled against each index in the first `next()`, off the awaiting actor:
+    /// its cost grows with the indexes' vocabularies, and the sheet awaits on the main actor.
     public struct Iterator: AsyncIteratorProtocol {
-        var run: SearchRun?
+        var stage: Stage
+
+        enum Stage {
+            case notStarted([KeywordSearch], SearchQuery)
+            case running(SearchRun)
+            case finished
+        }
 
         @concurrent public mutating func next() async -> SearchUpdate? {
-            guard var current = run else { return nil }
-            run = nil
-            guard let update = current.advance() else { return nil }
-            if update.progress != .complete { run = current }
+            var run: SearchRun
+            switch stage {
+            case .notStarted(let indexes, let query): run = SearchRun(indexes: indexes, query: query)
+            case .running(let current): run = current
+            case .finished: return nil
+            }
+            stage = .finished
+            guard let update = run.advance() else { return nil }
+            if update.progress != .complete { stage = .running(run) }
             return update
         }
     }
@@ -79,7 +107,8 @@ public struct KeywordSearchUpdates: AsyncSequence, Sendable {
 
 struct IndexedUnit: Sendable {
     let unit: SearchUnit
-    /// The same for two units exactly when they have the same version and scene.
+    /// The same for two units of one index exactly when they have the same version and scene (or
+    /// are the same copy's own tags).
     let scene: Int
     let tokens: [SearchToken]
     /// Each token's index into `KeywordSearch.forms`.
