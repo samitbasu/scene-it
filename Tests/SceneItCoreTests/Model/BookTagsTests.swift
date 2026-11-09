@@ -57,7 +57,8 @@ private func entries(_ tags: BookTags) -> [String] {
     @Test func aDeletedScenesTagsAreNotListed() {
         var book = Book(title: "Novel", scenes: [scene("One", ["kept"])], boneyard: [scene("Cut", ["gone"])])
         let cut = book.boneyard[0].id
-        #expect(book.delete(fromBoneyard: cut) != nil)
+        let deleted = book.delete(cut, from: .boneyard)
+        #expect(deleted != nil)
         #expect(book.deleted.count == 1, "precondition: the scene is in the file's Deleted part")
         #expect(entries(BookTags(book)) == ["kept 1"])
     }

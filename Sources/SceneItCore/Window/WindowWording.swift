@@ -83,8 +83,6 @@ public enum WindowWording {
 
     public static let closeSheet = "Close"
     public static let sheetComingLater = "Coming in a later version."
-    /// The temporary scene list in the Scenes sheet, until #28.
-    public static let addScene = "Add Scene"
 
     // MARK: Page (PLAN §4.3, ADR 0015)
 

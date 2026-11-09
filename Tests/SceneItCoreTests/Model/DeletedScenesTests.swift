@@ -68,7 +68,7 @@ import Testing
         let none = try await finalUpdate(SearchUnit.units(of: book, version: .working), "zebra", .searchTags)
         #expect(none.scenes.isEmpty)
 
-        _ = book.undelete(Self.dream, toBoneyardAt: 0)
+        _ = book.undelete(Self.dream, to: .boneyard, at: 0)
         let found = try await finalUpdate(SearchUnit.units(of: book, version: .working), "zebra", .searchTags)
         #expect(
             Set(hits(found).map(\.unit.field))
@@ -105,7 +105,7 @@ import Testing
         #expect(!book.visibleScenes.contains { $0.id == Self.dream })
 
         var restored = book
-        _ = restored.undelete(Self.dream, toBoneyardAt: 0)
+        _ = restored.undelete(Self.dream, to: .boneyard, at: 0)
         let dream = try #require(restored.scene(Self.dream), "back in the Boneyard, it's reachable again")
         #expect(SceneLocation(of: Self.dream, in: restored) == .boneyard(dream))
         #expect(restored.visibleScenes.map(\.id.rawValue) == ["ferry", "dream", "brother"])
@@ -148,13 +148,13 @@ import Testing
         let original = try book()
         var book = original
         let brother = book.boneyard[0]
-        let story = book.delete(fromBoneyard: book.scenes[0].id)
-        let again = book.delete(fromBoneyard: Self.dream)
+        let story = book.delete(book.scenes[0].id, from: .boneyard)
+        let again = book.delete(Self.dream, from: .boneyard)
         #expect(story == nil, "only a Boneyard scene can be deleted")
         #expect(again == nil, "nor one that's already deleted")
         #expect(book == original)
 
-        let index = book.delete(fromBoneyard: brother.id)
+        let index = book.delete(brother.id, from: .boneyard)
         #expect(index == 0)
         #expect(book.boneyard.isEmpty)
         #expect(book.deleted.map(\.id) == [brother.id, Self.dream])
@@ -164,11 +164,29 @@ import Testing
         #expect(
             !String(decoding: bytes, as: UTF8.self).contains("# Boneyard"), "an empty Boneyard isn't written")
 
-        let restored = book.undelete(brother.id, toBoneyardAt: 0)
+        let restored = book.undelete(brother.id, to: .boneyard, at: 0)
         #expect(restored)
         #expect(book == original)
-        let twice = book.undelete(brother.id, toBoneyardAt: 0)
+        let twice = book.undelete(brother.id, to: .boneyard, at: 0)
         #expect(!twice)
+    }
+
+    /// The same rule for a story scene (an undone New Scene, ADR 0041): to the top of the
+    /// Deleted section and back to its place. The Deleted section itself is neither.
+    @Test func aStorySceneMovesToTheDeletedSectionAndBackTheSameWay() throws {
+        let original = try book()
+        var book = original
+        let first = book.scenes[0]
+        let fromDeleted = book.delete(Self.dream, from: .deleted)
+        #expect(fromDeleted == nil)
+        let index = book.delete(first.id, from: .story)
+        #expect(index == 0)
+        #expect(book.deleted.map(\.id) == [first.id, Self.dream])
+        let toDeleted = book.undelete(first.id, to: .deleted, at: 0)
+        #expect(!toDeleted)
+        let back = book.undelete(first.id, to: .story, at: 0)
+        #expect(back)
+        #expect(book == original)
     }
 
     /// The owner's approved wording (#94), with Cancel first so Return keeps the scene.

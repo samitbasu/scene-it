@@ -237,7 +237,7 @@ struct DropTests {
     }
 
     @Test func aReadOnlyPageRefusesEveryDrop() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true) { page in
+        try await withPage([scene("Held", [[Run("Kept.")]])], lock: .heldElsewhere) { page in
             #expect(!page.page.isEditable, "precondition: read-only")
             try await page.page.expectRefusesEveryDrop()
             #expect(page.body() == [[Run("Kept.")]])

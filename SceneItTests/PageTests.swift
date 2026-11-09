@@ -315,7 +315,7 @@ struct PageTests {
     }
 
     @Test func aReadOnlyBookRefusesEdits() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true) { page in
+        try await withPage([scene("Held", [[Run("Kept.")]])], lock: .heldElsewhere) { page in
             #expect(!page.page.isEditable)
             #expect(!page.title.isEnabled)
             page.window.makeFirstResponder(page.page)

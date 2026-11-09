@@ -86,9 +86,12 @@ private struct SceneTagsSection: View {
                             TagChip(label: SceneTag.shown(tag), remove: removal(of: tag, from: scene.id))
                         }
                         if editability == .editable {
-                            NewTagField(scene: scene.id, actions: actions)
-                                .frame(width: WindowMetrics.Tags.addFieldWidth)
-                                .id(scene.id)
+                            NewTagField(
+                                book: actions.book, add: { actions.add($0, to: scene.id) },
+                                leave: { _ in actions.page.takeFocus() }
+                            )
+                            .frame(width: WindowMetrics.Tags.addFieldWidth)
+                            .id(scene.id)
                         }
                     }
                 }
@@ -212,79 +215,6 @@ private struct TagRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(isOnScene ? TagWording.onThisScene : "")
-    }
-}
-
-/// The + tag field: an `AdmittingTextField` (ADR 0028), so Return and Esc arrive as its field
-/// editor's commands. Return adds what's typed (`TagActions.add`) and empties the field, which
-/// keeps the focus for the next tag (the owner); Esc empties it and gives the focus back to the
-/// page. The field's own typing history, which ⌘Z undoes while it has the focus, goes with what
-/// it held.
-private struct NewTagField: NSViewRepresentable {
-    let scene: SceneID
-    let actions: TagActions
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> AdmittingTextField {
-        let coordinator = context.coordinator
-        coordinator.target = (scene, actions)
-        let editor = AdmittingTextView.fieldEditor(
-            admitting: CharacterPolicy.admittedLine,
-            editability: { [weak book = actions.book] in Editability(book) })
-        editor.history = coordinator.history
-        let field = AdmittingTextField(string: "", editor: editor, lineBreakMode: .byClipping)
-        field.font = .systemFont(ofSize: WindowMetrics.Tags.chipPointSize)
-        field.bezelStyle = .roundedBezel
-        field.placeholderString = TagWording.addPlaceholder
-        field.setAccessibilityLabel(TagWording.addLabel)
-        field.toolTip = TagWording.addHelp
-        field.delegate = coordinator
-        return field
-    }
-
-    func updateNSView(_ field: AdmittingTextField, context: Context) {
-        context.coordinator.target = (scene, actions)
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: AdmittingTextField, context: Context)
-        -> CGSize?
-    {
-        CGSize(width: proposal.width ?? field.fittingSize.width, height: field.intrinsicContentSize.height)
-    }
-
-    static func dismantleNSView(_ field: AdmittingTextField, coordinator: Coordinator) {
-        field.delegate = nil
-        field.editor?.history = nil
-        coordinator.target = nil
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var target: (scene: SceneID, actions: TagActions)?
-        let history = UndoManager()
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            switch selector {
-            case #selector(NSResponder.insertNewline(_:)):
-                let typed = textView.string
-                empty(textView)
-                if let target { target.actions.add(typed, to: target.scene) }
-                return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                empty(textView)
-                target?.actions.page.takeFocus()
-                return true
-            default:
-                return false
-            }
-        }
-
-        private func empty(_ textView: NSTextView) {
-            textView.string = ""
-            history.removeAllActions()
-        }
     }
 }
 

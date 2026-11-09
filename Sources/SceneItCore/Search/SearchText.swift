@@ -48,16 +48,45 @@ enum SearchText {
                 sentence += 1
                 index += 1
             } else if isSentenceTerminal(unit) {
-                index += 1
-                while index < count, isSentenceTerminal(text[index]) || isCloser(text[index]) {
-                    index += 1
-                }
-                if index == count || isWhitespace(text[index]) { sentence += 1 }
+                let (end, ends) = terminalRun(text, from: index)
+                index = end
+                if ends == .endsSentence { sentence += 1 }
             } else {
                 index += 1
             }
         }
         return tokens
+    }
+
+    /// Where the first sentence of `text` ends, by `tokens(_:)`'s rule: just after the run of
+    /// `.`, `!` or `?` and the closers that end it, at the first line break, or at the end.
+    static func firstSentenceEnd(_ text: [UInt16]) -> Int {
+        var index = 0
+        while index < text.count {
+            if text[index] == newline { return index }
+            if isSentenceTerminal(text[index]) {
+                let (end, ends) = terminalRun(text, from: index)
+                if ends == .endsSentence { return end }
+                index = end
+            } else {
+                index += 1
+            }
+        }
+        return text.count
+    }
+
+    private enum TerminalRun {
+        case endsSentence, continues
+    }
+
+    /// The run of terminals and closers starting at the terminal at `start`: where it ends, and
+    /// whether it ends a sentence (whitespace or the end of the text follows).
+    private static func terminalRun(_ text: [UInt16], from start: Int) -> (end: Int, TerminalRun) {
+        var index = start + 1
+        while index < text.count, isSentenceTerminal(text[index]) || isCloser(text[index]) {
+            index += 1
+        }
+        return (index, index == text.count || isWhitespace(text[index]) ? .endsSentence : .continues)
     }
 
     /// Whether case is significant when comparing words.

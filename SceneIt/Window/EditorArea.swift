@@ -114,19 +114,12 @@ private struct TitleTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> AdmittingTextField {
-        let editor = AdmittingTextView.fieldEditor(
-            admitting: { SceneTitle(pasted: $0).text },
-            editability: { [weak book = self.book] in Editability(book) })
-        editor.isContinuousSpellCheckingEnabled = true
-        let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
+        let field = AdmittingTextField.sceneTitle(title, in: book)
         context.coordinator.field = field
         NotificationCenter.default.addObserver(
             context.coordinator, selector: #selector(Coordinator.sceneWillSwitch),
             name: .openBookWillSwitchScene, object: book)
-        field.bezelStyle = .roundedBezel
-        field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(WindowWording.titleLabel)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.delegate = context.coordinator
         focus.title = field
         return field
@@ -134,13 +127,9 @@ private struct TitleTextField: NSViewRepresentable {
 
     func updateNSView(_ field: AdmittingTextField, context: Context) {
         let coordinator = context.coordinator
-        coordinator.book = book
-        coordinator.scene = scene
+        coordinator.show(scene, of: book)
         coordinator.focus = focus
         coordinator.keys = keys
-        let history = book.titleUndo(for: scene)
-        field.editor?.history = history
-        coordinator.heardUndo.hear(history, by: coordinator, calling: #selector(Coordinator.historyChanged))
         if field.currentEditor() == nil, field.stringValue != title { field.stringValue = title }
         if coordinator.resumesEditing {
             coordinator.resumesEditing = false
@@ -166,19 +155,11 @@ private struct TitleTextField: NSViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var book: AppOpenBook?
-        var scene: SceneID?
+    final class Coordinator: TitleFieldCoordinator {
         var focus: PageFocus?
         weak var keys: WindowKeys?
-        weak var field: NSTextField?
-        /// The scene whose title is being edited: fixed when the editing begins, so typing
-        /// can't reach a scene opened since.
-        private var editing: SceneID?
         /// Whether the title had the focus when the writer opened another scene.
         var resumesEditing = false
-        /// The shown scene's title history.
-        let heardUndo = HeardUndo()
 
         @objc func sceneWillSwitch(_ notification: Notification) {
             guard let field, field.currentEditor() != nil else { return }
@@ -186,48 +167,7 @@ private struct TitleTextField: NSViewRepresentable {
             field.window?.makeFirstResponder(nil)
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            editing = scene
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            editing = nil
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let editor = Self.editor(notification) else { return }
-            sync(editor)
-        }
-
-        /// An undo or redo in the field changes its text without telling the field's delegate,
-        /// so the title is taken from the field editor here instead.
-        @objc func historyChanged(_ notification: Notification) {
-            guard let editor = field?.currentEditor() as? NSTextView else { return }
-            sync(editor)
-        }
-
-        private func sync(_ editor: NSTextView) {
-            guard let book, let scene = editing ?? scene else { return }
-            let typed = editor.string
-            let title = SceneTitle(pasted: typed)
-            book.setTitle(of: scene, to: title)
-            guard !title.text.utf16.elementsEqual(typed.utf16) else { return }
-            // A backstop: the editor's veto keeps out what the title can't hold, so only an edit
-            // that skipped it gets here. Mid-undo the text is between two steps of a change that
-            // ends admitted, so it's left alone.
-            if let history = editor.undoManager, history.isUndoing || history.isRedoing { return }
-            let caret = min(editor.selectedRange().location, (typed as NSString).length)
-            let before = (typed as NSString).substring(to: caret)
-            let all = NSRange(location: 0, length: (typed as NSString).length)
-            guard let storage = editor.textStorage,
-                editor.shouldChangeText(in: all, replacementString: title.text)
-            else { return }
-            storage.replaceCharacters(in: all, with: title.text)
-            editor.didChangeText()
-            editor.setSelectedRange(NSRange(location: SceneTitle(pasted: before).text.utf16.count, length: 0))
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        override func command(_ selector: Selector, in textView: NSTextView) -> Bool {
             switch selector {
             case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
                 focus?.focusBodyStart()
@@ -239,10 +179,6 @@ private struct TitleTextField: NSViewRepresentable {
             default:
                 return false
             }
-        }
-
-        private static func editor(_ notification: Notification) -> NSTextView? {
-            notification.userInfo?["NSFieldEditor"] as? NSTextView
         }
     }
 }

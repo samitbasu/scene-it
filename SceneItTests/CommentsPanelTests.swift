@@ -622,10 +622,10 @@ extension BookStoreIntegrationTests {
 /// The panel's book in the window, with the Comments tab showing; the panel is put back after.
 @MainActor
 func withPanel(
-    holdingTheLock: Bool = false, books: BookController = BookController(role: .testHost),
+    lock: TestBookLock = .ours, books: BookController = BookController(role: .testHost),
     _ body: (PageHarness) async throws -> Void
 ) async throws {
-    try await withPage([panelBook()], holdingTheLock: holdingTheLock, books: books) { harness in
+    try await withPage([panelBook()], lock: lock, books: books) { harness in
         let (panel, tab) = (harness.preferences.rightPanel, harness.preferences.rightPanelTab)
         defer {
             harness.preferences.setRightPanel(panel)
