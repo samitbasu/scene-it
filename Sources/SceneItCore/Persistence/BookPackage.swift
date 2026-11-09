@@ -725,9 +725,12 @@ public struct ReadOnlyBook: Sendable {
     public let layout: PackageLayout
     public let book: Book
 
-    /// What the File Cabinet lists, read and reconciled without writing anything.
-    public func reconcileArchive(fileSystem: any FileSystem = LocalFileSystem()) -> ReconciledArchive {
-        Archive(layout: layout, fileSystem: fileSystem).reconcile(.readOnly)
+    /// What the File Cabinet lists, read and reconciled without writing anything. `pending`
+    /// gives sections for filed copies whose filing couldn't save theirs.
+    public func reconcileArchive(
+        pending: [FiledCopyNumber: FilingRecord] = [:], fileSystem: any FileSystem = LocalFileSystem()
+    ) -> ReconciledArchive {
+        Archive(layout: layout, fileSystem: fileSystem).reconcile(.readOnly, pending: pending)
     }
 }
 

@@ -513,6 +513,149 @@ struct FileACopyTests {
         }
     }
 
+    // MARK: Reading the book again with tags the index couldn't save (#148)
+
+    /// The original's index can't be replaced, so a filing's tags and note wait in
+    /// `pendingRecords`.
+    static let indexWriteFails = FaultInjectingFileSystem.Fault.fail(
+        .move("Novel.sceneit/Archive/temporary index.md", over: "Novel.sceneit/Archive/index.md"))
+
+    /// Files a copy whose index write fails, so its record is pending. Returns the book.
+    private static func fileWithIndexFailing(
+        _ store: TestStore, _ fileSystem: FaultInjectingFileSystem
+    ) async throws -> OpenBook<ManualClock> {
+        let book = try #require(store.current)
+        fileSystem.inject(indexWriteFails)
+        guard case .filed = await store.fileACopy(of: book, as: record) else {
+            Issue.record("expected a filed copy")
+            return book
+        }
+        try #require(book.pendingRecords == [FiledCopyNumber.first: record], "precondition: pending")
+        return book
+    }
+
+    static let notAFile: (URL) throws -> Void = { url in
+        let bookMd = url.appending(path: "book.md")
+        try FileManager.default.removeItem(at: bookMd)
+        try FileManager.default.createDirectory(at: bookMd, withIntermediateDirectories: false)
+    }
+
+    @Test func openOtherVersionCarriesTagsTheIndexStillCantSave() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { store.current !== old && store.current != nil }
+
+            let reopened = try #require(store.current)
+            #expect(reopened.book == (try draft(7)), "precondition: their version was read again")
+            #expect(reopened.pendingRecords == [FiledCopyNumber.first: Self.record])
+            #expect(reopened.archive.copies.map(\.tags) == [["draft 4"]], "the cabinet shows what was typed")
+            #expect(try Self.indexOnDisk(url).copies.isEmpty, "precondition: still not saved")
+
+            fileSystem.clearFault()
+            reopened.write("Saved at last")
+            store.saveNow()
+            await eventually { reopened.pendingRecords.isEmpty }
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+            #expect(prompts.notices.count == 1, "only the filing's notice: nothing was lost")
+        }
+    }
+
+    @Test func openOtherVersionRecordsPendingTagsAsItReadsTheBookAgain() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.before(.lock("Novel.sceneit/.lock")) { fileSystem.clearFault() }
+
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { store.current !== old && store.current != nil }
+
+            let reopened = try #require(store.current)
+            #expect(old.pendingRecords.count == 1, "precondition: not saved before the book was read again")
+            #expect(reopened.archiveNotices.contains(.recordedPendingEntry(FiledCopyNumber.first)))
+            #expect(reopened.pendingRecords.isEmpty)
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+        }
+    }
+
+    @Test func openMyVersionSavesPendingTagsInTheOriginalFirst() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.before(.writeTemporary("Novel (my edits).sceneit/book.md")) { fileSystem.clearFault() }
+
+            _ = try await Self.draftThenExternalChange(url, store: store, change: Self.notAFile)
+            await eventually { store.current !== old && store.current != nil }
+
+            let reopened = try #require(store.current)
+            let mine = folder.appending(path: "Novel (my edits).sceneit")
+            #expect(
+                reopened.layout.root.canonicalPath == mine.canonicalPath, "precondition: my version opened")
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+            #expect(old.pendingRecords.isEmpty)
+            #expect(
+                prompts.notices.map(\.title) == [
+                    "The copy was filed, but not everything worked.", "Scene It opened your version.",
+                ])
+        }
+    }
+
+    @Test func openMyVersionQuotesPendingTagsTheOriginalCantSave() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+
+            _ = try await Self.draftThenExternalChange(url, store: store, change: Self.notAFile)
+            await eventually { prompts.notices.count == 3 }
+
+            #expect(store.current !== old && store.current?.pendingRecords.isEmpty == true)
+            let told = ArchiveWording.unrecorded([FiledCopyNumber.first: Self.record], in: url)
+            #expect(prompts.notices.last == told)
+            #expect(
+                prompts.notices.map(\.title) == [
+                    "The copy was filed, but not everything worked.", "Scene It opened your version.",
+                    "Scene It couldn't save a filed copy's tags and note.",
+                ])
+            let message = try #require(told?.message)
+            #expect(message.contains("\u{201C}Novel\u{201D}"))
+            #expect(message.contains("\u{201C}draft 4\u{201D}"))
+            #expect(message.contains("\u{201C}Before the ending\u{201D}"))
+        }
+    }
+
+    @Test func theUnrecordedNoticeQuotesEveryCopy() throws {
+        let url = URL(filePath: "/Books/Novel.sceneit", directoryHint: .isDirectory)
+        #expect(ArchiveWording.unrecorded([:], in: url) == nil)
+        let second = FilingRecord(filed: Self.record.filed, note: "After")
+        let notice = try #require(
+            ArchiveWording.unrecorded([FiledCopyNumber(2)!: second, .first: Self.record], in: url))
+        #expect(notice.title == "Scene It couldn't save some filed copies' tags and notes.")
+        let day = ArchiveWording.day(Self.record.filed)
+        #expect(
+            notice.message
+                == "Scene It couldn't save them to the File Cabinet's list in \u{201C}Novel\u{201D}, so it "
+                + "lists those copies without them.\n\nThe copy filed \(day). Your tags: \u{201C}draft 4\u{201D}. "
+                + "Your note: \u{201C}Before the ending\u{201D}.\n\nThe copy filed \(day). Your note: "
+                + "\u{201C}After\u{201D}.")
+    }
+
     // MARK: Reconciliation on open
 
     @Test func openingReconcilesTheArchiveAndSavesTheIndex() async throws {

@@ -90,12 +90,37 @@ public enum ArchiveWording {
 
     /// "Your tags: "draft 4", "before the ending". Your note: "Before the rewrite"."
     static func typed(_ record: FilingRecord) -> String {
+        let quoted = quotedTyping(record)
+        return quoted.isEmpty ? "" : "\n\n" + quoted
+    }
+
+    private static func quotedTyping(_ record: FilingRecord) -> String {
         var parts: [String] = []
         if !record.tags.isEmpty {
             parts.append("Your tags: " + record.tags.map(quoted).joined(separator: ", ") + ".")
         }
         if !record.note.isEmpty { parts.append("Your note: " + quoted(record.note) + ".") }
-        return parts.isEmpty ? "" : "\n\n" + parts.joined(separator: " ")
+        return parts.joined(separator: " ")
+    }
+
+    /// Told when `book` is replaced by another (ADR 0018's Open My Version) or can't be read
+    /// again, while some copies' sections still couldn't be saved in its index: nothing will
+    /// record them now, so each is quoted. `nil` when there are none.
+    public static func unrecorded(_ pending: [FiledCopyNumber: FilingRecord], in book: URL) -> Notice? {
+        guard !pending.isEmpty else { return nil }
+        let one = pending.count == 1
+        let copies = pending.sorted { $0.key < $1.key }.map { _, record in
+            "\n\n"
+                + ["The copy filed \(day(record.filed)).", quotedTyping(record)].filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        return Notice(
+            title: one
+                ? "Scene It couldn't save a filed copy's tags and note."
+                : "Scene It couldn't save some filed copies' tags and notes.",
+            message: "Scene It couldn't save them to the File Cabinet's list in "
+                + "\(quoted(StoreWording.bookName(book))), so it lists \(one ? "that copy" : "those copies") "
+                + "without them." + copies.joined())
     }
 
     private static func quoted(_ text: String) -> String {

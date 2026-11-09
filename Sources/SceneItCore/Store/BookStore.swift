@@ -203,6 +203,13 @@ public final class BookStore<C: Clock<Duration>> {
             case .again(let book): book.layout.root
             }
         }
+
+        /// The records waiting for this package's index: a book read again keeps the old
+        /// one's, which its reconciliation records. My version is another package, whose
+        /// Archive has none of the original's copies.
+        @MainActor var pending: Archive.Pending {
+            if case .again(let book) = self { book.pendingRecords } else { [:] }
+        }
     }
 
     /// A book that won't load is told and forgotten only when it was chosen; a replacement
@@ -210,7 +217,7 @@ public final class BookStore<C: Clock<Duration>> {
     private func load(_ target: Target, onLockRecord policy: LockRecordPolicy) async -> OpenOutcome {
         let loaded: LoadedBook
         do throws(LoadError) {
-            loaded = try await Self.load(target.url, policy, parseDefaults, fileSystem)
+            loaded = try await Self.load(target.url, policy, target.pending, parseDefaults, fileSystem)
         } catch {
             if case .chosen(let url) = target {
                 await prompts.tell(StoreWording.loadFailed(error))
@@ -303,7 +310,7 @@ public final class BookStore<C: Clock<Duration>> {
                 return .notRepaired
             }
             book.becomeEditable(writer, clock: clock)
-            if let reconciled = await writer.reconcileArchive(.writable) { book.show(reconciled) }
+            await book.reconcileArchive(with: writer)
             return .editable
         case .readOnly(let kept, let reason):
             switch await prompts.ask(ReadOnlyWording.alert(for: reason)) {
@@ -317,10 +324,13 @@ public final class BookStore<C: Clock<Duration>> {
 
     /// The only way a book becomes the session's. A replaced book is detached in this turn,
     /// so it refuses edits before anything else runs. File a Copy's dialog stays up across the
-    /// replacement, holding what was typed in it.
+    /// replacement, holding what was typed in it, and a book read again keeps the records its
+    /// reconciliation couldn't save.
     @discardableResult
     private func install(_ loaded: LoadedBook, as target: Target) async -> OpenBook<C> {
-        let book = OpenBook(loaded.opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
+        let book = OpenBook(
+            loaded.opened, archive: loaded.archive, pending: target.pending, clock: clock, mirror: mirror,
+            store: self)
         let replaced: BookWriter?
         switch target {
         case .chosen:
@@ -437,18 +447,27 @@ public final class BookStore<C: Clock<Duration>> {
         let copyURL = copy.layout.root
         remember(copyURL)
         await copy.release()
+        if let writer { await book.recordPending(writer) }
         await writer?.release()
         let reopened: OpenOutcome
+        let replacement: Target
         if case .externallyModified(.notAFile) = error {
             forget(original)
-            reopened = await load(.myVersion(copyURL, replacing: book), onLockRecord: .respect)
+            replacement = .myVersion(copyURL, replacing: book)
+            reopened = await load(replacement, onLockRecord: .respect)
             if case .opened = reopened { await prompts.tell(StoreWording.openedMyVersion(copyURL)) }
         } else {
-            reopened = await load(.again(book), onLockRecord: .respect)
+            replacement = .again(book)
+            reopened = await load(replacement, onLockRecord: .respect)
         }
-        guard case .failed(let failure) = reopened else { return }
-        session = .choosing
-        await prompts.tell(OneBookWording.bookLost(failure, myVersion: copyURL))
+        if case .failed(let failure) = reopened {
+            session = .choosing
+            await prompts.tell(OneBookWording.bookLost(failure, myVersion: copyURL))
+        }
+        if case .again = replacement, current != nil { return }
+        if let notice = ArchiveWording.unrecorded(book.pendingRecords, in: original) {
+            await prompts.tell(notice)
+        }
     }
 
     // MARK: Closing and quitting
@@ -563,23 +582,25 @@ public final class BookStore<C: Clock<Duration>> {
         let opened: OpenedBook
         let archive: ReconciledArchive
 
-        init(_ opened: OpenedBook, _ fileSystem: any FileSystem) {
+        init(_ opened: OpenedBook, pending: Archive.Pending = [:], _ fileSystem: any FileSystem) {
             self.opened = opened
             archive =
                 switch opened {
-                case .editing(let editable): editable.package.reconcileArchive()
-                case .readOnly(let readOnly, _): readOnly.reconcileArchive(fileSystem: fileSystem)
+                case .editing(let editable): editable.package.reconcileArchive(pending: pending)
+                case .readOnly(let readOnly, _):
+                    readOnly.reconcileArchive(pending: pending, fileSystem: fileSystem)
                 }
         }
     }
 
     @concurrent
     private nonisolated static func load(
-        _ url: URL, _ policy: LockRecordPolicy, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
+        _ url: URL, _ policy: LockRecordPolicy, _ pending: Archive.Pending, _ defaults: ParseDefaults,
+        _ fileSystem: any FileSystem
     ) async throws(LoadError) -> LoadedBook {
         LoadedBook(
             try BookPackage.open(at: url, onLockRecord: policy, defaults: defaults, fileSystem: fileSystem),
-            fileSystem)
+            pending: pending, fileSystem)
     }
 
     @concurrent

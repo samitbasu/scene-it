@@ -57,8 +57,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         case refused
     }
 
+    /// `pending` is what a book read again in this one's place had pending (`pendingRecords`);
+    /// `archive` was reconciled with it.
     init(
-        _ opened: OpenedBook, archive: ReconciledArchive, clock: C, mirror: BackupMirror, store: BookStore<C>
+        _ opened: OpenedBook, archive: ReconciledArchive, pending: Archive.Pending, clock: C,
+        mirror: BackupMirror, store: BookStore<C>
     ) {
         self.store = store
         book = opened.book
@@ -76,6 +79,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             layout = readOnly.layout
             access = .readOnly(reason)
         }
+        pendingRecords = pending
+        if isEditable, archive.isSaved { forgetPending(recordedIn: archive.index) }
         openScene = book.scenes.first?.id
     }
 
@@ -487,10 +492,17 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Records the pending records, if any, now that a save may have cleared what stopped them.
-    private func recordPending(_ writer: BookWriter) async {
-        guard !pendingRecords.isEmpty,
-            let reconciled = await writer.reconcileArchive(.writable, pending: pendingRecords)
-        else { return }
+    func recordPending(_ writer: BookWriter) async {
+        guard !pendingRecords.isEmpty else { return }
+        await reconcileArchive(with: writer)
+    }
+
+    /// Reconciles the archive through `writer`, which holds this book's lock, recording the
+    /// pending records, and shows it.
+    func reconcileArchive(with writer: BookWriter) async {
+        guard let reconciled = await writer.reconcileArchive(.writable, pending: pendingRecords) else {
+            return
+        }
         show(reconciled)
         if reconciled.isSaved { forgetPending(recordedIn: reconciled.index) }
     }
