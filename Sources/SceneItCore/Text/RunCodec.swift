@@ -53,23 +53,20 @@ public enum RunCodec {
     }
 
     /// A scene's paragraphs as print puts them out: the title as its heading, and the typography
-    /// smartened (decision 0022), which the editors never do.
+    /// smartened (`OutputParagraph.shown`), which the editors never do.
     static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttributedString {
-        attributedString(paragraphs.map { ($0.kind.role, $0.runs) }, punctuation: .smartened)
+        attributedString(paragraphs.map { ($0.kind.role, $0.shown) })
     }
 
     private static func attributedString(_ paragraphs: [Paragraph], role: ParagraphRole) -> NSAttributedString
     {
-        attributedString(paragraphs.map { (role, $0.runs) }, punctuation: .asStored)
+        attributedString(paragraphs.map { (role, $0.runs.map { ($0, $0.text) }) })
     }
 
-    private enum Punctuation {
-        case asStored, smartened
-    }
-
-    /// Each stretch of paragraphs in one role is styled by that role.
+    /// Each run shown as the text given with it; each stretch of paragraphs in one role is
+    /// styled by that role.
     private static func attributedString(
-        _ paragraphs: [(role: ParagraphRole, runs: [Run])], punctuation: Punctuation
+        _ paragraphs: [(role: ParagraphRole, runs: [(run: Run, text: String)])]
     ) -> NSAttributedString {
         let text = NSMutableAttributedString()
         var stretches: [(role: ParagraphRole, start: Int)] = []
@@ -79,16 +76,7 @@ public enum RunCodec {
                     NSAttributedString(string: "\n", attributes: paragraphs[index - 1].role.typingAttributes))
             }
             if stretches.last?.role != paragraph.role { stretches.append((paragraph.role, text.length)) }
-            let unit =
-                switch punctuation {
-                case .asStored: nil as SmartUnit?
-                case .smartened: SmartUnit(paragraph.runs.map(\.text).joined())
-                }
-            var offset = 0
-            for run in paragraph.runs {
-                let length = run.text.unicodeScalars.count
-                let shown = unit?.piece(offset..<offset + length) ?? run.text
-                offset += length
+            for (run, shown) in paragraph.runs {
                 text.append(
                     NSAttributedString(
                         string: shown, attributes: RunFormat(run).attributes(in: paragraph.role)))

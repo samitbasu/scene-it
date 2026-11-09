@@ -10,6 +10,7 @@ struct WindowToolbar: ToolbarContent {
     let preferences: AppPreferences
     let undo: UndoRouter
     let filing: FilingFlow
+    let printing: PrintFlow
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -39,9 +40,9 @@ struct WindowToolbar: ToolbarContent {
         }
         ToolbarSpacer(.fixed)
         ToolbarItem {
-            Button(WindowWording.print, systemImage: "printer") { ManuscriptPrinting.run(book) }
+            Button(WindowWording.print, systemImage: "printer") { printing.begin() }
                 .labelStyle(.titleAndIcon)
-                .disabled(!ManuscriptPrinting.canPrint(book) || filing.draft != nil)
+                .disabled(!printing.canBegin)
         }
         ToolbarItem {
             Button(WindowWording.exportToWord, systemImage: "doc.text") {}

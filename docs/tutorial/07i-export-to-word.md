@@ -2,9 +2,10 @@
 
 Issue #37 (PLAN §10.2, ADR 0045, ADR 0047). File → Export to Word… saves the open scene as a `.docx`:
 the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt, double-spaced with a
-half-inch first-line indent, with bold, italic, strikethrough, colours and highlights, and without
-the comments. The Swift and macOS lessons: when not to use the system's converter, what a `.docx` is
-inside, generating XML as text behind one escaping function with an asserted invariant, writing a zip
+half-inch first-line indent, with bold, italic, strikethrough, colours and highlights, the
+punctuation smartened as print's is, and without the comments. The Swift and macOS lessons: when not
+to use the system's converter, what a `.docx` is inside, generating XML as text behind one escaping
+function, writing a zip
 with the system's zlib, and testing a file format with a reader that isn't yours.
 
 Files: [`Sources/SceneItCore/Word/WordExport.swift`](../../Sources/SceneItCore/Word/WordExport.swift),
@@ -64,6 +65,12 @@ Colours come straight from the palette's hex values, the same ones the page draw
 text gets no `w:color` at all, which Word reads as its automatic colour: black on white, light when
 Word shows the document dark.
 
+The text is the stored text smartened (decision 0022): straight quotes become curly, `--` a dash and
+`...` an ellipsis. `OutputParagraph.shown` does it, the one rule print uses too ([chapter
+09](09-printing.md)): quotes are decided over the whole paragraph, then each run takes its own piece,
+so its formatting stays on exactly its characters. Runs Word would format alike are then joined
+(`WordDocument.merged`): a comment's edges aren't exported, so they mustn't split a run.
+
 ## 3. XML as text, behind one escaping function
 
 The parts are small and fixed in shape, so they're built as strings, Swift's raw string literals
@@ -73,21 +80,18 @@ scene's, and all of it passes through one function:
 ```swift
 static func escaped(_ text: String) throws(WordExportFailure) -> String {
     guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
-    assert(
-        text.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed), "run text the character policy refuses"
-    )
 ```
 
 The function keeps its own contract, well-formed XML, in every build. XML 1.0 can't hold most
 control characters or U+FFFE and U+FFFF even escaped, so such a character refuses the export with a
 typed error and a notice rather than writing a file Word would reject. (A Swift `String` can't hold a
 lone surrogate at all, unlike an `NSString`.) Stored text is printable ASCII (ADR 0028), so that path
-should never run; the `assert` after it is a tripwire for the stronger invariant. Like Rust's
-`debug_assert!`, it traps in debug builds (and so in every test) and costs nothing in release. The
-order matters: the check that holds in release comes first, so a test can build a scene containing a
-control character, bypassing the policy through the model's internal initializer, and see the refusal.
-Another test pushes every allowed character through the title and the body and reads them back from
-the XML.
+should never run. The first version also asserted the character policy here, a debug-only tripwire
+like Rust's `debug_assert!`; once the text was smartened it held curly quotes and dashes, which the
+policy refuses but XML is happy with, so the XML check is the contract that remains. A test builds a
+scene containing a control character, bypassing the policy through the model's internal initializer,
+and sees the refusal. Another pushes every allowed character through the title and the body and reads
+them back, smartened, from the XML.
 
 ## 4. A writer-only zip with the system's zlib
 

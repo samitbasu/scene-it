@@ -23,6 +23,12 @@ public enum PaperOrientation: Hashable, Sendable {
 public enum PrintRange: Hashable, Sendable, CaseIterable {
     case thisScene, wholeManuscript
 
+    /// The ranges there's something to print in: this scene while one is open, the whole
+    /// manuscript while the story has a scene. None means nothing to print.
+    public static func offered(in book: Book, open: SceneID?) -> [PrintRange] {
+        allCases.filter { !$0.scenes(of: book, open: open).isEmpty }
+    }
+
     /// The scenes printed from `book` with `open` the scene showing: none for this scene when
     /// none is open.
     public func scenes(of book: Book, open: SceneID?) -> [BookScene] {

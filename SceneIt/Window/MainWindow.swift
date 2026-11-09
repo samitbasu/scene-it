@@ -86,6 +86,7 @@ private struct OpenBookWindow: View {
     @State private var chrome = WindowChrome()
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
+    @State private var printing: PrintFlow
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
@@ -97,16 +98,19 @@ private struct OpenBookWindow: View {
         self.formatting = formatting
         self.readAloud = readAloud
         self.mainChrome = mainChrome
-        _filing = State(initialValue: FilingFlow(book: book))
-        _export = State(initialValue: ExportFlow(book: book, destination: exportDestination))
+        let filing = FilingFlow(book: book)
+        _filing = State(initialValue: filing)
+        let export = ExportFlow(book: book, destination: exportDestination)
+        _export = State(initialValue: export)
+        _printing = State(initialValue: PrintFlow(book: book, filing: filing, export: export))
     }
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            filing: filing, export: export, chrome: chrome, readAloud: readAloud
+            filing: filing, export: export, printing: printing, chrome: chrome, readAloud: readAloud
         )
-        .onAppear { mainChrome.show(chrome, mode: $mode) }
+        .onAppear { mainChrome.show(chrome, mode: $mode, printing: printing) }
         .onDisappear { mainChrome.gone(chrome) }
     }
 }

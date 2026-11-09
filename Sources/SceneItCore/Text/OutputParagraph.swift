@@ -15,6 +15,19 @@ struct OutputParagraph: Hashable {
     let kind: Kind
     let runs: [Run]
 
+    /// Each run with its text as print and Export to Word show it: the typography smartened
+    /// over the whole paragraph (decision 0022), so a run's piece keeps exactly its characters.
+    /// The stored text is never smartened.
+    var shown: [(run: Run, text: String)] {
+        let unit = SmartUnit(runs.map(\.text).joined())
+        var offset = 0
+        return runs.map { run in
+            let length = run.text.unicodeScalars.count
+            defer { offset += length }
+            return (run, unit.piece(offset..<offset + length))
+        }
+    }
+
     /// The scene's title, unless it has none, then its body. A scene with nothing at all is one
     /// empty paragraph, as an empty document is.
     static func paragraphs(of scene: BookScene) -> [OutputParagraph] {

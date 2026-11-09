@@ -472,7 +472,7 @@ by side (`compare-pages.png`). To render only these, add
 draws the File menu with a review open (`menu-copy-and-save-review`).
 
 `print` renders Print (#35, `PrintRenders.swift`) into a `print/` subfolder: the first two pages of a sample
-scene with six comments, as the print operation saves them to PDF, drawn at 2× (`portrait-page-<n>@2x.png` for
+scene with eight comments (three on one line, two on another), as the print operation saves them to PDF, drawn at 2× (`portrait-page-<n>@2x.png` for
 text only, `landscape-page-<n>@2x.png` for text with comments); and the print dialog's accessory alone, since the
 system dialog around it can't be drawn offscreen (`accessory-text-only@2x.png`, `accessory-with-comments@2x.png`).
 Each also has a `-vs-mockup.png` beside `15-print-dialog.png`. To render only these, add

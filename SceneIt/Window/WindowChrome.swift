@@ -41,16 +41,20 @@ final class MainWindowChrome {
     private(set) var chrome: WindowChrome?
     /// What the window shows over the book: the page or a sheet.
     private(set) var mode: Binding<WindowMode>?
+    /// Its Print…, for File → Print…, so the menu and the toolbar print the same book.
+    private(set) var printing: PrintFlow?
 
-    func show(_ chrome: WindowChrome, mode: Binding<WindowMode>) {
+    func show(_ chrome: WindowChrome, mode: Binding<WindowMode>, printing: PrintFlow) {
         self.chrome = chrome
         self.mode = mode
+        self.printing = printing
     }
 
     func gone(_ chrome: WindowChrome) {
         guard self.chrome === chrome else { return }
         self.chrome = nil
         mode = nil
+        printing = nil
     }
 }
 

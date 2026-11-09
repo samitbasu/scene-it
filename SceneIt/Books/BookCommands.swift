@@ -44,13 +44,9 @@ struct BookCommands: Commands {
                 .disabled(books.shareableReview == nil)
         }
         CommandGroup(replacing: .printItem) {
-            Button(PrintWording.menuItem) {
-                if let book = books.store.current { ManuscriptPrinting.run(book) }
-            }
-            .keyboardShortcut("p")
-            .disabled(
-                books.store.current.map(ManuscriptPrinting.canPrint) != true || filing?.draft != nil
-                    || export?.choice != nil)
+            Button(PrintWording.menuItem) { books.mainWindowChrome.printing?.begin() }
+                .keyboardShortcut("p")
+                .disabled(books.mainWindowChrome.printing?.canBegin != true)
         }
     }
 }

@@ -11,14 +11,14 @@ final class PrintChoices {
     var range: PrintRange {
         didSet { if range != oldValue { changed() } }
     }
-    /// This scene is offered only while one is open.
+    /// Only the ranges with something to print (`PrintRange.offered`).
     let ranges: [PrintRange]
     @ObservationIgnored var changed: () -> Void = {}
 
     init(openScene: SceneID?, in book: Book) {
         layout = .textOnly
-        ranges = book.scene(openScene) == nil ? [.wholeManuscript] : PrintRange.allCases
-        range = ranges[0]
+        ranges = PrintRange.offered(in: book, open: openScene)
+        range = ranges.first ?? .thisScene
     }
 }
 

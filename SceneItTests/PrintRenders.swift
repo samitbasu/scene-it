@@ -40,7 +40,8 @@ extension WindowRenders {
         }
     }
 
-    /// The mockup's ferry scene, long enough for two pages, with comments crowded on a few lines.
+    /// The mockup's ferry scene, long enough for two pages, with comments crowded on a few lines:
+    /// three on one line ("letter", "bench", "already ashore") and two on another ("packed", "girl").
     static func printSample() -> Book {
         let modified = Timestamp("2026-11-03T10:15:00-08:00")!
         func comment(_ number: Int, _ color: PaletteColor, _ text: String) -> SceneItCore::Comment {
@@ -55,13 +56,16 @@ extension WindowRenders {
         let game = comment(4, .green, "Echo this in the last scene.")
         let swore = comment(5, .gray, "Which language? Decide before the market scene.")
         let ashore = comment(6, .pink, "Too neat. Let her see the letter go over the side instead?")
+        let bench = comment(7, .blue, "Which bench? The one by the rail.")
+        let packed = comment(8, .red, "Packed what? One case, or two?")
         let paragraphs: [Paragraph] = [
             [
                 Run("The ferry left at dawn", comments: [schedule.id]),
                 Run(", and Mara watched the harbor lights go out one by one behind her."),
             ],
             [
-                Run("She had packed in the dark, by feel, the way she used to as a "),
+                Run("She had "), Run("packed", comments: [packed.id]),
+                Run(" in the dark, by feel, the way she used to as a "),
                 Run("girl", comments: [girl.id]),
                 Run(" when the house was asleep and leaving still seemed like a "),
                 Run("game", styles: [.italic], comments: [game.id]), Run("."),
@@ -71,7 +75,8 @@ extension WindowRenders {
                 Run("swore", comments: [swore.id]),
                 Run(" at it in a language she half remembered. He found the "),
                 Run("letter", color: .purple, comments: [reveal.id]),
-                Run(" under the bench an hour later, but by then she was "),
+                Run(" under the "), Run("bench", comments: [bench.id]),
+                Run(" an hour later, but by then she was "),
                 Run("already ashore", highlight: .green, comments: [ashore.id]), Run("."),
             ],
         ]
@@ -89,7 +94,7 @@ extension WindowRenders {
         let ferry = BookScene(
             id: SceneID(rawValue: "ferry"), modified: modified, title: "The ferry",
             body: paragraphs + Array(repeating: filler, count: 9).flatMap(\.self),
-            comments: [reveal, schedule, girl, game, swore, ashore])
+            comments: [reveal, schedule, girl, game, swore, ashore, bench, packed])
         return Book(title: "My Novel", scenes: [ferry])
     }
 

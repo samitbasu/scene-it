@@ -5,8 +5,8 @@ import Testing
 
 @testable import SceneIt
 
-/// Print (PLAN §10.1) through the app's own print view and operation, printed to PDF data in
-/// memory, never to a printer and never with the dialog shown: text only is portrait pages of the
+/// Print (PLAN §10.1) through the app's own print view and operation, saved as a PDF file in a
+/// temporary folder, never sent to a printer and never with the dialog shown: text only is portrait pages of the
 /// text; text with comments is landscape, the comments beside the text; the whole manuscript
 /// leaves the Boneyard out; and a read-only book prints as it's shown.
 @MainActor
@@ -117,10 +117,15 @@ struct PrintTests {
         let column = try #require(pages.geometry.comments)
         for start in ["Too early", "Check the ferry"] {
             let found = try #require(document.findString(start, withOptions: []).first, "\(start) is printed")
-            #expect(found.bounds(for: first).minX >= column.minX, "\(start) is in the comments' column")
+            #expect(
+                found.bounds(for: first).minX >= column.minX,
+                "\(start) starts right of the comment column's left edge")
         }
         let boxes = pages.commentBoxes(onPage: 0)
         try #require(boxes.count == 2, "precondition: both comments on the first page")
+        let dawn = try #require(document.findString("dawn", withOptions: []).first).bounds(for: first)
+        let letter = try #require(document.findString("letter", withOptions: []).first).bounds(for: first)
+        try #require(abs(dawn.midY - letter.midY) < 1, "precondition: both commented words are on one line")
         #expect(boxes[1].minY >= boxes[0].maxY, "the second, on the same line, is pushed below the first")
     }
 

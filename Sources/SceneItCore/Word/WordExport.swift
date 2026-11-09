@@ -3,7 +3,8 @@ import Foundation
 /// Export to Word (PLAN §10.2, ADR 0045, 0047): a scene as a .docx that Scene It writes itself,
 /// a minimal WordprocessingML package. The title paragraph has Word's Heading 1 style and the body
 /// the default style (`WordStyles`); each run carries only its own bold, italic, strikethrough,
-/// colour and highlight. Comments and notes aren't exported.
+/// colour and highlight, its typography smartened as print's is (decision 0022). Comments and
+/// notes aren't exported.
 public enum WordExport {
     public static func document(of scene: BookScene) throws(WordExportFailure) -> Data {
         let document = try WordDocument.document(OutputParagraph.paragraphs(of: scene))
@@ -82,16 +83,32 @@ enum WordDocument {
             case .body: ""
             }
         var runs = ""
-        for run in paragraph.runs {
-            runs += try self.run(run)
+        for piece in merged(paragraph.shown) {
+            runs += try run(piece.run, showing: piece.text)
         }
         return "<w:p>" + properties + runs + "</w:p>"
+    }
+
+    /// Neighbouring runs Word would format alike joined into one, so a comment's edge, which
+    /// isn't exported, doesn't split a run.
+    static func merged(_ pieces: [(run: Run, text: String)]) -> [(run: Run, text: String)] {
+        var merged: [(run: Run, text: String)] = []
+        for piece in pieces {
+            if let last = merged.last, last.run.styles == piece.run.styles, last.run.color == piece.run.color,
+                last.run.highlight == piece.run.highlight
+            {
+                merged[merged.count - 1].text += piece.text
+            } else {
+                merged.append(piece)
+            }
+        }
+        return merged
     }
 
     /// A run's own formatting, in the schema's order: bold, italic, strikethrough, colour, shading.
     /// Uncoloured text has no colour of its own, so it's Word's automatic colour: black on a white
     /// page, light when Word shows the document dark.
-    private static func run(_ run: Run) throws(WordExportFailure) -> String {
+    private static func run(_ run: Run, showing text: String) throws(WordExportFailure) -> String {
         var properties = ""
         if run.styles.contains(.bold) { properties += "<w:b/>" }
         if run.styles.contains(.italic) { properties += "<w:i/>" }
@@ -103,7 +120,7 @@ enum WordDocument {
             properties += #"<w:shd w:val="clear" w:color="auto" w:fill="\#(hex(highlight.hex))"/>"#
         }
         let formatting = properties.isEmpty ? "" : "<w:rPr>" + properties + "</w:rPr>"
-        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(run.text))
+        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(text))
             + "</w:t></w:r>"
     }
 
@@ -116,9 +133,6 @@ enum WordDocument {
     /// can't hold a lone surrogate), so a document Word would reject is never written.
     static func escaped(_ text: String) throws(WordExportFailure) -> String {
         guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
-        assert(
-            text.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed), "run text the character policy refuses"
-        )
         var result = ""
         for character in text {
             switch character {

@@ -61,6 +61,11 @@ struct PrintPaginationTests {
                     #expect(placed.top >= levelOnPage(line, page, lines), "never above its line")
                 case .carriedOver:
                     #expect(page.lines.first.map { line < $0 } ?? true, "its line was on an earlier page")
+                    if let first = page.lines.first {
+                        #expect(
+                            !lines[(line + 1)...first].contains { $0.start == .newPage },
+                            "comment \(placed.comment) stays with its own scene")
+                    }
                 }
             }
         }
@@ -170,6 +175,23 @@ struct PrintPaginationTests {
             "precondition: the last would fit beside its line")
         let pages = Self.pages(Self.lines(8), comments)
         #expect(pages.map(\.lines) == [0..<5, 5..<8], "so the comments keep their order")
+    }
+
+    /// A scene's comments still waiting at its end get a page of their own, not the next
+    /// scene's first page, beside the wrong text.
+    @Test func aScenesLeftoverCommentsGetTheirOwnPageBeforeTheNextScene() throws {
+        let lines = Self.lines(6, newPageAt: [3])
+        let comments = (0..<4).map { _ in Self.comment(2, 30) } + [Self.comment(3, 10)]
+        try #require(
+            comments[..<4].reduce(PaperLength.zero) { $0 + $1.height + Self.spacing } > Self.height,
+            "precondition: the first scene's last line has more than a column holds")
+        let pages = Self.pages(lines, comments)
+        #expect(pages.map(\.lines) == [0..<2, 2..<3, 3..<3, 3..<6], "the crowded line starts a page")
+        #expect(pages[1].comments.map(\.comment) == [0, 1, 2])
+        #expect(pages[2].comments.map(\.comment) == [3], "the one left over has a page of its own")
+        #expect(pages[2].comments.allSatisfy { $0.anchor == .carriedOver })
+        #expect(pages[3].comments.map(\.comment) == [4])
+        #expect(pages[3].comments.first?.top == .zero, "level with the new scene's first line")
     }
 
     @Test func carriedCommentsPastTheLastLineGetPagesOfTheirOwn() throws {

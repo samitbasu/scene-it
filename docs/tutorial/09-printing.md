@@ -9,6 +9,7 @@ an accessory in the system's dialog, and testing printing without a printer. Exp
 [chapter 07i](07i-export-to-word.md).
 
 Files: [`Sources/SceneItCore/Print/PrintPagination.swift`](../../Sources/SceneItCore/Print/PrintPagination.swift),
+[`Sources/SceneItCore/Print/ConnectorLanes.swift`](../../Sources/SceneItCore/Print/ConnectorLanes.swift),
 [`Sources/SceneItCore/Print/ManuscriptPages.swift`](../../Sources/SceneItCore/Print/ManuscriptPages.swift),
 [`Sources/SceneItCore/Print/PrintManuscript.swift`](../../Sources/SceneItCore/Print/PrintManuscript.swift),
 [`Sources/SceneItCore/Text/OutputParagraph.swift`](../../Sources/SceneItCore/Text/OutputParagraph.swift),
@@ -106,20 +107,32 @@ none outside its column. That's a property test, like `proptest` in Rust, writte
 ## 4. One text for the page, Word and print
 
 Print and Export to Word put a scene out the same way: its title as a heading (decision 0015), then
-its body. `OutputParagraph.paragraphs(of:)` is that rule, shared by both. Print builds its attributed
-string with the page's own `RunCodec`, which gained one more entry point:
+its body. `OutputParagraph.paragraphs(of:)` is that rule, shared by both, and so is how the text
+looks: `OutputParagraph.shown` gives each run its text with the typography smartened (decision 0022),
+straight quotes turned curly, `--` a dash and `...` an ellipsis. It uses the same `SmartUnit` that Copy
+Review uses ([chapter 07g](07g-copy-and-save-review.md)): quotes are decided over the whole paragraph,
+then each run takes its piece, so a run's formatting and comments stay on exactly its characters.
+Print builds its attributed string with the page's own `RunCodec`, which gained one entry point:
 
 ```swift
 static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttributedString {
-    attributedString(paragraphs.map { ($0.kind.role, $0.runs) }, punctuation: .smartened)
+    attributedString(paragraphs.map { ($0.kind.role, $0.shown) })
 }
 ```
 
-The editors call the same builder with `.asStored`. `.smartened` turns straight quotes curly, `--`
-into a dash and `...` into an ellipsis (decision 0022), using the same `SmartUnit` that Copy Review
-uses ([chapter 07g](07g-copy-and-save-review.md)): quotes are decided over the whole paragraph, then
-each run takes its piece, so a run's formatting and comments stay on exactly its characters. The
-comment colours are the palette's, through the page's `CommentPalette`.
+The editors call the same builder with each run's stored text. Word writes `shown` too, joining runs it
+would format alike ([chapter 07i](07i-export-to-word.md)). The comment colours are the palette's,
+through the page's `CommentPalette`.
+
+### Connectors that can't be confused
+
+Each comment's connector leaves the text at the end of its underline. If the connectors of one line
+all ran right at the underline's depth, they'd coincide and read as underlining the words after them.
+`ConnectorLanes` gives each its own lane in the gap below the line, under every underline there and
+above the next line's letters, and the column takes a line's comments right to left: the rightmost
+gets the top lane and the top box. Then the further left a connector starts, the lower it runs, so it
+passes under the others' drops, and no two cross between the gutter and their boxes. The tests check
+the lanes are distinct and inside the band, and that the order makes the paths planar.
 
 ## 5. An accessory in the system's dialog
 
@@ -143,6 +156,14 @@ landscape for comments, portrait for text only, a starting point that the dialog
 can still change. `localizedSummaryItems()` is what the dialog lists when it's collapsed.
 
 The accessory's look is SwiftUI in an `NSHostingView`, the reverse of chapter 05's bridge.
+
+The menu and the toolbar both go through the window's one `PrintFlow`. The toolbar holds it; the
+main window also registers it with `MainWindowChrome`, as it does its focus mode for the View menu,
+and File → Print… calls that. There's one book window (ADR 0038), so both print the book that window
+shows, as a sheet on that window, which the window reports through `WindowReporter`; and both are
+disabled while a rail sheet, a dialog or the print dialog itself is up. The dialog's end comes back
+through an Objective-C selector, `printOperationDidRun(_:success:contextInfo:)`,
+which is why `PrintFlow` is an `NSObject`.
 
 ## 6. Testing printing without a printer
 

@@ -97,7 +97,7 @@ public struct PlacedComment: Hashable, Sendable {
 /// down; one that would run past the column's end takes its line to the next page with it, so a
 /// comment is never split. Only comments that can't fit even beside a line at the top of a page
 /// (one line with more comments than a column holds) are carried over, to the top of the next
-/// page's column, in order.
+/// page's column, in order, and never onto a page of the next scene.
 public enum PrintPagination {
     /// `lines` in order down the text; `comments` in any order, each kept in its line's order.
     /// `height` is the height of a page's text and of its column, and `spacing` the room kept
@@ -121,7 +121,9 @@ public enum PrintPagination {
             let pageTop = next < lines.count ? lines[next].top : .zero
             var column = Column(height: height, spacing: spacing)
             var waiting = column.place(carried, at: .zero, sizedBy: size, anchored: .carriedOver)
-            while next < lines.count {
+            // A scene's comments that are still waiting get pages of their own before the next scene.
+            let flushing = !carried.isEmpty && next < lines.count && lines[next].start == .newPage
+            while !flushing && next < lines.count {
                 let line = lines[next]
                 let ownComments = byLine[next] ?? []
                 if next > first && (line.start == .newPage || line.bottom - pageTop > height) { break }

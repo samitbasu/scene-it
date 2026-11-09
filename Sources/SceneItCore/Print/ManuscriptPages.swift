@@ -75,19 +75,36 @@ public final class ManuscriptPages {
     private let underliner = CommentUnderliner()
     private let fragments: [NSTextLayoutFragment]
     private let lines: [MeasuredLine]
-    private let textBottom: CGFloat
+    private let textBottom: PaperLength
     private let notes: [MarginNote]
     private let pageNumberStyle: [NSAttributedString.Key: Any]
 
     /// One line of the text, in the text's own coordinates.
     struct MeasuredLine {
-        let top: CGFloat
-        let bottom: CGFloat
-        let baseline: CGFloat
+        let top: PaperLength
+        let bottom: PaperLength
+        let baseline: PaperLength
         /// In the text.
         let characters: NSRange
         let line: NSTextLineFragment
-        let fragmentFrame: CGRect
+        let fragment: NSTextLayoutFragment
+
+        /// The band of the gap below the line that's clear of its underlines and of the next
+        /// line's letters, where its connectors run.
+        var laneBand: (top: PaperLength, bottom: PaperLength) {
+            let text = line.attributedString
+            let style =
+                line.characterRange.location < text.length
+                ? text.attribute(.paragraphStyle, at: line.characterRange.location, effectiveRange: nil)
+                    as? NSParagraphStyle : nil
+            let lineBaseline = line.typographicBounds.minY + line.glyphOrigin.y
+            let levels =
+                (fragment as? CommentUnderlineFragment)?.underlineRects()
+                .filter { abs($0.baseline - lineBaseline) < 0.5 }.map(\.level) ?? []
+            let depth = (levels.max() ?? -1) + 1
+            let room = UnderlineStyle.room(below: line, spacedBy: style ?? .default)
+            return (baseline + PaperLength(UnderlineStyle.top(of: depth)), baseline + PaperLength(room))
+        }
     }
 
     /// A comment ready for the margin.
@@ -96,9 +113,13 @@ public final class ManuscriptPages {
         let text: NSAttributedString
         let height: CGFloat
         let line: Int
-        /// Where its connector starts, the end of its underline's first stretch on its line, in
-        /// the text's coordinates.
-        let target: CGPoint
+        /// Where its connector leaves the text, in the text's coordinates: the end of its first
+        /// stretch on its line, at the top of the first underline there.
+        var target: CGPoint
+        /// Where that stretch ends in the text, which orders the comments of a line.
+        let end: Int
+        /// The height, down the text, its connector runs along to the gutter.
+        var lane = PaperLength.zero
     }
 
     public convenience init(_ manuscript: PrintManuscript, layout: PrintLayout, paper: CGSize) {
@@ -133,25 +154,28 @@ public final class ManuscriptPages {
                 let top = frame.minY + bounds.minY
                 lines.append(
                     MeasuredLine(
-                        top: top, bottom: top + bounds.height, baseline: top + line.glyphOrigin.y,
+                        top: PaperLength(top), bottom: PaperLength(top + bounds.height),
+                        baseline: PaperLength(top + line.glyphOrigin.y),
                         characters: NSRange(
                             location: paragraph + line.characterRange.location,
                             length: line.characterRange.length),
-                        line: line, fragmentFrame: frame))
+                        line: line, fragment: fragment))
             }
             return true
         }
         self.fragments = fragments
         self.lines = lines
-        textBottom = fragments.last.map { $0.layoutFragmentFrame.maxY } ?? 0
+        textBottom = PaperLength(fragments.last?.layoutFragmentFrame.maxY ?? 0)
 
         let columnWidth = geometry.comments?.width ?? 0
         notes =
             printsComments
-            ? manuscript.comments.compactMap { Self.note($0, among: lines, width: columnWidth) } : []
+            ? Self.laned(
+                manuscript.comments.compactMap { Self.note($0, among: lines, width: columnWidth) }, lines)
+            : []
         let printLines = lines.map { line in
             PrintLine(
-                top: PaperLength(line.top), bottom: PaperLength(line.bottom),
+                top: line.top, bottom: line.bottom,
                 start: manuscript.sceneStarts.contains(line.characters.location) ? .newPage : .continuing)
         }
         let paged = PrintPagination.pages(
@@ -183,7 +207,7 @@ public final class ManuscriptPages {
             end -= 1
         }
         let x =
-            line.fragmentFrame.minX + line.line.typographicBounds.minX
+            line.fragment.layoutFragmentFrame.minX + line.line.typographicBounds.minX
             + line.line.locationForCharacter(at: end).x
         let text = NSAttributedString(
             string: comment.text,
@@ -195,7 +219,46 @@ public final class ManuscriptPages {
         return MarginNote(
             comment: comment, text: text,
             height: measured.height.rounded(.up) + 2 * MarginStyle.verticalPadding,
-            line: index, target: CGPoint(x: x, y: line.baseline + UnderlineStyle.top(of: 0)))
+            line: index, target: CGPoint(x: x, y: CGFloat(line.baseline) + UnderlineStyle.top(of: 0)),
+            end: paragraphStart + end)
+    }
+
+    /// `notes` in the column's order, each line's right to left, each with its lane
+    /// (`ConnectorLanes`). Connectors leaving the text at the same place drop a lane's pitch
+    /// apart, so they never share a stretch.
+    private static func laned(_ notes: [MarginNote], _ lines: [MeasuredLine]) -> [MarginNote] {
+        let byLine = Dictionary(grouping: notes, by: \.line)
+        return byLine.keys.sorted().flatMap { line in
+            let ordered = ConnectorLanes.columnOrder(byLine[line] ?? [], leavingAt: \.end)
+            let band = lines[line].laneBand
+            var leaving: [Int: Int] = [:]
+            return zip(ordered, ConnectorLanes.lanes(ordered.count, from: band.top, to: band.bottom)).map {
+                var note = $0
+                note.lane = $1
+                note.target.x -= CGFloat(leaving[note.end, default: 0]) * CGFloat(ConnectorLanes.pitch)
+                leaving[note.end, default: 0] += 1
+                return note
+            }
+        }
+    }
+
+    /// How comment `index`'s connector runs, for tests: where it leaves the text, its lane, its
+    /// line's band, and where the next line's letters start.
+    func connector(ofNote index: Int) -> (
+        line: Int, leaves: CGFloat, lane: PaperLength, band: (top: PaperLength, bottom: PaperLength),
+        nextLineTop: PaperLength?
+    ) {
+        let note = notes[index]
+        let next = note.line + 1 < lines.count ? lines[note.line + 1].top : nil
+        return (note.line, note.target.x, note.lane, lines[note.line].laneBand, next)
+    }
+
+    func baseline(ofLine index: Int) -> PaperLength {
+        lines[index].baseline
+    }
+
+    var commentCount: Int {
+        notes.count
     }
 
     public var pageCount: Int {
@@ -204,7 +267,7 @@ public final class ManuscriptPages {
 
     /// The top of line `index`, down the text, for tests.
     func lineTop(_ index: Int) -> CGFloat {
-        lines[index].top
+        CGFloat(lines[index].top)
     }
 
     /// The line comment `index` is beside, for tests.
@@ -225,8 +288,8 @@ public final class ManuscriptPages {
     }
 
     /// Where the text at `top` down the text goes on a page whose text starts at `pageTop`.
-    private func sheetY(_ top: CGFloat, pageTop: CGFloat) -> CGFloat {
-        geometry.text.minY + top - pageTop
+    private func sheetY(_ top: PaperLength, pageTop: PaperLength) -> CGFloat {
+        geometry.text.minY + CGFloat(top) - CGFloat(pageTop)
     }
 
     /// Draws page `index` of the sheets into `context`, which must be flipped, with the sheet's
@@ -237,7 +300,7 @@ public final class ManuscriptPages {
         NSGraphicsContext.current = context
         defer { NSGraphicsContext.restoreGraphicsState() }
         let page = pages[index]
-        let pageTop = page.lines.isEmpty ? 0 : lines[page.lines.lowerBound].top
+        let pageTop = page.lines.isEmpty ? .zero : lines[page.lines.lowerBound].top
         if !page.lines.isEmpty {
             let sliceBottom =
                 page.lines.upperBound < lines.count ? lines[page.lines.upperBound].top : textBottom
@@ -254,17 +317,18 @@ public final class ManuscriptPages {
     }
 
     /// The text from `top` down to `bottom`, which are lines' tops, so no line is cut.
-    private func drawText(from top: CGFloat, to bottom: CGFloat, in context: CGContext) {
+    private func drawText(from top: PaperLength, to bottom: PaperLength, in context: CGContext) {
         context.saveGState()
         defer { context.restoreGState() }
         let clipRight = geometry.comments.map { $0.minX - PrintGeometry.gutter / 2 } ?? geometry.paper.width
         context.clip(
-            to: CGRect(x: 0, y: geometry.text.minY, width: clipRight, height: bottom - top))
+            to: CGRect(x: 0, y: geometry.text.minY, width: clipRight, height: CGFloat(bottom - top)))
         for fragment in fragments {
             let frame = fragment.layoutFragmentFrame
-            guard frame.maxY > top, frame.minY < bottom else { continue }
+            guard frame.maxY > CGFloat(top), frame.minY < CGFloat(bottom) else { continue }
             fragment.draw(
-                at: CGPoint(x: geometry.text.minX + frame.minX, y: sheetY(frame.minY, pageTop: top)),
+                at: CGPoint(
+                    x: geometry.text.minX + frame.minX, y: sheetY(PaperLength(frame.minY), pageTop: top)),
                 in: context)
         }
     }
@@ -279,7 +343,7 @@ public final class ManuscriptPages {
         context.strokeLineSegments(between: [CGPoint(x: x, y: column.minY), CGPoint(x: x, y: column.maxY)])
     }
 
-    private func draw(_ placed: PlacedComment, in column: CGRect, pageTop: CGFloat, context: CGContext) {
+    private func draw(_ placed: PlacedComment, in column: CGRect, pageTop: PaperLength, context: CGContext) {
         let note = notes[placed.comment]
         let color = note.comment.color.nsColor
         let box = box(placed, in: column)
@@ -297,16 +361,17 @@ public final class ManuscriptPages {
         note.text.draw(
             with: textRect, options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine])
         guard placed.anchor == .onPage else { return }
-        let start = CGPoint(x: geometry.text.minX + note.target.x, y: sheetY(note.target.y, pageTop: pageTop))
-        let gutter = CGPoint(x: column.minX - PrintGeometry.gutter / 2, y: start.y)
+        let start = CGPoint(
+            x: geometry.text.minX + note.target.x, y: sheetY(PaperLength(note.target.y), pageTop: pageTop))
+        let lane = CGPoint(x: start.x, y: sheetY(note.lane, pageTop: pageTop))
+        let gutter = CGPoint(x: column.minX - PrintGeometry.gutter / 2, y: lane.y)
         let firstLine = MarginStyle.font.ascender - MarginStyle.font.descender
-        let end = CGPoint(
-            x: box.minX,
-            y: min(max(start.y, box.minY + MarginStyle.verticalPadding + firstLine / 2), box.maxY))
+        let end = CGPoint(x: box.minX, y: box.minY + MarginStyle.verticalPadding + firstLine / 2)
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(MarginStyle.connectorWidth)
         context.setLineDash(phase: 0, lengths: MarginStyle.connectorDash)
         context.move(to: start)
+        context.addLine(to: lane)
         context.addLine(to: gutter)
         context.addLine(to: end)
         context.strokePath()

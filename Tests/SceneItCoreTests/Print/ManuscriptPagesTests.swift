@@ -185,6 +185,75 @@ struct ManuscriptPagesTests {
         #expect(placed.top == level)
         #expect(placed.top > PaperLength(60), "below the title and the first paragraph's lines")
     }
+
+    /// Several comments leave one line, two of them overlapping: each connector has a lane of its
+    /// own, below every underline on the line and above the next line's letters, and the further
+    /// left one leaves the text, the lower its lane, so none crosses another.
+    @Test func eachConnectorOnALineHasItsOwnLane() throws {
+        let (a, b, c, d) = (
+            Self.comment(1, .purple), Self.comment(2, .red), Self.comment(3, .blue), Self.comment(4, .green)
+        )
+        let pages = ManuscriptPages(
+            PrintManuscript([
+                Self.scene(
+                    "Ferry",
+                    [
+                        [
+                            Run("He found the "), Run("letter", comments: [a.id]), Run(" under the "),
+                            Run("bench", comments: [b.id, c.id]), Run(" an hour", comments: [c.id]),
+                            Run(" later, but she was "), Run("already ashore", comments: [d.id]), Run("."),
+                        ],
+                        [Run(Self.sentence)],
+                    ], comments: [a, b, c, d])
+            ]), layout: .withComments, paper: Self.landscape)
+        let connectors = (0..<pages.commentCount).map { pages.connector(ofNote: $0) }
+        try #require(
+            connectors.count == 4 && Set(connectors.map(\.line)).count == 1, "precondition: four on one line")
+        #expect(Set(connectors.map(\.lane)).count == 4, "four lanes")
+        for (left, right) in zip(connectors.dropFirst(), connectors) {
+            #expect(left.leaves < right.leaves, "the column takes them right to left")
+            #expect(left.lane > right.lane, "the further left, the lower")
+        }
+        for connector in connectors {
+            #expect(connector.lane > connector.band.top, "below the line's deepest underline")
+            #expect(connector.lane < connector.band.bottom, "above what the next line keeps clear")
+            let next = try #require(connector.nextLineTop)
+            #expect(connector.band.bottom <= next, "the band ends above the next line's letters")
+        }
+        let line = connectors[0].line
+        #expect(
+            connectors[0].band.top == pages.baseline(ofLine: line) + PaperLength(UnderlineStyle.top(of: 2)),
+            "below both of the stacked underlines under \"bench\"")
+    }
+
+    @Test func onlyRangesWithSomethingToPrintAreOffered() {
+        let story = Self.scene("Story", [[Run("Words.")]], id: "story")
+        let cut = Self.scene("Cut", [[Run("Gone.")]], id: "cut")
+        let onlyBoneyard = Book(title: "B", scenes: [], boneyard: [cut])
+        #expect(
+            PrintRange.offered(in: onlyBoneyard, open: cut.id) == [.thisScene], "no whole manuscript to print"
+        )
+        #expect(PrintRange.offered(in: onlyBoneyard, open: nil).isEmpty)
+        let book = Book(title: "B", scenes: [story], boneyard: [cut])
+        #expect(PrintRange.offered(in: book, open: nil) == [.wholeManuscript])
+        #expect(PrintRange.offered(in: book, open: cut.id) == PrintRange.allCases)
+        #expect(PrintRange.wholeManuscript.scenes(of: book, open: cut.id).map(\.id) == [story.id])
+    }
+
+    /// The preview lays the whole manuscript out again whenever the dialog asks; a long book
+    /// (about 300 pages) must lay out quickly. The time is printed for the record.
+    @Test func aLongManuscriptLaysOutQuickly() throws {
+        let scenes = (0..<30).map { Self.scene("Scene \($0)", Self.long(110), id: "s\($0)") }
+        let clock = ContinuousClock()
+        var pages: ManuscriptPages?
+        let elapsed = clock.measure {
+            pages = ManuscriptPages(PrintManuscript(scenes), layout: .textOnly, paper: Self.letter)
+        }
+        let count = try #require(pages?.pageCount)
+        try #require(count >= 250, "precondition: a long book, \(count) pages")
+        print("Print layout: \(count) pages in \(elapsed)")
+        #expect(elapsed < .seconds(5), "\(count) pages in \(elapsed)")
+    }
 }
 
 extension ManuscriptPages {
