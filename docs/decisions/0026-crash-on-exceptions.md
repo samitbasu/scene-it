@@ -46,7 +46,7 @@ The trap relies on two runtime behaviours, both observed on macOS 27 with Swift 
 
 Its limits:
 - It reads the task record, not the executor record, so an exception that unwinds an `isolated deinit` job (which has no task)
-  isn't trapped.
+  isn't trapped. (Lifted by the #142 amendment below.)
 - An unwind caught by a run loop nested inside another job looks like that job.
 - A stack deeper than the buffer (512 frames) counts as a job.
 - An exception swallowed outside any task still carries on, as before, but leaves Swift concurrency intact.
@@ -56,3 +56,36 @@ The trap is armed in the test host too. Tests that call an AppKit entry point kn
 drag operation, an undo group) do it from `RunLoop.main.perform` (`onTheRunLoop`), so an exception there doesn't unwind a
 task. The test then hangs on its continuation until the step's time limit, but Swift concurrency is left intact. Swift
 Testing exit tests are forbidden (`exit-test-guard`): their child process launches the real app.
+
+## Amendment (2026-11-08, #142): the trap reads the executor record too
+Five hosted-test runs of a #102 spike crashed with `EXC_BAD_ACCESS` at `0x95a` in `FilingFlow`'s deinit, under
+`swift_task_deinitOnExecutor` → `swift_task_isCurrentExecutorWithFlags` → `isMainExecutor`, while `-[NSApplication run]`
+drained its autorelease pool and an `NSHostingView` released a `BookWindow`. The reports name an `HIE:` thread
+(`SOME_OTHER_THREAD_SWALLOWED_AT_LEAST_ONE_EXCEPTION`), and the spike read a layout fragment's `textElement.attributedString`
+during an edit, which raises. The trap never fired.
+
+- **Why the deinit is isolated.** With `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (ADR 0011), Swift 6.4 gives every app class
+  without an explicit deinit an isolated one; a `@MainActor` class in a module without the default doesn't get one. About
+  50 app classes have it. Upcoming features (`InferIsolatedConformances`, `NonisolatedNonsendingByDefault`) don't matter.
+- **Why the executor was garbage.** `swift_task_isCurrentExecutorWithFlagsImpl` reads the thread's executor record and asks
+  whether *that* executor is the main one. The record pointed into a dead stack frame, left there by an unwound job, so its
+  identity was whatever had since been written there. `FilingFlow` was only the first isolation check after the unwind.
+- **Why the trap missed it.** It read only the task record. A hosted experiment that raised inside an isolated deinit, run as a
+  job because its object's last reference went away off the main thread, logged no task, was swallowed by HIToolbox, and left
+  the trap silent (the host then hung). The same experiment raising inside a task's job was trapped within 2 ms, even with 20
+  autoreleased hosting views waiting in the pool. Which kind of job the spike unwound can't be told from the reports, but only
+  the deinit job explains a silent trap.
+
+So the trap now also reads the executor record, through the runtime's exported `swift_task_getCurrentExecutor`, found with
+`dlsym` like `swift_job_run`. Swift reserves the name for `@_silgen_name`, and no Swift API reads the record without acting on
+it. The function returns the runtime's `SerialExecutorRef` (identity, then witness table) in the Swift calling convention; it's
+called through a C function type returning one word, which both conventions return in the same register. A non-null identity
+counts as a job, as a current task does. It's read first, and costs one more thread-local read per observed activity. With the change, the deinit experiment was trapped 1 ms after HIToolbox swallowed the
+exception. `anIsolatedDeinitJobIsAJob` checks that a deinit job without a task counts as a job, not as nothing.
+
+A third runtime behaviour, also observed rather than promised: outside any job the record is clear, so the identity is null.
+
+Not changed: the deinits stay isolated. Making them `nonisolated` wouldn't remove the dead record; the next isolation check
+(a SwiftUI update, a notification closure, `MainActor.assumeIsolated`) would read it instead. An isolated deinit also keeps
+AppKit teardown on the main thread when the last reference goes away elsewhere. No source guard can spot an AppKit call that
+may raise, so none was added.

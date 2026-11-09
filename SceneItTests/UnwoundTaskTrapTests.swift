@@ -30,7 +30,28 @@ private func contextInANestedRunLoop() -> UnwoundTaskTrap.TaskContext? {
     return seen
 }
 
-/// An exception that unwinds a task can't be raised here: the test host would be left corrupt.
+/// What an isolated deinit run as a job sees.
+private struct DeinitJobSight: Sendable {
+    let task: UnwoundTaskTrap.JobRecord
+    let context: UnwoundTaskTrap.TaskContext
+}
+
+/// Its last reference goes away off the main thread, so its isolated deinit runs as a main-actor
+/// job of its own, with no task (#142).
+private final class DeinitJobProbe {
+    private let seen: CheckedContinuation<DeinitJobSight, Never>
+
+    nonisolated init(_ seen: CheckedContinuation<DeinitJobSight, Never>) {
+        self.seen = seen
+    }
+
+    isolated deinit {
+        let task: UnwoundTaskTrap.JobRecord = withUnsafeCurrentTask { $0 == nil ? .clear : .set }
+        seen.resume(returning: DeinitJobSight(task: task, context: UnwoundTaskTrap.context))
+    }
+}
+
+/// An exception that unwinds a job can't be raised here: the test host would be left corrupt.
 /// The decision is tested on made-up stacks, and the trap on the real thread where its record
 /// is sound.
 @MainActor
@@ -38,20 +59,20 @@ private func contextInANestedRunLoop() -> UnwoundTaskTrap.TaskContext? {
 struct UnwoundTaskTrapTests {
     private let runner: Range<UInt> = 0x1000..<0x2000
 
-    @Test func noTaskIsNone() {
+    @Test func noRecordIsNone() {
         let stack: [UInt] = [0x1800]
-        #expect(UnwoundTaskTrap.TaskContext(task: .absent, returnAddresses: stack, runner: runner) == .none)
+        #expect(UnwoundTaskTrap.TaskContext(record: .clear, returnAddresses: stack, runner: runner) == .none)
     }
 
-    @Test func aTaskWithTheRunnerOnTheStackIsAJob() {
+    @Test func aRecordWithTheRunnerOnTheStackIsAJob() {
         let stack: [UInt] = [0x9000, 0x1800, 0x500]
-        #expect(UnwoundTaskTrap.TaskContext(task: .current, returnAddresses: stack, runner: runner) == .job)
+        #expect(UnwoundTaskTrap.TaskContext(record: .set, returnAddresses: stack, runner: runner) == .job)
     }
 
-    @Test func aTaskWithoutTheRunnerOnTheStackWasUnwound() {
+    @Test func aRecordWithoutTheRunnerOnTheStackWasUnwound() {
         let stack: [UInt] = [0x9000, 0x2000, 0xFFF, 0x500]
         #expect(
-            UnwoundTaskTrap.TaskContext(task: .current, returnAddresses: stack, runner: runner) == .unwound,
+            UnwoundTaskTrap.TaskContext(record: .set, returnAddresses: stack, runner: runner) == .unwound,
             "the runner's range is half-open")
     }
 
@@ -60,10 +81,20 @@ struct UnwoundTaskTrapTests {
         #expect(CFRunLoopContainsObserver(CFRunLoopGetMain(), observer, .commonModes))
         #expect(CFRunLoopObserverIsValid(observer))
         #expect(UnwoundTaskTrap.runner?.isEmpty == false, "it knows the job runner's code")
+        #expect(UnwoundTaskTrap.currentExecutorIdentity != nil, "it can read the executor record")
     }
 
     @Test func aJobIsAJob() async {
         #expect(UnwoundTaskTrap.context == .job)
+    }
+
+    /// The trap reads the executor record too, so an unwound deinit job is caught (#142).
+    @Test func anIsolatedDeinitJobIsAJob() async {
+        let sight = await withCheckedContinuation { seen in
+            Task.detached { _ = DeinitJobProbe(seen) }
+        }
+        #expect(sight.task == .clear, "precondition: the deinit ran as a job without a task")
+        #expect(sight.context == .job)
     }
 
     @Test func theRunLoopOutsideAnyJobHasNoTask() async {
