@@ -139,7 +139,7 @@ public enum ErrorsWording {
                 title: "Saved by a newer Scene It",
                 detail: "review format \(format) · read only",
                 offersMakeEditable: false)
-        case .openElsewhere, .openOnAnotherMac, .openInAnotherProcess, .lockUnavailable:
+        case .openElsewhere, .openOnAnotherMac, .openInAnotherProcess, .lockUnavailable, .filedCopy:
             nil
         }
     }

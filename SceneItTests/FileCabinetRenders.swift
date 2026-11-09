@@ -155,3 +155,55 @@ extension WindowRenders {
         }
     }
 }
+
+/// A filed copy open read-only (#33, PLAN §7.5) at 1× and 2× beside mockup 13: the window with
+/// its banner (`final-filed-copy`), and with Close's menu drawn open (`final-filed-copy-menu`).
+/// In the `cabinet/` subfolder. An open `NSMenu` can't be captured, so the menu is a
+/// `MenuStandIn` drawing of the banner's two items, at the menu's size, under Close.
+extension WindowRenders {
+    static let filedCopyMockup = "13-read-only-filed-copy.png"
+
+    @Test func filedCopy() async throws {
+        let output = try #require(renderFolder).appending(path: "cabinet", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try await withFiledSample(Self.mockupCopies()) { store, book, preferences in
+            let number = try #require(FiledCopyNumber(4))
+            try #require(await store.openFiledCopy(number, of: book) == .opened, "precondition: it opens")
+            let copy = try #require(store.shown)
+            try #require(copy !== book && copy.document.kind == .filedCopy)
+            let window = BookWindow(
+                book: copy, store: store, preferences: preferences,
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page))
+            try Self.write(
+                try await Self.render(window), name: "final-filed-copy",
+                caption: "A filed copy, read only: Oct 13, 2026 · draft 3", to: output,
+                beside: Self.filedCopyMockup)
+
+            let menu = NSMenu()
+            menu.addItem(withTitle: FiledCopyWording.restoreScene, action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: FiledCopyWording.newBook, action: nil, keyEquivalent: "")
+            menu.autoenablesItems = false
+            let renders = try await Self.withWindow(window) { window in
+                let frameView = try #require(window.contentView?.superview)
+                let size = menu.size
+                let rect = NSRect(
+                    x: Self.windowSize.width - 16 - size.width,
+                    y: Self.windowSize.height - 52 - WindowMetrics.bannerHeight - size.height + 6,
+                    width: size.width, height: size.height)
+                @MainActor func draw(_ scale: Int) -> NSBitmapImageRep {
+                    let rep = Self.bitmap(of: frameView, scale: scale)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                    MenuStandIn.draw(menu, in: rect)
+                    NSGraphicsContext.restoreGraphicsState()
+                    return rep
+                }
+                return Renders(single: draw(1), double: draw(2), triple: draw(3))
+            }
+            try Self.write(
+                renders, name: "final-filed-copy-menu", caption: "Close's menu: the banner's two actions",
+                to: output, beside: Self.filedCopyMockup)
+            store.closeFiledCopy()
+        }
+    }
+}

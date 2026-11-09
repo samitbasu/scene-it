@@ -47,6 +47,9 @@ public enum ReadOnlyWording {
             "This review was saved by a newer version of Scene It (review format \(format)). This version "
                 + "can show it, but saving it here could lose what the newer version added. To make "
                 + "changes, open it in the newer version."
+        case .filedCopy:
+            "A filed copy is never changed. To use its text, restore a scene to your book, or make a "
+                + "new book from it."
         }
     }
 
@@ -94,7 +97,7 @@ public enum ReadOnlyWording {
             return WriterAlert(
                 title: readOnlyTitle, message: readOnlyMessage(reason, of: kind),
                 buttons: [keep, .init(choice: .makeEditable, label: makeEditable)])
-        case .openElsewhere, .lockUnavailable, .newerFormat, .newerReviewFormat:
+        case .openElsewhere, .lockUnavailable, .newerFormat, .newerReviewFormat, .filedCopy:
             return WriterAlert(
                 title: readOnlyTitle, message: readOnlyMessage(reason, of: kind), buttons: [keep])
         }
@@ -130,13 +133,14 @@ public enum ReadOnlyChoice: Hashable, Sendable {
 
 /// What's open: a book, or a review of a review copy (ADR 0042).
 public enum DocumentKind: Hashable, Sendable {
-    case book, review
+    case book, review, filedCopy
 
     /// What the wording calls it.
     public var noun: String {
         switch self {
         case .book: "book"
         case .review: "review"
+        case .filedCopy: "filed copy"
         }
     }
 }

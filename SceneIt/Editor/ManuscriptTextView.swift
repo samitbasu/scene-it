@@ -7,6 +7,10 @@ import SwiftUI
 /// scene's body only (decision 0015); its `SceneTextEditor` keeps it in step with the model.
 final class ManuscriptTextView: SceneTextView {
     weak var focus: PageFocus?
+    /// The page's own color: white, or light gray under a filed copy (PLAN §7.5).
+    var paper = NSColor.white {
+        didSet { needsDisplay = true }
+    }
 
     static func page(editability: @escaping () -> Editability) -> ManuscriptTextView {
         let view = ManuscriptTextView(editability: editability)
@@ -183,7 +187,7 @@ final class ManuscriptTextView: SceneTextView {
         shadow.shadowBlurRadius = WindowMetrics.pageShadow.radius
         shadow.shadowOffset = NSSize(width: 0, height: -WindowMetrics.pageShadow.drop)
         shadow.set()
-        NSColor.white.setFill()
+        paper.setFill()
         pageRect.fill()
         NSGraphicsContext.restoreGraphicsState()
         drawSelectionBands(in: rect)

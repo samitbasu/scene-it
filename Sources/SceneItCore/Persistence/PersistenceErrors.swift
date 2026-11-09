@@ -107,6 +107,18 @@ public enum CreateError: Error, Hashable, Sendable, CustomStringConvertible {
     }
 }
 
+extension CreateError {
+    /// A book's save into a package just created, which failed.
+    init(_ error: SaveError, at url: URL) {
+        switch error {
+        case .encoding(let failure): self = .encoding(failure)
+        case .fileSystem(let error), .couldNotBackUpTheirVersion(let error): self = .fileSystem(error)
+        case .externallyModified, .writeProtected:
+            self = .fileSystem(FileSystemError(.write, PackageLayout(root: url).book, .io))
+        }
+    }
+}
+
 /// A book that couldn't be opened, with the rotated backups that a person could restore by hand.
 public struct LoadError: Error, Hashable, Sendable, CustomStringConvertible {
     public let package: URL

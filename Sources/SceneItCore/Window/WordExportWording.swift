@@ -11,10 +11,18 @@ public enum WordExportWording {
     public static let panelPrompt = "Export"
     public static let fileExtension = "docx"
 
-    /// "The ferry.docx", or "Untitled scene.docx".
+    /// "The ferry.docx", or "Untitled scene.docx"; from a filed copy, "The ferry, Oct 13, 2026.docx".
     public static func defaultFileName(scene: BookScene, package: URL) -> String {
         StoreWording.fileNameBase(title: WindowWording.sceneName(scene), package: package) + "."
             + fileExtension
+    }
+
+    public static func defaultFileName(scene: BookScene, of document: OpenDocument) -> String {
+        guard case .filedCopy(let context) = document else {
+            return defaultFileName(scene: scene, package: document.url)
+        }
+        return StoreWording.fileNameBase(title: WindowWording.sceneName(scene), package: context.book.root)
+            + ", " + ArchiveWording.day(context.filed) + "." + fileExtension
     }
 
     // MARK: Afterwards

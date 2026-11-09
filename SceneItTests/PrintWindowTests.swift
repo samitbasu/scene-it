@@ -1,6 +1,7 @@
 import AppKit
 import SceneItCore
 import SceneItTestSupport
+import SwiftUI
 import Testing
 
 @testable import SceneIt
@@ -75,6 +76,80 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(await books.store.closeBook() == .left)
             await eventually { Self.printItem()?.isEnabled == false }
             expectNoQuestions()
+        }
+    }
+}
+
+extension OneAtATime {
+    /// Print while a filed copy shows (#33, PLAN §7.5): File → Print… acts on the main window's
+    /// flow (`MainWindowChrome.printing`, exactly what the menu calls), which is the copy's, so it
+    /// prints the copy, not the book underneath. The dialog is recorded, not shown.
+    @Suite(.serialized, .timeLimit(.minutes(2)))
+    @MainActor
+    struct PrintFiledCopyTests {
+        @Test func printWhileAFiledCopyShowsPrintsTheCopy() async throws {
+            try await withTemporaryFolder { folder in
+                let books = BookController(role: .testHost)
+                let store = books.store
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await store.create(at: url) == .created)
+                let book = try #require(store.current)
+                let ferry = try #require(book.addScene(after: nil))
+                book.replaceBody(of: ferry, with: [[Run("He read it twice.")]])
+                guard
+                    case .filed(let outcome) = await store.fileACopy(
+                        of: book, as: FiledCopyWindowTests.record),
+                    outcome.isComplete
+                else {
+                    Issue.record("precondition: a copy is filed")
+                    return
+                }
+                book.replaceBody(of: ferry, with: [[Run("Rewritten since.")]])
+
+                let size = WindowMetrics.defaultSize
+                let window = NSWindow(
+                    contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable],
+                    backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentViewController = NSHostingController(rootView: MainWindow(books: books))
+                window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
+                window.orderFront(nil)
+                defer { window.close() }
+                await eventually { books.mainWindowChrome.printing?.book === book }
+                try #require(books.mainWindowChrome.printing?.book === book, "precondition: the book's flow")
+
+                #expect(await store.openFiledCopy(.first, of: book) == .opened)
+                let copy = try #require(store.shown)
+                try #require(
+                    copy !== book && copy.document.kind == .filedCopy, "precondition: the copy shows")
+                await eventually {
+                    books.mainWindowChrome.printing?.book === copy
+                        && books.mainWindowChrome.printing?.window === window
+                }
+                let flow = try #require(books.mainWindowChrome.printing)
+                #expect(flow.book === copy, "the menu's flow is the copy's")
+                #expect(flow.canBegin)
+
+                let recorded = OneAtATime.BookStoreIntegrationTests.RecordedPrints()
+                let present = PrintFlow.present
+                PrintFlow.present = { operation, window, flow in
+                    recorded.shown.append((operation, window, flow))
+                }
+                defer { PrintFlow.present = present }
+                flow.begin()
+                let shown = try #require(recorded.shown.first, "the dialog was asked for")
+                #expect(shown.window === window)
+                let view = try #require(shown.operation.view as? ManuscriptPrintView)
+                let text = PrintTests.text(try PrintTests.pdf(view, PrintTests.printInfo(.textOnly)))
+                #expect(text.contains("He read it twice."), "the copy's text")
+                #expect(!text.contains("Rewritten since."), "not the book's")
+                flow.finished()
+
+                store.closeFiledCopy()
+                await eventually { books.mainWindowChrome.printing?.book === book }
+                #expect(books.mainWindowChrome.printing?.book === book, "back to the book's flow")
+                #expect(await store.closeBook() == .left)
+            }
         }
     }
 }

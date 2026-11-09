@@ -72,6 +72,8 @@ enum WindowMetrics {
     static let focusRingRadius: CGFloat = 6
     /// The mockup's read-only banner (13-read-only-filed-copy.png).
     static let bannerColor = Color(red: 0.99, green: 0.95, blue: 0.84)
+    /// A filed copy's page (mockup 13's light gray, #EBE9E4).
+    static let filedCopyPaper = Color(red: 0xEB / 255, green: 0xE9 / 255, blue: 0xE4 / 255)
 
     static let defaultSize = CGSize(width: 1440, height: 900)
     /// Room for the rail, the whole page on its desk and the open panel, side by side.

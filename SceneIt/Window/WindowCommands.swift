@@ -37,11 +37,11 @@ struct WindowCommands: Commands {
                     if let mode { mode.wrappedValue = mode.wrappedValue.choosing(sheet) }
                 }
                 .keyboardShortcut(Self.shortcut(for: sheet))
-                .disabled(mode == nil || dialogIsUp)
+                .disabled(mode == nil || dialogIsUp || !WindowMode.offers(sheet, over: books.store.shown))
             }
             Button(WindowWording.toggleRightPanel) { books.preferences.toggleRightPanel() }
                 .keyboardShortcut("]")
-                .disabled(books.store.current == nil || chrome?.focusMode == .on)
+                .disabled(books.store.shown == nil || chrome?.focusMode == .on)
             Toggle(WindowWording.focusMode, isOn: focusMode)
                 .keyboardShortcut(.return, modifiers: [.command, .shift])
                 .disabled(chrome == nil)
@@ -63,7 +63,7 @@ struct WindowCommands: Commands {
 
     @ViewBuilder private var zoom: some View {
         let preferences = books.preferences
-        let noBook = books.store.current == nil
+        let noBook = books.store.shown == nil
         ForEach(ZoomStep.allCases, id: \.self) { step in
             Button(WindowWording.zoomStep(step)) { preferences.zoom(step) }
                 .keyboardShortcut(Self.shortcut(for: step))
@@ -79,13 +79,12 @@ struct WindowCommands: Commands {
     }
 
     private func destination(of step: SceneStep) -> SceneID? {
-        books.store.current.flatMap { $0.book.scene(step, from: $0.openScene) }
+        books.scene(step)
     }
 
     /// Opens the scene, showing the page if a sheet covers it.
     private func take(_ step: SceneStep) {
-        guard let book = books.store.current, let scene = destination(of: step) else { return }
-        book.select(scene)
+        guard books.take(step) else { return }
         if let mode { mode.wrappedValue = mode.wrappedValue.closingSheet }
     }
 
