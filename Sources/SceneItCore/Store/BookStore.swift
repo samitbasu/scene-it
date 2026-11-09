@@ -476,6 +476,39 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
+    /// Save Review… (review format §7): the review as it is now, saved or not, written as a page
+    /// to `destination`. The copy and the review's own files are never touched, and the reviewer is
+    /// told when nothing was written. Works on a read-only review too.
+    public func saveReview(of book: OpenBook<C>, to destination: URL, on day: CalendarDay) async
+        -> SaveReviewResult
+    {
+        await exclusively {
+            guard book === current, case .review(let context) = book.document else {
+                await prompts.tell(ReviewOutputWording.reviewClosed)
+                return .unavailable
+            }
+            guard let report = book.reviewReport(on: day) else {
+                await prompts.tell(ReviewOutputWording.nothingToSave)
+                return .unavailable
+            }
+            let page = ReviewHTML.page(report, review: context.id)
+            do throws(SaveReviewFailure) {
+                try await Self.write(page, to: destination, for: context, fileSystem)
+                return .saved
+            } catch {
+                await prompts.tell(ReviewOutputWording.notice(for: error))
+                return .failed(error)
+            }
+        }
+    }
+
+    @concurrent
+    private nonisolated static func write(
+        _ page: String, to destination: URL, for review: ReviewContext, _ fileSystem: any FileSystem
+    ) async throws(SaveReviewFailure) {
+        try ReviewPageWriter.write(page, to: destination, for: review, fileSystem: fileSystem)
+    }
+
     @concurrent
     private nonisolated static func write(
         _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout,

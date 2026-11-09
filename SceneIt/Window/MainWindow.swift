@@ -87,7 +87,7 @@ private struct OpenBookWindow: View {
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mainChrome: MainWindowChrome, exportDestination: @escaping () -> ExportDestination
+        mainChrome: MainWindowChrome, exportDestination: @escaping () -> SaveDestination
     ) {
         self.book = book
         self.store = store

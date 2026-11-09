@@ -69,8 +69,9 @@ opens repaired and read-only, which the corpus case `book/s1.5-review-copy-keys-
 `ReviewCopyFormat.verifiedSerialization` is book format §7.2 for the copy: serialize, parse in
 review-copy mode, and refuse unless the parse has no error entries, is the same copy (marker and
 scenes), and serializes to the same bytes. `ReviewCopyWriter.write` then follows the book's own
-pipeline from chapter 03: `writeTemporary` (durable under a hidden name), then `publish` for a new
-name or `move` over an existing file. Before any of it, it refuses a destination inside the open
+pipeline from chapter 03, through `ChosenFileWrite` (shared with Save Review…): `writeTemporary`
+(durable under a hidden name), a read back of that file, then `publish` for a new name or `move`
+over an existing file. Before any of it, it refuses a destination inside the open
 book's package, comparing canonical paths (`.`, `..` and links resolved, case ignored) and file
 identities (`FileSystem.mountedIdentity`, the device and file number from `stat`) of the folders
 above it, and refuses anything at the destination that isn't a plain file the writer can write.
@@ -89,16 +90,18 @@ SwiftUI's own `fileExporter` wants a `FileDocument` and writes the file itself, 
 the verification. So the app shows AppKit's `NSSavePanel` and keeps the writing:
 
 ```swift
-static let savePanel = ExportDestination { name in
-    let panel = NSSavePanel()
-    panel.title = ExportWording.panelTitle
-    panel.prompt = ExportWording.panelPrompt
-    panel.nameFieldStringValue = name
-    panel.allowedContentTypes = [UTType(filenameExtension: ExportWording.fileExtension) ?? .plainText]
-    panel.canCreateDirectories = true
-    panel.isExtensionHidden = false
-    guard panel.runModal() == .OK else { return nil }
-    return panel.url
+static func savePanel(title: String, prompt: String, fileExtension: String) -> SaveDestination {
+    SaveDestination { name in
+        let panel = NSSavePanel()
+        panel.title = title
+        panel.prompt = prompt
+        panel.nameFieldStringValue = name
+        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
 }
 ```
 
@@ -106,11 +109,12 @@ static let savePanel = ExportDestination { name in
 (chapter 04); calling it from a `Task` on the main actor is fine, because the loop keeps the app
 responsive while the task waits. New Book… does the same.
 
-`ExportDestination` is a struct holding one closure, a trait object with a single method in Rust
-terms. The app's `BookController` holds `.savePanel`; the test host's holds `.nowhere`, which
+`SaveDestination` is a struct holding one closure, a trait object with a single method in Rust
+terms. Save Review… ([chapter 07g](07g-copy-and-save-review.md)) uses it too, with its own wording.
+The app's `BookController` holds `.exportPanel`; the test host's holds `.nowhere`, which
 answers "cancelled" without showing anything, and a hosted test sets `.fixed(url)` to a file in its
 own temporary folder. `ExportFlow` asks for the destination each time it needs one (it holds a
-`() -> ExportDestination`), so a test can change it after the window exists.
+`() -> SaveDestination`), so a test can change it after the window exists.
 
 ## 5. A sheet, a menu item, and why tests start one step in
 
