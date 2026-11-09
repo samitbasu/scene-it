@@ -297,6 +297,29 @@ quick edits can't lose each other), and writes the index atomically. The filed c
 read. What the cards may change is one more `EditKind`, `.archive`, so `Editability(book, for:
 .archive)` hides × and + tag on a read-only book, a review, or an index a newer Scene It wrote.
 
+### A filed copy, read only (#33, PLAN §7.5)
+
+A double click on a card (or Return on the selected one) asks the store to
+`openFiledCopy(_:of:)`. The store reads `saveNNNN.md`'s bytes, parses them into a `Book`, and wraps
+it in an `OpenBook` whose document is `.filedCopy(FiledCopyContext)` and whose access is
+`.readOnly(.filedCopy)`. The read-only copy has no save path, and that's enforced by its type: the
+initializer takes no writer, the store never makes one for it, and `becomeEditable` accepts only a
+book that was repaired while opening. So `accepts(_:)` refuses every `EditKind`, and `save` throws.
+The page, the bars, comments, the Tags tab, Undo and autosave all go read-only through the
+machinery a locked book already uses (`Editability`), and the page's paper turns gray.
+
+The app's mode is the store's `Session`, which gains `.viewingCopy(book, copy:)`. The book stays
+`current` underneath, so its autosave, Close Book and Quit work as before. The main window shows
+`store.shown`, the copy, and is rebuilt for it by `.id(instanceID)`, just as it is for Open Anyway.
+The banner's Close (`closeFiledCopy`) puts back `.open(book)`, and the window rebuilds over the book at its
+open scene. Close is a SwiftUI `Menu` with a `primaryAction`: a split button whose menu holds
+Restore This Scene to My Book (`restoreScene(from:)`, which goes through `OpenBook.addScene(copying:)`, the
+add-scene step with a fresh id, one `structureUndo` step) and New Book from This Copy…
+(`newBook(from:at:)`, which writes a new package that one-book-at-a-time leaves unopened).
+
+Search, Print and Read aloud act on the window's `book`, which here is the copy, so they reach it
+without any change once they land (#34, #35, #39).
+
 ### Deleting for good
 
 The tile's context menu asks with `BoneyardWording.confirmDelete` through `BookStore.ask(_:)`, the

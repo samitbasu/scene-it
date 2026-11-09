@@ -81,6 +81,10 @@ struct SaveDestination {
         title: ExportWording.panelTitle, prompt: ExportWording.panelPrompt,
         fileExtension: ExportWording.fileExtension)
 
+    static let newBookPanel = savePanel(
+        title: FiledCopyWording.newBookPanelTitle, prompt: FiledCopyWording.newBookPanelPrompt,
+        fileExtension: PackageLayout.pathExtension)
+
     static let nowhere = SaveDestination { _ in nil }
 
     static func fixed(_ url: URL) -> SaveDestination {

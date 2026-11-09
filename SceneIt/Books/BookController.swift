@@ -53,6 +53,8 @@ final class BookController {
     var exportDestination: SaveDestination
     /// Where Save Review… writes, as `exportDestination`.
     var reviewDestination: SaveDestination
+    /// Where New Book from This Copy… makes the book, as `exportDestination`.
+    var newBookDestination: SaveDestination
     /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
     /// and previews a private one, so a test never replaces what the owner copied.
     let reviewPasteboard: NSPasteboard
@@ -81,6 +83,7 @@ final class BookController {
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
+        newBookDestination = role == .app ? .newBookPanel : .nowhere
         reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(
             clock: ContinuousClock(), mirror: mirror, reviews: reviews, memory: memory, prompts: self.prompts)
@@ -169,9 +172,10 @@ final class BookController {
         if quitUnderWay != nil { return .nothing }
         switch (source, store.session) {
         case (_, .closing): return .nothing
-        case (_, .open) where closeUnderWay != nil: return .nothing
+        case (_, .open) where closeUnderWay != nil, (_, .viewingCopy) where closeUnderWay != nil:
+            return .nothing
         case (.closeButton, _), (.menu, .choosing): return .quit
-        case (.menu, .open): return .closeBook
+        case (.menu, .open), (.menu, .viewingCopy): return .closeBook
         }
     }
 

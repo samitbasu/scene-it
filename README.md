@@ -440,7 +440,9 @@ and 2× beside mockup 12, on mockup 12's day (Nov 1, 2026) with its five copies:
 `final-cabinet-selected`, `final-cabinet-tagging`, `final-cabinet-filters` (a date and a tag chosen),
 `final-cabinet-search`, `final-cabinet-no-matches`, `final-cabinet-empty` and `final-cabinet-read-only`. To render
 only these, add
-`-only-testing:SceneItTests/WindowRenders/fileCabinet\(\)`.
+`-only-testing:SceneItTests/WindowRenders/fileCabinet\(\)`. `filedCopy` renders a filed copy open read-only into the
+same subfolder, beside mockup 13: `final-filed-copy` (the banner) and `final-filed-copy-menu` (Close's menu, drawn by
+`MenuStandIn`); add `-only-testing:SceneItTests/WindowRenders/filedCopy\(\)`.
 
 `boneyard` renders the Boneyard tray and the sheet's drags and keys (#29, `BoneyardRenders.swift`) into a
 `boneyard/` subfolder, at 1× and 2× and beside mockup 07: `final-tray`, `final-tray-lit` (a card over the tray),

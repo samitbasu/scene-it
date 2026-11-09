@@ -20,6 +20,9 @@ public final class BookStore<C: Clock<Duration>> {
         /// The start state, the only one a book can be opened or created from.
         case choosing
         case open(OpenBook<C>)
+        /// A filed copy of the book is shown read-only in its place (PLAN §7.5). The book stays
+        /// open underneath, autosaving as before, and its open scene is kept for Close.
+        case viewingCopy(OpenBook<C>, copy: OpenBook<C>)
         /// Close Book is saving the book or asking about it. The book is still open (Cancel
         /// returns to `open`), but another close isn't.
         case closing(OpenBook<C>)
@@ -28,11 +31,17 @@ public final class BookStore<C: Clock<Duration>> {
     public var current: OpenBook<C>? {
         switch session {
         case .choosing: nil
-        case .open(let book), .closing(let book): book
+        case .open(let book), .viewingCopy(let book, _), .closing(let book): book
         }
     }
 
-    /// The book while it's open and not being closed: what File a Copy and Make Editable act on.
+    /// What the window shows: the filed copy while one is open over the book, or the book.
+    public var shown: OpenBook<C>? {
+        if case .viewingCopy(_, let copy) = session { copy } else { current }
+    }
+
+    /// The book while it's open, not being closed and not under a filed copy: what File a Copy
+    /// and Make Editable act on.
     public var openBook: OpenBook<C>? {
         if case .open(let book) = session { book } else { nil }
     }
@@ -102,6 +111,14 @@ public final class BookStore<C: Clock<Duration>> {
         case refused
     }
 
+    public enum FiledCopyOutcome: Hashable, Sendable {
+        case opened
+        /// The book isn't open with that copy in its File Cabinet (or a filed copy is shown).
+        case unavailable
+        /// The copy couldn't be read; the writer was told.
+        case failed(FileSystemError)
+    }
+
     public enum CreateOutcome: Hashable, Sendable {
         case created
         case failed(CreateError)
@@ -151,7 +168,7 @@ public final class BookStore<C: Clock<Duration>> {
         switch session {
         case .choosing:
             return nil
-        case .open(let book), .closing(let book):
+        case .open(let book), .viewingCopy(let book, _), .closing(let book):
             let own = book.document.url.canonicalPath
             let others = books.filter { $0.canonicalPath != own }
             guard !others.isEmpty else { return .alreadyOpen }
@@ -348,7 +365,7 @@ public final class BookStore<C: Clock<Duration>> {
             case (.review(let repair), .review(let context)):
                 return await editReview(
                     book, context, keeping: try await Self.keepOriginal(of: repair, fileSystem))
-            case (.book, .review), (.review, .book):
+            case (.book, .review), (.review, .book), (_, .filedCopy):
                 return .notRepaired
             }
         } catch {
@@ -466,6 +483,94 @@ public final class BookStore<C: Clock<Duration>> {
             } catch {
                 await prompts.tell(FileCabinetWording.tagsNotSaved(error))
                 return .failed(error)
+            }
+        }
+    }
+
+    // MARK: A filed copy, read-only (PLAN §7.5)
+
+    /// Opens `book`'s filed copy `number` read-only over it, at the scene the book has open if the
+    /// copy has it. The copy is only read: its bytes are parsed into a book that has no writer.
+    @discardableResult
+    public func openFiledCopy(_ number: FiledCopyNumber, of book: OpenBook<C>) async -> FiledCopyOutcome {
+        await exclusively {
+            guard case .open(let open) = session, open === book, case .book(let layout) = book.document,
+                let filed = book.archive.copies.first(where: { $0.number == number })
+            else { return .unavailable }
+            let copy: Book
+            do throws(FileSystemError) {
+                copy = try await Self.readFiledCopy(layout.filedCopy(number), parseDefaults, fileSystem)
+            } catch {
+                await prompts.tell(FiledCopyWording.couldNotOpen(error))
+                return .failed(error)
+            }
+            guard case .open(let still) = session, still === book else { return .unavailable }
+            let shown = OpenBook(
+                copy, filed: FiledCopyContext(book: layout, copy: filed), at: book.openScene, store: self)
+            session = .viewingCopy(book, copy: shown)
+            Log.store.info("opened a filed copy read-only", ["number": .count(number.value)])
+            return .opened
+        }
+    }
+
+    /// The banner's Close: the book shows again, at the scene it had open.
+    public func closeFiledCopy() {
+        if case .viewingCopy(let book, _) = session { session = .open(book) }
+    }
+
+    /// The banner's Restore this scene to my book: a copy of the scene the filed copy shows is added
+    /// at the end of the book's story, as one step on the book's structure undo, and the book shows
+    /// again with it open. `nil` if no scene is open in the copy or the book takes no edits.
+    @discardableResult
+    public func restoreScene(from copy: OpenBook<C>) -> SceneID? {
+        guard case .viewingCopy(let book, let shown) = session, shown === copy,
+            let scene = copy.book.scene(copy.openScene),
+            let added = book.addScene(copying: scene)
+        else { return nil }
+        session = .open(book)
+        return added
+    }
+
+    /// New book from this copy…: writes the filed copy's book as a new book at `url`, which isn't
+    /// opened (one book at a time, ADR 0038) but goes to Recent Books. The filed copy is only read.
+    @discardableResult
+    public func newBook(from copy: OpenBook<C>, at url: URL) async -> CreateOutcome {
+        await exclusively {
+            guard case .filedCopy = copy.document else { return .refused }
+            do throws(CreateError) {
+                try await Self.write(copy.book, asNewBookAt: url, fileSystem)
+            } catch {
+                await prompts.tell(StoreWording.createFailed(error))
+                return .failed(error)
+            }
+            remember(url)
+            // The open book stays first in Recent Books.
+            if let book = current { remember(book.document.url) }
+            await prompts.tell(FiledCopyWording.newBookMade(url))
+            return .created
+        }
+    }
+
+    @concurrent
+    private nonisolated static func readFiledCopy(
+        _ file: URL, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
+    ) async throws(FileSystemError) -> Book {
+        defaults.parse(try fileSystem.read(file)).book
+    }
+
+    @concurrent
+    private nonisolated static func write(_ book: Book, asNewBookAt url: URL, _ fileSystem: any FileSystem)
+        async throws(CreateError)
+    {
+        let made = try BookPackage.create(at: url, title: book.title, fileSystem: fileSystem)
+        do throws(SaveError) {
+            _ = try made.package.save(book)
+        } catch {
+            switch error {
+            case .encoding(let failure): throw .encoding(failure)
+            case .fileSystem(let error), .couldNotBackUpTheirVersion(let error): throw .fileSystem(error)
+            case .externallyModified, .writeProtected:
+                throw .fileSystem(FileSystemError(.write, made.package.layout.book, .io))
             }
         }
     }

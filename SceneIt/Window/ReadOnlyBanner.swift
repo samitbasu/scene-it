@@ -67,3 +67,50 @@ struct ReviewBanner: View {
         }
     }
 }
+
+/// The strip across a filed copy (PLAN §7.5, mockup 13), in the read-only banner's look: "Filed
+/// copy · Oct 13, 2026 · draft 3 — read only", and Close, which returns to the book at the scene
+/// that was open. Close's menu holds Restore This Scene to My Book and New Book from This Copy….
+struct FiledCopyBanner: View {
+    let book: AppOpenBook
+    let store: AppBookStore
+    let newBook: SaveDestination
+
+    var body: some View {
+        if case .filedCopy(let context) = book.document {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                    Text(FiledCopyWording.bannerTitle).fontWeight(.semibold)
+                    Text(FiledCopyWording.bannerDetail(context))
+                    Text(FiledCopyWording.readOnly).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        Button(FiledCopyWording.restoreScene) { store.restoreScene(from: book) }
+                            .disabled(book.openScene == nil)
+                        Button(FiledCopyWording.newBook) { Task { await makeNewBook(context) } }
+                    } label: {
+                        Text(FiledCopyWording.close)
+                    } primaryAction: {
+                        store.closeFiledCopy()
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .help(FiledCopyWording.closeHelp)
+                    .accessibilityHint(FiledCopyWording.moreLabel)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: WindowMetrics.bannerHeight)
+                .background(WindowMetrics.bannerColor)
+                Divider()
+            }
+        }
+    }
+
+    private func makeNewBook(_ context: FiledCopyContext) async {
+        let name = FiledCopyWording.newBookName(title: book.book.title, context)
+        guard let url = await newBook.choose(name) else { return }
+        await store.newBook(from: book, at: url)
+    }
+}

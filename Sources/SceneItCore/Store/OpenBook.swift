@@ -98,6 +98,21 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         openScene = book.scenes.first?.id
     }
 
+    /// A filed copy, opened read-only from the File Cabinet (PLAN §7.5), at `scene` if it has it.
+    /// It's given no writer, and nothing can give it one (`becomeEditable` takes only a book
+    /// repaired as it opened), so no edit is accepted and nothing is ever saved to the copy.
+    init(_ copy: Book, filed context: FiledCopyContext, at scene: SceneID?, store: BookStore<C>) {
+        self.store = store
+        packageIdentity = nil
+        book = copy
+        archive = ArchiveIndex()
+        archiveNotices = []
+        wordCounts = SceneWordCounts(copy)
+        document = .filedCopy(context)
+        access = .readOnly(.filedCopy)
+        openScene = copy.scene(scene)?.id ?? copy.scenes.first?.id
+    }
+
     /// A review, as Review Book… opened it (ADR 0042). It has no archive.
     init(_ review: LoadedReview, clock: C, store: BookStore<C>) {
         self.store = store
@@ -157,7 +172,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     private func driver(for edit: EditKind) -> AutosaveDriver<C>? {
         guard let driver = editingDriver else { return nil }
         switch (document, edit) {
-        case (.review, .manuscript), (.review, .archive): return nil
+        case (.review, .manuscript), (.review, .archive), (.filedCopy, _): return nil
         case (.book, .archive): return isArchiveFromNewerVersion ? nil : driver
         case (.book, _), (.review, .annotations), (.review, .errors): return driver
         }
@@ -585,8 +600,27 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let index = scene.flatMap { id in book.scenes.firstIndex { $0.id == id } }.map { $0 + 1 }
         let target = StructureTarget()
         structureTargets[target] = new.id
-        let added = put(target, .held(new), at: index ?? book.scenes.endIndex, returningTo: openScene)
+        let added = put(
+            target, .held(new), at: index ?? book.scenes.endIndex, returningTo: openScene,
+            named: ScenesWording.newSceneUndoName)
         return added ? new.id : nil
+    }
+
+    /// Restore this scene to my book (PLAN §7.5): a copy of `scene`, from a filed copy, added at
+    /// the end of the story with an id of its own, and opened. One change on `structureUndo`, as an
+    /// added scene: its undo keeps its words in the Deleted section (ADR 0041).
+    @discardableResult
+    public func addScene(copying scene: BookScene) -> SceneID? {
+        guard accepts(.manuscript) else { return nil }
+        var restored = scene
+        restored.id = ids.sceneID()
+        restored.modified = Timestamp(.now, in: .current)
+        let target = StructureTarget()
+        structureTargets[target] = restored.id
+        let added = put(
+            target, .held(restored), at: book.scenes.endIndex, returningTo: openScene,
+            named: FiledCopyWording.restoreUndoName)
+        return added ? restored.id : nil
     }
 
     /// Where an added scene is while its add is undone.
@@ -601,7 +635,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Puts the added scene into the story at `index` (or its end) and opens it; registers taking
     /// it out again.
     private func put(
-        _ target: StructureTarget, _ from: Unadded, at index: Int, returningTo previous: SceneID?
+        _ target: StructureTarget, _ from: Unadded, at index: Int, returningTo previous: SceneID?,
+        named name: String
     ) -> Bool {
         guard let driver = driver(for: .manuscript), let id = structureTargets[target] else { return false }
         switch from {
@@ -612,8 +647,10 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         guard let scene = book.scene(id) else { return false }
         wordCounts.recount(scene)
-        structureUndo.registerUndo(withTarget: self) { $0.takeOut(target, returningTo: previous) }
-        structureUndo.setActionName(ScenesWording.newSceneUndoName)
+        structureUndo.registerUndo(withTarget: self) {
+            $0.takeOut(target, returningTo: previous, named: name)
+        }
+        structureUndo.setActionName(name)
         driver.send(.edited)
         select(scene.id)
         return true
@@ -622,7 +659,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Undoes an add: takes the scene out of the story, reopening `previous` if the scene was
     /// open. A scene holding anything the writer wrote but a title goes to the Deleted section
     /// rather than away (ADR 0041). Registers putting it back.
-    private func takeOut(_ target: StructureTarget, returningTo previous: SceneID?) {
+    private func takeOut(_ target: StructureTarget, returningTo previous: SceneID?, named name: String) {
         guard accepts(.manuscript), let id = structureTargets[target],
             book.scenes.contains(where: { $0.id == id })
         else { return }
@@ -641,9 +678,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             unadded = .deleted
         }
         structureUndo.registerUndo(withTarget: self) {
-            _ = $0.put(target, unadded, at: index, returningTo: previous)
+            _ = $0.put(target, unadded, at: index, returningTo: previous, named: name)
         }
-        structureUndo.setActionName(ScenesWording.newSceneUndoName)
+        structureUndo.setActionName(name)
         driver.send(.edited)
     }
 
@@ -926,6 +963,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         switch document {
         case .book: return true
         case .review: return ref.entry.tag == .comments
+        case .filedCopy: return false
         }
     }
 
@@ -1130,20 +1168,39 @@ extension TextPart {
 public enum OpenDocument: Hashable, Sendable {
     case book(PackageLayout)
     case review(ReviewContext)
+    /// A filed copy, shown over its book (PLAN §7.5).
+    case filedCopy(FiledCopyContext)
 
     public var kind: DocumentKind {
         switch self {
         case .book: .book
         case .review: .review
+        case .filedCopy: .filedCopy
         }
     }
 
-    /// What the writer chose to open: the package, or the review copy.
+    /// What the writer chose to open: the package, the review copy, or the filed copy.
     public var url: URL {
         switch self {
         case .book(let layout): layout.root
         case .review(let context): context.copyFile
+        case .filedCopy(let context): context.book.filedCopy(context.number)
         }
+    }
+}
+
+/// Which filed copy is open, of which book, and what the File Cabinet says about it.
+public struct FiledCopyContext: Hashable, Sendable {
+    public let book: PackageLayout
+    public let number: FiledCopyNumber
+    public let filed: CalendarDay
+    public let tags: [String]
+
+    public init(book: PackageLayout, copy: FiledCopy) {
+        self.book = book
+        number = copy.number
+        filed = copy.filed
+        tags = copy.tags
     }
 }
 

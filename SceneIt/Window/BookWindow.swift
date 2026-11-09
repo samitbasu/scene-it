@@ -21,13 +21,15 @@ struct BookWindow: View {
     @State private var cabinet: FileCabinetModel
     @State private var chrome: WindowChrome
     @State private var keys: WindowKeys
+    let newBookDestination: SaveDestination
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
         search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
-        chrome: WindowChrome? = nil
+        chrome: WindowChrome? = nil, newBookDestination: SaveDestination = .nowhere
     ) {
+        self.newBookDestination = newBookDestination
         self.book = book
         self.store = store
         self.preferences = preferences
@@ -56,6 +58,7 @@ struct BookWindow: View {
         VStack(spacing: 0) {
             ReadOnlyBanner(book: book, store: store, preferences: preferences)
             ReviewBanner(book: book)
+            FiledCopyBanner(book: book, store: store, newBook: newBookDestination)
             HStack(spacing: 0) {
                 if chrome.shows(.rail) {
                     IconRail(book: book, mode: $mode)
@@ -164,9 +167,10 @@ struct BookWindow: View {
             mode: $mode)
     }
 
-    /// Opening a filed copy read-only (PLAN §7.5) comes with the read-only view (#33's second part).
     private var cabinetActions: FileCabinetActions {
-        FileCabinetActions(book: book, store: store, model: cabinet, open: { _ in })
+        FileCabinetActions(
+            book: book, store: store, model: cabinet,
+            open: { [book, store] number in Task { await store.openFiledCopy(number, of: book) } })
     }
 
     /// The dialog is up exactly while there's a draft: only the model's own actions (Cancel,
