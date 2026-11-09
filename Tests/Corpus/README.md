@@ -8,6 +8,7 @@ here; nothing here depends on Swift.
 Tests/Corpus/
   book/<case>/            a book.md case
   archive-index/<case>/   an Archive/index.md case
+  review-output/<case>/   a Copy Review / Save Review… case (review format §8, appendix C3)
   fuzz-seeds/             dictionaries and seed lists for fuzzers
 ```
 
@@ -102,3 +103,11 @@ That rewrites every case's `expected.md` and `entries.txt` from the Swift implem
 purpose, one issue per case, so a regenerating run can never pass for a real one. **Review the diff**, then rerun
 without the variable: a changed result is a change to the format's behaviour, and needs the spec to agree.
 `scripts/check.sh` unsets `CORPUS_REGENERATE`, so the commit gate only ever checks the corpus.
+
+## A review-output case
+
+The outputs of [Copy Review and Save Review…](../../docs/format/review-format.md) (§5–§7) for one review. Each case
+holds `copy.md` (the review copy), `review.md` (its review file), `copied-at.txt` (the moment Copy Review was chosen;
+the date shown is that moment's day in its own offset), and the expected outputs, byte for byte: `expected.html` (the
+clipboard HTML), `expected.txt` (the clipboard plain text) and `expected-standalone.html` (Save Review…'s page).
+`s8-worked-example` is the spec's §8, extracted from the spec's own text.

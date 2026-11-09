@@ -351,6 +351,14 @@ its own (`start-b-own-line`). To render only these, add
 `-only-testing:SceneItTests/WindowRenders/reviewRenders\(\)`. `reviewBookMenuRenders`, in
 `BookStoreIntegrationTests`, draws the File menu on the start screen (`menu-review-book-start-screen`).
 
+`reviewOutputRenders` renders Copy Review's and Save Review…'s look (#81, `ReviewOutputRenders.swift`) into a
+`review-output/` subfolder, drawn by WebKit offscreen from the review format's worked example: for the shipped
+look (`a-spec`) and two alternatives (`b-sans-boxed`, `c-underlined`), the standalone page with one item ticked
+(`page-<x>@2x.png`) and the clipboard HTML in a plain message body (`email-<x>@2x.png`), and the three pages side
+by side (`compare-pages.png`). To render only these, add
+`-only-testing:SceneItTests/ReviewOutputRenders`. `reviewOutputMenuRenders`, in `BookStoreIntegrationTests`,
+draws the File menu with a review open (`menu-copy-and-save-review`).
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

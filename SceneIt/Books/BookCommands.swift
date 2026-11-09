@@ -2,10 +2,11 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// File → New Book…, Open Book…, Review Book…, Close Book, Save, Make Editable…, File a Copy… and Export as
-/// SceneIt…, in place of SwiftUI's New Window, Close and Save. New, Open and Review are offered only on
-/// the start screen, and Close Book returns there (ADR 0038); from any window but the main one,
-/// ⌘W closes that window.
+/// File → New Book…, Open Book…, Review Book…, Close Book, Save, Make Editable…, File a Copy…, Export
+/// as SceneIt…, Copy Review and Save Review…, in place of SwiftUI's New Window, Close and Save. New,
+/// Open and Review are offered only on the start screen, and Close Book returns there (ADR 0038);
+/// from any window but the main one, ⌘W closes that window. Copy Review and Save Review… are for a
+/// review with comments or notes.
 struct BookCommands: Commands {
     let books: BookController
     @FocusedValue(\.filingFlow) private var filing
@@ -35,6 +36,10 @@ struct BookCommands: Commands {
                 .disabled(filing?.canBegin(in: books.store) != true || export?.choice != nil)
             Button(ExportWording.menuItem) { export?.begin() }
                 .disabled(export?.canBegin(in: books.store) != true || filing?.draft != nil)
+            Button(ReviewOutputWording.copyMenuItem) { books.copyReview() }
+                .disabled(books.shareableReview == nil)
+            Button(ReviewOutputWording.saveMenuItem) { Task { await books.saveReview() } }
+                .disabled(books.shareableReview == nil)
         }
     }
 }

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review of My Novel</title>
+</head>
+<body style="margin:0;padding:32px;background-color:#FFFFFF;">
+<div style="max-width:40em;margin:0 auto;">
+<noscript><p style="margin:0 0 16px 0;padding:8px 12px;background-color:#F2F2F2;font-family:Georgia,serif;">JavaScript is turned off, so the boxes you tick won&#x2019;t be remembered.</p></noscript>
+<p id="no-storage" hidden style="margin:0 0 16px 0;padding:8px 12px;background-color:#F2F2F2;font-family:Georgia,serif;">This browser won&#x2019;t let the page remember the boxes you tick.</p>
+<div style="font-family:Georgia,serif;font-size:16px;line-height:1.5;color:#222222;">
+<p style="margin:0 0 4px 0;font-size:22px;font-weight:bold;">Review of My Novel</p>
+<p style="margin:0 0 24px 0;color:#666666;">November 4, 2026</p>
+<p style="margin:0 0 8px 0;font-size:18px;font-weight:bold;">General notes</p>
+<p style="margin:0 0 8px 0;">Overall: I couldn&#x2019;t put it down. The <i>last line</i> of &#x201C;Arrival&#x201D; is the best thing here.</p>
+<p style="margin:24px 0 8px 0;font-size:18px;font-weight:bold;">The ferry</p>
+<div style="margin:0 0 16px 0;">
+<p style="margin:0;"><input type="checkbox" data-item="01JCM9S346Q3D25VT4F5V37E3S/c1" aria-label="Done" style="margin:0 8px 0 0;"><span style="color:#666666;">The ferry left at dawn, and Mara watched the </span><span style="background-color:#FFF2A8;"><i>harbor lights</i></span><span style="color:#666666;"> go out one by one behind her.</span></p>
+<p style="margin:4px 0 0 28px;">Lovely &#x2014; but is it too pretty for Mara&#x2019;s mood?</p>
+</div>
+<div style="margin:0 0 16px 0;">
+<p style="margin:0;"><input type="checkbox" data-item="01JCM9S346Q3D25VT4F5V37E3S/c2" aria-label="Done" style="margin:0 8px 0 0;">The deckhand&#x2019;s line feels like a cliche. Cut it?</p>
+</div>
+<p style="margin:24px 0 8px 0;font-size:18px;font-weight:bold;">Arrival</p>
+<div style="margin:0 0 16px 0;">
+<p style="margin:0;"><input type="checkbox" data-item="01JC3E28JT97KB6CQ643DZVMXX/c1" aria-label="Done" style="margin:0 8px 0 0;"><span style="color:#666666;">At the top of the hill she stopped, set down the suitcase that had been her mother&#x2019;s, and looked for a long time at </span><span style="background-color:#FFF2A8;">the house</span><span style="color:#666666;">&#x2026; it had been painted <b>blue</b>.</span></p>
+<p style="margin:4px 0 0 28px;">Which house? Remind us it&#x2019;s her mother&#x2019;s.</p>
+</div>
+<p style="margin:16px 0 4px 0;font-weight:bold;">Notes</p>
+<p style="margin:0 0 8px 0;">The arrival is <i>strong</i>. I&#x2019;d keep the suitcase.</p>
+</div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var key = "sceneit.review.01JDD8WQ4K7M2N9P3R5S6T8V0X";
+  var notice = document.getElementById("no-storage");
+  var store = null;
+  try { store = window.localStorage; store.getItem(key); } catch (e) { store = null; }
+  var ticked = {};
+  if (store !== null) {
+    try { ticked = JSON.parse(store.getItem(key) || "{}") || {}; } catch (e) { ticked = {}; }
+  } else {
+    notice.hidden = false;
+  }
+  function show(box) { box.parentNode.parentNode.style.opacity = box.checked ? "0.5" : "1"; }
+  function save(box) {
+    var item = box.getAttribute("data-item");
+    if (box.checked) { ticked[item] = true; } else { delete ticked[item]; }
+    if (store === null) { return; }
+    try { store.setItem(key, JSON.stringify(ticked)); } catch (e) { notice.hidden = false; }
+  }
+  var boxes = document.querySelectorAll("input[data-item]");
+  for (var i = 0; i < boxes.length; i++) {
+    boxes[i].checked = ticked[boxes[i].getAttribute("data-item")] === true;
+    show(boxes[i]);
+    boxes[i].addEventListener("change", function (event) { save(event.target); show(event.target); });
+  }
+})();
+</script>
+</body>
+</html>
