@@ -49,7 +49,7 @@ readonly core_db=.build/out/Intermediates.noindex/XCBuildData/build.db
 expect_build() {
     local verdict=$1 folder=$2 toolchain=$3 happened=$4 database
     database=$folder/$(build_folder "$folder" | cut -d' ' -f1)
-    prepare_build "$folder" "$toolchain" 2>"$fixtures/stderr" || fail "prepare_build failed after $happened"
+    prepare_build "$folder" "$toolchain" refuse 2>"$fixtures/stderr" || fail "prepare_build failed after $happened"
     [[ ! -s $fixtures/stderr ]] || fail "prepare_build printed after $happened: $(<"$fixtures/stderr")"
     [[ -f $folder/scene-it-build-inputs ]] || fail "prepare_build left no record in $folder after $happened"
     case $verdict in
@@ -82,6 +82,11 @@ expect_build cleared build/DerivedData 'Xcode 2' 'its record was lost'
 touch -t 202001010000 build/DerivedData/scene-it-build-inputs
 touch "$app_db"
 expect_build cleared build/DerivedData 'Xcode 2' 'a build that skipped record_build'
+rm "$app_db"
+expect_build cleared build/DerivedData 'Xcode 2' 'its build database went missing'
+rm Config/Info.plist
+expect_build cleared build/DerivedData 'Xcode 2' 'a tracked file was deleted without staging'
+expect_build kept build/DerivedData 'Xcode 2' 'nothing changed since the deletion'
 
 expect_build cleared .build 'Xcode 2' 'nothing was built yet'
 expect_build kept .build 'Xcode 2' 'nothing changed'
@@ -92,17 +97,25 @@ echo 'let package = 3' >Package.swift
 expect_build cleared .build 'Xcode 2' 'Package.swift changed'
 expect_build cleared build/DerivedData 'Xcode 2' 'Package.swift changed'
 
-# A stale folder an app is running from is kept, unrecorded, until the app quits.
+# A stale folder an app is running from is kept, unrecorded, until the app quits. The gate
+# (`refuse`) fails on it; fresh-build.sh (`warn`) goes on.
 readonly app="$PWD/build/DerivedData/Build/Products/Debug/Scene It.app/Contents/MacOS/Scene It"
 sleep_at "$app"
 start "$app" 30
 sleep 0.2
 echo 'objects = { a }' >SceneIt.xcodeproj/project.pbxproj
-prepare_build build/DerivedData 'Xcode 2' 2>"$fixtures/stderr" || fail "prepare_build failed with the app running"
-[[ $(<"$fixtures/stderr") == *"wasn't cleared, because Scene It.app is running from it"* ]] \
-    || fail "prepare_build didn't say why it kept a stale folder: $(<"$fixtures/stderr")"
+status=0
+prepare_build build/DerivedData 'Xcode 2' refuse 2>"$fixtures/stderr" || status=$?
+[[ $status != 0 ]] || fail "the gate's prepare_build passed a stale folder an app was running from"
+[[ $(<"$fixtures/stderr") == *"stale-build check failed: "*"Quit the app, then run the gate again."* ]] \
+    || fail "the gate's prepare_build didn't say why it failed: $(<"$fixtures/stderr")"
 [[ -f build/DerivedData/product ]] || fail "prepare_build cleared a folder an app was running from"
 [[ ! -e build/DerivedData/scene-it-build-inputs ]] || fail "prepare_build recorded a stale folder it kept"
+prepare_build build/DerivedData 'Xcode 2' warn 2>"$fixtures/stderr" || fail "prepare_build warn failed with the app running"
+[[ $(<"$fixtures/stderr") == *"wasn't cleared, because Scene It.app is running from it"* ]] \
+    || fail "prepare_build warn didn't say why it kept a stale folder: $(<"$fixtures/stderr")"
+[[ -f build/DerivedData/product ]] || fail "prepare_build warn cleared a folder an app was running from"
+[[ ! -e build/DerivedData/scene-it-build-inputs ]] || fail "prepare_build warn recorded a stale folder it kept"
 {
     kill -9 "${started[@]}"
     wait "${started[@]}" || true
@@ -122,12 +135,45 @@ expect_failure() {
 
 failing_toolchain() (
     describe_toolchain() { return 1; }
-    prepare_builds build/DerivedData
+    prepare_builds refuse build/DerivedData
 )
 expect_failure 'with no toolchain' failing_toolchain
+
+# The lock: a live holder keeps another build out, an exited one is taken over, and a shell
+# releases only its own locks.
+readonly app_lock=build/locks/lock-build-DerivedData
+prepare_builds_with_toolchain() (
+    describe_toolchain() { echo 'Xcode 2'; }
+    prepare_builds "$@"
+)
+start sleep 35
+readonly lock_holder=${started[${#started[@]} - 1]}
+mkdir -p build/locks
+ln -s "$lock_holder" "$app_lock"
+touch build/DerivedData/product
+echo 'objects = { b }' >SceneIt.xcodeproj/project.pbxproj
+expect_failure 'while another build holds the folder' prepare_builds_with_toolchain refuse build/DerivedData
+[[ $(<"$fixtures/stderr") == *"build/DerivedData is in use by process $lock_holder"* ]] \
+    || fail "the lock didn't name its holder: $(<"$fixtures/stderr")"
+[[ -f build/DerivedData/product ]] || fail "a build cleared a folder another build held"
+{
+    kill -9 "$lock_holder"
+    wait "$lock_holder" || true
+} 2>/dev/null
+prepare_builds_with_toolchain refuse build/DerivedData 2>"$fixtures/stderr" \
+    || fail "a lock whose holder exited wasn't taken over: $(<"$fixtures/stderr")"
+[[ $(readlink "$app_lock") == "$$" ]] || fail "the lock wasn't taken over: $(readlink "$app_lock")"
+[[ ! -e build/DerivedData/product ]] || fail "the build after a takeover didn't clear the stale folder"
+lock_build .build
+ln -s 1 build/locks/lock-elsewhere
+unlock_builds
+[[ ! -L $app_lock && ! -L build/locks/lock-.build ]] || fail "unlock_builds kept this shell's locks"
+[[ -L build/locks/lock-elsewhere ]] || fail "unlock_builds removed another process's lock"
+rm build/locks/lock-elsewhere
+
 cd "$fixtures/not-a-repo"
-expect_failure 'outside a git repository' prepare_build build/DerivedData 'Xcode 2'
-expect_failure 'with an unknown folder' prepare_build build/Elsewhere 'Xcode 2'
+expect_failure 'outside a git repository' prepare_build build/DerivedData 'Xcode 2' refuse
+expect_failure 'with an unknown folder' prepare_build build/Elsewhere 'Xcode 2' refuse
 
 # --- kill_doomed ----------------------------------------------------------------------------
 

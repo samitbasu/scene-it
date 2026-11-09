@@ -128,19 +128,32 @@ an incremental build on a quiet machine, and less when the machine is busy.
 **Stale builds:** before steps 7 and 8, check.sh deletes a build folder it can't trust, so
 that step builds from clean (ADR 0008). Otherwise the builds are incremental. A clean build
 adds about 30 s to each of steps 7 and 8. A folder is trusted when its `scene-it-build-inputs`
-record matches its inputs and its build database is no newer than that record:
+record matches its inputs, and its build database (`…/XCBuildData/build.db`) is no newer than
+that record. A folder with build output but no database at that path isn't trusted, so a
+change of build system that moves the database shows up as a clean build on every run, never
+as a check that silently stops working.
 
 - The inputs are the toolchain (`xcodebuild -version`, the macOS SDK's build version and
   `swift --version`), plus `Package.swift`, `SceneIt.xcodeproj` and `Config/` for
   `build/DerivedData`, and `Package.swift` for `.build/`. Within those, only files that git
-  tracks or doesn't ignore count, and never `xcuserdata`.
+  tracks or doesn't ignore count, and never `xcuserdata`. A tracked file deleted from the
+  working tree counts as deleted.
 - The record is rewritten whenever the folder is cleared. It's touched after each of the gate's
   builds, and after each `fresh-build.sh` build (below). A build into the folder by any other
-  route, such as a plain `swift test` or `xcodebuild`, or a gate that was interrupted, leaves
-  the database newer, so the next gate builds from clean.
+  route leaves the database newer, so the next gate builds from clean. Other routes include a
+  plain `swift test` or `xcodebuild`, a gate that was interrupted, and a build step that ran out
+  of time.
+- From the check to the end of the build, the gate holds a lock on each folder:
+  `build/locks/lock-<folder>`, a symbolic link to the gate's process ID. A `fresh-build.sh`
+  build of the same folder takes the same lock, so neither can delete the folder under the
+  other. Whichever comes second fails with
+  `stale-build check failed: <folder> is in use by process <pid>: <command>`. A lock whose
+  process has exited is taken over, so a killed gate never blocks the next one. If the
+  process ID has been reused by another process, delete the link.
 - If the folder is stale but a `Scene It.app` built in it is running, check.sh doesn't delete
-  it. It says so on stderr, leaves the folder unrecorded and builds incrementally. Quit the
-  app and run again for a clean build.
+  it. It leaves the folder unrecorded, and fails with
+  `check.sh: stale-build check failed: <folder> is stale, but Scene It.app is running from it.
+  Quit the app, then run the gate again.`
 - If the check itself fails (no toolchain, or not in a git checkout), check.sh prints
   `check.sh: stale-build check failed: <reason>` and exits 1.
 
@@ -212,8 +225,12 @@ temporary directory:
   file outside the inputs changed.
 - It's cleared when an input changes, a file is added to or renamed in an input directory,
   the toolchain changes, the record is gone, or a build skipped `record_build`.
-- A stale folder that a running `Scene It.app` was built in is kept, with a message, and left
-  unrecorded.
+- It's also cleared when its build database is missing, or when a tracked input is deleted
+  without being staged. The deletion is hashed, not reported as an error.
+- A stale folder that a running `Scene It.app` was built in is kept and left unrecorded. The
+  gate's check fails, telling you to quit the app. `fresh-build.sh`'s check warns and goes on.
+- A live lock holder keeps a second build out, and the error names its process ID. A lock
+  whose holder has exited is taken over. `unlock_builds` releases only this shell's own locks.
 - A failure (no toolchain, no git checkout, an unknown folder) is reported as
   `stale-build check failed`.
 
@@ -237,13 +254,15 @@ scripts/fresh-build.sh .build swift test --filter Corpus
 ```
 
 The first argument is `build/DerivedData` or `.build`; the rest is the command that builds
-into it. It runs the gate's stale-build check on that folder (above), which may delete the folder,
-then runs the command, then records the build, so the next gate can build on the folder
-incrementally. The `just` recipes that build (`test`, `test-filter`, `test-app`, `fuzz-page`,
+into it. It takes the folder's lock and runs the gate's stale-build check on it (above), which
+may delete the folder. Then it runs the command and records the build, so the next gate can
+build on the folder incrementally. Unlike the gate, it only warns, and builds anyway, when the
+folder is stale and a `Scene It.app` built in it is running (as after `just run`). The `just` recipes that build (`test`, `test-filter`, `test-app`, `fuzz-page`,
 `corpus-regenerate`, `build` and `run`) and `coverage.sh`'s `swift test` all go through it.
 **Output:** the command's, plus a message if the check fails or doesn't clear a stale folder.
-Exits with the command's status, or 1 if the check fails. **Products:** the command's, and
-the folder's `scene-it-build-inputs`.
+Exits with the command's status, or 1 if the check fails (including when the gate or another
+build holds the folder). **Products:** the command's, the folder's `scene-it-build-inputs`, and
+a lock in `build/locks/` while it runs.
 
 The gate never rewrites the format test corpus: `check.sh` unsets `CORPUS_REGENERATE` (see `Tests/Corpus/README.md` for regenerating cases on purpose).
 

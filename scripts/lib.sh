@@ -94,11 +94,14 @@ sample_test_runners() {
     echo "$count"
 }
 
+# with_time_limit's status when the command ran out of time.
+readonly timed_out=124
+
 # with_time_limit <seconds> <sample-prefix> <folders> <command>...: runs the command, and if
 # it's still running after <seconds>, samples its stuck test runners to
-# <sample-prefix>-<pid>.txt, kills what `doomed` lists (kill_doomed), and returns 124. Swift
-# Testing's time limits can't end a test that's blocked, so this is what stops a hung test run
-# (#77).
+# <sample-prefix>-<pid>.txt, kills what `doomed` lists (kill_doomed), and returns $timed_out.
+# Swift Testing's time limits can't end a test that's blocked, so this is what stops a hung
+# test run (#77).
 # <folders> is the `built_here` pattern for the command's own build folders, so a timeout
 # spares a command running alongside it from another folder.
 with_time_limit() {
@@ -116,7 +119,7 @@ with_time_limit() {
             if ((limit < 60)); then duration="$limit s"; else duration="$((limit / 60)) min"; fi
             echo "error: still running after $duration, so it was killed: $*" >&2
             ((sampled == 0)) || echo "error: samples of its stuck test runners: $prefix-*.txt" >&2
-            return 124
+            return "$timed_out"
         fi
         sleep 0.2
     done
@@ -147,7 +150,9 @@ fingerprint() {
     {
         echo "$toolchain"
         git ls-files -z --cached --others --exclude-standard -- "$@" ':(exclude,glob)**/xcuserdata/**' \
-            | xargs -0 shasum -a 256 \
+            | while IFS= read -r -d '' path; do
+                if [[ -e $path ]]; then shasum -a 256 "$path"; else echo "deleted $path"; fi
+            done \
             | LC_ALL=C sort
     } | shasum -a 256
 }
@@ -166,41 +171,100 @@ app_running_from() {
     return 1
 }
 
-# prepare_build <folder> <toolchain>: deletes the build folder unless every build into it since
-# the last deletion was made with this toolchain and these inputs, and ended in record_build.
-# Then it records the inputs in the folder. An incremental build can't be trusted across
-# either: a new SDK doesn't recompile what it breaks, and a package-graph change can leave a
-# stale module that shadows the new one (ADR 0008). A build that skipped record_build leaves
-# the build database newer than the record.
+# Whether everything built into <folder> went through a recorded build: the folder holds no
+# build database newer than its record, and no build output at all without a database (a
+# build system that keeps its database elsewhere can't be checked).
+recorded() {
+    local folder=$1 database=$2 stamp=$1/scene-it-build-inputs
+    [[ -f $stamp ]] || return 1
+    if [[ -e $database ]]; then
+        [[ ! $database -nt $stamp ]]
+    else
+        [[ -z $(ls -A "$folder" | grep -vx scene-it-build-inputs) ]]
+    fi
+}
+
+# prepare_build <folder> <toolchain> <refuse|warn>: deletes the build folder unless every build
+# into it since the last deletion was made with this toolchain and these inputs, and ended in
+# record_build. Then it records the inputs in the folder. An incremental build can't be trusted
+# across either: a new SDK doesn't recompile what it breaks, and a package-graph change can
+# leave a stale module that shadows the new one (ADR 0008). If a Scene It.app from a stale
+# folder is running, the folder is kept and left unrecorded, and the check fails (`refuse`) or
+# passes with a warning (`warn`).
 prepare_build() {
-    local folder=$1 toolchain=$2 spec database stamp=$1/scene-it-build-inputs fingerprint
+    local folder=$1 toolchain=$2 on_running_app=$3 spec stamp=$1/scene-it-build-inputs fingerprint
     spec=($(build_folder "$folder")) || stale_build_check_failed "$folder isn't a build folder" || return
-    database=$folder/${spec[0]}
     fingerprint=$(fingerprint "$toolchain" "${spec[@]:1}") \
         || stale_build_check_failed "couldn't hash the inputs of $folder" || return
-    [[ -f $stamp && $(<"$stamp") == "$fingerprint" && ! $database -nt $stamp ]] && return 0
-    if app_running_from "$folder"; then
-        echo "$(basename "$0"): $folder is stale but wasn't cleared, because Scene It.app is" \
-            "running from it. Quit the app, then run this again to build from clean." >&2
-        rm -f "$stamp"
+    if [[ -f $stamp && $(<"$stamp") == "$fingerprint" ]] && recorded "$folder" "$folder/${spec[0]}"; then
         return 0
+    fi
+    if app_running_from "$folder"; then
+        rm -f "$stamp"
+        case $on_running_app in
+            refuse)
+                stale_build_check_failed "$folder is stale, but Scene It.app is running from it." \
+                    "Quit the app, then run the gate again."
+                return
+                ;;
+            warn)
+                echo "$(basename "$0"): $folder is stale but wasn't cleared, because Scene It.app is" \
+                    "running from it. Quit the app, then run this again to build from clean." >&2
+                return 0
+                ;;
+        esac
     fi
     rm -rf "$folder"
     mkdir -p "$folder"
     echo "$fingerprint" >"$stamp"
 }
 
-# prepare_builds <folder>...: prepare_build for each folder, with the current toolchain.
+readonly build_locks=build/locks
+
+# lock_build <folder>: claims the folder for this shell until it exits, so another build can't
+# clear it during this one's prepare, build and record. The lock is a symbolic link to the
+# holder's process ID, created atomically; a lock whose holder has exited is taken over.
+lock_build() {
+    local lock=$build_locks/lock-${1//\//-} holder attempt
+    mkdir -p "$build_locks"
+    for attempt in 1 2; do
+        ln -s "$$" "$lock" 2>/dev/null && return 0
+        holder=$(readlink "$lock") || continue
+        [[ $holder != "$$" ]] || return 0
+        if kill -0 "$holder" 2>/dev/null; then
+            stale_build_check_failed "$1 is in use by process $holder:" \
+                "$(ps -o command= -p "$holder" | cut -c1-120)"
+            return
+        fi
+        rm -f "$lock"
+    done
+    stale_build_check_failed "couldn't lock $1"
+}
+
+# Releases the build locks this shell holds.
+unlock_builds() {
+    local lock
+    for lock in "$build_locks"/lock-*; do
+        [[ -L $lock && $(readlink "$lock") == "$$" ]] && rm -f "$lock"
+    done
+    return 0
+}
+
+# prepare_builds <refuse|warn> <folder>...: locks each folder, then runs prepare_build on it with
+# the current toolchain. The caller releases the locks with unlock_builds.
 prepare_builds() {
-    local toolchain folder
+    local on_running_app=$1 toolchain folder
+    shift
     toolchain=$(describe_toolchain) || stale_build_check_failed "couldn't describe the toolchain" || return
     for folder in "$@"; do
-        prepare_build "$folder" "$toolchain" || return
+        lock_build "$folder" || return
+        prepare_build "$folder" "$toolchain" "$on_running_app" || return
     done
 }
 
 # record_build <folder>: marks the build that prepare_build prepared as finished, so the build
-# database is no newer than the record. A folder prepare_build left unrecorded stays so.
+# database is no newer than the record. A folder prepare_build left unrecorded stays so. Builds
+# that were interrupted or ran out of time aren't recorded.
 record_build() {
     local stamp=$1/scene-it-build-inputs
     [[ ! -f $stamp ]] || touch "$stamp"

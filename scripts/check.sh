@@ -26,6 +26,7 @@ stop_everything() {
 trap 'stop_everything INT' INT
 trap 'stop_everything TERM' TERM
 trap 'stop_everything HUP' HUP
+trap unlock_builds EXIT
 
 rm -rf "$result_bundle"
 mkdir -p "$log_dir"
@@ -70,7 +71,7 @@ for guard in "${source_guards[@]}"; do
 done
 run lint 5 lint_swift
 
-prepare_builds build/DerivedData .build || exit 1
+prepare_builds refuse build/DerivedData .build || exit 1
 
 # SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
 time_limited swift-test 15 '\.build' swift test &
@@ -84,9 +85,16 @@ time_limited xcodebuild 45 build xcodebuild \
     test &
 xcodebuild=$!
 
+# finish <step> <pid> <folder>: waits for a build step, records its build unless it ran out of
+# time, and reports it if it failed.
+finish() {
+    local step=$1 pid=$2 folder=$3 status=0
+    wait "$pid" || status=$?
+    ((status == timed_out)) || record_build "$folder"
+    ((status == 0)) || { report_failure "$step"; return 1; }
+}
+
 status=0
-wait "$swift_test" || { report_failure swift-test; status=1; }
-record_build .build
-wait "$xcodebuild" || { report_failure xcodebuild; status=1; }
-record_build build/DerivedData
+finish swift-test "$swift_test" .build || status=1
+finish xcodebuild "$xcodebuild" build/DerivedData || status=1
 exit "$status"

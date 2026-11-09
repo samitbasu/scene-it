@@ -15,13 +15,26 @@ or `.build/` when it can't vouch for every build that went into that folder:
   `Package.swift` for `.build/`. Only files that git tracks or doesn't ignore count, never
   `xcuserdata`.
 - **The record.** Each folder keeps a hash of its inputs in `scene-it-build-inputs`. The
-  record is touched after every build made through the gate or `scripts/fresh-build.sh`,
-  which the `just` recipes use.
+  record is touched after every build that finishes through the gate or
+  `scripts/fresh-build.sh`, which the `just` recipes use. A build that was interrupted or ran
+  out of time isn't recorded.
 - **When the folder is deleted.** The folder goes if the hash differs, or if the folder's
   build database is newer than the record. A newer database means some build skipped the
-  record: a plain `swift test`, say, run on another branch and back again.
-- **A running app.** If a `Scene It.app` from the folder is running, the folder isn't deleted.
-  It's left unrecorded instead, with a message, and the next run tries again.
+  record: a plain `swift test`, say, run on another branch and back again. A folder with output
+  but no database at the expected path goes too. If the build system ever moves its
+  database, every gate then builds from clean, which is slow but correct, rather than the
+  check passing silently.
+- **A running app.** If a `Scene It.app` from a stale folder is running, the folder isn't
+  deleted, and it's left unrecorded. The gate fails and says to quit the app. A gate that
+  passed there would be vouching for a folder it knows is stale. `fresh-build.sh` warns and
+  builds anyway, because `just run` leaves the app running by design.
+- **The lock.** From the check until the build is recorded, the folder is locked:
+  `build/locks/lock-<folder>` is a symbolic link to the holder's process ID, created
+  atomically. A second build of the same folder fails at once instead of deleting the folder
+  under the first. A lock whose holder has exited is taken over, so a killed run never
+  blocks the next one. Two builds that find the same dead holder at the same instant could
+  both take the lock. That window is accepted: it needs a crashed run and two new ones
+  starting within microseconds.
 
 A clean build costs about 30 s per folder on this machine, against about 3 s for an unchanged
 incremental one. The gate pays that only when the build graph or the toolchain changes, or

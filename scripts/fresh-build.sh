@@ -8,7 +8,8 @@ source "$(dirname "$0")/lib.sh"
 
 folder=$1
 shift
-prepare_builds "$folder"
+trap unlock_builds EXIT
+prepare_builds warn "$folder"
 status=0
 "$@" || status=$?
 record_build "$folder"
