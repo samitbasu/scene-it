@@ -19,7 +19,7 @@ struct Archive {
     }
 
     /// Records for filed copies whose filing couldn't save their section (`ArchiveReconciliation`).
-    typealias Pending = [FiledCopyNumber: FilingRecord]
+    typealias Pending = [FiledCopyNumber: PendingRecord]
 
     // MARK: Reconciliation
 
@@ -35,7 +35,8 @@ struct Archive {
             let parsed = (try? readIndex())?.parsed ?? Self.emptyIndex
             return report(
                 ReconciledArchive(
-                    index: parsed.index, notices: [.archiveUnreadable(error)], next: nil, rewrite: .unneeded),
+                    index: parsed.index, unverified: [], notices: [.archiveUnreadable(error)], next: nil,
+                    rewrite: .unneeded),
                 .notSaved)
         }
         let locking = access == .writable ? lockUnlockedCopies(in: listing) : []
@@ -46,7 +47,7 @@ struct Archive {
             let reconciled = reconcile(listing, Self.emptyIndex, pending)
             return report(
                 ReconciledArchive(
-                    index: reconciled.index,
+                    index: reconciled.index, unverified: reconciled.unverified,
                     notices: [.indexUnreadable(error)] + reconciled.notices + locking,
                     next: reconciled.next, rewrite: .unneeded),
                 .notSaved)
@@ -57,7 +58,7 @@ struct Archive {
         else { return report(reconciled, .notSaved) }
         do throws(IndexWriteFailure) {
             let kept = try replaceIndex(
-                with: reconciled.index,
+                with: reconciled.indexToWrite,
                 keepingOriginal: reconciled.rewrite == .neededKeepingOriginal ? file.bytes : nil)
             return report(reconciled.adding(kept), .saved)
         } catch {
@@ -69,7 +70,7 @@ struct Archive {
         -> ReconciledArchive
     {
         ArchiveReconciliation.reconcile(
-            listing: listing, index: parsed, modified: modifiedDay, counts: counts, pending: pending)
+            listing: listing, index: parsed, modified: modifiedDay, facts: facts, pending: pending)
     }
 
     private func report(_ reconciled: ReconciledArchive, _ index: IndexState) -> ReconciledArchive {
@@ -137,7 +138,7 @@ struct Archive {
                 "number": .count(number.value), "bytes": .bytes(Int64(bytes.count)),
                 "locked": .symbol(lock.logSymbol), "index": .symbol(index.logSymbol),
             ])
-        return FilingOutcome(number: number, lock: lock, index: index)
+        return FilingOutcome(number: number, digest: ContentDigest(bytes), lock: lock, index: index)
     }
 
     /// Under the first free number from `first` on: another filing that took a number
@@ -205,7 +206,7 @@ struct Archive {
             for notice in noticed { notice.log(.notSaved) }
             return .notUpdated(.newerFormat(format))
         }
-        var index = reconciled.index
+        var index = reconciled.indexToWrite
         index.copies.removeAll { $0.number == copy.number }
         index.copies.append(copy)
         index.copies.sort { $0.number < $1.number }
@@ -350,9 +351,9 @@ struct Archive {
     }
 
     /// Read-only: a filed copy is parsed, never opened as a book.
-    private func counts(_ number: FiledCopyNumber) -> FiledCopyCounts? {
+    private func facts(_ number: FiledCopyNumber) -> FiledCopyFacts? {
         guard let bytes = try? fileSystem.read(layout.filedCopy(number)) else { return nil }
-        return FiledCopyCounts(filedBytes: bytes)
+        return FiledCopyFacts(filedBytes: bytes)
     }
 }
 
@@ -368,6 +369,24 @@ public struct FilingRecord: Hashable, Sendable {
         self.note = note
     }
 }
+
+/// A filing's record whose section its index write couldn't save, waiting to be recorded.
+/// Another Mac or a sync tool can replace `Archive/`, putting a different file at the record's
+/// number, so the record holds the digest of the copy it was given to.
+public struct PendingRecord: Hashable, Sendable {
+    public let record: FilingRecord
+    public let digest: ContentDigest
+
+    public init(_ record: FilingRecord, digest: ContentDigest) {
+        self.record = record
+        self.digest = digest
+    }
+}
+
+/// Filed copies and the records they couldn't be given, in no particular order. A number can
+/// appear twice: a record for a copy another program replaced, and one for the copy filed there
+/// since.
+public typealias UnrecordedCopies = [(number: FiledCopyNumber, record: FilingRecord)]
 
 /// What File a Copy did.
 public enum FilingResult: Hashable, Sendable {
@@ -399,6 +418,7 @@ public enum FilingFailure: Error, Hashable, Sendable {
 /// What filing did once the copy was published as `number`.
 public struct FilingOutcome: Hashable, Sendable {
     public let number: FiledCopyNumber
+    public let digest: ContentDigest
     public let lock: CopyLock
     public let index: IndexUpdate
 
@@ -479,6 +499,14 @@ extension ArchiveNotice {
                     "listed a filed copy's pending tags and note without saving them",
                     ["number": .count(number.value)])
             }
+        case .pendingEntryForAnotherCopy(let number):
+            Log.store.error(
+                "listed a filed copy without the pending tags and note given to an earlier file there",
+                ["number": .count(number.value)])
+        case .pendingEntryUnverified(let number):
+            Log.store.error(
+                "couldn't read a filed copy to check its pending tags and note; they stay pending",
+                ["number": .count(number.value)])
         case .keptEntryWithoutFile(let number):
             Log.store.error(
                 "kept an archive index entry whose filed copy is missing as unparsed lines",

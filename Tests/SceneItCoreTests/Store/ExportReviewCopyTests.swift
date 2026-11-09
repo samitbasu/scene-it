@@ -162,6 +162,8 @@ struct ExportReviewCopyTests {
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
             try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
+            store.saveNow()
+            await eventually { store.current?.status == .saved }
             let destination = folder.appending(path: "Novel.md")
             try Data("the earlier copy".utf8).write(to: destination)
             fileSystem.inject(.fail(.move("temporary Novel.md", over: "Novel.md"), cause: .noSpace))
@@ -215,8 +217,9 @@ struct ExportReviewCopyTests {
             let link = folder.appending(path: "Shortcut")
             try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
             let destination = link.appending(path: "Novel.md")
+            let identity = try LocalFileSystem().mountedIdentity(of: url)
             #expect(
-                ReviewCopyWriter.reaches(url, from: destination, LocalFileSystem()),
+                ReviewCopyWriter.reaches([identity], from: destination, LocalFileSystem()),
                 "file identity alone sees through the link")
 
             #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
@@ -239,10 +242,120 @@ struct ExportReviewCopyTests {
             let destination = elsewhere.appending(path: "Novel.md")
             try #require(!ReviewCopyWriter.isInside(destination, url), "precondition: the paths differ")
             fileSystem.override(
-                identityOf: elsewhere.resolvingSymlinksInPath(), with: try fileSystem.identity(of: url))
+                mountedIdentityOf: elsewhere.resolvingSymlinksInPath(),
+                with: try fileSystem.mountedIdentity(of: url))
 
             #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
             #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+        }
+    }
+
+    /// The package renamed in Finder while the book is open (#157): its old path is gone, and the
+    /// new one is recognized by the identity read as it opened.
+    @Test func thePackageRenamedWhileOpenIsRefused() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let scenes = try Self.prepare(try #require(store.current))
+            store.saveNow()
+            await eventually { store.current?.status == .saved }
+            let renamed = folder.appending(path: "Renamed.sceneit", directoryHint: .isDirectory)
+            try FileManager.default.moveItem(at: url, to: renamed)
+            let package = try DirectorySnapshot(renamed)
+            let destination = renamed.appending(path: "book.md")
+            try #require(!ReviewCopyWriter.isInside(destination, url), "precondition: the paths differ")
+            try #require(
+                FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)),
+                "precondition: the export would replace the open book's book.md")
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
+
+            #expect(try DirectorySnapshot(renamed) == package)
+        }
+    }
+
+    /// The same with identities played by the fake: after the rename the old path can't be
+    /// identified, and the new one has the identity recorded as the book opened.
+    @Test func aFolderWithTheIdentityRecordedAtOpenIsRefusedWhenTheOldPathIsGone() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let scenes = try Self.prepare(try #require(store.current))
+            let elsewhere = folder.appending(path: "Elsewhere", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: false)
+            let destination = elsewhere.appending(path: "Novel.md")
+            let recorded = try fileSystem.mountedIdentity(of: url)
+            fileSystem.override(mountedIdentityOf: elsewhere.resolvingSymlinksInPath(), with: recorded)
+            fileSystem.inject(.fail(.identifyMounted("Novel.sceneit"), cause: .notFound))
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
+            #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+        }
+    }
+
+    /// The identity couldn't be read as the book opened, but can be now: the package is still
+    /// recognized by it.
+    @Test func aFolderWithThePackagesIdentityNowIsRefusedWhenNoneWasRecorded() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.inject(.fail(.identifyMounted("Novel.sceneit")))
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            try #require(store.current?.packageIdentity == nil, "precondition: nothing recorded at open")
+            fileSystem.clearFault()
+            let scenes = try Self.prepare(try #require(store.current))
+            let elsewhere = folder.appending(path: "Elsewhere", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: false)
+            let destination = elsewhere.appending(path: "Novel.md")
+            fileSystem.override(
+                mountedIdentityOf: elsewhere.resolvingSymlinksInPath(),
+                with: try fileSystem.mountedIdentity(of: url))
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
+            #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+        }
+    }
+
+    /// A volume with no UUID (some network shares) still has device and file numbers, which is
+    /// all the guard needs while the book is open.
+    @Test func aBookOnAVolumeWithoutAUUIDExports() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            fileSystem.override(identityOf: url, with: nil)
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            try #require(try await createBook("Novel", in: folder, store: store) == url)
+            let scenes = try Self.prepare(try #require(store.current))
+            try #require(try fileSystem.identity(of: url) == nil, "precondition: no volume UUID")
+
+            #expect(try await export(store, Set(scenes), to: folder.appending(path: "Novel.md")) == .exported)
+        }
+    }
+
+    /// Reading the package's identity throws, as the book opened and again at the export: nothing
+    /// is exported anywhere, since a destination inside the package couldn't be told apart (#157).
+    @Test func aBookThatCantBeIdentifiedExportsNothing() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            fileSystem.inject(.fail(.identifyMounted("Novel.sceneit")))
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try #require(try await createBook("Novel", in: folder, store: store) == url)
+            let scenes = try Self.prepare(try #require(store.current))
+            let destination = folder.appending(path: "Novel.md")
+            try #require(!ReviewCopyWriter.isInside(destination, url), "precondition: well outside the book")
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.bookUnidentified))
+
+            #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+            #expect(prompts.notices == [ExportWording.notice(for: .bookUnidentified)])
+            #expect(
+                ExportWording.notice(for: .bookUnidentified).message
+                    == "Scene It couldn't identify the book on its disk, so it can't make sure the file stays "
+                    + "outside the book. Nothing was written.")
         }
     }
 
@@ -252,6 +365,8 @@ struct ExportReviewCopyTests {
             let store = makeStore(in: folder, fileSystem: fileSystem)
             try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
+            store.saveNow()
+            await eventually { store.current?.status == .saved }
             let destination = folder.appending(path: "Novel.md")
             fileSystem.inject(.fail(.publish("Novel.md"), cause: .permissionDenied))
             fileSystem.clearCalls()
