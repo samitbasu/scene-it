@@ -44,7 +44,7 @@ struct WindowRenders {
                 to: output)
             try Self.write(
                 try await Self.render(window(.scenes)), name: "final-scenes-sheet",
-                caption: "Scenes sheet open (temporary list until #28)", to: output)
+                caption: "Scenes sheet open", to: output)
             preferences.setRightPanel(.closed)
             try Self.write(
                 try await Self.render(window(.page)), name: "final-panel-collapsed",

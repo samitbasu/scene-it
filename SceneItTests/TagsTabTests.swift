@@ -162,7 +162,7 @@ struct TagsTabTests {
     }
 
     @Test func aReadOnlyBookShowsTheTagsWithoutEditingAndStillSearches() async throws {
-        try await withTagsTab(holdingTheLock: true) { harness, actions in
+        try await withTagsTab(lock: .heldElsewhere) { harness, actions in
             let scene = try #require(harness.book.openScene)
             await eventually { harness.tagsList != nil }
             try #require(harness.tagsList != nil, "precondition: the tab's list shows")
@@ -190,13 +190,13 @@ struct TagsTabTests {
 /// The Tags tab's book (see the top of this file) in the window, the tab showing, with the
 /// `TagActions` the tab's buttons call.
 private func withTagsTab(
-    holdingTheLock: Bool = false, _ body: (PageHarness, TagActions) async throws -> Void
+    lock: TestBookLock = .ours, _ body: (PageHarness, TagActions) async throws -> Void
 ) async throws {
     let scenes = [
         tagged(ferry, ["opening", "Mara"]), tagged(arrival, ["Mara", "set piece", "clue"]),
     ]
     try await withPage(
-        scenes, boneyard: [tagged(brother, ["Tomas", "clue"])], holdingTheLock: holdingTheLock
+        scenes, boneyard: [tagged(brother, ["Tomas", "clue"])], lock: lock
     ) {
         harness in
         let (panel, tab) = (harness.preferences.rightPanel, harness.preferences.rightPanelTab)

@@ -161,18 +161,22 @@ enum WindowPopover: Hashable {
 
 /// Esc for a layer whose focus may be in SwiftUI's controls (a sheet, File a Copy's dialog, a
 /// palette): a key equivalent, which AppKit offers before the focused control sees the key. Never
-/// a Tab stop, even with Full Keyboard Access on.
+/// a Tab stop, even with Full Keyboard Access on. `inner` closes what the layer has open inside
+/// it first (a field on a Scenes sheet card), if anything.
 struct EscapeKey: View {
     let keys: WindowKeys?
+    var inner: () -> EscapeOutcome = { .passedOn }
 
     var body: some View {
-        Button("") { keys?.escape(from: .keyEquivalent) }
-            .keyboardShortcut(.cancelAction)
-            .buttonStyle(.plain)
-            .focusable(false)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
+        Button("") {
+            if inner() == .passedOn { keys?.escape(from: .keyEquivalent) }
+        }
+        .keyboardShortcut(.cancelAction)
+        .buttonStyle(.plain)
+        .focusable(false)
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 }
 

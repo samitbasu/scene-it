@@ -174,7 +174,8 @@ notes had the focus, without a new case in `UndoStack`. That's the payoff of enc
 as "whatever is focused" rather than as a list of editors.
 
 The title's field editor is a small `NSTextView` subclass whose `undoManager` is the open
-scene's title history (`TitleField.Editor` in `EditorArea.swift`).
+scene's title history (`AdmittingTextField.sceneTitle` and `TitleFieldCoordinator` in
+`TitleField.swift`, shared with the Scenes sheet's new-scene card, #28).
 
 Why so many? A per-scene history means switching scenes never makes Undo reach into a scene
 the writer can't see. The Errors tab's entries sit outside the page text and can belong to any
@@ -197,10 +198,17 @@ Two things must agree on which manager is current: the toolbar's buttons and Edi
 pure function of two inputs, in the core:
 
 ```swift
-    /// While the Scenes sheet is open, the structure; otherwise what has the focus decides.
-    public init(mode: WindowMode, focus: UndoFocus) {
+    /// While a dialog is attached to the window (File a Copy's), only a text field in it: what's
+    /// behind it can't be undone. Otherwise, while the Scenes sheet is open, the structure, unless
+    /// a field in the sheet (a new scene's title, + tag, the filter) has the focus: then its own
+    /// typing (#28). Otherwise what has the focus decides.
+    public init(mode: WindowMode, focus: UndoFocus, dialog: UndoDialog) {
+        if dialog == .attached {
+            self = focus == .text ? .focusedText : .none
+            return
+        }
         if mode == .scenes {
-            self = .structure
+            self = focus == .text ? .focusedText : .structure
             return
         }
         switch focus {

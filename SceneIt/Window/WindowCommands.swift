@@ -5,11 +5,21 @@ import SwiftUI
 /// and Edit → Undo and Redo.
 struct WindowCommands: Commands {
     let books: BookController
-    @FocusedBinding(\.windowMode) private var mode
     @FocusedValue(\.page) private var page
 
     private var chrome: WindowChrome? {
         books.mainWindowChrome.chrome
+    }
+
+    /// Whether a dialog (File a Copy's, Export's chooser) is up over the main window, which a
+    /// sheet can't open under.
+    private var dialogIsUp: Bool {
+        chrome?.keys?.escapeContext.dialog != nil
+    }
+
+    /// The main window's page or sheet, while it shows a book.
+    private var mode: Binding<WindowMode>? {
+        books.mainWindowChrome.mode
     }
 
     /// Ticked while focus mode is on; choosing it, or its shortcut, enters or leaves.
@@ -23,9 +33,11 @@ struct WindowCommands: Commands {
         // mode can disable it (the owner, #21).
         CommandGroup(replacing: .toolbar) {
             ForEach(WindowMode.allCases.filter(\.isSheet), id: \.self) { sheet in
-                Button(WindowWording.railName(sheet)) { mode = mode?.choosing(sheet) }
-                    .keyboardShortcut(Self.shortcut(for: sheet))
-                    .disabled(mode == nil)
+                Button(WindowWording.railName(sheet)) {
+                    if let mode { mode.wrappedValue = mode.wrappedValue.choosing(sheet) }
+                }
+                .keyboardShortcut(Self.shortcut(for: sheet))
+                .disabled(mode == nil || dialogIsUp)
             }
             Button(WindowWording.toggleRightPanel) { books.preferences.toggleRightPanel() }
                 .keyboardShortcut("]")
@@ -74,7 +86,7 @@ struct WindowCommands: Commands {
     private func take(_ step: SceneStep) {
         guard let book = books.store.current, let scene = destination(of: step) else { return }
         book.select(scene)
-        mode = mode?.closingSheet
+        if let mode { mode.wrappedValue = mode.wrappedValue.closingSheet }
     }
 
     private static func shortcut(for sheet: WindowMode) -> KeyboardShortcut? {

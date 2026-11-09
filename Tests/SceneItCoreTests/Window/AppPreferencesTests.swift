@@ -26,6 +26,16 @@ struct AppPreferencesTests {
         #expect(next.rightPanel == .open)
     }
 
+    /// The Scenes sheet's Cards or Light table (PLAN §7.2, #28).
+    @Test func theScenesViewIsKeptForTheNextLaunchAndStartsAsCards() {
+        let storage = TransientPreferenceStorage()
+        #expect(AppPreferences(storage).scenesView == .cards)
+        AppPreferences(storage).showScenes(as: .lightTable)
+        #expect(storage.values == ["scenesView": "lightTable"])
+        #expect(AppPreferences(storage).scenesView == .lightTable)
+        #expect(AppPreferences(TransientPreferenceStorage(["scenesView": "corkboard"])).scenesView == .cards)
+    }
+
     @Test func unknownStoredValuesAreTheDefaults() {
         let preferences = AppPreferences(
             TransientPreferenceStorage(["rightPanelOpen": "sideways", "rightPanelTab": "outline"]))

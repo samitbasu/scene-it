@@ -70,6 +70,13 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         !Paragraph.commentIDs(in: body).contains(comment)
     }
 
+    /// Whether it holds nothing the writer wrote or the file kept, apart from a title: no tags,
+    /// text, notes, comments or error entries.
+    var isBlankButForItsTitle: Bool {
+        tags.isEmpty && comments.isEmpty && errors.isEmpty && body.allSatisfy(\.text.isEmpty)
+            && notes.allSatisfy(\.text.isEmpty)
+    }
+
 }
 
 /// A scene's two texts of formatted paragraphs: its body, on the page, and its notes, in the

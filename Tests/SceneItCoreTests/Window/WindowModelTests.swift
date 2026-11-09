@@ -117,10 +117,12 @@ private func sampleBook() throws -> Book {
 }
 
 @Suite struct UndoRoutingTests {
+    /// Except in a field of the sheet, which undoes its own typing (#28).
     @Test func whileTheScenesSheetIsOpenUndoActsOnTheStructure() {
-        for focus in [UndoFocus.text, .errorsTab, .elsewhere] {
+        for focus in [UndoFocus.errorsTab, .elsewhere] {
             #expect(UndoStack(mode: .scenes, focus: focus, dialog: .none) == .structure, "\(focus)")
         }
+        #expect(UndoStack(mode: .scenes, focus: .text, dialog: .none) == .focusedText)
     }
 
     /// File a Copy's sheet keeps the page as the window's first responder behind it.

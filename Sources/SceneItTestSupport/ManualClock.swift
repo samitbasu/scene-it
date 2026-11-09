@@ -1,16 +1,19 @@
 import Foundation
+import SceneItCore
 import Synchronization
 
-@testable import SceneItCore
-
 /// A clock that moves only when a test calls `advance(by:)`, so timing tests never sleep.
-final class ManualClock: Clock, Sendable {
-    struct Instant: InstantProtocol {
-        let offset: Duration
+public final class ManualClock: Clock, Sendable {
+    public struct Instant: InstantProtocol {
+        public let offset: Duration
 
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+        public init(offset: Duration) {
+            self.offset = offset
+        }
+
+        public func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        public func duration(to other: Instant) -> Duration { other.offset - offset }
+        public static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
     }
 
     private struct Sleeper {
@@ -25,10 +28,14 @@ final class ManualClock: Clock, Sendable {
 
     private let state = Mutex(State())
 
-    var now: Instant { state.withLock { $0.now } }
-    var minimumResolution: Duration { .zero }
+    public init() {}
 
-    func advance(by interval: Interval) {
+    public var now: Instant { state.withLock { $0.now } }
+    public var minimumResolution: Duration { .zero }
+    /// How many tasks are asleep on it, so a test can wait for one before advancing.
+    public var sleeperCount: Int { state.withLock { $0.sleepers.count } }
+
+    public func advance(by interval: Interval) {
         let due = state.withLock { state in
             state.now = state.now.advanced(by: interval.duration)
             let now = state.now
@@ -39,7 +46,7 @@ final class ManualClock: Clock, Sendable {
         for sleeper in due { sleeper.continuation.resume() }
     }
 
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+    public func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -59,9 +66,9 @@ final class ManualClock: Clock, Sendable {
 }
 
 extension ManualClock.Instant {
-    static let start = ManualClock.Instant(offset: .zero)
+    public static let start = ManualClock.Instant(offset: .zero)
 
-    static func + (instant: ManualClock.Instant, interval: Interval) -> ManualClock.Instant {
+    public static func + (instant: ManualClock.Instant, interval: Interval) -> ManualClock.Instant {
         instant.advanced(by: interval.duration)
     }
 }

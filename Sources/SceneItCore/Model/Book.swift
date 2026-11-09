@@ -79,21 +79,23 @@ extension Book {
         [errors] + everyScene.map(\.errors)
     }
 
-    /// Moves the Boneyard scene with this id to the top of the Deleted section (ADR 0031);
-    /// returns where it was in the Boneyard. `nil`, changing nothing, if the Boneyard has no
-    /// such scene.
-    mutating func delete(fromBoneyard id: SceneID) -> Int? {
-        guard let index = boneyard.firstIndex(where: { $0.id == id }) else { return nil }
-        deleted.insert(boneyard.remove(at: index), at: 0)
+    /// Moves the scene with this id from `part` (the story or the Boneyard) to the top of the
+    /// Deleted section (ADR 0031); returns where it was in `part`. `nil`, changing nothing, if
+    /// `part` has no such scene or is the Deleted section itself.
+    mutating func delete(_ id: SceneID, from part: FilePart) -> Int? {
+        guard part != .deleted, let index = self[keyPath: part.scenes].firstIndex(where: { $0.id == id })
+        else { return nil }
+        deleted.insert(self[keyPath: part.scenes].remove(at: index), at: 0)
         return index
     }
 
-    /// Undoes `delete(fromBoneyard:)`: moves the deleted scene with this id back into the
-    /// Boneyard at `index` (or its end). `false`, changing nothing, if there's no such
-    /// deleted scene.
-    mutating func undelete(_ id: SceneID, toBoneyardAt index: Int) -> Bool {
-        guard let from = deleted.firstIndex(where: { $0.id == id }) else { return false }
-        boneyard.insert(deleted.remove(at: from), at: min(index, boneyard.count))
+    /// Undoes `delete(_:from:)`: moves the deleted scene with this id back into `part` at `index`
+    /// (or its end). `false`, changing nothing, if there's no such deleted scene or `part` is the
+    /// Deleted section itself.
+    mutating func undelete(_ id: SceneID, to part: FilePart, at index: Int) -> Bool {
+        guard part != .deleted, let from = deleted.firstIndex(where: { $0.id == id }) else { return false }
+        let count = self[keyPath: part.scenes].count
+        self[keyPath: part.scenes].insert(deleted.remove(at: from), at: min(index, count))
         return true
     }
 }
