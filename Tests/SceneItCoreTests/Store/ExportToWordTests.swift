@@ -12,7 +12,7 @@ import Testing
 struct ExportToWordTests {
     /// The document's text, as macOS's `unzip` reads it.
     private static func documentXML(_ docx: URL) throws -> String {
-        String(decoding: try Unzip.part(WordPackage.documentPart, of: Data(contentsOf: docx)), as: UTF8.self)
+        String(decoding: try Unzip.part("word/document.xml", of: Data(contentsOf: docx)), as: UTF8.self)
     }
 
     @Test func theUnsavedSceneIsWrittenWhereTheWriterChose() async throws {

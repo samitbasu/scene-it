@@ -3,16 +3,16 @@ import Testing
 
 @testable import SceneItCore
 
-/// Export to Word's document (PLAN §10.2, ADR 0045), unzipped by macOS's own `unzip` and read as
-/// XML: the title is Word's Heading 1, defined as Times New Roman 18 pt bold; the body is Times New
-/// Roman 12 pt, double-spaced with a half-inch first-line indent; the formatting carries over and
-/// the comments don't.
+/// Export to Word's document (PLAN §10.2, ADR 0045, 0047), unzipped by macOS's own `unzip` and read
+/// as XML: the title is Word's Heading 1, defined as Times New Roman 18 pt bold; the body is the
+/// default style, Times New Roman 12 pt, double-spaced with a half-inch first-line indent; each run
+/// carries its own formatting and the palette's colours; the comments and notes aren't there.
 struct WordExportTests {
     static let comment = CommentID(rawValue: "01JC4K0000000000000000C001")
+    static let modified = Timestamp("2026-11-03T10:15:00-08:00")!
 
     static let scene = BookScene(
-        id: SceneID(rawValue: "ferry"), modified: Timestamp("2026-11-03T10:15:00-08:00")!,
-        title: "The ferry",
+        id: SceneID(rawValue: "ferry"), modified: modified, title: "The ferry",
         body: [
             [
                 Run("Mara took the "), Run("night", styles: [.bold]), Run(" ferry, "),
@@ -22,14 +22,11 @@ struct WordExportTests {
             ],
             [],
             [Run("She ", highlight: .pink), Run("watched", styles: [.bold, .italic], highlight: .pink)],
-            [], [],
         ],
         notes: [[Run("A private note.")]],
-        comments: [
-            Comment(
-                id: comment, color: .blue, text: "Too quiet?",
-                created: Timestamp("2026-11-03T10:15:00-08:00")!)
-        ])
+        comments: [Comment(id: comment, color: .blue, text: "Too quiet?", created: modified)])
+
+    static let word = WordDocument.Namespace.word
 
     /// The exported document's parts, read by macOS's `unzip`.
     struct Parts {
@@ -37,218 +34,215 @@ struct WordExportTests {
         let document: XMLDocument
         let styles: XMLDocument
         let contentTypes: XMLDocument
-        let relationships: XMLDocument
-        let raw: Data
+        let packageRelationships: XMLDocument
+        let documentRelationships: XMLDocument
+        let everything: String
 
-        init(_ docx: Data) throws {
+        init(_ scene: BookScene) throws {
+            let docx = try WordExport.document(of: scene)
             #expect(try Unzip.test(docx), "macOS's unzip finds every part intact")
-            func xml(_ name: String) throws -> XMLDocument {
-                try XMLDocument(data: try Unzip.part(name, of: docx))
-            }
             names = try Unzip.names(docx)
-            document = try xml(WordPackage.documentPart)
-            styles = try xml(WordPackage.stylesPart)
-            contentTypes = try xml(WordPackage.contentTypesPart)
-            relationships = try xml(WordPackage.documentRelationshipsPart)
-            raw = docx
+            let parts = try names.map { try Unzip.part($0, of: docx) }
+            document = try XMLDocument(data: try Unzip.part("word/document.xml", of: docx))
+            styles = try XMLDocument(data: try Unzip.part("word/styles.xml", of: docx))
+            contentTypes = try XMLDocument(data: try Unzip.part("[Content_Types].xml", of: docx))
+            packageRelationships = try XMLDocument(data: try Unzip.part("_rels/.rels", of: docx))
+            documentRelationships = try XMLDocument(
+                data: try Unzip.part("word/_rels/document.xml.rels", of: docx))
+            everything = String(decoding: parts.reduce(Data(), +), as: UTF8.self)
         }
 
         var paragraphs: [XMLElement] {
-            (try? document.nodes(forXPath: "//*[local-name()='body']/*[local-name()='p']"))?.compactMap {
+            Self.elements(document, "//w:body/w:p")
+        }
+
+        static func elements(_ node: XMLNode, _ path: String) -> [XMLElement] {
+            ((try? node.nodes(forXPath: WordExportTests.localNames(path))) ?? []).compactMap {
                 $0 as? XMLElement
-            } ?? []
+            }
         }
     }
 
-    /// The `w:val` (or other) attribute of the WordprocessingML elements matching `path`.
-    static func values(_ node: XMLNode, _ path: String, _ attribute: String = "val") -> [String] {
-        let elements = (try? node.nodes(forXPath: path))?.compactMap { $0 as? XMLElement } ?? []
-        return elements.compactMap { $0.attribute(forLocalName: attribute, uri: word)?.stringValue }
+    /// `path` with each `w:name` step written as `*[local-name()='name']`, since `XMLNode`'s XPath
+    /// has no way to bind a prefix.
+    static func localNames(_ path: String) -> String {
+        path.replacing(/w:([A-Za-z]+)/) { "*[local-name()='\($0.1)']" }
     }
 
-    static let word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    /// The `w:` attribute `attribute` of the elements matching `path`.
+    static func values(_ node: XMLNode, _ path: String, _ attribute: String = "val") -> [String] {
+        Parts.elements(node, path).compactMap {
+            $0.attribute(forLocalName: attribute, uri: word)?.stringValue
+        }
+    }
 
     static func text(_ paragraph: XMLElement) -> String {
-        (try? paragraph.nodes(forXPath: ".//*[local-name()='t']"))?.compactMap(\.stringValue).joined() ?? ""
+        Parts.elements(paragraph, ".//w:t").compactMap(\.stringValue).joined()
     }
 
     static func runs(_ paragraph: XMLElement) -> [XMLElement] {
-        (try? paragraph.nodes(forXPath: "*[local-name()='r']"))?.compactMap { $0 as? XMLElement } ?? []
+        Parts.elements(paragraph, "w:r")
     }
 
-    @Test func macOSsWriterLeavesOutStylesSpacingAndHighlights() throws {
-        let paragraphs = WordParagraph.paragraphs(of: Self.scene)
-        let text = WordExport.attributedString(paragraphs)
-        let written = try text.data(
-            from: NSRange(location: 0, length: text.length),
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
-        let archive = try ZipArchive(reading: written)
-        let document = String(decoding: try #require(archive[WordPackage.documentPart]), as: UTF8.self)
-        #expect(archive[WordPackage.stylesPart] == nil, "why the export adds styles.xml")
-        #expect(!document.contains("w:shd") && !document.contains("w:highlight"), "why it shades highlights")
-        #expect(!document.contains("w:line="), "why the styles carry the double spacing")
-        #expect(!document.contains("pStyle"), "why it marks the title")
+    /// The names of a run's properties, in order.
+    static func properties(_ run: XMLElement) -> [String] {
+        Parts.elements(run, "w:rPr/*").compactMap(\.localName)
+    }
+
+    @Test func thePackageHasExactlyTheMinimalParts() throws {
+        let parts = try Parts(Self.scene)
         #expect(
-            document.contains("<w:color") && !document.contains("C62828"),
-            "why it sets the palette's colours: macOS writes the red a shade darker")
+            Set(parts.names) == [
+                "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/_rels/document.xml.rels",
+                "word/styles.xml",
+            ])
+        let types = Parts.elements(parts.contentTypes, "//w:Override")
+        #expect(
+            Dictionary(
+                uniqueKeysWithValues: types.map {
+                    (
+                        $0.attribute(forName: "PartName")?.stringValue ?? "",
+                        $0.attribute(forName: "ContentType")?.stringValue ?? ""
+                    )
+                }) == [
+                    "/word/document.xml":
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+                    "/word/styles.xml":
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+                ])
+        let main = try #require(Parts.elements(parts.packageRelationships, "//w:Relationship").first)
+        #expect(main.attribute(forName: "Target")?.stringValue == "word/document.xml")
+        #expect(main.attribute(forName: "Type")?.stringValue?.hasSuffix("/officeDocument") == true)
+        let styles = try #require(Parts.elements(parts.documentRelationships, "//w:Relationship").first)
+        #expect(styles.attribute(forName: "Target")?.stringValue == "styles.xml")
+        #expect(styles.attribute(forName: "Type")?.stringValue?.hasSuffix("/styles") == true)
     }
 
     @Test func theTitleIsHeading1DefinedAsTimesNewRoman18PointBold() throws {
-        let parts = try Parts(WordExport.document(of: Self.scene))
+        let parts = try Parts(Self.scene)
         let paragraphs = parts.paragraphs
         try #require(paragraphs.count == 4, "precondition: the title and three body paragraphs")
-        #expect(Self.values(paragraphs[0], "*[local-name()='pPr']/*[local-name()='pStyle']") == ["Heading1"])
+        #expect(Self.values(paragraphs[0], "w:pPr/w:pStyle") == ["Heading1"])
+        #expect(Self.text(paragraphs[0]) == "The ferry")
+        #expect(
+            Self.properties(try #require(Self.runs(paragraphs[0]).first)).isEmpty, "the style does it all")
         for body in paragraphs.dropFirst() {
-            #expect(Self.values(body, ".//*[local-name()='pStyle']").isEmpty, "the body is the default style")
+            #expect(Parts.elements(body, "w:pPr").isEmpty, "the body takes the default style")
         }
 
-        let heading = "//*[local-name()='style'][@*[local-name()='styleId']='Heading1']"
-        try #require(
-            try parts.styles.nodes(forXPath: heading).count == 1, "precondition: Heading1 is defined")
-        #expect(Self.values(parts.styles, heading + "/*[local-name()='name']") == ["heading 1"])
-        #expect(Self.values(parts.styles, heading + "/*[local-name()='basedOn']") == ["Normal"])
-        #expect(
-            Self.values(parts.styles, heading + "//*[local-name()='rFonts']", "ascii") == ["Times New Roman"])
-        #expect(Self.values(parts.styles, heading + "//*[local-name()='sz']") == ["36"])
-        #expect(
-            try parts.styles.nodes(forXPath: heading + "/*[local-name()='rPr']/*[local-name()='b']").count
-                == 1)
-        #expect(Self.values(parts.styles, heading + "//*[local-name()='outlineLvl']") == ["0"])
-        #expect(Self.values(parts.styles, heading + "//*[local-name()='spacing']", "line") == ["240"])
-        #expect(Self.values(parts.styles, heading + "//*[local-name()='ind']", "firstLine") == ["0"])
-
-        let titleRun = try #require(Self.runs(paragraphs[0]).first)
-        #expect(Self.text(paragraphs[0]) == "The ferry")
-        #expect(Self.values(titleRun, ".//*[local-name()='rFonts']", "ascii") == ["Times New Roman"])
-        #expect(
-            Self.values(titleRun, ".//*[local-name()='sz']") == ["36"], "the look doesn't depend on the style"
-        )
-        #expect(try titleRun.nodes(forXPath: ".//*[local-name()='b']").count == 1)
+        let heading = "//w:style[@*[local-name()='styleId']='Heading1']"
+        try #require(Parts.elements(parts.styles, heading).count == 1, "precondition: Heading1 is defined")
+        #expect(Self.values(parts.styles, heading + "/w:name") == ["heading 1"])
+        #expect(Self.values(parts.styles, heading + "/w:basedOn") == ["Normal"])
+        #expect(Self.values(parts.styles, heading + "/w:rPr/w:rFonts", "ascii") == ["Times New Roman"])
+        #expect(Self.values(parts.styles, heading + "/w:rPr/w:sz") == ["36"])
+        #expect(Parts.elements(parts.styles, heading + "/w:rPr/w:b").count == 1)
+        #expect(Self.values(parts.styles, heading + "/w:rPr/w:color") == ["000000"])
+        #expect(Self.values(parts.styles, heading + "/w:pPr/w:outlineLvl") == ["0"])
+        #expect(Self.values(parts.styles, heading + "/w:pPr/w:spacing", "line") == ["240"])
+        #expect(Self.values(parts.styles, heading + "/w:pPr/w:ind", "firstLine") == ["0"])
     }
 
     @Test func theBodyIsTimesNewRoman12PointDoubleSpacedWithAHalfInchIndent() throws {
-        let parts = try Parts(WordExport.document(of: Self.scene))
-        let normal = "//*[local-name()='style'][@*[local-name()='styleId']='Normal']"
-        try #require(try parts.styles.nodes(forXPath: normal).count == 1, "precondition: Normal is defined")
-        #expect(
-            Self.values(parts.styles, normal, "default") == ["1"], "body paragraphs take it without a pStyle")
-        #expect(Self.values(parts.styles, normal + "//*[local-name()='spacing']", "line") == ["480"])
-        #expect(Self.values(parts.styles, normal + "//*[local-name()='spacing']", "lineRule") == ["auto"])
-        #expect(Self.values(parts.styles, normal + "//*[local-name()='spacing']", "after") == ["0"])
-        #expect(Self.values(parts.styles, normal + "//*[local-name()='ind']", "firstLine") == ["720"])
-        #expect(
-            Self.values(parts.styles, normal + "//*[local-name()='rFonts']", "ascii") == ["Times New Roman"])
-        #expect(Self.values(parts.styles, normal + "//*[local-name()='sz']") == ["24"])
+        let parts = try Parts(Self.scene)
+        let normal = "//w:style[@*[local-name()='styleId']='Normal']"
+        try #require(Parts.elements(parts.styles, normal).count == 1, "precondition: Normal is defined")
+        #expect(Self.values(parts.styles, normal, "default") == ["1"], "paragraphs without a pStyle take it")
+        #expect(Self.values(parts.styles, normal + "/w:pPr/w:spacing", "line") == ["480"])
+        #expect(Self.values(parts.styles, normal + "/w:pPr/w:spacing", "lineRule") == ["auto"])
+        #expect(Self.values(parts.styles, normal + "/w:pPr/w:spacing", "after") == ["0"])
+        #expect(Self.values(parts.styles, normal + "/w:pPr/w:ind", "firstLine") == ["720"])
+        #expect(Self.values(parts.styles, normal + "/w:rPr/w:rFonts", "ascii") == ["Times New Roman"])
+        #expect(Self.values(parts.styles, normal + "/w:rPr/w:sz") == ["24"])
+    }
 
-        let bodyRuns = parts.paragraphs.dropFirst().flatMap(Self.runs).filter { !Self.text($0).isEmpty }
-        try #require(bodyRuns.count >= 8, "precondition: the body's runs")
-        for run in bodyRuns {
-            #expect(Self.values(run, ".//*[local-name()='rFonts']", "ascii") == ["Times New Roman"])
-            #expect(Self.values(run, ".//*[local-name()='sz']") == ["24"])
+    @Test func onlyStandardNamesAreWritten() throws {
+        let parts = try Parts(Self.scene)
+        for nonstandard in ["sz-cs", "first-line"] {
+            #expect(!parts.everything.contains(nonstandard), "Word 2003's \(nonstandard)")
         }
     }
 
     @Test func theFormattingCarriesOverAndTheCommentsDont() throws {
-        let parts = try Parts(WordExport.document(of: Self.scene))
+        let parts = try Parts(Self.scene)
         let paragraphs = parts.paragraphs
-        try #require(paragraphs.count == 4, "precondition: the title and three body paragraphs")
         #expect(
             paragraphs.map(Self.text) == [
                 "The ferry", "Mara took the night ferry, alone and afraid.", "", "She watched",
-            ], "the blank lines ending the scene aren't exported")
+            ])
         func run(_ text: String) throws -> XMLElement {
             try #require(paragraphs.flatMap(Self.runs).first { Self.text($0) == text }, "a run \"\(text)\"")
         }
-        func has(_ run: XMLElement, _ property: String) -> Bool {
-            ((try? run.nodes(forXPath: "*[local-name()='rPr']/*[local-name()='\(property)']"))?.count ?? 0)
-                > 0
-        }
-        let (night, alone, afraid, watched) = (
-            try run("night"), try run("alone"), try run("afraid"), try run("watched")
-        )
-        #expect(has(night, "b") && !has(night, "i"))
-        #expect(has(alone, "i"))
-        #expect(Self.values(alone, ".//*[local-name()='color']") == ["C62828"], "the palette's red")
-        #expect(has(afraid, "strike"))
-        #expect(Self.values(afraid, ".//*[local-name()='shd']", "fill") == ["D9EDDA"], "green")
-        #expect(Self.values(watched, ".//*[local-name()='shd']", "fill") == ["F8D5E7"], "pink")
-        #expect(has(watched, "b") && has(watched, "i"))
-        #expect(Self.values(try run("Mara took the "), ".//*[local-name()='shd']", "fill").isEmpty)
+        #expect(Self.properties(try run("Mara took the ")).isEmpty)
+        #expect(Self.properties(try run("night")) == ["b"])
+        #expect(Self.properties(try run("alone")) == ["i", "color"])
+        #expect(Self.values(try run("alone"), "w:rPr/w:color") == ["C62828"], "the palette's red, exactly")
+        #expect(Self.properties(try run("afraid")) == ["strike", "shd"])
+        #expect(Self.values(try run("afraid"), "w:rPr/w:shd", "fill") == ["D9EDDA"], "the palette's green")
+        #expect(Self.properties(try run("watched")) == ["b", "i", "shd"], "in the schema's order")
+        #expect(Self.values(try run("watched"), "w:rPr/w:shd", "fill") == ["F8D5E7"], "the palette's pink")
+        #expect(Self.properties(try run(" and ")).isEmpty, "the commented words are plain text")
 
-        let everything = String(
-            decoding: try ZipArchive(reading: parts.raw).entries.map(\.bytes).reduce(Data(), +), as: UTF8.self
-        )
-        #expect(!everything.contains("Too quiet?"), "a comment's text isn't exported")
-        #expect(!everything.contains("private note"), "nor are the notes")
-        #expect(!parts.names.contains { $0.contains("comments") })
+        #expect(!parts.everything.contains("Too quiet?"), "a comment's text isn't exported")
+        #expect(!parts.everything.contains("private note"), "nor are the notes")
     }
 
-    @Test func thePackageListsAndLinksTheStyles() throws {
-        let parts = try Parts(WordExport.document(of: Self.scene))
-        #expect(parts.names.contains("word/styles.xml"))
-        let override = try parts.contentTypes.nodes(
-            forXPath: "//*[local-name()='Override'][@PartName='/word/styles.xml']")
-        #expect(
-            (override.first as? XMLElement)?.attribute(forName: "ContentType")?.stringValue
-                == "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml")
-        let links = try parts.relationships.nodes(forXPath: "//*[local-name()='Relationship']").compactMap {
-            $0 as? XMLElement
-        }
-        let styles = links.filter {
-            $0.attribute(forName: "Type")?.stringValue
-                == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
-        }
-        #expect(styles.map { $0.attribute(forName: "Target")?.stringValue } == ["styles.xml"])
-        let ids = links.compactMap { $0.attribute(forName: "Id")?.stringValue }
-        #expect(Set(ids).count == ids.count, "every relationship id is unique")
+    @Test func adjacentRunsDifferingOnlyInColourStayApart() throws {
+        var scene = Self.scene
+        scene.body = [[Run("red", color: .red), Run("blue", color: .blue), Run("plain")]]
+        let runs = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
+        #expect(runs.map(Self.text) == ["red", "blue", "plain"])
+        #expect(runs.map { Self.values($0, "w:rPr/w:color") } == [["C62828"], ["1E5BC6"], []])
     }
 
-    @Test func macOSReadsTheRestyledDocument() throws {
-        let read = try NSAttributedString(
-            data: WordExport.document(of: Self.scene),
-            options: [.documentType: NSAttributedString.DocumentType.officeOpenXML], documentAttributes: nil)
-        #expect(
-            read.string == "The ferry\nMara took the night ferry, alone and afraid.\n\nShe watched\n",
-            "its reader ends every paragraph")
+    @Test func adjacentRunsDifferingOnlyInHighlightStayApart() throws {
+        var scene = Self.scene
+        scene.body = [[Run("gray", highlight: .gray), Run("purple", highlight: .purple), Run("none")]]
+        let runs = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
+        #expect(runs.map(Self.text) == ["gray", "purple", "none"])
+        #expect(runs.map { Self.values($0, "w:rPr/w:shd", "fill") } == [["E6E6E6"], ["E9DDF7"], []])
     }
 
     @Test func anUntitledSceneHasNoHeading() throws {
         var scene = Self.scene
         scene.title = ""
-        let parts = try Parts(WordExport.document(of: scene))
+        let parts = try Parts(scene)
         #expect(parts.paragraphs.map(Self.text).first == "Mara took the night ferry, alone and afraid.")
-        #expect(Self.values(parts.document, "//*[local-name()='pStyle']").isEmpty)
+        #expect(Self.values(parts.document, "//w:pStyle").isEmpty)
+        #expect(parts.paragraphs.count == 3)
     }
 
     @Test(arguments: [SceneTitle(""), "Only a title"])
     func aSceneWithNoTextIsOneParagraph(_ title: SceneTitle) throws {
-        let scene = BookScene(
-            id: SceneID(rawValue: "empty"), modified: Self.scene.modified, title: title, body: [[], []])
-        let parts = try Parts(WordExport.document(of: scene))
-        #expect(parts.paragraphs.map(Self.text) == [title.text])
+        let scene = BookScene(id: SceneID(rawValue: "empty"), modified: Self.modified, title: title)
+        #expect(try Parts(scene).paragraphs.map(Self.text) == [title.text])
     }
 
-    @Test func textMacOSWritesOtherwiseIsRefused() throws {
-        let other = WordParagraph.paragraphs(of: Self.scene).map {
-            WordParagraph(kind: $0.kind, runs: [Run("Other")])
-        }
-        let paragraphs = WordParagraph.paragraphs(of: Self.scene)
-        let text = WordExport.attributedString(paragraphs)
-        let written = try text.data(
-            from: NSRange(location: 0, length: text.length),
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
-        #expect(throws: WordExportFailure.conversion) { try WordPackage.restyled(written, other) }
-        #expect(throws: WordExportFailure.conversion) {
-            try WordPackage.restyled(written, Array(paragraphs.dropLast()))
-        }
-        #expect(throws: WordExportFailure.conversion) {
-            try WordPackage.restyled(Data("not a zip".utf8), paragraphs)
-        }
-        var partly = paragraphs
-        try #require(partly[1].runs.first == Run("Mara took the "), "precondition: a run macOS writes whole")
-        partly[1] = WordParagraph(
-            kind: .body, runs: [Run("Mara", highlight: .red), Run(" took the ")] + partly[1].runs.dropFirst())
-        #expect(throws: WordExportFailure.conversion) { try WordPackage.restyled(written, partly) }
-        #expect(throws: Never.self) { try WordPackage.restyled(written, paragraphs) }
+    @Test func blankLinesAreKeptAsEmptyParagraphs() throws {
+        var scene = Self.scene
+        scene.body = [[], [Run("Middle.")], [], []]
+        #expect(try Parts(scene).paragraphs.map(Self.text) == ["The ferry", "", "Middle.", "", ""])
+    }
+
+    @Test func everyCharacterThePolicyAllowsSurvivesTheXML() throws {
+        let allowed = String(String.UnicodeScalarView((0x20...0x7E).compactMap(Unicode.Scalar.init)))
+        try #require(
+            allowed.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed) && allowed.contains("<")
+                && allowed.contains("&") && allowed.contains("'"),
+            "precondition: printable ASCII, the markup characters among it")
+        var scene = Self.scene
+        scene.title = SceneTitle(allowed)
+        scene.body = [[Run(allowed, styles: [.bold])]]
+        try #require(scene.title.text == allowed, "precondition: the title keeps every character")
+        #expect(try Parts(scene).paragraphs.map(Self.text) == [allowed, allowed])
+        #expect(WordDocument.escaped("<a & 'b'>") == "&lt;a &amp; &apos;b&apos;&gt;")
+    }
+
+    @Test func macOSReadsTheDocument() throws {
+        let read = try NSAttributedString(
+            data: WordExport.document(of: Self.scene),
+            options: [.documentType: NSAttributedString.DocumentType.officeOpenXML], documentAttributes: nil)
+        #expect(
+            read.string.hasPrefix("The ferry\nMara took the night ferry, alone and afraid.\n\nShe watched"))
     }
 }

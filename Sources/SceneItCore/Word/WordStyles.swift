@@ -1,9 +1,9 @@
 import Foundation
 
-/// The exported document's `word/styles.xml` (ADR 0045): the body's style, which is the default,
-/// and Word's built-in Heading 1 for the title, both in the page's fonts and sizes (PLAN §10.2).
-/// The body is double-spaced with the page's first-line indent; the title is single-spaced and
-/// not indented, so it looks as it did with direct formatting alone.
+/// The exported document's `word/styles.xml` (ADR 0045, 0047): the body's style, which is the
+/// default, and Word's built-in Heading 1 for the title, both in the page's fonts and sizes (PLAN
+/// §10.2). The body is double-spaced with the page's first-line indent; the title is single-spaced,
+/// not indented and black, where Word's own Heading 1 is blue.
 enum WordStyles {
     /// Word recognises its built-in heading by this id and the name "heading 1".
     static let headingID = "Heading1"
@@ -31,7 +31,7 @@ enum WordStyles {
         }
         return #"""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\#
+            <w:styles xmlns:w="\#(WordDocument.Namespace.word)">\#
             <w:docDefaults><w:rPrDefault><w:rPr>\#(fonts)\#(size(.body))</w:rPr></w:rPrDefault>\#
             <w:pPrDefault><w:pPr>\#(spacing(singleSpacing))</w:pPr></w:pPrDefault></w:docDefaults>\#
             <w:style w:type="paragraph" w:default="1" w:styleId="\#(bodyID)"><w:name w:val="Normal"/><w:qFormat/>\#
