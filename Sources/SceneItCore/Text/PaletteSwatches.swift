@@ -7,7 +7,7 @@ extension PaletteColor {
         NSColor(sRGB: hex)
     }
 
-    private var hex: UInt32 {
+    var hex: UInt32 {
         switch self {
         case .black: 0x000000
         case .purple: 0x7B2FBE
@@ -25,7 +25,7 @@ extension HighlightColor {
         NSColor(sRGB: hex)
     }
 
-    private var hex: UInt32 {
+    var hex: UInt32 {
         switch self {
         case .purple: 0xE9DDF7
         case .red: 0xF8D7D7

@@ -53,6 +53,8 @@ final class BookController {
     var exportDestination: SaveDestination
     /// Where Save Review… writes, as `exportDestination`.
     var reviewDestination: SaveDestination
+    /// Where Export to Word… writes, as `exportDestination`.
+    var wordDestination: SaveDestination
     /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
     /// and previews a private one, so a test never replaces what the owner copied.
     let reviewPasteboard: NSPasteboard
@@ -81,6 +83,7 @@ final class BookController {
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
+        wordDestination = role == .app ? .wordPanel : .nowhere
         reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(
             clock: ContinuousClock(), mirror: mirror, reviews: reviews, memory: memory, prompts: self.prompts)
