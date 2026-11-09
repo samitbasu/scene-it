@@ -110,3 +110,9 @@ Use the trial app built from `main` (path given in the chat), with a throwaway b
 - #155: wording for telling the writer that an export leaves out a damaged book's unparsed text.
 - ADR 0041 (Proposed): undoing a new scene keeps its words (entries 17 and 20).
 - ADR 0042: the review lock doesn't protect across Macs or users (entry 28).
+
+## Decided by the owner
+
+- 2026-11-09, M6: read aloud starts with the system voice at rate 0.5 (ADR 0044, #38); Export to
+  Word makes the title Heading 1 (ADR 0045, #36); the File Cabinet opens a copy on a double click
+  (ADR 0046, #33). The owner heard voice samples before choosing.
