@@ -29,9 +29,12 @@ readonly every_build_folder='\.?build'
 # a literal dot is written `\.`, as in `every_build_folder`. A test helper or test host can
 # outlive the `swift test` or `xcodebuild` that started it, so it isn't always a descendant.
 built_here() {
-    local folders=$1 root
-    root=$(sed 's/[][\.*^$+?(){}|]/\\&/g' <<<"$PWD")
-    pgrep -f "$root/$folders/" || true
+    pgrep -f "$(escape_regex "$PWD")/$1/" || true
+}
+
+# The extended regular expression that matches exactly <text>.
+escape_regex() {
+    sed 's/[][\.*^$+?(){}|]/\\&/g' <<<"$1"
 }
 
 # Whether `pid`'s command line matches the extended regular expression `pattern`.
@@ -58,13 +61,13 @@ doomed() {
 }
 
 # kill_doomed <pid> <folders> <before>: kills what `doomed` lists, other than this shell. It
-# stops each process first and lists again until nothing new turns up, so a child started
-# between the listing and the kill can't outlive it.
+# stops each process first, parents before children, and lists again until nothing new turns
+# up (20 times at most), so a child started between the listing and the kill can't outlive it.
 kill_doomed() {
-    local pid=$1 folders=$2 before=$3 stopped=' ' process found
-    while :; do
+    local pid=$1 folders=$2 before=$3 stopped=' ' process found pass
+    for pass in {1..20}; do
         found=0
-        for process in $(doomed "$pid" "$folders" "$before"); do
+        for process in $(doomed "$pid" "$folders" "$before" | tail -r); do
             [[ $process == "$$" || $stopped == *" $process "* ]] && continue
             kill -STOP "$process" 2>/dev/null || continue
             stopped+="$process "
@@ -121,29 +124,86 @@ with_time_limit() {
 }
 
 
-# The toolchain a build folder is built with: Xcode, the macOS SDK and Swift.
-describe_toolchain() {
-    xcodebuild -version
-    xcrun --sdk macosx --show-sdk-build-version
-    swift --version 2>&1
+# build_folder <folder>: the build database of a build folder the gate uses, then the inputs its
+# builds depend on besides the toolchain.
+build_folder() {
+    case $1 in
+        build/DerivedData) echo Build/Intermediates.noindex/XCBuildData/build.db Package.swift SceneIt.xcodeproj Config ;;
+        .build) echo out/Intermediates.noindex/XCBuildData/build.db Package.swift ;;
+        *) return 1 ;;
+    esac
 }
 
-# clear_stale_build <folder> <toolchain> <input>...: deletes the build folder unless it was
-# built with this toolchain (from describe_toolchain) and these inputs (files or directories),
-# then records them in the folder. An incremental build can't be trusted across either: a new
-# SDK doesn't recompile what it breaks, and a package-graph change can leave a stale module
-# that shadows the new one (#151).
-clear_stale_build() {
-    local folder=$1 toolchain=$2 stamp=$1/scene-it-build-inputs fingerprint
-    shift 2
-    fingerprint=$({
+# The toolchain a build folder is built with: Xcode, the macOS SDK and Swift.
+describe_toolchain() {
+    xcodebuild -version && xcrun --sdk macosx --show-sdk-build-version && swift --version 2>&1
+}
+
+# fingerprint <toolchain> <input>...: a hash of the toolchain and of the names and contents of
+# the inputs' files that git tracks or doesn't ignore, other than xcuserdata.
+fingerprint() {
+    local toolchain=$1
+    shift
+    {
         echo "$toolchain"
-        find "$@" -type f -not -path '*/xcuserdata/*' -exec shasum -a 256 {} + | sort
-    } | shasum -a 256)
-    [[ -f $stamp && $(<"$stamp") == "$fingerprint" ]] && return 0
+        git ls-files -z --cached --others --exclude-standard -- "$@" ':(exclude,glob)**/xcuserdata/**' \
+            | xargs -0 shasum -a 256 \
+            | LC_ALL=C sort
+    } | shasum -a 256
+}
+
+stale_build_check_failed() {
+    echo "$(basename "$0"): stale-build check failed: $*" >&2
+    return 1
+}
+
+# Whether a Scene It.app from <folder> is running.
+app_running_from() {
+    local process
+    for process in $(built_here "$(escape_regex "$1")"); do
+        runs "$process" "$app_pattern" && return 0
+    done
+    return 1
+}
+
+# prepare_build <folder> <toolchain>: deletes the build folder unless every build into it since
+# the last deletion was made with this toolchain and these inputs, and ended in record_build.
+# Then it records the inputs in the folder. An incremental build can't be trusted across
+# either: a new SDK doesn't recompile what it breaks, and a package-graph change can leave a
+# stale module that shadows the new one (ADR 0008). A build that skipped record_build leaves
+# the build database newer than the record.
+prepare_build() {
+    local folder=$1 toolchain=$2 spec database stamp=$1/scene-it-build-inputs fingerprint
+    spec=($(build_folder "$folder")) || stale_build_check_failed "$folder isn't a build folder" || return
+    database=$folder/${spec[0]}
+    fingerprint=$(fingerprint "$toolchain" "${spec[@]:1}") \
+        || stale_build_check_failed "couldn't hash the inputs of $folder" || return
+    [[ -f $stamp && $(<"$stamp") == "$fingerprint" && ! $database -nt $stamp ]] && return 0
+    if app_running_from "$folder"; then
+        echo "$(basename "$0"): $folder is stale but wasn't cleared, because Scene It.app is" \
+            "running from it. Quit the app, then run this again to build from clean." >&2
+        rm -f "$stamp"
+        return 0
+    fi
     rm -rf "$folder"
     mkdir -p "$folder"
     echo "$fingerprint" >"$stamp"
+}
+
+# prepare_builds <folder>...: prepare_build for each folder, with the current toolchain.
+prepare_builds() {
+    local toolchain folder
+    toolchain=$(describe_toolchain) || stale_build_check_failed "couldn't describe the toolchain" || return
+    for folder in "$@"; do
+        prepare_build "$folder" "$toolchain" || return
+    done
+}
+
+# record_build <folder>: marks the build that prepare_build prepared as finished, so the build
+# database is no newer than the record. A folder prepare_build left unrecorded stays so.
+record_build() {
+    local stamp=$1/scene-it-build-inputs
+    [[ ! -f $stamp ]] || touch "$stamp"
 }
 
 # Prints a failed step's error and warning lines from its log, or the log's tail if none match.

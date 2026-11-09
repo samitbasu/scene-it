@@ -3,7 +3,9 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set positional-arguments
 
-xcodebuild := "xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS' -derivedDataPath build/DerivedData"
+# Builds go through fresh-build.sh, so the gate can trust the build folders they leave (README, "fresh-build.sh").
+swift_test := "scripts/fresh-build.sh .build swift test"
+xcodebuild := "scripts/fresh-build.sh build/DerivedData xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS' -derivedDataPath build/DerivedData"
 
 # List the recipes
 default:
@@ -28,7 +30,7 @@ guards:
 
 # Run the SceneItCore tests (swift test)
 test *ARGS:
-    swift test "$@"
+    {{swift_test}} "$@"
 
 # Run the app-hosted tests (xcodebuild test)
 test-app *ARGS:
@@ -36,7 +38,7 @@ test-app *ARGS:
 
 # Run the SceneItCore tests matching PATTERN (swift test --filter)
 test-filter PATTERN *ARGS:
-    swift test --filter "$@"
+    {{swift_test}} --filter "$@"
 
 # Measure line coverage (scripts/coverage.sh [--core-only] [--open])
 coverage *ARGS:
@@ -48,7 +50,7 @@ fuzz-page SEEDS="8" STEPS="1500":
 
 # Rewrite the corpus results from the Swift implementation (Tests/Corpus/README.md); fails on purpose
 corpus-regenerate:
-    CORPUS_REGENERATE=1 swift test --filter CorpusConformance || echo "The run fails on purpose, one issue per case. Review the diff (git diff Tests/Corpus), then run: just test-filter CorpusConformance"
+    CORPUS_REGENERATE=1 {{swift_test}} --filter CorpusConformance || echo "The run fails on purpose, one issue per case. Review the diff (git diff Tests/Corpus), then run: just test-filter CorpusConformance"
 
 # Build the Debug app into build/DerivedData
 build *ARGS:

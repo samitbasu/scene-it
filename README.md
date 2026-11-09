@@ -67,13 +67,13 @@ just test-filter Corpus # extra arguments are passed through where the table sho
 | `just fmt` | `scripts/format.sh` |
 | `just lint` | the gate's lint step alone: `lint_swift` from `scripts/lib.sh` (`swift format lint --strict` over the Swift paths) |
 | `just guards` | `scripts/test-guards.sh`, then every source guard (`forbid_all` in `scripts/guards.sh`) over the Swift paths |
-| `just test ARGS` | `swift test ARGS` (SceneItCore) |
-| `just test-app ARGS` | `xcodebuild … -derivedDataPath build/DerivedData test ARGS` (the app-hosted tests, as the gate runs them) |
-| `just test-filter PATTERN ARGS` | `swift test --filter PATTERN ARGS` |
+| `just test ARGS` | `scripts/fresh-build.sh .build swift test ARGS` (SceneItCore) |
+| `just test-app ARGS` | `scripts/fresh-build.sh build/DerivedData xcodebuild … -derivedDataPath build/DerivedData test ARGS` (the app-hosted tests, as the gate runs them) |
+| `just test-filter PATTERN ARGS` | `scripts/fresh-build.sh .build swift test --filter PATTERN ARGS` |
 | `just coverage ARGS` | `scripts/coverage.sh ARGS` |
 | `just fuzz-page SEEDS=8 STEPS=1500` | the longer page fuzz (below), e.g. `just fuzz-page 16 3000` |
-| `just corpus-regenerate` | `CORPUS_REGENERATE=1 swift test --filter CorpusConformance` (`Tests/Corpus/README.md`), then a reminder to review the diff |
-| `just build ARGS` | `xcodebuild … -derivedDataPath build/DerivedData build ARGS` (Debug) |
+| `just corpus-regenerate` | `CORPUS_REGENERATE=1 scripts/fresh-build.sh .build swift test --filter CorpusConformance` (`Tests/Corpus/README.md`), then a reminder to review the diff |
+| `just build ARGS` | `scripts/fresh-build.sh build/DerivedData xcodebuild … -derivedDataPath build/DerivedData build ARGS` (Debug) |
 | `just run` | `just build`, then `open "build/DerivedData/Build/Products/Debug/Scene It.app"`. It uses your own preferences and books, like running from Xcode. |
 | `just open` | `open SceneIt.xcodeproj` |
 | `just release` | `scripts/release.sh` |
@@ -125,13 +125,24 @@ Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and x
 builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
 an incremental build on a quiet machine, and less when the machine is busy.
 
-**Stale builds:** before steps 7 and 8, check.sh deletes a build folder whose recorded inputs
-have changed, so that step builds from clean (ADR 0008). The inputs are the toolchain
-(`xcodebuild -version`, the macOS SDK's build version and `swift --version`), plus
-`Package.swift`, `SceneIt.xcodeproj` (without `xcuserdata`) and `Config/` for
-`build/DerivedData`, and `Package.swift` for `.build/`. Each folder records a hash of them in
-its own `scene-it-build-inputs` file, so deleting a folder by hand also means a clean build.
-Otherwise the builds are incremental. A clean build adds about 30 s to each of steps 7 and 8.
+**Stale builds:** before steps 7 and 8, check.sh deletes a build folder it can't trust, so
+that step builds from clean (ADR 0008). Otherwise the builds are incremental. A clean build
+adds about 30 s to each of steps 7 and 8. A folder is trusted when its `scene-it-build-inputs`
+record matches its inputs and its build database is no newer than that record:
+
+- The inputs are the toolchain (`xcodebuild -version`, the macOS SDK's build version and
+  `swift --version`), plus `Package.swift`, `SceneIt.xcodeproj` and `Config/` for
+  `build/DerivedData`, and `Package.swift` for `.build/`. Within those, only files that git
+  tracks or doesn't ignore count, and never `xcuserdata`.
+- The record is rewritten whenever the folder is cleared. It's touched after each of the gate's
+  builds, and after each `fresh-build.sh` build (below). A build into the folder by any other
+  route, such as a plain `swift test` or `xcodebuild`, or a gate that was interrupted, leaves
+  the database newer, so the next gate builds from clean.
+- If the folder is stale but a `Scene It.app` built in it is running, check.sh doesn't delete
+  it. It says so on stderr, leaves the folder unrecorded and builds incrementally. Quit the
+  app and run again for a clean build.
+- If the check itself fails (no toolchain, or not in a git checkout), check.sh prints
+  `check.sh: stale-build check failed: <reason>` and exits 1.
 
 Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
@@ -147,9 +158,9 @@ an `.xctest` bundle or a test host app), all at once, for 3 seconds, into
 until no new process turns up, and only then kills them all, so none can start a child that
 outlives the kill.
 
-**Interrupted** (Ctrl-C or `SIGTERM`): check.sh kills everything it started, in the same way,
-then dies of the same signal, so a calling shell or loop sees the interrupt (status 130 or
-143). No step keeps running in the background. A test-host `Scene It.app` outside the gate's
+**Interrupted** (Ctrl-C, `SIGTERM` or `SIGHUP`): check.sh kills everything it started, in the
+same way, then dies of the same signal, so a calling shell or loop sees the interrupt (status
+130, 143 or 129). No step keeps running in the background. A test-host `Scene It.app` outside the gate's
 own process tree is spared on purpose: it might be the writer's own Debug run.
 
 **Output on success:** nothing, exit status 0.
@@ -194,15 +205,45 @@ the wrong way, and exit status 1. **Products:** none; the fixtures are deleted o
 scripts/test-lib.sh
 ```
 
-Takes no arguments; `check.sh` runs it after `test-guards.sh`. It checks `clear_stale_build`
-from `scripts/lib.sh` on a fixture project in a temporary directory: the build folder is kept
-when nothing changed or only `xcuserdata` did, and cleared when an input file changes, a file
-is added to or renamed in an input directory, the toolchain changes, or the folder's record is
-gone. It checks `kill_doomed` against a process that starts a `sleep` every 10 ms, both from
-inside the tree (as an interrupted gate does, which must survive the call) and from outside
-it (as a timeout does): nothing may be left running. Takes about 5 seconds. **Output:**
+Takes no arguments; `check.sh` runs it after `test-guards.sh`. It checks the stale-build
+check from `scripts/lib.sh` (`prepare_build`, `record_build`) on a fixture git checkout in a
+temporary directory:
+- A build folder is kept when nothing changed, or when only `xcuserdata`, an ignored file or a
+  file outside the inputs changed.
+- It's cleared when an input changes, a file is added to or renamed in an input directory,
+  the toolchain changes, the record is gone, or a build skipped `record_build`.
+- A stale folder that a running `Scene It.app` was built in is kept, with a message, and left
+  unrecorded.
+- A failure (no toolchain, no git checkout, an unknown folder) is reported as
+  `stale-build check failed`.
+
+It also checks `kill_doomed` against a process that starts a `sleep` every 10 ms, both from inside
+the tree (as an interrupted gate does, which must survive the call) and from outside it (as a
+timeout does). Nothing in the tree may be left running, and neither may a build product started
+after the snapshot. Three processes must be left running and not stopped: a process outside the
+tree, a build product that was already running, and a `Scene It.app`. The stand-in build products
+are symbolic links to `sleep` under the fixture's `build/`. Takes about 5 seconds. **Output:**
 nothing on success. On failure, one `✘` line per failed check, and exit status 1.
 **Products:** none; the fixtures are deleted and any leftover `sleep` is killed on exit.
+
+### `scripts/fresh-build.sh`: build into a folder the gate can trust
+
+**Status:** available.
+
+```sh
+scripts/fresh-build.sh build/DerivedData xcodebuild -project SceneIt.xcodeproj -scheme SceneIt \
+    -destination 'platform=macOS' -derivedDataPath build/DerivedData build
+scripts/fresh-build.sh .build swift test --filter Corpus
+```
+
+The first argument is `build/DerivedData` or `.build`; the rest is the command that builds
+into it. It runs the gate's stale-build check on that folder (above), which may delete the folder,
+then runs the command, then records the build, so the next gate can build on the folder
+incrementally. The `just` recipes that build (`test`, `test-filter`, `test-app`, `fuzz-page`,
+`corpus-regenerate`, `build` and `run`) and `coverage.sh`'s `swift test` all go through it.
+**Output:** the command's, plus a message if the check fails or doesn't clear a stale folder.
+Exits with the command's status, or 1 if the check fails. **Products:** the command's, and
+the folder's `scene-it-build-inputs`.
 
 The gate never rewrites the format test corpus: `check.sh` unsets `CORPUS_REGENERATE` (see `Tests/Corpus/README.md` for regenerating cases on purpose).
 

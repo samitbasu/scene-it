@@ -8,13 +8,24 @@ test` with warnings treated as errors. Hosted CI can run the same script later.
 
 ## Amendment (2026-11-09, #151): when the gate builds from clean
 
-The gate's builds are incremental, except that `check.sh` deletes `build/DerivedData` or
-`.build/` first when that folder's inputs have changed since it was built. The inputs are the
-toolchain (Xcode, the macOS SDK build and Swift), plus `Package.swift`, `SceneIt.xcodeproj`
-and `Config/` for `build/DerivedData`, and `Package.swift` for `.build/`. Each folder keeps a
-hash of them in `scene-it-build-inputs`. A clean build costs about 30 s per folder on this
-machine, against about 3 s for an unchanged incremental one, so the gate pays it only when
-the build graph or the toolchain changes.
+The gate's builds are incremental, except that `check.sh` first deletes `build/DerivedData`
+or `.build/` when it can't vouch for every build that went into that folder:
+- **The inputs.** These are the toolchain (Xcode, the macOS SDK build and Swift), plus
+  `Package.swift`, `SceneIt.xcodeproj` and `Config/` for `build/DerivedData`, and
+  `Package.swift` for `.build/`. Only files that git tracks or doesn't ignore count, never
+  `xcuserdata`.
+- **The record.** Each folder keeps a hash of its inputs in `scene-it-build-inputs`. The
+  record is touched after every build made through the gate or `scripts/fresh-build.sh`,
+  which the `just` recipes use.
+- **When the folder is deleted.** The folder goes if the hash differs, or if the folder's
+  build database is newer than the record. A newer database means some build skipped the
+  record: a plain `swift test`, say, run on another branch and back again.
+- **A running app.** If a `Scene It.app` from the folder is running, the folder isn't deleted.
+  It's left unrecorded instead, with a message, and the next run tries again.
+
+A clean build costs about 30 s per folder on this machine, against about 3 s for an unchanged
+incremental one. The gate pays that only when the build graph or the toolchain changes, or
+after an untracked build.
 
 ### Why
 A persistent gate worktree went wrong twice in one day:

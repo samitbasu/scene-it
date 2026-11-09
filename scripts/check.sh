@@ -14,16 +14,18 @@ readonly result_bundle="$log_dir/SceneIt.xcresult"
 readonly products_before=" $(built_here "$every_build_folder" | tr '\n' ' ') "
 
 # stop_everything <signal>: kills what the gate started, as a timeout does, then dies of the
-# signal, so a calling loop sees the interrupt. The steps run in the background, where Ctrl-C
-# doesn't reach them, so without this they would outlive the gate and keep writing to build/.
+# signal, so a calling loop sees the interrupt. It leaves both builds unrecorded, so the next
+# gate builds from clean. The steps run in the background, where Ctrl-C doesn't reach them, so
+# without this they would outlive the gate and keep writing to build/.
 stop_everything() {
-    trap '' INT TERM
+    trap '' INT TERM HUP
     kill_doomed $$ "$every_build_folder" "$products_before"
     trap - "$1"
     kill -"$1" $$
 }
 trap 'stop_everything INT' INT
 trap 'stop_everything TERM' TERM
+trap 'stop_everything HUP' HUP
 
 rm -rf "$result_bundle"
 mkdir -p "$log_dir"
@@ -68,9 +70,7 @@ for guard in "${source_guards[@]}"; do
 done
 run lint 5 lint_swift
 
-toolchain=$(describe_toolchain)
-clear_stale_build build/DerivedData "$toolchain" Package.swift SceneIt.xcodeproj Config
-clear_stale_build .build "$toolchain" Package.swift
+prepare_builds build/DerivedData .build || exit 1
 
 # SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
 time_limited swift-test 15 '\.build' swift test &
@@ -86,5 +86,7 @@ xcodebuild=$!
 
 status=0
 wait "$swift_test" || { report_failure swift-test; status=1; }
+record_build .build
 wait "$xcodebuild" || { report_failure xcodebuild; status=1; }
+record_build build/DerivedData
 exit "$status"
