@@ -36,7 +36,7 @@ struct SceneCard: View {
                 HStack {
                     Text(WindowWording.words(words))
                     Spacer(minLength: 8)
-                    Text(ScenesWording.modified(RelativeAge(of: content.scene.modified.date, at: ticker.now)))
+                    Text(ScenesWording.modified(ticker.age(of: content.scene.modified)))
                 }
                 .font(.system(size: WindowMetrics.Scenes.metaSize))
                 .foregroundStyle(.secondary)
@@ -154,12 +154,27 @@ private struct CardHeading: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            Image(systemName: "circle.grid.2x3.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+            DragGrip()
                 .help(ScenesWording.dragHelp)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+/// The mockup's ⋮⋮ at a card's top right: two columns of three dots.
+private struct DragGrip: View {
+    var body: some View {
+        let grip = WindowMetrics.Scenes.Grip.self
+        Grid(horizontalSpacing: grip.gap, verticalSpacing: grip.gap) {
+            ForEach(0..<3, id: \.self) { _ in
+                GridRow {
+                    ForEach(0..<2, id: \.self) { _ in
+                        Circle().fill(grip.color).frame(width: grip.dot, height: grip.dot)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 2)
     }
 }
 
@@ -257,10 +272,10 @@ struct NewSceneTile: View {
     }
 }
 
-/// The title field on a scene just added (PLAN §7.2): it takes the focus as it appears, and
-/// Return accepts what's typed. So does anything else that ends the typing (Tab, a click away,
-/// Esc closing the sheet), so a title typed is never lost. Its own typing history, which ⌘Z
-/// undoes while it has the focus, ends with it.
+/// The title field on a scene just added (PLAN §7.2), the page's title field
+/// (`AdmittingTextField.sceneTitle`). It takes the focus as it appears and writes the title into
+/// the book as it's typed, so nothing typed waits on Return to be saved. Return, or anything else
+/// that ends the typing, closes it.
 private struct CardTitleField: NSViewRepresentable {
     let scene: SceneID
     let title: String
@@ -272,60 +287,49 @@ private struct CardTitleField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> AdmittingTextField {
         let coordinator = context.coordinator
-        coordinator.target = (scene, actions)
-        coordinator.typed = title
-        let editor = AdmittingTextView.fieldEditor(
-            admitting: { SceneTitle(pasted: $0).text },
-            editability: { [weak book = actions.book] in Editability(book) })
-        editor.isContinuousSpellCheckingEnabled = true
-        editor.history = coordinator.history
-        editor.onChange = { [weak coordinator] in coordinator?.typed = $0 }
-        let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
+        let field = AdmittingTextField.sceneTitle(title, in: actions.book)
         field.font = .systemFont(ofSize: WindowMetrics.Scenes.titleSize, weight: .semibold)
-        field.bezelStyle = .roundedBezel
-        field.placeholderString = WindowWording.untitledScene
         field.setAccessibilityLabel(ScenesWording.titleLabel)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.delegate = coordinator
         field.firstFocus = .pending
+        coordinator.field = field
+        coordinator.actions = actions
+        coordinator.show(scene, of: actions.book)
         return field
     }
 
     func updateNSView(_ field: AdmittingTextField, context: Context) {
-        context.coordinator.target = (scene, actions)
+        context.coordinator.actions = actions
+        context.coordinator.show(scene, of: actions.book)
     }
 
     static func dismantleNSView(_ field: AdmittingTextField, coordinator: Coordinator) {
-        coordinator.accept()
+        coordinator.finish()
         field.delegate = nil
         field.editor?.history = nil
-        field.editor?.onChange = nil
     }
 
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var target: (scene: SceneID, actions: ScenesActions)?
-        /// What the field holds, kept as it changes, so it's known even once the field has gone.
-        var typed = ""
-        let history = UndoManager()
+    final class Coordinator: TitleFieldCoordinator {
+        var actions: ScenesActions?
 
-        /// Sets the scene's title to what the field holds, once.
-        func accept() {
-            guard let target else { return }
-            self.target = nil
-            target.actions.setTitle(typed, of: target.scene)
-            history.removeAllActions()
-            target.actions.finishTitling(target.scene)
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        override func command(_ selector: Selector, in textView: NSTextView) -> Bool {
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            accept()
             textView.window?.makeFirstResponder(nil)
             return true
         }
 
-        func controlTextDidEndEditing(_ notification: Notification) {
-            accept()
+        override func endedEditing() {
+            finish()
+        }
+
+        /// Closes the field, once. Its typing steps on the scene's title history were made in
+        /// this field's own editor, which goes with it, so they go too: replayed in the page's
+        /// title field they would change nothing.
+        func finish() {
+            guard let actions, let scene else { return }
+            self.actions = nil
+            actions.book.titleUndo(for: scene).removeAllActions()
+            actions.finishTitling(scene)
         }
     }
 }

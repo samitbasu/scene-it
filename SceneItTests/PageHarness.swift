@@ -120,11 +120,17 @@ enum AutomaticChangesInTests {
     case off, asTheDefaultsSay
 }
 
+/// Whether a test's book is opened with its lock, or while another opening holds it, so it
+/// opens read-only.
+enum TestBookLock {
+    case ours, heldElsewhere
+}
+
 /// `scenes` in a book written to a temporary folder, then opened and shown in a window of
 /// `windowType`.
 @MainActor
 func withPage(
-    _ scenes: [BookScene], boneyard: [BookScene] = [], holdingTheLock: Bool = false,
+    _ scenes: [BookScene], boneyard: [BookScene] = [], lock: TestBookLock = .ours,
     books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
     scenesSheet: ScenesSheetModel = ScenesSheetModel(),
@@ -137,7 +143,7 @@ func withPage(
         let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
         let store = books.store
         let holder: EditableBook?
-        if holdingTheLock {
+        if lock == .heldElsewhere {
             holder = try BookPackage.create(at: url, title: "Novel")
             _ = try holder?.package.save(Book(title: "Novel", scenes: scenes, boneyard: boneyard))
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))

@@ -14,6 +14,8 @@ final class WindowChrome {
     var toolbarVisibility = ToolbarVisibility.shown
     /// Shows or hides the window's toolbar, as View → Show/Hide Toolbar does.
     @ObservationIgnored var toggleToolbar: () -> Void = {}
+    /// The window's Esc and Tab, for the View menu to see whether a dialog is up.
+    @ObservationIgnored weak var keys: WindowKeys?
 
     func shows(_ part: ChromePart) -> Bool {
         focusMode.shows(part)

@@ -1,6 +1,5 @@
 import Foundation
 import SceneItTestSupport
-import Synchronization
 import Testing
 
 @testable import SceneItCore
@@ -152,17 +151,10 @@ struct SceneCardsTests {
 
     // MARK: Ticker
 
-    /// The wall time a test sets.
-    private final class WallTime: Sendable {
-        private let date = Mutex(Date(timeIntervalSince1970: 2_000_000_000))
-        var now: Date { date.withLock { $0 } }
-        func advance(_ interval: Interval) { date.withLock { $0 = $0 + interval } }
-    }
-
     @MainActor
     @Test func theTickerReadsTheTimeOnceAMinuteWhileItRuns() async {
         let clock = ManualClock()
-        let wall = WallTime()
+        let wall = ManualWallTime(at: Date(timeIntervalSince1970: 2_000_000_000))
         let ticker = MinuteTicker(clock: clock, wallTime: { wall.now })
         let start = wall.now
         #expect(ticker.now == start)

@@ -1,18 +1,33 @@
 import SceneItCore
 import SwiftUI
 
-/// The Scenes sheet's state while it's open: what the filter holds, and which card shows the
-/// title field. Both go when the sheet closes. The ticker keeps the cards' ages current.
+/// The one field open on a card of the Scenes sheet, if any.
+enum CardField: Hashable {
+    /// The title of a scene just added from the sheet (PLAN §7.2). Its card shows whatever the
+    /// filter says.
+    case titling(SceneID)
+    /// The + tag field.
+    case tagging(SceneID)
+}
+
+/// The Scenes sheet's state while it's open: what the filter holds, and which card has a field
+/// open. Both go when the sheet closes. The ticker keeps the cards' ages current.
 @MainActor
 @Observable
 final class ScenesSheetModel {
     var filter = ""
-    /// The scene added from the sheet whose title is being typed on its card (PLAN §7.2). Its card
-    /// shows whatever the filter says.
-    var titling: SceneID?
-    /// The scene whose card has its + tag field open: one at a time.
-    var tagging: SceneID?
+    var field: CardField?
     @ObservationIgnored let ticker: MinuteTicker
+
+    /// The scene whose title is being typed on its card.
+    var titling: SceneID? {
+        if case .titling(let scene) = field { scene } else { nil }
+    }
+
+    /// The scene whose card has its + tag field open.
+    var tagging: SceneID? {
+        if case .tagging(let scene) = field { scene } else { nil }
+    }
 
     init(ticker: MinuteTicker = MinuteTicker(clock: ContinuousClock())) {
         self.ticker = ticker
@@ -36,16 +51,14 @@ final class ScenesSheetModel {
     /// Esc in the sheet: closes a card's field first, keeping a title typed there (the field
     /// accepts it as it goes); the next Esc closes the sheet.
     func closeCardField() -> EscapeOutcome {
-        guard titling != nil || tagging != nil else { return .passedOn }
-        titling = nil
-        tagging = nil
+        guard field != nil else { return .passedOn }
+        field = nil
         return .handled
     }
 
     func close() {
         filter = ""
-        titling = nil
-        tagging = nil
+        field = nil
     }
 }
 
@@ -81,29 +94,24 @@ struct ScenesActions {
             case .atEnd: nil
             }
         guard let added = book.addScene(after: after) else { return nil }
-        model.titling = added
+        model.field = .titling(added)
         return added
-    }
-
-    /// The title field's text, as the page's title field reads it (ADR 0015).
-    func setTitle(_ typed: String, of scene: SceneID) {
-        book.setTitle(of: scene, to: SceneTitle(pasted: typed))
     }
 
     /// The title field on `scene`'s card is done with: Return, Esc, or the focus went elsewhere.
     func finishTitling(_ scene: SceneID) {
-        if model.titling == scene { model.titling = nil }
+        if model.field == .titling(scene) { model.field = nil }
     }
 
     /// A card's + tag chip: opens the field on that card, closing any other.
     func startTagging(_ scene: SceneID) {
         guard book.isEditable else { return }
-        model.tagging = scene
+        model.field = .tagging(scene)
     }
 
     /// The card's + tag field closed: Esc, or the focus left it empty.
     func stopTagging(_ scene: SceneID) {
-        if model.tagging == scene { model.tagging = nil }
+        if model.field == .tagging(scene) { model.field = nil }
     }
 
     func show(_ view: ScenesView) {

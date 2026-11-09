@@ -2,7 +2,6 @@ import AppKit
 import SceneItCore
 import SceneItTestSupport
 import SwiftUI
-import Synchronization
 import Testing
 
 @testable import SceneIt
@@ -45,7 +44,7 @@ struct ScenesSheetTests {
             await eventually { harness.book.status == .saved }
             let saved = String(
                 decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
-            #expect(saved.contains("# Deleted\n\n## The crossing\n"), "the title typed is kept in the file")
+            #expect(!saved.contains("The crossing"), "a scene with only a title is blank: it goes (ADR 0041)")
             try await harness.expectUndoMenu(undo: nil, redo: ScenesWording.newSceneUndoName)
             try harness.undo.redo()
             #expect(harness.book.book.scenes.map(\.id) == [ferry.id, added, arrival.id, letter.id])
@@ -74,6 +73,38 @@ struct ScenesSheetTests {
             #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
             await eventually { harness.book.status == .saved }
             #expect(try bookOnDisk(harness.url).scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
+        }
+    }
+
+    /// Trust: a title typed on a new card is in the book as it's typed, so closing the book
+    /// without Return saves it.
+    @Test func aTitleTypedOnACardIsSavedWhenTheBookClosesWithoutReturn() async throws {
+        try await withScenesSheet { harness, actions in
+            let added = try #require(actions.add(.atEnd))
+            let editor = try await harness.titleEditor()
+            editor.insertText("The keeper", replacementRange: editor.selectedRange())
+            #expect(harness.book.book.scene(added)?.title == "The keeper", "written as it's typed")
+            try #require(harness.titleField?.currentEditor() != nil, "precondition: still typing")
+            #expect(await harness.store.closeBook() == .left)
+            let saved = String(
+                decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
+            #expect(saved.contains("## The keeper\n"))
+        }
+    }
+
+    /// Undo in the new card's title field is the scene's own title history, as on the page.
+    @Test func undoInTheCardsTitleFieldIsTheScenesTitleHistory() async throws {
+        try await withScenesSheet { harness, actions in
+            let added = try #require(actions.add(.atEnd))
+            let editor = try await harness.titleEditor()
+            #expect(editor.undoManager === harness.book.titleUndo(for: added))
+            editor.insertText("Fog", replacementRange: editor.selectedRange())
+            try harness.undo.undo()
+            #expect(harness.book.book.scene(added)?.title == "", "undone in the field, and in the book")
+            try harness.undo.redo()
+            #expect(harness.book.book.scene(added)?.title == "Fog")
+            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            #expect(!harness.book.titleUndo(for: added).canUndo, "the field's steps go with it")
         }
     }
 
@@ -191,36 +222,31 @@ struct ScenesSheetTests {
         }
     }
 
-    /// The cards' ages move on with the ticker's clock: the sheet's own pixels change when a
-    /// minute passes, and not before.
+    /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not
+    /// before.
     @Test func theCardsAgesRefreshEveryMinute() async throws {
         let clock = ManualClock()
         // The scene was made when the suite first used it, maybe minutes ago: its own time is now.
-        let wall = WallClock(at: ferry.modified.date)
+        let wall = ManualWallTime(at: ferry.modified.date)
         let model = ScenesSheetModel(ticker: MinuteTicker(clock: clock, wallTime: { wall.now }))
         try await withScenesSheet(model: model) { harness, _ in
-            let modified = try #require(harness.book.book.scene(ferry.id)?.modified.date)
-            #expect(ScenesWording.modified(RelativeAge(of: modified, at: model.ticker.now)) == "just now")
-            await eventually { harness.sheetBitmap() == harness.sheetBitmap() }
-            let before = harness.sheetBitmap()
-            #expect(harness.sheetBitmap() == before, "precondition: the sheet draws the same twice")
-
-            let start = model.ticker.now
-            wall.advance(.minutes(2))
-            for _ in 0..<20 { await Task.yield() }
-            #expect(model.ticker.now == start, "nothing moves until the minute is up")
-            #expect(harness.sheetBitmap() == before)
+            let modified = try #require(harness.book.book.scene(ferry.id)?.modified)
+            @MainActor func age() -> String { ScenesWording.modified(model.ticker.age(of: modified)) }
             await eventually { clock.sleeperCount == 1 }
-            clock.advance(by: .minutes(1))
-            await eventually { model.ticker.now == wall.now }
-            #expect(
-                ScenesWording.modified(RelativeAge(of: modified, at: model.ticker.now)) == "2 minutes ago")
-            await eventually { harness.sheetBitmap() != before }
+            #expect(age() == "just now", "precondition: the sheet's ticker is running")
+
+            wall.advance(.minutes(2))
+            clock.advance(by: .seconds(59))
+            for _ in 0..<20 { await Task.yield() }
+            #expect(age() == "just now", "nothing moves until the minute is up")
+            clock.advance(by: .seconds(1))
+            await eventually { age() == "2 minutes ago" }
+            #expect(age() == "2 minutes ago")
         }
     }
 
     @Test func aReadOnlyBookShowsTheCardsWithoutAddingOrTagging() async throws {
-        try await withScenesSheet(holdingTheLock: true) { harness, actions in
+        try await withScenesSheet(lock: .heldElsewhere) { harness, actions in
             #expect(actions.add(.afterOpenScene) == nil)
             #expect(actions.add(.atEnd) == nil)
             #expect(harness.scenes.titling == nil)
@@ -266,6 +292,13 @@ extension BookStoreIntegrationTests {
             #expect(filterShows(), "the sheet shows")
             try perform(try #require(viewMenuItem(title)))
             await eventually { books.mainWindowChrome.mode?.wrappedValue == .page && !filterShows() }
+
+            let filing = try #require(books.mainWindowChrome.chrome?.keys?.filing)
+            filing.begin()
+            await eventually { viewMenuItem(title)?.isEnabled == false }
+            #expect(viewMenuItem(title)?.isEnabled == false, "not under File a Copy's dialog")
+            filing.cancel()
+            await eventually { viewMenuItem(title)?.isEnabled == true }
             #expect(await books.store.closeBook() == .left)
             expectNoQuestions()
         }
@@ -289,26 +322,15 @@ private func viewMenuItem(_ title: String) -> NSMenuItem? {
     return menuItem(titled: title, in: NSApp.mainMenu)
 }
 
-/// The wall time a test sets.
-private nonisolated final class WallClock: Sendable {
-    private let date: Mutex<Date>
-
-    init(at start: Date) {
-        date = Mutex(start)
-    }
-    var now: Date { date.withLock { $0 } }
-    func advance(_ interval: Interval) { date.withLock { $0 = $0 + interval } }
-}
-
 /// The ferry (open, tagged `Mara`), the arrival and the letter in the window, the Scenes sheet
 /// open, with the `ScenesActions` the sheet's buttons call.
 private func withScenesSheet(
-    holdingTheLock: Bool = false, model: ScenesSheetModel = ScenesSheetModel(),
+    lock: TestBookLock = .ours, model: ScenesSheetModel = ScenesSheetModel(),
     _ body: (PageHarness, ScenesActions) async throws -> Void
 ) async throws {
     var tagged = ferry
     tagged.tags = ["Mara"]
-    try await withPage([tagged, arrival, letter], holdingTheLock: holdingTheLock, scenesSheet: model) {
+    try await withPage([tagged, arrival, letter], lock: lock, scenesSheet: model) {
         harness in
         try #require(harness.book.openScene == ferry.id, "precondition: the ferry is open")
         harness.modes.mode = .scenes
@@ -382,14 +404,5 @@ extension PageHarness {
         let wanted = UndoState(undo: undo.map { "Undo \($0)" }, redo: redo.map { "Redo \($0)" })
         await eventually { router.state == wanted }
         #expect(router.state == wanted)
-    }
-
-    /// The window's pixels, drawn now.
-    fileprivate func sheetBitmap() -> Data? {
-        guard let view = window.contentView else { return nil }
-        view.layoutSubtreeIfNeeded()
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
-        view.cacheDisplay(in: view.bounds, to: rep)
-        return rep.tiffRepresentation
     }
 }

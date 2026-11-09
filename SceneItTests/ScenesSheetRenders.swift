@@ -94,14 +94,14 @@ extension WindowRenders {
                 beside: Self.scenesCardsMockup
             ) { window in
                 // As the chip's click does, once the render has cleared the focus, which closes it.
-                model.tagging = book.book.scenes[1].id
+                model.field = .tagging(book.book.scenes[1].id)
                 await eventually { Self.newTagField(in: window)?.currentEditor() != nil }
                 let field = try #require(Self.newTagField(in: window), "precondition: the card's field")
                 let editor = try #require(
                     field.currentEditor() as? NSTextView, "precondition: it took the focus")
                 editor.insertText("harb", replacementRange: editor.selectedRange())
             }
-            model.tagging = nil
+            model.field = nil
             model.filter = "Mara"
             try await state(
                 book, store, preferences, model, "final-scenes-filter", "Filter: Mara (title, text and tags)",
@@ -133,7 +133,7 @@ extension WindowRenders {
                 "The dashed tile added scene 25: typing its title", beside: Self.scenesNewSceneMockup
             ) { window in
                 // As the tile does, once the render has cleared the focus, which accepts the title.
-                model.titling = added
+                model.field = .titling(added)
                 await eventually { Self.cardTitleField(in: window)?.currentEditor() != nil }
                 let field = try #require(Self.cardTitleField(in: window), "precondition: the title field")
                 let editor = try #require(

@@ -86,6 +86,13 @@ struct SheetFocusTests {
                 box.mode = .scenes
                 await eventually { !coveredHasTheFocus() && !coveredTakesTyping() }
                 #expect(!coveredHasTheFocus(), "no text in the covered page keeps the focus")
+                await eventually { window.firstResponder is UndoFocusView }
+                #expect(window.firstResponder is UndoFocusView, "the sheet holds the focus itself")
+                let routers = views(in: window.contentView).compactMap {
+                    ($0 as? UndoRouterWindow.WindowView)?.router
+                }
+                let router = try #require(routers.first)
+                #expect(router.stack == .structure, "so Undo is the structure's")
                 #expect(
                     title.window === window, "precondition: the title field is still there, under the sheet")
                 #expect(body.window === window, "precondition: the page is still there, under the sheet")

@@ -17,6 +17,7 @@ attributed strings are new to you.
 | [`SceneIt/Editor/NotesView.swift`](../../SceneIt/Editor/NotesView.swift) | the notes' `NSViewRepresentable` (section 11) |
 | [`SceneIt/Editor/SceneEditors.swift`](../../SceneIt/Editor/SceneEditors.swift) | the window's page and notes views, made once and mounted wherever SwiftUI shows them (sections 1, 11) |
 | [`SceneIt/Window/EditorArea.swift`](../../SceneIt/Window/EditorArea.swift) | the title field above the page (decision 0015) |
+| [`SceneIt/Window/TitleField.swift`](../../SceneIt/Window/TitleField.swift) | the title field itself and its write-through delegate, shared with the Scenes sheet's new card |
 | [`Sources/SceneItCore/Text/CommentUnderlines.swift`](../../Sources/SceneItCore/Text/CommentUnderlines.swift) | comment underlines: a custom `NSTextLayoutFragment`, its delegate, and hit-testing (ADR 0032) |
 | [`Sources/SceneItCore/Text/EndLineFragment.swift`](../../Sources/SceneItCore/Text/EndLineFragment.swift) | the page's fragments' base: the end line after a final empty paragraph, placed (#102) |
 | [`Sources/SceneItCore/Window/CommentSelection.swift`](../../Sources/SceneItCore/Window/CommentSelection.swift) | the selected comment, which a click on commented text changes |

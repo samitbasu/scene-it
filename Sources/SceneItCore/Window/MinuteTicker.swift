@@ -21,6 +21,11 @@ public final class MinuteTicker {
         sleep = { try await clock.sleep(for: $0.duration) }
     }
 
+    /// How long ago `modified` was, as of the last tick.
+    public func age(of modified: Timestamp) -> RelativeAge {
+        RelativeAge(of: modified.date, at: now)
+    }
+
     /// Reads the time now, then again after every `period`, until the task is cancelled.
     public func run() async {
         now = wallTime()

@@ -43,6 +43,7 @@ struct BookWindow: View {
         let chrome = chrome ?? WindowChrome()
         _chrome = State(initialValue: chrome)
         let keys = WindowKeys(chrome: chrome, filing: filing, export: export, page: focus, mode: mode)
+        chrome.keys = keys
         _keys = State(initialValue: keys)
         _editors = State(
             initialValue: SceneEditors(

@@ -490,7 +490,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Where an added scene is while its add is undone.
     private enum Unadded {
-        /// Here, since it held nothing the writer wrote.
+        /// Here, since it held nothing the writer wrote but perhaps a title (ADR 0041).
         case held(BookScene)
         /// In the book's Deleted section (ADR 0031), where the file keeps what the writer wrote
         /// in it (ADR 0041).
@@ -503,15 +503,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         _ target: StructureTarget, _ from: Unadded, at index: Int, returningTo previous: SceneID?
     ) -> Bool {
         guard let driver = editingDriver, let id = structureTargets[target] else { return false }
-        let scene: BookScene
         switch from {
         case .held(let held):
-            scene = held
+            book.scenes.insert(held, at: min(index, book.scenes.count))
         case .deleted:
-            guard let at = book.deleted.firstIndex(where: { $0.id == id }) else { return false }
-            scene = book.deleted.remove(at: at)
+            guard book.undelete(id, to: .story, at: index) else { return false }
         }
-        book.scenes.insert(scene, at: min(index, book.scenes.count))
+        guard let scene = book.scene(id) else { return false }
         wordCounts.recount(scene)
         structureUndo.registerUndo(withTarget: self) { $0.takeOut(target, returningTo: previous) }
         structureUndo.setActionName(ScenesWording.newSceneUndoName)
@@ -521,8 +519,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Undoes an add: takes the scene out of the story, reopening `previous` if the scene was
-    /// open. A scene holding anything the writer wrote goes to the Deleted section rather than
-    /// away (ADR 0041). Registers putting it back.
+    /// open. A scene holding anything the writer wrote but a title goes to the Deleted section
+    /// rather than away (ADR 0041). Registers putting it back.
     private func takeOut(_ target: StructureTarget, returningTo previous: SceneID?) {
         guard editingDriver != nil, let id = structureTargets[target],
             book.scenes.contains(where: { $0.id == id })
@@ -532,12 +530,11 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard let driver = editingDriver, let index = book.scenes.firstIndex(where: { $0.id == id }) else {
             return
         }
-        let scene = book.scenes.remove(at: index)
         let unadded: Unadded
-        if scene.isBlank {
-            unadded = .held(scene)
+        if book.scenes[index].isBlankButForItsTitle {
+            unadded = .held(book.scenes.remove(at: index))
         } else {
-            book.deleted.insert(scene, at: 0)
+            guard book.delete(id, from: .story) != nil else { return }
             unadded = .deleted
         }
         structureUndo.registerUndo(withTarget: self) {
@@ -564,7 +561,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         else { return false }
         if openScene == scene { select(nil) }
         // Leaving the scene may have saved what was typed into it, so look it up again.
-        guard let driver = editingDriver, let index = book.delete(fromBoneyard: scene) else { return false }
+        guard let driver = editingDriver, let index = book.delete(scene, from: .boneyard) else {
+            return false
+        }
         structureUndo.registerUndo(withTarget: self) { $0.undelete(target, toBoneyardAt: index) }
         structureUndo.setActionName(BoneyardWording.deleteUndoName)
         driver.send(.edited)
@@ -573,7 +572,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     private func undelete(_ target: StructureTarget, toBoneyardAt index: Int) {
         guard let driver = editingDriver, let scene = structureTargets[target],
-            book.undelete(scene, toBoneyardAt: index)
+            book.undelete(scene, to: .boneyard, at: index)
         else { return }
         structureUndo.registerUndo(withTarget: self) { _ = $0.delete(target) }
         structureUndo.setActionName(BoneyardWording.deleteUndoName)

@@ -164,7 +164,7 @@ struct FormattingBarTests {
     }
 
     @Test func theBarIsInactiveInAReadOnlyBook() async throws {
-        try await withPage([scene("One", [[Run("Words.")]])], holdingTheLock: true) { page in
+        try await withPage([scene("One", [[Run("Words.")]])], lock: .heldElsewhere) { page in
             page.window.makeFirstResponder(page.page)
             page.page.selectAll(nil)
             #expect(!page.page.isEditable, "precondition: read-only")

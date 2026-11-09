@@ -11,6 +11,12 @@ struct WindowCommands: Commands {
         books.mainWindowChrome.chrome
     }
 
+    /// Whether a dialog (File a Copy's, Export's chooser) is up over the main window, which a
+    /// sheet can't open under.
+    private var dialogIsUp: Bool {
+        chrome?.keys?.escapeContext.dialog != nil
+    }
+
     /// The main window's page or sheet, while it shows a book.
     private var mode: Binding<WindowMode>? {
         books.mainWindowChrome.mode
@@ -31,7 +37,7 @@ struct WindowCommands: Commands {
                     if let mode { mode.wrappedValue = mode.wrappedValue.choosing(sheet) }
                 }
                 .keyboardShortcut(Self.shortcut(for: sheet))
-                .disabled(mode == nil)
+                .disabled(mode == nil || dialogIsUp)
             }
             Button(WindowWording.toggleRightPanel) { books.preferences.toggleRightPanel() }
                 .keyboardShortcut("]")

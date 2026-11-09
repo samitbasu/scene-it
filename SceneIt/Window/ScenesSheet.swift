@@ -186,6 +186,13 @@ extension WindowMetrics {
         static let line = Search.line
         static let hoverLine = Color(red: 0xB8 / 255, green: 0xB6 / 255, blue: 0xAF / 255)
         static let openFill = Tags.onSceneFill
+
+        /// The drag handle's dots, from mockup 07.
+        enum Grip {
+            static let dot: CGFloat = 3
+            static let gap: CGFloat = 3
+            static let color = Color(red: 0xB4 / 255, green: 0xB2 / 255, blue: 0xAC / 255)
+        }
         /// The look while the owner hasn't picked (#28): the recommended candidate.
         static var look = ScenesLook.recommended
     }

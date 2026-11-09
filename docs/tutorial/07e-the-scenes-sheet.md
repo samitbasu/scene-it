@@ -19,7 +19,8 @@ The Scenes sheet (PLAN §7.2, issue #28) is ⌘1: the story as cards or as a den
 | [`OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `addScene` and its undo on `structureUndo` |
 | [`ScenesActions.swift`](../../SceneIt/Window/ScenesActions.swift) | the sheet's model and what its buttons do |
 | [`ScenesSheet.swift`](../../SceneIt/Window/ScenesSheet.swift) | the header and the grid |
-| [`SceneCard.swift`](../../SceneIt/Window/SceneCard.swift) | the two kinds of card, the tile and the title field |
+| [`SceneCard.swift`](../../SceneIt/Window/SceneCard.swift) | the two kinds of card, the tile and the card's title field |
+| [`TitleField.swift`](../../SceneIt/Window/TitleField.swift) | the title field the card shares with the page |
 | [`NewTagField.swift`](../../SceneIt/Window/NewTagField.swift) | the + tag field, shared with the Tags tab |
 
 Tests: [`SceneCardsTests.swift`](../../Tests/SceneItCoreTests/Window/SceneCardsTests.swift) and
@@ -90,8 +91,10 @@ So the sheet uses `MinuteTicker`, an `@Observable` object with a `now` that chan
 ```
 
 Two things are injected: the **clock** it sleeps on and the **wall time** it reads. The app passes
-`ContinuousClock()` and `Date()`. Tests pass `ManualClock` (now shared in `SceneItTestSupport`) and
-a date they move by hand, then call `clock.advance(by: .minutes(1))`. It's the same pattern as the
+`ContinuousClock()` and `Date()`. Tests pass `ManualClock` and `ManualWallTime` (both in
+`SceneItTestSupport`), wait until the ticker is asleep (`clock.sleeperCount == 1`), then call
+`clock.advance(by: .minutes(1))`. Waiting first matters: advancing a clock nobody sleeps on yet
+does nothing for the sleep that starts a moment later, so the test would hang under load. It's the same pattern as the
 autosave scheduler in 03a: in Rust you'd make the struct generic over a `Clock` trait. Here
 `init<C: Clock<Duration>>(clock: C, …)` captures the clock in a closure, so the ticker itself isn't
 generic and the app and tests share one type.
@@ -99,8 +102,8 @@ generic and the app and tests share one type.
 The sheet starts the loop with `.task { await model.ticker.run() }`. SwiftUI cancels that task when
 the sheet goes away, `sleep` throws `CancellationError`, and the loop returns: cooperative
 cancellation, as with a dropped future in Rust. Every card reads `ticker.now`, so Observation redraws
-them when it changes. The hosted test proves it by drawing the window to a bitmap before and after
-the clock moves.
+them when it changes. A card reads its age through `ticker.age(of:)`, and the hosted test reads the
+same thing, so the test checks exactly what the card shows.
 
 ## 4. A field that appears focused
 
@@ -122,10 +125,14 @@ So `AdmittingTextField` has a small hook: `firstFocus = .pending` makes it take 
 It's an AppKit override because SwiftUI's `@FocusState` (07c) works for SwiftUI's own fields, and
 these are AppKit fields (ADR 0028's no-input-method editor).
 
-The title field also never loses what was typed. It accepts on Return, but also whenever editing
-ends for any other reason (Tab, a click away, Esc, the sheet closing). It keeps the typed text as it
-changes (`AdmittingTextView.onChange`) rather than reading the field at the end, because by the time
-SwiftUI tears the view down its editor may already be gone.
+The title field is the page's own title field, not a copy: `AdmittingTextField.sceneTitle` makes
+both, and both delegates are a `TitleFieldCoordinator` (`TitleField.swift`). The coordinator writes
+the title into the book **on every change**, and its Undo is the scene's title history, as on the
+page. So a title typed on a card is an edit like any other: autosave saves it, File a Copy files it,
+and Quit or Close Book keeps it even if the writer never pressed Return. (A first version kept the
+text in the field until Return, and the review caught that closing the book lost it.) Each
+subclass adds only its keys: the page's Return goes to the body, the card's Return closes the
+field.
 
 Esc closes from the inside out (PLAN §8.4): the sheet's Esc key equivalent first asks the model to
 close an open card field, and only if there was none does it close the sheet.
@@ -139,8 +146,10 @@ close an open card field, and only if there was none does it close the sheet.
         structureUndo.setActionName(ScenesWording.newSceneUndoName)
 ```
 
-The inverse, `takeOut`, has a trust rule (ADR 0041): a scene that holds anything the writer wrote
-goes to the book's hidden Deleted section (ADR 0031), not away. Only a blank scene is dropped.
+The inverse, `takeOut`, has a trust rule (ADR 0041): a scene that holds any of the writer's words
+beyond a title goes to the book's hidden Deleted section (ADR 0031), not away. A scene with only a
+title, as outlining leaves it, is dropped. The move is `Book.delete(_:from:)`, the same function
+that deletes from the Boneyard, so the Deleted-section rule lives in one place.
 Redo puts it back from wherever it went. In Rust terms, the inverse's captured state is an enum,
 `Unadded.held(BookScene)` or `.deleted`, so the redo can't be confused about where the scene is.
 
@@ -162,5 +171,6 @@ step on that scene's page undo, as in the Tags tab. The Search sheet's numbered 
   scene with its undo and redo (blank, holding words, read-only).
 - **Hosted:** View → Scenes on ⌘1 in the app's own window; both add buttons with the title typed on
   the card, the window's Undo and Redo; Esc closing the field and then the sheet; + tag on a card and
-  its undo; the real filter field; a card's click; the ages redrawing when the clock moves; and a
+  its undo; the real filter field; a card's click; the ages moving on with the clock; a title typed
+  on a card saved when the book closes without Return; and a
   read-only book.

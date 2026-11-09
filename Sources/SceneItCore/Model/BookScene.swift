@@ -70,11 +70,11 @@ public struct BookScene: Identifiable, Hashable, Sendable {
         !Paragraph.commentIDs(in: body).contains(comment)
     }
 
-    /// Whether it holds nothing the writer wrote or the file kept: no title, tags, text, notes,
-    /// comments or error entries.
-    var isBlank: Bool {
-        title.text.isEmpty && tags.isEmpty && comments.isEmpty && errors.isEmpty
-            && body.allSatisfy(\.text.isEmpty) && notes.allSatisfy(\.text.isEmpty)
+    /// Whether it holds nothing the writer wrote or the file kept, apart from a title: no tags,
+    /// text, notes, comments or error entries.
+    var isBlankButForItsTitle: Bool {
+        tags.isEmpty && comments.isEmpty && errors.isEmpty && body.allSatisfy(\.text.isEmpty)
+            && notes.allSatisfy(\.text.isEmpty)
     }
 
 }

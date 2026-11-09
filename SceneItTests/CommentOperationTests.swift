@@ -297,7 +297,7 @@ struct CommentOperationTests {
     // MARK: Refusals
 
     @Test func aReadOnlyBookRefusesEveryCommentOperation() async throws {
-        try await withPage([scene("Held", letterScene, .withTooEarly)], holdingTheLock: true) { harness in
+        try await withPage([scene("Held", letterScene, .withTooEarly)], lock: .heldElsewhere) { harness in
             let editor = try #require(harness.page.editor)
             let before = harness.book.book
             harness.window.makeFirstResponder(harness.page)
@@ -511,7 +511,7 @@ extension BookStoreIntegrationTests {
     }
 
     @Test func newCommentIsDisabledInAReadOnlyBook() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true, books: .shared) {
+        try await withPage([scene("Held", [[Run("Kept.")]])], lock: .heldElsewhere, books: .shared) {
             harness in
             harness.window.makeFirstResponder(harness.page)
             harness.page.setSelectedRange(NSRange(location: 0, length: 4))

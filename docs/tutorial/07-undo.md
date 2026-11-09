@@ -174,7 +174,8 @@ notes had the focus, without a new case in `UndoStack`. That's the payoff of enc
 as "whatever is focused" rather than as a list of editors.
 
 The title's field editor is a small `NSTextView` subclass whose `undoManager` is the open
-scene's title history (`TitleField.Editor` in `EditorArea.swift`).
+scene's title history (`AdmittingTextField.sceneTitle` and `TitleFieldCoordinator` in
+`TitleField.swift`, shared with the Scenes sheet's new-scene card, #28).
 
 Why so many? A per-scene history means switching scenes never makes Undo reach into a scene
 the writer can't see. The Errors tab's entries sit outside the page text and can belong to any

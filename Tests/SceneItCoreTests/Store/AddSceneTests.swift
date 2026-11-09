@@ -6,8 +6,8 @@ import Testing
 
 /// Adding a scene through the store (PLAN §7.2, §8.6, #28): one change on `structureUndo`, named
 /// "New Scene", whose undo takes the scene out and reopens the scene that was open. A scene the
-/// writer wrote in goes to the Deleted section rather than away (ADR 0041), and redo brings it
-/// back from there.
+/// writer wrote in, beyond a title, goes to the Deleted section rather than away (ADR 0041), and
+/// redo brings it back from there.
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct AddSceneTests {
@@ -87,7 +87,7 @@ struct AddSceneTests {
         try await withTwoScenes { store, book, scenes, url in
             let added = try #require(book.addScene(after: scenes[1]))
             book.setTitle(of: added, to: "The lighthouse")
-            book.replaceBody(of: added, with: [[Run("Old Tomas kept the lamp lit.")]])
+            book.replaceNotes(of: added, with: [[Run("Old Tomas kept the lamp lit.")]])
             let written = try #require(book.book.scene(added))
 
             book.structureUndo.undo()
@@ -106,34 +106,42 @@ struct AddSceneTests {
         }
     }
 
-    @Test func undoingTheAddOfABlankSceneLeavesNothingInTheFile() async throws {
+    /// A scene with only a title, as outlining leaves it, counts as blank (the coordinator, #28):
+    /// undoing its add removes it, and redo brings it back with its title.
+    @Test func undoingTheAddOfABlankOrTitledSceneLeavesNothingInTheFile() async throws {
         try await withTwoScenes { store, book, scenes, url in
             let added = try #require(book.addScene(after: nil))
             book.replaceBody(of: added, with: [[]])
+            book.setTitle(of: added, to: "Fog")
             book.structureUndo.undo()
             #expect(book.book.deleted.isEmpty)
+            #expect(book.book.scenes.map(\.id) == scenes)
             store.saveNow()
             await eventually { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.map(\.id) == scenes)
+            #expect(try bookOnDisk(url).deleted.isEmpty)
+            book.structureUndo.redo()
+            #expect(book.book.scene(added)?.title == "Fog")
         }
     }
 
-    @Test func eachPartTheWriterFillsMakesASceneNotBlank() {
+    @Test func eachPartTheWriterFillsButTheTitleMakesASceneNotBlank() {
         let blank = BookScene(id: SceneID(rawValue: "s"), modified: Timestamp(.now, in: .gmt), title: "")
-        #expect(blank.isBlank)
+        #expect(blank.isBlankButForItsTitle)
         var empty = blank
         empty.body = [[], []]
         empty.notes = [[]]
-        #expect(empty.isBlank)
+        empty.title = "A title"
+        #expect(empty.isBlankButForItsTitle)
         let filled: [(inout BookScene) -> Void] = [
-            { $0.title = "T" }, { $0.tags = ["t"] }, { $0.body = [[Run("x")]] }, { $0.notes = [[Run("x")]] },
+            { $0.tags = ["t"] }, { $0.body = [[Run("x")]] }, { $0.notes = [[Run("x")]] },
             { $0.comments = [tooEarlyComment] },
             { $0.errors = [ErrorEntry(.line, "kept")] },
         ]
         for fill in filled {
             var scene = blank
             fill(&scene)
-            #expect(!scene.isBlank)
+            #expect(!scene.isBlankButForItsTitle)
         }
     }
 
