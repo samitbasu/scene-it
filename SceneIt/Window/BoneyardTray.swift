@@ -111,7 +111,7 @@ private struct BoneyardTile: View {
         .overlay(border(shape))
         .contentShape(shape)
         .opacity(dragging == .dragged ? WindowMetrics.Scenes.draggedOpacity : 1)
-        .sceneClicks(.tile(scene.id), actions: actions)
+        .cardClicks { actions.click($0, on: .tile(scene.id)) }
         .onHover { hovering = $0 ? .hovering : .away }
         .help(BoneyardWording.openHelp)
         .sceneDragSource(.tile(scene.id), actions: actions, editability: editability)

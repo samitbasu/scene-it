@@ -451,6 +451,25 @@ public final class BookStore<C: Clock<Duration>> {
         }
     }
 
+    /// A File Cabinet card's + tag or ×: changes filed copy `number`'s tags in `book`'s index, and
+    /// tells the writer when that couldn't be done. The filed copy itself is never written.
+    @discardableResult
+    public func editRecord(of book: OpenBook<C>, _ number: FiledCopyNumber, _ change: RecordChange) async
+        -> RecordEditResult
+    {
+        await exclusively {
+            do throws(RecordEditFailure) {
+                guard book === current else { throw .unavailable }
+                try await book.editRecord(number, change)
+                await tellRecords(book.takeRecordsToTell(.kept), in: book)
+                return .edited
+            } catch {
+                await prompts.tell(FileCabinetWording.tagsNotSaved(error))
+                return .failed(error)
+            }
+        }
+    }
+
     /// Export as SceneIt… (ADR 0029): the chosen story scenes of the book as it is now, saved or
     /// not, written as a review copy to `destination`. The book's own files are never touched,
     /// and the writer is told when nothing was written. Works on a read-only book too.

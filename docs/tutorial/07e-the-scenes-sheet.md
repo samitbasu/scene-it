@@ -255,17 +255,19 @@ can never act on a card the writer stopped looking at.
 As in the Finder, a click on a card selects it (`ScenesActions.select`: the sheet takes the keys and
 the card gets the focus), and a double click on a card or tile opens its scene. SwiftUI's
 `onTapGesture(count: 2)` beside `onTapGesture(count: 1)` would make the single click wait until the
-double click could no longer come, so the selection would lag. Instead `sceneClicks(_:actions:)` is
+double click could no longer come, so the selection would lag. Instead `cardClicks(_:)` is
 one tap gesture that reads the click count AppKit already put on the event, `NSApp.currentEvent`'s
-`clickCount`, as `SceneClick.single` or `.double`; the second click of a double click arrives as
+`clickCount`, as `CardClick.single` or `.double`; the second click of a double click arrives as
 its own tap with a count of 2. That rests on SwiftUI running the tap's action while the mouse-up is
 still the current event, which no test can show; it waits on the owner's hand test, and if it's
-wrong a double click opens nothing. `clickCount` raises on a key event, so `SceneClick` asks only
+wrong a double click opens nothing. `clickCount` raises on a key event, so `CardClick(_:)` asks only
 mouse-button events.
 
-`ScenesActions.click(_:on:)`, shared by cards and tiles, decides what each click does. The model
-keeps the item the last single click landed on, `clicked: SceneDrag?`, and a double click opens
-only that item; anything else counts as a first click. So a click on a tile's ↩, which never
+`ScenesActions.click(_:on:)`, shared by cards and tiles, decides what each click does, through the
+policy the File Cabinet shares (ADR 0046): `CardClicks<Item>` in `SceneItCore`, a small generic
+value type, like a Rust `struct CardClicks<T: Eq>`, whose `take(_:on:)` returns `.open(item)` or
+`.select(item)`. It keeps the item the last single click landed on (`clicks.last`, here a
+`SceneDrag`), and a double click opens only that item; anything else counts as a first click. So a click on a tile's ↩, which never
 reaches the tile's own gesture, can't make the tile that slides under the pointer open on the
 second click. A key, or any change in the sheet's `Arrangement` (the story's order, the Boneyard's order,
 the cards' tags), forgets the click. The two orders are compared apart: cutting the last card or
@@ -274,6 +276,26 @@ A click doesn't scroll (the card is under the pointer); the sheet's `onChange(of
 scrolls only when the focus didn't come from a click. A tile has no single-click selection,
 because the card focus belongs to the story grid. The tile behaviour, the tooltips and the
 no-scroll click are defaults awaiting the owner (decision log entry 37).
+
+### The File Cabinet (#33)
+
+The File Cabinet sheet (`FileCabinetSheet.swift`, PLAN §7.4) is the Scenes sheet's sibling: the same
+header, grid metrics, white cards, focus ring, tag chips and + tag entry (`CardNewTag`, which both
+sheets' cards use, so the look's "chip opens the field" choice is made once). Its cards are the
+filed copies, newest first (`FileCabinet.cards`), filtered by `CabinetFilter`: words in the tags or
+note, a date range from two native `DatePicker`s, and tag chips. The filter and the age wording
+(`FiledAge`, counted in days, not seconds, since a copy is filed on a date) are pure and tested
+with `swift test`.
+
+A card's clicks go through the same `CardClicks`, with `FiledCopyNumber` as its item, so a double
+click opens the copy and a single click selects it (ADR 0046). A card's tags are the one thing it
+changes: + tag and × call `BookStore.editRecord(of:_:_:)`, which, like File a Copy, runs as one of
+the store's exclusive operations, then rewrites `Archive/index.md` through the book's `BookWriter`
+(under the same mutex as saves and filings) with `Archive.edit`. It reads the index and the folder
+afresh, applies the change (add or remove, as a delta, never "set the tags to this list", so two
+quick edits can't lose each other), and writes the index atomically. The filed copy is only ever
+read. What the cards may change is one more `EditKind`, `.archive`, so `Editability(book, for:
+.archive)` hides × and + tag on a read-only book, a review, or an index a newer Scene It wrote.
 
 ### Deleting for good
 

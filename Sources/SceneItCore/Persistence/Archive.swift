@@ -221,6 +221,50 @@ struct Archive {
         }
     }
 
+    // MARK: Editing a copy's record
+
+    /// Makes `change` to filed copy `number`'s section of the index, reconciled with the folder
+    /// as it is now and with `pending`'s records (PLAN §5.5: editing a copy's tags rewrites only
+    /// `index.md`, atomically). The filed copy itself is only ever read.
+    func edit(_ number: FiledCopyNumber, _ change: RecordChange, pending: Pending) throws(RecordEditFailure)
+        -> ReconciledArchive
+    {
+        let file: IndexFile
+        let listing: [DirectoryEntry]
+        do throws(FileSystemError) {
+            file = try readIndex()
+            listing = try self.listing().get()
+        } catch {
+            Log.store.error("couldn't read the archive to edit a filed copy's record", error.logMetadata)
+            throw .couldNotRead(error)
+        }
+        let reconciled = reconcile(listing, file.parsed, pending)
+        if case .refused(let format) = reconciled.rewrite { throw .newerFormat(format) }
+        guard !reconciled.unverified.contains(number),
+            let at = reconciled.index.copies.firstIndex(where: { $0.number == number })
+        else { throw .notInIndex }
+        var index = reconciled.index
+        index.copies[at].apply(change)
+        let edited = ReconciledArchive(
+            index: index, unverified: reconciled.unverified, notices: reconciled.notices,
+            next: reconciled.next,
+            rewrite: reconciled.rewrite)
+        guard index != reconciled.index || reconciled.rewrite != .unneeded else {
+            return report(edited, .notSaved)
+        }
+        do throws(IndexWriteFailure) {
+            let kept = try replaceIndex(
+                with: edited.indexToWrite,
+                keepingOriginal: reconciled.rewrite == .neededKeepingOriginal ? file.bytes : nil)
+            Log.store.info(
+                "changed a filed copy's tags in the archive index", ["number": .count(number.value)])
+            return report(edited.adding(kept), .saved)
+        } catch {
+            _ = report(reconciled, .notSaved)
+            throw .notWritten(error)
+        }
+    }
+
     // MARK: Files
 
     private static let emptyIndex = ParsedArchiveIndex(
@@ -355,6 +399,42 @@ struct Archive {
         guard let bytes = try? fileSystem.read(layout.filedCopy(number)) else { return nil }
         return FiledCopyFacts(filedBytes: bytes)
     }
+}
+
+/// A change the writer makes to a filed copy's section of the index from its card (PLAN §7.4).
+public enum RecordChange: Hashable, Sendable {
+    /// Adds the tag, unless the copy has it in any case.
+    case addTag(String)
+    /// Takes the tag off, in every case the copy has it in.
+    case removeTag(String)
+}
+
+extension FiledCopy {
+    mutating func apply(_ change: RecordChange) {
+        switch change {
+        case .addTag(let tag):
+            if !SceneTag.contains(tags, tag) { tags.append(tag) }
+        case .removeTag(let tag):
+            tags.removeAll { SceneTag.key($0) == SceneTag.key(tag) }
+        }
+    }
+}
+
+public enum RecordEditResult: Hashable, Sendable {
+    case edited
+    case failed(RecordEditFailure)
+}
+
+/// Why a change to a filed copy's record wasn't made. The index is as it was.
+public enum RecordEditFailure: Error, Hashable, Sendable {
+    /// No book is open for editing.
+    case unavailable
+    /// The index doesn't list the copy (any more), or can't be told it's the copy it was.
+    case notInIndex
+    /// A newer Scene It wrote the index, so it's left as it is.
+    case newerFormat(FormatVersion)
+    case couldNotRead(FileSystemError)
+    case notWritten(IndexWriteFailure)
 }
 
 /// What the writer gives a copy as it's filed (PLAN §7.1). `FiledCopy` admits the text.

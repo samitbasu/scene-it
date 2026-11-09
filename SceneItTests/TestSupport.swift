@@ -44,6 +44,13 @@ func removeUnlocking(_ directory: URL) {
     try? manager.removeItem(at: directory)
 }
 
+extension OpenedBook {
+    /// `nil` when the book opened read-only.
+    var editable: EditableBook? {
+        if case .editing(let editable) = self { editable } else { nil }
+    }
+}
+
 func bookOnDisk(_ package: URL) throws -> Book {
     var ids = IDGenerator.system
     return BookFormat.parse(

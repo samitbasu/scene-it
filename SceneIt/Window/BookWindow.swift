@@ -18,13 +18,15 @@ struct BookWindow: View {
     @State private var editors: SceneEditors
     @State private var search: SearchSheetModel
     @State private var scenes: ScenesSheetModel
+    @State private var cabinet: FileCabinetModel
     @State private var chrome: WindowChrome
     @State private var keys: WindowKeys
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
-        search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, chrome: WindowChrome? = nil
+        search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
+        chrome: WindowChrome? = nil
     ) {
         self.book = book
         self.store = store
@@ -37,6 +39,7 @@ struct BookWindow: View {
         _export = State(initialValue: export)
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _scenes = State(initialValue: scenes ?? ScenesSheetModel())
+        _cabinet = State(initialValue: cabinet ?? FileCabinetModel())
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
@@ -81,8 +84,8 @@ struct BookWindow: View {
                             mode: $mode)
                     } else if mode == .search {
                         SearchSheet(model: search, mode: $mode)
-                    } else if mode.isSheet {
-                        SheetPlaceholder(mode: $mode)
+                    } else if mode == .fileCabinet {
+                        FileCabinetSheet(book: book, model: cabinet, actions: cabinetActions, mode: $mode)
                     }
                 }
             }
@@ -104,6 +107,7 @@ struct BookWindow: View {
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
             if mode != .scenes { scenes.close() }
+            if mode != .fileCabinet { cabinet.close() }
             // On the next turn, once the page the sheet covered is enabled again and can take it.
             if old.isSheet, !new.isSheet, chrome.focusMode == .on {
                 DispatchQueue.main.async { [pageFocus, chrome, mode = $mode] in
@@ -158,6 +162,11 @@ struct BookWindow: View {
             book: book, store: store, preferences: preferences, model: scenes,
             tags: TagActions(book: book, page: editors.page.textView, search: search, mode: $mode),
             mode: $mode)
+    }
+
+    /// Opening a filed copy read-only (PLAN §7.5) comes with the read-only view (#33's second part).
+    private var cabinetActions: FileCabinetActions {
+        FileCabinetActions(book: book, store: store, model: cabinet, open: { _ in })
     }
 
     /// The dialog is up exactly while there's a draft: only the model's own actions (Cancel,

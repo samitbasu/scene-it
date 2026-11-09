@@ -147,7 +147,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Whether the writer can make `edit` now: the book takes edits, and a review takes any but
-    /// changes to the copy's text (ADR 0042).
+    /// changes to the copy's text (ADR 0042). A review has no File Cabinet, and an index a newer
+    /// Scene It wrote is never rewritten.
     public func accepts(_ edit: EditKind) -> Bool {
         driver(for: edit) != nil
     }
@@ -156,8 +157,15 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     private func driver(for edit: EditKind) -> AutosaveDriver<C>? {
         guard let driver = editingDriver else { return nil }
         switch (document, edit) {
-        case (.review, .manuscript): return nil
+        case (.review, .manuscript), (.review, .archive): return nil
+        case (.book, .archive): return isArchiveFromNewerVersion ? nil : driver
         case (.book, _), (.review, .annotations), (.review, .errors): return driver
+        }
+    }
+
+    private var isArchiveFromNewerVersion: Bool {
+        archiveNotices.contains {
+            if case .indexFromNewerVersion = $0 { true } else { false }
         }
     }
 
@@ -769,6 +777,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         return result
     }
 
+    /// Makes `change` to filed copy `number`'s record in the index, and shows the index as saved.
+    func editRecord(_ number: FiledCopyNumber, _ change: RecordChange) async throws(RecordEditFailure) {
+        guard accepts(.archive), case .writable(_, .book(let writer), _) = access else { throw .unavailable }
+        let reconciled = try await writer.edit(number, change, pending: pendingRecords)
+        show(reconciled)
+        settlePending(against: reconciled.indexToWrite, .saved)
+    }
+
     /// A new copy was filed as `number`, which was free, so the file a pending record there
     /// was given is gone (another program emptied `Archive/`). Unless the writer gave the new
     /// copy the same record, the old one moves to `overwrittenRecords`.
@@ -1097,6 +1113,8 @@ public enum EditKind: Hashable, Sendable {
     case annotations
     /// The Errors tab's entries.
     case errors
+    /// The filed copies' records in the File Cabinet's index (PLAN §7.4), never the copies.
+    case archive
 }
 
 extension TextPart {
