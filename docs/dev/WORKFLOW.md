@@ -10,6 +10,7 @@ Read this first when you resume work in a new session.
 | Engineering rules | `CLAUDE.md` |
 | Work queue and status | GitHub issues + milestones on `samitbasu/scene-it` |
 | Tutorials for the owner | `docs/tutorial/` (a Rust programmer learning Swift/macOS) |
+| Decisions made while the owner was away | `docs/dev/decision-log.md` (pending review) |
 
 ## Picking up work
 ```sh
