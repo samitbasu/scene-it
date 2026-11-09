@@ -13,7 +13,7 @@ public enum ScenesWording {
     public static let viewLabel = "View"
     public static let titleLabel = "Title of the new scene"
     public static let dragHelp = "Drag to move this scene, or onto the Boneyard to cut it"
-    public static let openHelp = "Open this scene"
+    public static let openHelp = "Double-click to open this scene"
     public static let noScenes = "No scenes yet."
     public static let noScenesHint = "Add one with + New scene."
 

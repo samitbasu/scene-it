@@ -14,7 +14,7 @@ extension OneAtATime {
     /// The Scenes sheet (#28) in the real window: opened from the View menu; both ways of adding a
     /// scene, each one step on `structureUndo` that the window's Undo reaches, with the title typed on
     /// the new card; + tag on a card, through the Tags tab's actions and undo; the filter; a card's
-    /// click; the ages refreshing; and a read-only book.
+    /// clicks; the ages refreshing; and a read-only book.
     ///
     /// SwiftUI exposes no accessibility tree offscreen, so the cards, the tile and the chips are
     /// exercised through the `ScenesActions` their buttons call, made from the window's own book and
@@ -220,13 +220,63 @@ extension OneAtATime {
             }
         }
 
-        @Test func clickingACardOpensItsSceneAndClosesTheSheet() async throws {
+        /// A double click arrives as two clicks: the first selects the card, the second opens it. A
+        /// second click landing on another card (the first scrolled the grid) only selects that one.
+        @Test func doubleClickingACardOpensItsSceneAndClosesTheSheet() async throws {
             try await withScenesSheet { harness, actions in
-                actions.open(letter.id)
+                actions.click(.single, on: .card(arrival.id))
+                actions.click(.double, on: .card(letter.id))
+                #expect(harness.scenes.focused == letter.id, "the second click on another card selects it")
+                #expect(harness.book.openScene == ferry.id, "and opens nothing")
+                #expect(harness.modes.mode == .scenes)
+
+                actions.click(.single, on: .card(letter.id))
+                actions.click(.double, on: .card(letter.id))
                 #expect(harness.book.openScene == letter.id)
                 #expect(harness.modes.mode == .page)
                 await eventually { harness.pageMirrorsModel && harness.body() == letter.body }
             }
+        }
+
+        /// As in the Finder (ADR 0043): a click selects a card at once, taking the keys from the
+        /// filter, and opens nothing; the keys then act on that card.
+        @Test func aClickSelectsACardWithoutOpeningIt() async throws {
+            try await withScenesSheet { harness, actions in
+                let filter = try #require(harness.filterField)
+                #expect(harness.window.makeFirstResponder(filter))
+                try #require(
+                    !(harness.window.firstResponder is UndoFocusView), "precondition: the filter has the keys"
+                )
+
+                actions.click(.single, on: .card(letter.id))
+                #expect(harness.window.firstResponder is UndoFocusView, "the sheet takes the keys")
+                #expect(harness.scenes.focused == letter.id)
+                #expect(harness.book.openScene == ferry.id, "nothing opens")
+                #expect(harness.modes.mode == .scenes, "the sheet stays open")
+
+                actions.click(.single, on: .card(ferry.id))
+                #expect(harness.scenes.focused == ferry.id, "another click moves the selection")
+                try press(.arrow(.right), in: harness.window)
+                #expect(harness.scenes.focused == arrival.id, "the arrows move on from the clicked card")
+                try press(.return, in: harness.window)
+                #expect(harness.book.openScene == arrival.id, "Return opens the selected card")
+                await eventually { harness.modes.mode == .page }
+            }
+        }
+
+        /// The click count is the system's, from the event the tap ends with.
+        @Test func theEventsClickCountSaysSingleOrDouble() throws {
+            @MainActor func click(_ count: Int) throws -> SceneClick {
+                let event = try #require(
+                    NSEvent.mouseEvent(
+                        with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                        context: nil, eventNumber: 0, clickCount: count, pressure: 0))
+                return SceneClick(event)
+            }
+            #expect(try click(1) == .single)
+            #expect(try click(2) == .double)
+            #expect(try click(3) == .double)
+            #expect(SceneClick(nil) == .single, "no event: never opens")
         }
 
         /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not
@@ -261,8 +311,11 @@ extension OneAtATime {
                 #expect(harness.scenes.tagging == nil)
                 #expect(!actions.tags.add("storm", to: arrival.id))
                 #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
-                actions.open(arrival.id)
-                #expect(harness.book.openScene == arrival.id, "a card still opens its scene")
+                actions.click(.single, on: .card(letter.id))
+                #expect(harness.scenes.focused == letter.id, "a card is still selected")
+                actions.click(.single, on: .card(arrival.id))
+                actions.click(.double, on: .card(arrival.id))
+                #expect(harness.book.openScene == arrival.id, "and still opens its scene")
                 #expect(harness.modes.mode == .page)
             }
         }

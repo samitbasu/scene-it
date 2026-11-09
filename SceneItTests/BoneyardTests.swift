@@ -458,6 +458,25 @@ extension OneAtATime {
             }
         }
 
+        /// A double click opens a tile's scene. The card focus is the story grid's, so a single click
+        /// on a tile selects nothing and leaves a card's focus where it was (ADR 0043).
+        @Test func aDoubleClickOpensATileAndAClickSelectsNothing() async throws {
+            try await withScenesSheet(boneyard: [brother]) { harness, actions in
+                let story = harness.book.book.scenes.map(\.id)
+                actions.click(.single, on: .card(story[1]))
+                try #require(harness.scenes.focused == story[1], "precondition: a card is selected")
+
+                actions.click(.single, on: .tile(brother.id))
+                #expect(harness.scenes.focused == story[1])
+                #expect(harness.book.openScene == story[0], "nothing opens")
+                #expect(harness.modes.mode == .scenes)
+
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.book.openScene == brother.id)
+                await eventually { harness.modes.mode == .page }
+            }
+        }
+
         @Test func aReadOnlyBookMovesCutsRestoresAndDeletesNothing() async throws {
             try await withScenesSheet(boneyard: [brother], lock: .heldElsewhere) { harness, actions in
                 let before = harness.book.book
@@ -470,7 +489,7 @@ extension OneAtATime {
                 #expect(actions.handle(.move(.right)) == .passedOn)
                 #expect(actions.handle(.cut) == .passedOn)
                 #expect(harness.book.book == before)
-                actions.open(brother.id)
+                actions.click(.double, on: .tile(brother.id))
                 #expect(harness.book.openScene == brother.id, "a tile still opens its scene")
             }
         }

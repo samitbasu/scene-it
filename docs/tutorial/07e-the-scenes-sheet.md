@@ -171,7 +171,7 @@ step on that scene's page undo, as in the Tags tab. The Search sheet's numbered 
   scene with its undo and redo (blank, holding words, read-only).
 - **Hosted:** View → Scenes on ⌘1 in the app's own window; both add buttons with the title typed on
   the card, the window's Undo and Redo; Esc closing the field and then the sheet; + tag on a card and
-  its undo; the real filter field; a card's click; the ages moving on with the clock; a title typed
+  its undo; the real filter field; a card's clicks; the ages moving on with the clock; a title typed
   on a card saved when the book closes without Return; and a
   read-only book.
 
@@ -250,6 +250,20 @@ Delete and Return ignore `event.isARepeat`, so holding Delete cuts one card. Whe
 field. The card focus goes whenever the sheet's view loses the keys (its `focusChanged`), so Delete
 can never act on a card the writer stopped looking at.
 
+### A click selects, a double click opens (ADR 0043)
+
+As in the Finder, a click on a card selects it (`ScenesActions.select`: the sheet takes the keys and
+the card gets the focus), and a double click on a card or tile opens its scene. SwiftUI's
+`onTapGesture(count: 2)` beside `onTapGesture(count: 1)` would make the single click wait until the
+double click could no longer come, so the selection would lag. Instead `sceneClicks(_:actions:)` is
+one tap gesture that reads the click count AppKit already put on the event, `NSApp.currentEvent`'s
+`clickCount`, as `SceneClick.single` or `.double`; the second click of a double click arrives as
+its own tap with a count of 2. What each click does is one `switch` over `(SceneClick, SceneDrag)`
+in `ScenesActions.click(_:on:)`, shared by cards and tiles. A `where` guard on one case makes a
+double click open a card only if its first click selected it: selecting scrolls the grid, which can
+put another card under the pointer before the second click. A tile has no single-click meaning,
+because the card focus belongs to the story grid.
+
 ### Deleting for good
 
 The tile's context menu asks with `BoneyardWording.confirmDelete` through `BookStore.ask(_:)`, the
@@ -264,5 +278,5 @@ store's own `StorePrompts`, so hosted tests answer with a scripted prompt object
   the grid's ends), `SceneChangeTests` (each change one named undo step; cut and restore keep notes,
   comments, tags and error entries, in the file byte for byte; read-only).
 - **Hosted (`BoneyardTests`):** the drop handlers on the real sheet with the window's Undo and Redo
-  and `book.md` read back; the keys sent to the window; ↩; Delete Permanently… with Cancel and
-  Delete; a read-only book.
+  and `book.md` read back; the keys sent to the window; ↩; a tile's double click; Delete
+  Permanently… with Cancel and Delete; a read-only book.

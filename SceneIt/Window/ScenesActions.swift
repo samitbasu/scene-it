@@ -183,11 +183,32 @@ struct ScenesActions {
     let tags: TagActions
     let mode: Binding<WindowMode>
 
-    /// A click on a card: the scene opens and the sheet closes.
+    /// The scene opens and the sheet closes.
     func open(_ scene: SceneID) {
         guard book.book.scene(scene) != nil else { return }
         book.select(scene)
         mode.wrappedValue = mode.wrappedValue.closingSheet
+    }
+
+    /// A click on a card or tile, as in the Finder: a double click opens its scene. A single click
+    /// puts the card focus on a card at once, so the first click of a double click does too. The
+    /// focus is the story grid's, so a single click on a Boneyard tile does nothing.
+    ///
+    /// Selecting a card scrolls it into view, which can move another card under the pointer before
+    /// the second click: a double click opens only the card its first click selected.
+    func click(_ click: SceneClick, on item: SceneDrag) {
+        switch (click, item) {
+        case (.double, .card(let scene)) where model.focused == scene: open(scene)
+        case (_, .card(let scene)): select(scene)
+        case (.double, .tile(let scene)): open(scene)
+        case (.single, .tile): break
+        }
+    }
+
+    /// The sheet takes the keys, and they act on `scene`'s card.
+    func select(_ scene: SceneID) {
+        model.keyFocus.takeFocus()
+        model.focused = scene
     }
 
     /// Adds an untitled scene, which opens, and puts the title field on its card. The sheet stays
@@ -353,6 +374,15 @@ enum CardKey: Equatable {
         default: return nil
         }
         if event.isARepeat, self == .cut || self == .open { return nil }
+    }
+}
+
+/// A click on a card or tile, counted as the system counts them.
+enum SceneClick: Equatable {
+    case single, double
+
+    init(_ event: NSEvent?) {
+        self = (event?.clickCount ?? 1) >= 2 ? .double : .single
     }
 }
 
