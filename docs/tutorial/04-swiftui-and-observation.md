@@ -8,8 +8,8 @@ It covers `@Observable` (and why it isn't Rust's usual answer to shared mutable 
 `NSApplicationDelegateAdaptor`, `.commands`, and calling AppKit's `NSAlert` from async code.
 
 The window ([`SceneIt/Window/`](../../SceneIt/Window/), #13) has PLAN §4's skeleton: toolbar,
-rail, page, right panel and status bar. One piece of it is still **temporary scaffolding**: the
-scene list in the Scenes sheet (#28). The page itself is an AppKit text view, the subject of
+rail, page, right panel and status bar, with the rail's sheets over the page (the Scenes sheet,
+#28, is [chapter 07d](07d-the-scenes-sheet.md)'s subject). The page itself is an AppKit text view, the subject of
 [chapter 05](05-appkit-interop-textkit2.md).
 
 ## Where the code is
@@ -568,10 +568,13 @@ While a sheet is open, the page and panel under it are `.disabled`, and the shee
 keyboard focus (a small `NSViewRepresentable` that makes itself first responder), so keystrokes
 and Tab can't reach the hidden editors. A hosted test checks the first responder.
 
-Menus reach the window's state through **focused values**: `BookWindow` publishes a binding with
-`.focusedSceneValue(\.windowMode, $mode)`, and `WindowCommands` reads it with
-`@FocusedBinding(\.windowMode)`. It's `nil` when no book window is focused, which disables the
-items.
+Menus reach the window's state through the **one main window** (ADR 0038): the window over a
+book registers its focus-mode chrome and a binding to its mode with `BookController.mainWindowChrome`
+as it appears, and `WindowCommands` reads them. They're `nil` with no book open, which disables the
+items. SwiftUI's other way, focused values (`.focusedSceneValue` and `@FocusedBinding`), follows the
+key window, so the menu would do nothing while another window (the crash report, say) is key; it
+also can't be driven by a hosted test, whose windows are never really key. Format and Edit's items
+still use focused values for the page, which is about the focused editor.
 
 Toggle Right Panel is greyed out with no book open: `.disabled(books.store.current == nil)`.
 SwiftUI refreshes its menu items **lazily**, when AppKit asks a menu to update (the writer

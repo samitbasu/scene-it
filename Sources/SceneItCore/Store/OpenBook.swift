@@ -467,16 +467,76 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     /// Adds an untitled scene after `scene` (at the end if `nil` or not in the story) and opens it.
+    /// One change on `structureUndo`, whose undo takes the scene out again and reopens the scene
+    /// that was open, if it still can.
     @discardableResult
     public func addScene(after scene: SceneID?) -> SceneID? {
-        guard let driver = editingDriver else { return nil }
+        guard editingDriver != nil else { return nil }
         let new = BookScene(id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "")
         let index = scene.flatMap { id in book.scenes.firstIndex { $0.id == id } }.map { $0 + 1 }
-        book.scenes.insert(new, at: index ?? book.scenes.endIndex)
-        wordCounts.recount(new)
+        let target = StructureTarget()
+        structureTargets[target] = new.id
+        let added = put(target, .held(new), at: index ?? book.scenes.endIndex, returningTo: openScene)
+        return added ? new.id : nil
+    }
+
+    /// Where an added scene is while its add is undone.
+    private enum Unadded {
+        /// Here, since it held nothing the writer wrote.
+        case held(BookScene)
+        /// In the book's Deleted section (ADR 0031), where the file keeps what the writer wrote
+        /// in it (ADR 0041).
+        case deleted
+    }
+
+    /// Puts the added scene into the story at `index` (or its end) and opens it; registers taking
+    /// it out again.
+    private func put(
+        _ target: StructureTarget, _ from: Unadded, at index: Int, returningTo previous: SceneID?
+    ) -> Bool {
+        guard let driver = editingDriver, let id = structureTargets[target] else { return false }
+        let scene: BookScene
+        switch from {
+        case .held(let held):
+            scene = held
+        case .deleted:
+            guard let at = book.deleted.firstIndex(where: { $0.id == id }) else { return false }
+            scene = book.deleted.remove(at: at)
+        }
+        book.scenes.insert(scene, at: min(index, book.scenes.count))
+        wordCounts.recount(scene)
+        structureUndo.registerUndo(withTarget: self) { $0.takeOut(target, returningTo: previous) }
+        structureUndo.setActionName(ScenesWording.newSceneUndoName)
         driver.send(.edited)
-        select(new.id)
-        return new.id
+        select(scene.id)
+        return true
+    }
+
+    /// Undoes an add: takes the scene out of the story, reopening `previous` if the scene was
+    /// open. A scene holding anything the writer wrote goes to the Deleted section rather than
+    /// away (ADR 0041). Registers putting it back.
+    private func takeOut(_ target: StructureTarget, returningTo previous: SceneID?) {
+        guard editingDriver != nil, let id = structureTargets[target],
+            book.scenes.contains(where: { $0.id == id })
+        else { return }
+        if openScene == id { select(book.scene(previous)?.id) }
+        // Leaving the scene may have saved what was typed into it, so look it up again.
+        guard let driver = editingDriver, let index = book.scenes.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let scene = book.scenes.remove(at: index)
+        let unadded: Unadded
+        if scene.isBlank {
+            unadded = .held(scene)
+        } else {
+            book.deleted.insert(scene, at: 0)
+            unadded = .deleted
+        }
+        structureUndo.registerUndo(withTarget: self) {
+            _ = $0.put(target, unadded, at: index, returningTo: previous)
+        }
+        structureUndo.setActionName(ScenesWording.newSceneUndoName)
+        driver.send(.edited)
     }
 
     /// Deletes a Boneyard scene as far as the writer can tell (ADR 0031): it moves to the

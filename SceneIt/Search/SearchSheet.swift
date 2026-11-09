@@ -200,19 +200,6 @@ private struct SceneGroup: View {
     }
 }
 
-/// A scene's number in a circle, or **B** for the Boneyard.
-private struct SceneNumber: View {
-    let placement: ScenePlacement
-
-    var body: some View {
-        Text(SearchWording.sceneNumber(placement))
-            .font(.system(size: 11, weight: .semibold))
-            .frame(width: WindowMetrics.Search.numberSize, height: WindowMetrics.Search.numberSize)
-            .background(Circle().fill(Color.white))
-            .overlay(Circle().strokeBorder(WindowMetrics.Search.line, lineWidth: 1.5))
-    }
-}
-
 /// One hit: its field's label and its snippet, which opens it.
 private struct HitRow: View {
     let model: SearchSheetModel

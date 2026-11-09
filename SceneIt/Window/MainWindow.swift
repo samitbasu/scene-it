@@ -87,7 +87,7 @@ private struct OpenBookWindow: View {
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
             chrome: chrome
         )
-        .onAppear { mainChrome.show(chrome) }
+        .onAppear { mainChrome.show(chrome, mode: $mode) }
         .onDisappear { mainChrome.gone(chrome) }
     }
 }

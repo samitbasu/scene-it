@@ -16,13 +16,14 @@ struct BookWindow: View {
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
     @State private var search: SearchSheetModel
+    @State private var scenes: ScenesSheetModel
     @State private var chrome: WindowChrome
     @State private var keys: WindowKeys
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, search: SearchSheetModel? = nil,
-        chrome: WindowChrome? = nil
+        scenes: ScenesSheetModel? = nil, chrome: WindowChrome? = nil
     ) {
         self.book = book
         self.store = store
@@ -32,6 +33,7 @@ struct BookWindow: View {
         let filing = filing ?? FilingFlow(book: book)
         _filing = State(initialValue: filing)
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
+        _scenes = State(initialValue: scenes ?? ScenesSheetModel())
         _undo = State(initialValue: UndoRouter(book: book))
         let focus = PageFocus()
         _pageFocus = State(initialValue: focus)
@@ -69,10 +71,14 @@ struct BookWindow: View {
                     .overlay { FocusModeHint(chrome: chrome) }
                     .disabled(mode.isSheet)
                     .accessibilityHidden(mode.isSheet)
-                    if mode == .search {
+                    if mode == .scenes {
+                        ScenesSheet(
+                            book: book, preferences: preferences, model: scenes, actions: scenesActions,
+                            mode: $mode)
+                    } else if mode == .search {
                         SearchSheet(model: search, mode: $mode)
                     } else if mode.isSheet {
-                        SheetPlaceholder(book: book, mode: $mode)
+                        SheetPlaceholder(mode: $mode)
                     }
                 }
             }
@@ -93,6 +99,7 @@ struct BookWindow: View {
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
             if mode == .search { search.refresh() } else { search.close() }
+            if mode != .scenes { scenes.close() }
             // On the next turn, once the page the sheet covered is enabled again and can take it.
             if old.isSheet, !new.isSheet, chrome.focusMode == .on {
                 DispatchQueue.main.async { [pageFocus, chrome, mode = $mode] in
@@ -115,7 +122,6 @@ struct BookWindow: View {
             WindowToolbar(book: book, store: store, preferences: preferences, undo: undo, filing: filing)
         }
         .navigationTitle(book.book.title)
-        .focusedSceneValue(\.windowMode, $mode)
         .focusedSceneValue(\.filingFlow, filing)
         .background(WindowReporter { [filing] in filing.window = $0 })
         .sheet(item: dialog) { _ in
@@ -132,6 +138,13 @@ struct BookWindow: View {
         }
     }
 
+    private var scenesActions: ScenesActions {
+        ScenesActions(
+            book: book, preferences: preferences, model: scenes,
+            tags: TagActions(book: book, page: editors.page.textView, search: search, mode: $mode),
+            mode: $mode)
+    }
+
     /// The dialog is up exactly while there's a draft: only the model's own actions (Cancel,
     /// Esc through `WindowKeys`, a copy filed) end one, so nothing SwiftUI writes here can drop
     /// what the writer typed. If SwiftUI ever ends the sheet itself, File a Copy… shows the same
@@ -139,9 +152,4 @@ struct BookWindow: View {
     private var dialog: Binding<FilingPresentation?> {
         Binding(get: { filing.draft == nil ? nil : filing.presentation }, set: { _ in })
     }
-}
-
-extension FocusedValues {
-    /// The focused window's mode, for the View menu.
-    @Entry var windowMode: Binding<WindowMode>?
 }

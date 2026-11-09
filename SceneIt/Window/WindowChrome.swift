@@ -30,20 +30,25 @@ final class WindowChrome {
     }
 }
 
-/// The main window's `WindowChrome` while a book is open in it, for the View menu. There's one
-/// main window (ADR 0038), so the menu acts on it as on the book's preferences, whichever
-/// window is key.
+/// The main window's `WindowChrome` and mode while a book is open in it, for the View menu.
+/// There's one main window (ADR 0038), so the menu acts on it as on the book's preferences,
+/// whichever window is key.
 @MainActor
 @Observable
 final class MainWindowChrome {
     private(set) var chrome: WindowChrome?
+    /// What the window shows over the book: the page or a sheet.
+    private(set) var mode: Binding<WindowMode>?
 
-    func show(_ chrome: WindowChrome) {
+    func show(_ chrome: WindowChrome, mode: Binding<WindowMode>) {
         self.chrome = chrome
+        self.mode = mode
     }
 
     func gone(_ chrome: WindowChrome) {
-        if self.chrome === chrome { self.chrome = nil }
+        guard self.chrome === chrome else { return }
+        self.chrome = nil
+        mode = nil
     }
 }
 

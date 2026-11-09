@@ -115,6 +115,25 @@ final class AdmittingTextField: NSTextField {
     var editor: AdmittingTextView? {
         (cell as? Cell)?.editor
     }
+
+    /// Whether it takes the focus as soon as it's in a window: a field that appears for the
+    /// writer to type in (a new scene's title, a card's + tag).
+    var firstFocus = FirstFocus.none
+
+    enum FirstFocus {
+        case none, pending
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard firstFocus == .pending, window != nil else { return }
+        firstFocus = .none
+        DispatchQueue.main.async { [weak self] in
+            // Asking again while it's being edited would end the editing.
+            guard let self, let window = self.window, self.currentEditor() == nil else { return }
+            window.makeFirstResponder(self)
+        }
+    }
 }
 
 extension NSScrollView {

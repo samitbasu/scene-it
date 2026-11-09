@@ -324,6 +324,14 @@ only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 `06-tags-tab.png`, with a `-panel@2x.png` close-up. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/tagsTab\(\)`.
 
+`scenesSheet` renders the Scenes sheet (#28, `ScenesSheetRenders.swift`) into a `scenes/` subfolder, at 1× and
+2× and beside mockup 07, 08 or 09: the recommended look as `final-scenes-cards`, `final-scenes-cards-tagging`
+(+ tag opened on a card), `final-scenes-filter`, `final-scenes-no-matches`, `final-scenes-light-table`,
+`final-scenes-new-scene-title` (the title typed on a new card), `final-scenes-read-only` and `final-scenes-empty`;
+and the look candidates the owner hasn't picked between, as `candidate-tag-always-field`,
+`candidate-messages-plain-no-matches` and `candidate-messages-plain-empty`. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/scenesSheet\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the
