@@ -210,6 +210,14 @@ public struct LocalFileSystem: FileSystem {
         return FileIdentity(volume: volume, file: UInt64(info.st_ino))
     }
 
+    public func mountedIdentity(of url: URL) throws(FileSystemError) -> MountedIdentity {
+        var info = stat()
+        guard (url.withUnsafeFileSystemRepresentation { stat($0!, &info) }) == 0 else {
+            throw FileSystemError(.inspect, url, .init(errno: errno))
+        }
+        return MountedIdentity(device: UInt64(UInt32(bitPattern: info.st_dev)), file: UInt64(info.st_ino))
+    }
+
     public func lock(_ file: URL) -> LockAttempt {
         ExclusiveFileLock.acquire(file)
     }

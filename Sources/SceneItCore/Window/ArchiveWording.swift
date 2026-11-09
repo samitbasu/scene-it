@@ -192,11 +192,6 @@ public enum ArchiveWording {
     }
 }
 
-/// Filed copies and the records they couldn't be given, in no particular order. A number can
-/// appear twice: a record for a copy another program replaced, and one for the copy filed there
-/// since.
-public typealias UnrecordedCopies = [(number: FiledCopyNumber, record: FilingRecord)]
-
 public typealias UnfiledDraftAlert = WriterAlert<UnfiledDraftChoice>
 
 /// Leaving the book while File a Copy's dialog holds typed text.

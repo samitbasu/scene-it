@@ -398,7 +398,7 @@ public final class BookStore<C: Clock<Duration>> {
     @concurrent
     private nonisolated static func write(
         _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout,
-        identifiedAs identity: FileIdentity?,
+        identifiedAs identity: MountedIdentity?,
         _ fileSystem: any FileSystem
     ) async throws(ExportFailure) {
         try ReviewCopyWriter.write(
@@ -638,11 +638,11 @@ public final class BookStore<C: Clock<Duration>> {
         let opened: OpenedBook
         let archive: ReconciledArchive
         /// The package's, as it opened; `nil` if it couldn't be identified.
-        let identity: FileIdentity?
+        let identity: MountedIdentity?
 
         init(_ opened: OpenedBook, pending: Archive.Pending = [:], _ fileSystem: any FileSystem) {
             self.opened = opened
-            identity = try? fileSystem.identity(of: opened.layout.root)
+            identity = try? fileSystem.mountedIdentity(of: opened.layout.root)
             archive =
                 switch opened {
                 case .editing(let editable): editable.package.reconcileArchive(pending: pending)

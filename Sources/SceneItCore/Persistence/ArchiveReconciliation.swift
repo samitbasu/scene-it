@@ -1,13 +1,16 @@
+import Foundation
+
 /// Launch reconciliation (PLAN §5.5, book format §8): what the File Cabinet lists, given the
 /// `Archive/` folder's entries and its parsed index. A pure function: the facts it needs about
-/// a filed copy (its modification day, its counts) come from the caller.
+/// a filed copy (its modification day, its counts, its digest) come from the caller.
 public enum ArchiveReconciliation {
     /// - A filed copy with no section is listed with `pending`'s record for it if there is one
-    ///   (a filing whose index write failed) and the copy's `digest` is the record's, else with
-    ///   no tags; its counts are `counts(number)`. A digest that can't be read isn't the record's.
+    ///   (a filing whose index write failed) and the copy's digest is the record's, else with
+    ///   no tags. A copy whose file can't be read is listed with no tags but left out of
+    ///   `indexToWrite`, so its record is checked again next time.
+    /// - A filed copy's counts, where its section has none, come from `facts(number)`.
     /// - A section whose filed copy isn't in `listing` (renamed, moved, re-cased, replaced by a
     ///   link) isn't listed, and its lines are kept in the index's `### Unparsed`.
-    /// - A section with no counts gets `counts(number)`.
     /// - Anything in `listing` that isn't a regular file named `saveNNNN.md`, numbered up to
     ///   `FiledCopyNumber.highest`, is ignored.
     ///
@@ -15,8 +18,8 @@ public enum ArchiveReconciliation {
     /// pass the same function to `ArchiveIndexFormat.parse`.
     public static func reconcile(
         listing: [DirectoryEntry], index parsed: ParsedArchiveIndex,
-        modified: (FiledCopyNumber) -> CalendarDay, counts: (FiledCopyNumber) -> FiledCopyCounts?,
-        pending: [FiledCopyNumber: PendingRecord], digest: (FiledCopyNumber) -> ContentDigest?
+        modified: (FiledCopyNumber) -> CalendarDay, facts: (FiledCopyNumber) -> FiledCopyFacts?,
+        pending: [FiledCopyNumber: PendingRecord]
     ) -> ReconciledArchive {
         let named = numbered(listing)
         let onDisk = Set(named.filter(\.isInRange))
@@ -33,27 +36,37 @@ public enum ArchiveReconciliation {
                 errors += ArchiveIndexFormat.sectionLines(copy).map { ErrorEntry(.line, $0) } + copy.errors
                 continue
             }
-            if copy.counts == nil { copy.counts = counts(copy.number) }
+            if copy.counts == nil { copy.counts = facts(copy.number)?.counts }
             copies.append(copy)
         }
         let indexed = Set(parsed.index.copies.map(\.number))
+        var unverified: Set<FiledCopyNumber> = []
         for number in onDisk.sorted() where !indexed.contains(number) {
-            switch pending[number] {
-            case let pending? where digest(number) == pending.copy:
+            let read = facts(number)
+            let unlisted = FiledCopy(number: number, filed: modified(number), counts: read?.counts)
+            switch (pending[number], read) {
+            case (nil, _):
+                copies.append(unlisted)
+                notices.append(.listedWithoutEntry(number))
+            case (let pending?, let read?) where read.digest == pending.digest:
                 let record = pending.record
                 copies.append(
                     FiledCopy(
                         number: number, filed: record.filed, tags: record.tags, note: record.note,
-                        counts: counts(number)))
+                        counts: read.counts))
                 notices.append(.recordedPendingEntry(number))
-            case let pending:
-                copies.append(FiledCopy(number: number, filed: modified(number), counts: counts(number)))
-                notices.append(
-                    pending == nil ? .listedWithoutEntry(number) : .pendingEntryForAnotherCopy(number))
+            case (.some, .some):
+                copies.append(unlisted)
+                notices.append(.pendingEntryForAnotherCopy(number))
+            case (.some, nil):
+                copies.append(unlisted)
+                unverified.insert(number)
+                notices.append(.pendingEntryUnverified(number))
             }
         }
         copies.sort { $0.number < $1.number }
         let index = ArchiveIndex(copies: copies, errors: errors)
+        let toWrite = ReconciledArchive.leavingOut(unverified, of: index)
         let changesWhatWasWritten =
             !parsed.newEntries.isEmpty
             || notices.contains { if case .keptEntryWithoutFile = $0 { true } else { false } }
@@ -65,9 +78,11 @@ public enum ArchiveReconciliation {
                 // repair's entries would be new again at every reconciliation.
                 .neededKeepingOriginal
             } else {
-                index == parsed.index ? .unneeded : .needed
+                toWrite == parsed.index ? .unneeded : .needed
             }
-        return ReconciledArchive(index: index, notices: notices, next: next(after: onDisk), rewrite: rewrite)
+        return ReconciledArchive(
+            index: index, unverified: unverified, notices: notices, next: next(after: onDisk),
+            rewrite: rewrite)
     }
 
     /// The filed copies in a listing of `Archive/` that filing counts: regular files named
@@ -88,18 +103,49 @@ public enum ArchiveReconciliation {
     }
 }
 
+/// A filed copy's facts that reconciliation reads from its file.
+public struct FiledCopyFacts: Hashable, Sendable {
+    public let counts: FiledCopyCounts?
+    public let digest: ContentDigest
+
+    public init(counts: FiledCopyCounts?, digest: ContentDigest) {
+        self.counts = counts
+        self.digest = digest
+    }
+
+    public init(filedBytes: Data) {
+        self.init(counts: FiledCopyCounts(filedBytes: filedBytes), digest: ContentDigest(filedBytes))
+    }
+}
+
 /// What reconciliation found.
 public struct ReconciledArchive: Hashable, Sendable {
     /// What the File Cabinet lists.
     public let index: ArchiveIndex
+    /// Copies listed in `index` with no tags because their files couldn't be read to check
+    /// their pending records against.
+    public let unverified: Set<FiledCopyNumber>
     public let notices: [ArchiveNotice]
     /// The number the next filed copy gets; `nil` when there's none left.
     public let next: FiledCopyNumber?
     public let rewrite: IndexRewrite
 
+    /// What `Archive/index.md` may say: `index` without the `unverified` copies, so the next
+    /// reconciliation checks their records again.
+    public var indexToWrite: ArchiveIndex {
+        Self.leavingOut(unverified, of: index)
+    }
+
+    static func leavingOut(_ unverified: Set<FiledCopyNumber>, of index: ArchiveIndex) -> ArchiveIndex {
+        var written = index
+        written.copies.removeAll { unverified.contains($0.number) }
+        return written
+    }
+
     /// The same, with `more` noticed too.
     func adding(_ more: [ArchiveNotice]) -> ReconciledArchive {
-        ReconciledArchive(index: index, notices: notices + more, next: next, rewrite: rewrite)
+        ReconciledArchive(
+            index: index, unverified: unverified, notices: notices + more, next: next, rewrite: rewrite)
     }
 
     /// Whether `Archive/index.md` says what `index` says: nothing stopped it being read or saved.
@@ -136,6 +182,10 @@ public enum ArchiveNotice: Hashable, Sendable {
     /// A filed copy with no section whose number has a pending record given to a different file
     /// there (`Archive/` was replaced): listed with no tags, as `listedWithoutEntry`.
     case pendingEntryForAnotherCopy(FiledCopyNumber)
+    /// A filed copy with no section whose pending record couldn't be checked, because its file
+    /// couldn't be read (evicted by a sync service, say): listed with no tags, not written to
+    /// the index, and its record stays pending.
+    case pendingEntryUnverified(FiledCopyNumber)
     /// A section whose filed copy isn't there: not listed, and kept in `### Unparsed`.
     case keptEntryWithoutFile(FiledCopyNumber)
     /// A `saveNNNN.md` numbered past `FiledCopyNumber.highest`: not listed or counted.

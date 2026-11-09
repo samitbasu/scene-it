@@ -17,7 +17,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @ObservationIgnored public let instanceID = UUID()
     /// The package's identity as the book opened, which a rename or move in Finder doesn't
     /// change; `nil` if it couldn't be identified.
-    @ObservationIgnored let packageIdentity: FileIdentity?
+    @ObservationIgnored let packageIdentity: MountedIdentity?
     public private(set) var book: Book
     /// Kept in step with `book` by every edit, so the status bar never recounts the book.
     public private(set) var wordCounts: SceneWordCounts
@@ -67,7 +67,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// `pending`: the records the book this one replaces still had pending; `archive` was
     /// reconciled with them.
     init(
-        _ opened: OpenedBook, identity: FileIdentity?, archive: ReconciledArchive, pending: Archive.Pending,
+        _ opened: OpenedBook, identity: MountedIdentity?, archive: ReconciledArchive,
+        pending: Archive.Pending,
         clock: C, mirror: BackupMirror, store: BookStore<C>
     ) {
         self.store = store
@@ -88,7 +89,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             access = .readOnly(reason)
         }
         pendingRecords = pending
-        settlePending(against: archive.index, isEditable && archive.isSaved ? .saved : .notSaved)
+        settlePending(against: archive.indexToWrite, isEditable && archive.isSaved ? .saved : .notSaved)
         openScene = book.scenes.first?.id
     }
 
@@ -635,16 +636,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         let result: FilingResult
         do throws(FilingFailure) {
             let outcome = try await writer.fileCopy(of: book, as: record, pending: pendingRecords)
+            forgetPending(at: outcome.number, filedAgainAs: record)
             switch outcome.index {
             case .updated(let index):
                 settlePending(against: index, .saved)
             case .notUpdated(.couldNotRead), .notUpdated(.notWritten):
-                let pending = PendingRecord(record, copy: outcome.copy)
-                if let earlier = pendingRecords.updateValue(pending, forKey: outcome.number),
-                    earlier != pending
-                {
-                    overwritten([(outcome.number, earlier.record)])
-                }
+                pendingRecords[outcome.number] = PendingRecord(record, digest: outcome.digest)
             case .notUpdated(.newerFormat):
                 break
             }
@@ -656,9 +653,19 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         if let reconciled = await writer.reconcileArchive(.readOnly, pending: pendingRecords) {
             show(reconciled)
-            settlePending(against: reconciled.index, .notSaved)
+            settlePending(against: reconciled.indexToWrite, .notSaved)
         }
         return result
+    }
+
+    /// A new copy was filed as `number`, which was free, so the file a pending record there
+    /// was given is gone (another program emptied `Archive/`). Unless the writer gave the new
+    /// copy the same record, the old one moves to `overwrittenRecords`.
+    private func forgetPending(at number: FiledCopyNumber, filedAgainAs record: FilingRecord) {
+        guard let earlier = pendingRecords.removeValue(forKey: number), earlier.record != record else {
+            return
+        }
+        overwritten([(number, earlier.record)])
     }
 
     /// Records the pending records, if any, now that a save may have cleared what stopped them.
@@ -674,7 +681,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             return
         }
         show(reconciled)
-        settlePending(against: reconciled.index, reconciled.isSaved ? .saved : .notSaved)
+        settlePending(against: reconciled.indexToWrite, reconciled.isSaved ? .saved : .notSaved)
     }
 
     private enum IndexState {
@@ -685,7 +692,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Forgets the pending records `index` holds, once it's saved. A copy that `index` gives
     /// a section of its own (another program wrote it), or lists without its record (a
     /// different file has its number), keeps that section, and its record moves to
-    /// `overwrittenRecords`.
+    /// `overwrittenRecords`. A copy `index` leaves out keeps its record pending.
     private func settlePending(against index: ArchiveIndex, _ state: IndexState) {
         var overwritten: UnrecordedCopies = []
         for copy in index.copies {

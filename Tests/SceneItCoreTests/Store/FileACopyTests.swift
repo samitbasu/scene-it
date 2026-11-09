@@ -12,7 +12,7 @@ struct FileACopyTests {
     static let record = FilingRecord(
         filed: CalendarDay(year: 2026, month: 11, day: 1)!, tags: ["draft 4"], note: "Before the ending")
 
-    static func filedCopy(_ number: Int, in url: URL) -> URL {
+    nonisolated static func filedCopy(_ number: Int, in url: URL) -> URL {
         PackageLayout(root: url).filedCopy(FiledCopyNumber(number)!)
     }
 
@@ -904,7 +904,7 @@ struct FileACopyTests {
 
     /// What another Mac or a sync tool leaves: `Archive/` replaced by one whose `save0001.md` is a
     /// different file, and whose index has no section for it.
-    static func replaceArchive(of url: URL, index: Bool) throws {
+    nonisolated static func replaceArchive(of url: URL, index: Bool) throws {
         let archive = PackageLayout(root: url).archive
         removeUnlocking(archive)
         try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: false)
@@ -936,6 +936,114 @@ struct FileACopyTests {
                 prompts.notices.last
                     == ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
             )
+        }
+    }
+
+    /// Open Other Version, where `Archive/` is replaced after the book's last try and before it's
+    /// read again: the reload's reconciliation finds the other file, and the store tells the record
+    /// as it installs the new book.
+    @Test func aReloadThatFindsAnotherFileAtAPendingNumberTellsTheRecord() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.before(.lock("Novel.sceneit/.lock")) { try? Self.replaceArchive(of: url, index: true) }
+
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { store.current !== old && store.current != nil && prompts.notices.count == 2 }
+
+            let reopened = try #require(store.current)
+            #expect(reopened.archiveNotices.contains(.pendingEntryForAnotherCopy(.first)))
+            #expect(reopened.pendingRecords.isEmpty)
+            #expect(reopened.archive.copies.map(\.tags) == [[]], "the other file isn't listed with the tags")
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
+            )
+        }
+    }
+
+    /// A pending record's copy can't be read (a sync service evicted it, say): the copy is listed
+    /// without the tags, the index isn't given a section for it, and the record waits, untold,
+    /// for a reconciliation that can read the copy.
+    @Test func aPendingRecordWhoseCopyCantBeReadWaitsAndIsRecordedOnceItCan() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.inject(.fail(.read("Novel.sceneit/Archive/save0001.md")))
+
+            book.write("A save retries the record")
+            store.saveNow()
+            await eventually { book.status == .saved }
+
+            #expect(book.archiveNotices.contains(.pendingEntryUnverified(.first)))
+            #expect(book.pendingRecords.mapValues(\.record) == [.first: Self.record], "still pending")
+            #expect(book.archive.copies.map(\.tags) == [[]])
+            #expect(try Self.indexOnDisk(url).copies.isEmpty, "no section that would hide the record")
+            #expect(prompts.notices.count == 1, "only the filing's notice")
+
+            fileSystem.clearFault()
+            book.write("And now it can be read")
+            store.saveNow()
+            await eventually { book.pendingRecords.isEmpty }
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+            #expect(prompts.notices.count == 1)
+        }
+    }
+
+    @Test func aPendingRecordWhoseCopyStillCantBeReadIsToldAsLostOnClosing() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            _ = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.inject(.fail(.read("Novel.sceneit/Archive/save0001.md")))
+
+            #expect(await store.closeBook() == .left)
+
+            #expect(try Self.indexOnDisk(url).copies.isEmpty)
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
+            )
+            #expect(prompts.notices.count == 2)
+        }
+    }
+
+    /// `Archive/` was emptied, so the next filing takes the pending record's number, and this
+    /// time the index can be written: the old record is told.
+    @Test func aFilingThatSavesItsIndexAtAPendingRecordsNumberTellsTheOldRecord() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.clearFault()
+            removeUnlocking(PackageLayout(root: url).archive)
+            let second = FilingRecord(filed: Self.record.filed, tags: ["second"])
+
+            guard case .filed(let outcome) = await store.fileACopy(of: book, as: second) else {
+                Issue.record("expected a filed copy")
+                return
+            }
+
+            try #require(outcome.number == .first, "precondition: the pending record's number was free")
+            try #require(outcome.isComplete, "precondition: the index was written")
+            #expect(book.pendingRecords.isEmpty)
+            #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["second"]])
+            #expect(
+                prompts.notices.last
+                    == ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
+            )
+            #expect(prompts.notices.count == 2, "the first filing's notice, then the old record")
         }
     }
 
