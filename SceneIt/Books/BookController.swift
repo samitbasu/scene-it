@@ -22,6 +22,12 @@ final class BookController {
     /// Also covers the time between a press and `applicationShouldTerminate`, which the app
     /// delegate's own `quitting` phase (its guard against a second `terminate`) doesn't see.
     private var quitUnderWay: QuitAttempt?
+    /// When ⌘W last closed a filed copy. A press soon after, a held ⌘W repeating or a quick second
+    /// press, doesn't go on to close the book (ADR 0038's guard against key repeats).
+    private var copyClosed: ContinuousClock.Instant?
+    /// The time now; a test can stand in for the clock.
+    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    static let closeCopyGrace = Interval(clamping: .milliseconds(700))
 
     private final class CloseAttempt {
         /// Its own task, which a quit pressed while it's still releasing the book waits for.
@@ -177,6 +183,7 @@ final class BookController {
         case (_, .open) where closeUnderWay != nil, (_, .viewingCopy) where closeUnderWay != nil:
             return .nothing
         case (.closeButton, _), (.menu, .choosing): return .quit
+        case (.menu, .open) where copyJustClosed: return .nothing
         case (.menu, .open): return .closeBook
         case (.menu, .viewingCopy): return .closeCopy
         }
@@ -216,6 +223,7 @@ final class BookController {
             }
         case .closeCopy:
             store.closeFiledCopy()
+            copyClosed = now()
         case .closeWindow(let window):
             window.performClose(nil)
         case .nothing:
@@ -248,7 +256,13 @@ final class BookController {
 
     /// File → Close Book's title: on the start screen, where it quits, it says so.
     var closeItemTitle: String {
-        store.isChoosing ? OneBookWording.startScreenCloseMenuItem : OneBookWording.closeBookMenuItem
+        if store.isChoosing { return OneBookWording.startScreenCloseMenuItem }
+        if case .viewingCopy = store.session { return OneBookWording.closeCopyMenuItem }
+        return OneBookWording.closeBookMenuItem
+    }
+
+    private var copyJustClosed: Bool {
+        copyClosed.map { now() - $0 < Self.closeCopyGrace.duration } ?? false
     }
 
     enum CloseTarget: Equatable {

@@ -149,9 +149,6 @@ extension OneAtATime {
                 #expect(books.store.shown === book, "the book shows again")
                 #expect(books.store.current === book, "and stays open")
                 #expect(book.openScene == scenes.letter)
-                #expect(
-                    books.closeAction(from: .menu(keyWindow: nil)) == .closeBook,
-                    "the next ⌘W closes the book")
             }
         }
 
@@ -163,5 +160,89 @@ extension OneAtATime {
                 #expect(WindowMode.offers(.fileCabinet, over: book))
             }
         }
+
+        /// ⌘W held down, or pressed twice, closes the copy and stops there: a press within
+        /// `closeCopyGrace` does nothing. File → Close Book reads Close Copy while a copy shows.
+        @Test func aHeldOrDoubledCloseClosesOnlyTheCopy() async throws {
+            try await withCopyShowing { books, book, _, _ in
+                var now = ContinuousClock.now
+                books.now = { now }
+                #expect(books.closeItemTitle == OneBookWording.closeCopyMenuItem)
+                #expect(books.press(.menu(keyWindow: nil)) == nil)
+                try #require(books.store.shown === book, "precondition: the copy closed")
+                #expect(books.closeItemTitle == OneBookWording.closeBookMenuItem)
+
+                now += .milliseconds(100)
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .nothing, "a repeat")
+                #expect(books.press(.menu(keyWindow: nil)) == nil)
+                #expect(books.store.current === book && !books.store.isChoosing, "the book stays open")
+
+                now += BookController.closeCopyGrace.duration
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook, "a later ⌘W closes it")
+            }
+        }
+
+        /// The banner's Restore and New Book stay enabled; refused, they tell the writer why and
+        /// write nothing: Restore into a book open elsewhere, a new book from a copy a newer Scene
+        /// It wrote.
+        @Test func aRefusedBannerActionSaysWhyAndWritesNothing() async throws {
+            try await withTemporaryFolder { folder in
+                let prompts = TellingPrompts()
+                let books = BookController(role: .testHost, prompts: prompts)
+                let store = books.store
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await store.create(at: url) == .created)
+                let first = try #require(store.current)
+                _ = try #require(first.addScene(after: nil))
+                guard case .filed = await store.fileACopy(of: first, as: Self.record) else {
+                    Issue.record("precondition: a copy is filed")
+                    return
+                }
+                #expect(await store.closeBook() == .left)
+                let file = PackageLayout(root: url).filedCopy(.first)
+                try FileManager.default.setAttributes(
+                    [.immutable: false], ofItemAtPath: file.path(percentEncoded: false))
+                let text = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+                try #require(text.contains("format: 2\n"), "precondition: the copy declares its format")
+                try Data(text.replacingOccurrences(of: "format: 2\n", with: "format: 3\n").utf8).write(
+                    to: file)
+                let holder = try #require(try BookPackage.open(at: url).editable)
+                #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
+                let book = try #require(store.current)
+                #expect(await store.openFiledCopy(.first, of: book) == .opened)
+                let copy = try #require(store.shown)
+                let made = folder.appending(path: "Then.sceneit", directoryHint: .isDirectory)
+                let actions = FiledCopyActions(copy: copy, store: store, newBook: .fixed(made))
+                let bookBytes = try Data(contentsOf: url.appending(path: "book.md"))
+                let told = prompts.titles.count
+
+                await actions.restore()
+                await actions.makeNewBook()
+
+                #expect(Array(prompts.titles.dropFirst(told)).count == 2, "each said why")
+                #expect(prompts.titles.last == store.refusalToMakeBook(from: copy)?.title)
+                #expect(!FileManager.default.fileExists(atPath: made.path(percentEncoded: false)))
+                #expect(try Data(contentsOf: url.appending(path: "book.md")) == bookBytes)
+                #expect(store.shown === copy, "still showing the copy")
+                store.closeFiledCopy()
+                #expect(await store.closeBook() == .left)
+                withExtendedLifetime(holder) {}
+            }
+        }
+    }
+}
+
+/// Records what the store tells and asks, answering each question with its first choice.
+@MainActor
+private final class TellingPrompts: StorePrompts {
+    private(set) var titles: [String] = []
+
+    func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        titles.append(alert.title)
+        return alert.choices[0]
+    }
+
+    func tell(_ notice: Notice) async {
+        titles.append(notice.title)
     }
 }

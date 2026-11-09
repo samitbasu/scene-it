@@ -4,6 +4,8 @@ import Foundation
 /// place so the owner can review them as a whole. The owner chose these on 2026-11-07.
 public enum OneBookWording {
     public static let closeBookMenuItem = "Close Book"
+    /// File → Close Book while a filed copy shows: ⌘W closes the copy (PLAN §7.5).
+    public static let closeCopyMenuItem = "Close Copy"
     /// The same File menu item (⌘W) on the start screen, where it quits.
     public static let startScreenCloseMenuItem = "Close Window and Quit"
 

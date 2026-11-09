@@ -90,16 +90,9 @@ struct FiledCopyBanner: View {
                     Text("\(title) \(detail) \(readOnly)")
                     Spacer()
                     Menu {
-                        let restoreRefusal = store.refusalToRestore(from: book)
-                        Button(FiledCopyWording.restoreScene) {
-                            Task { await store.restoreScene(from: book) }
-                        }
-                        .disabled(restoreRefusal != nil)
-                        .help(restoreRefusal?.message ?? "")
-                        let bookRefusal = store.refusalToMakeBook(from: book)
-                        Button(FiledCopyWording.newBook) { Task { await makeNewBook(context) } }
-                            .disabled(bookRefusal != nil)
-                            .help(bookRefusal?.message ?? "")
+                        let actions = FiledCopyActions(copy: book, store: store, newBook: newBook)
+                        Button(FiledCopyWording.restoreScene) { Task { await actions.restore() } }
+                        Button(FiledCopyWording.newBook) { Task { await actions.makeNewBook() } }
                     } label: {
                         Text(FiledCopyWording.close)
                     } primaryAction: {
@@ -117,10 +110,29 @@ struct FiledCopyBanner: View {
             }
         }
     }
+}
 
-    private func makeNewBook(_ context: FiledCopyContext) async {
-        let name = FiledCopyWording.newBookName(title: book.book.title, context)
-        guard let url = await newBook.choose(name) else { return }
-        await store.newBook(from: book, at: url)
+/// The banner's Restore This Scene to My Book and New Book from This Copy…. Both stay enabled:
+/// macOS shows no tooltip on a menu item, so a refused one tells the writer why instead, through
+/// the store, and writes nothing.
+struct FiledCopyActions {
+    let copy: AppOpenBook
+    let store: AppBookStore
+    let newBook: SaveDestination
+
+    func restore() async {
+        await store.restoreScene(from: copy)
+    }
+
+    /// Refused before the save panel, so the writer isn't asked where for nothing.
+    func makeNewBook() async {
+        if let refusal = store.refusalToMakeBook(from: copy) {
+            await store.tell(refusal)
+            return
+        }
+        guard case .filedCopy(let context) = copy.document,
+            let url = await newBook.choose(FiledCopyWording.newBookName(title: copy.book.title, context))
+        else { return }
+        await store.newBook(from: copy, at: url)
     }
 }

@@ -323,8 +323,10 @@ Anything outside the window that acts on "the book" must ask for `store.shown`, 
 (`CloseAction.closeCopy`), and the rail offers no File Cabinet over it (`WindowMode.offers`).
 Restore and New Book ask the store first (`refusalToRestore`, `refusalToMakeBook`): a copy a newer
 Scene It wrote (`FiledCopyFormat.newer`, kept from the parse) is only read, and a book that takes no
-edits can't take a restored scene. The menu items are disabled with the reason as their tooltip,
-and the store tells the same notice if asked anyway.
+edits can't take a restored scene. macOS shows no tooltip on a menu item, so both items stay
+enabled and a refused one tells the writer why (`FiledCopyActions`), writing nothing. File → Close
+Book reads Close Copy while a copy shows, and a ⌘W within `BookController.closeCopyGrace` of the one
+that closed the copy is ignored, so a held or doubled ⌘W can't go on to close the book.
 
 Search, Print and Read aloud act on the window's `book`, which here is the copy, so they reach it
 without any change once they land (#34, #35, #39).
