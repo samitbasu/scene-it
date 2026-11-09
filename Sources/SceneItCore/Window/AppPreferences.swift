@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// The window's layout, the page's zoom and the last-used colors of the formatting bar and of
-/// comments, which are the app's, not the book's (ADR 0022): they're kept between launches,
+/// The window's layout, the page's zoom, the read-aloud voice and rate, and the last-used colors
+/// of the formatting bar and of comments, which are the app's, not the book's (ADR 0022): they're kept between launches,
 /// and changing them never edits the open book.
 @MainActor
 @Observable
@@ -19,6 +19,9 @@ public final class AppPreferences {
     public private(set) var zoom: Zoom
     /// The Scenes sheet's Cards or Light table (PLAN §7.2).
     public private(set) var scenesView: ScenesView
+    /// `nil` for the voice chosen in System Settings › Spoken Content (ADR 0044).
+    public private(set) var readAloudVoice: VoiceIdentifier?
+    public private(set) var readAloudRate: SpeechRate
     @ObservationIgnored public let storage: any PreferenceStorage
 
     /// A value missing from `storage`, or one this version doesn't know, is the default.
@@ -36,6 +39,21 @@ public final class AppPreferences {
             storage.string(forKey: Key.lastCommentColor).flatMap(PaletteColor.init(rawValue:)) ?? .purple
         zoom = storage.string(forKey: Key.zoom).flatMap(Double.init).flatMap(Zoom.init(exactly:)) ?? .standard
         scenesView = storage.string(forKey: Key.scenesView).flatMap(ScenesView.init(rawValue:)) ?? .cards
+        readAloudVoice = storage.string(forKey: Key.readAloudVoice).flatMap(VoiceIdentifier.init)
+        readAloudRate =
+            storage.string(forKey: Key.readAloudRate).flatMap(Float.init).flatMap(SpeechRate.init(exactly:))
+            ?? .standard
+    }
+
+    /// `nil` goes back to the system's voice.
+    public func setReadAloudVoice(_ voice: VoiceIdentifier?) {
+        readAloudVoice = voice
+        storage.set(voice?.rawValue ?? "", forKey: Key.readAloudVoice)
+    }
+
+    public func setReadAloudRate(_ rate: SpeechRate) {
+        readAloudRate = rate
+        storage.set(String(rate.value), forKey: Key.readAloudRate)
     }
 
     public func showScenes(as view: ScenesView) {
@@ -107,6 +125,8 @@ public final class AppPreferences {
         static let lastCommentColor = "lastCommentColor"
         static let zoom = "zoom"
         static let scenesView = "scenesView"
+        static let readAloudVoice = "readAloudVoice"
+        static let readAloudRate = "readAloudRate"
     }
 }
 

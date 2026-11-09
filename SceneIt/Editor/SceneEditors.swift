@@ -11,18 +11,20 @@ final class SceneEditors {
     private let book: AppOpenBook
     private let preferences: AppPreferences
     private let formatting: EditorFormatting
+    private let readAloud: ReadAloud
     private let focus: PageFocus
     private weak var keys: WindowKeys?
     /// The selected comment, which the page, the notes and the comments panel share.
     let comments = CommentSelection()
 
     init(
-        book: AppOpenBook, preferences: AppPreferences, formatting: EditorFormatting, focus: PageFocus,
-        keys: WindowKeys
+        book: AppOpenBook, preferences: AppPreferences, formatting: EditorFormatting, readAloud: ReadAloud,
+        focus: PageFocus, keys: WindowKeys
     ) {
         self.book = book
         self.preferences = preferences
         self.formatting = formatting
+        self.readAloud = readAloud
         self.focus = focus
         self.keys = keys
     }
@@ -46,6 +48,7 @@ final class SceneEditors {
         focus.body = page
         scrollView.pinched = { [preferences] in preferences.setZoom($0) }
         scrollView.show(preferences.zoom)
+        readAloud.attach(page, of: book)
         return SceneTextHost(
             SceneTextEditor(
                 book: book, part: .body, preferences: preferences, formatting: formatting, comments: comments),

@@ -401,6 +401,11 @@ state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
 `search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`. To
 render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)`.
 
+`readAloud` renders read aloud (#39, `ReadAloudRenders.swift`): `read-aloud-1-no-selection` (▶
+dimmed), `read-aloud-2-selection` (▶) and `read-aloud-3-reading` (■, the sentence being read
+highlighted), each at 1× and 2× with a `-close-up@2x.png` of the bar and the top of the page.
+Nothing is heard. To render only these, add `-only-testing:SceneItTests/WindowRenders/readAloud\(\)`.
+
 `commentUnderlines` renders comment underlines (#24, ADR 0032) on the page (`underlines`) and in
 the Notes tab (`underlines-notes`), each as `@1x.png`, `@2x.png` and `-vs-mockup.png`.
 

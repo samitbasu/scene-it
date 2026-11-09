@@ -1,6 +1,6 @@
 # 0045 — Export to Word marks the scene title as Heading 1
 
-**Status:** Accepted (2026-11-09, the owner, on #36). Resolves PLAN §9 Q5; implemented in #37.
+**Status:** Accepted (2026-11-09, the owner, on #36), amended by [0047](0047-word-export-writes-its-own-docx.md). Resolves PLAN §9 Q5; implemented in #37.
 
 ## Context
 PLAN §10.2 writes the .docx with `NSAttributedString`'s `.officeOpenXML` document type. That writer

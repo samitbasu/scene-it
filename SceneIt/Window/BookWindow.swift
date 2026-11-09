@@ -21,13 +21,16 @@ struct BookWindow: View {
     @State private var cabinet: FileCabinetModel
     @State private var chrome: WindowChrome
     @State private var keys: WindowKeys
+    @State private var readAloud: ReadAloud
     let newBookDestination: SaveDestination
 
+    /// `readAloud` is the app's; without one, the window reads aloud to a recorder.
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
         search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
-        chrome: WindowChrome? = nil, newBookDestination: SaveDestination = .nowhere
+        chrome: WindowChrome? = nil, readAloud: ReadAloud? = nil,
+        newBookDestination: SaveDestination = .nowhere
     ) {
         self.newBookDestination = newBookDestination
         self.book = book
@@ -49,9 +52,12 @@ struct BookWindow: View {
         _chrome = State(initialValue: chrome)
         let keys = WindowKeys(chrome: chrome, filing: filing, export: export, page: focus, mode: mode)
         _keys = State(initialValue: keys)
+        let readAloud = readAloud ?? ReadAloud(preferences: preferences, speech: RecordedSpeech())
+        _readAloud = State(initialValue: readAloud)
         _editors = State(
             initialValue: SceneEditors(
-                book: book, preferences: preferences, formatting: formatting, focus: focus, keys: keys))
+                book: book, preferences: preferences, formatting: formatting, readAloud: readAloud,
+                focus: focus, keys: keys))
     }
 
     var body: some View {
@@ -68,8 +74,8 @@ struct BookWindow: View {
                     // Under a sheet, nothing here can keep focus or be reached with Tab.
                     HStack(spacing: 0) {
                         EditorArea(
-                            book: book, preferences: preferences, formatting: formatting, focus: pageFocus,
-                            editors: editors)
+                            book: book, preferences: preferences, formatting: formatting,
+                            readAloud: readAloud, focus: pageFocus, editors: editors)
                         if chrome.shows(.rightPanel) {
                             Divider()
                             RightPanel(
@@ -108,6 +114,7 @@ struct BookWindow: View {
         .background(WindowEscapeFallback(keys: keys))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
+            if new.isSheet { readAloud.stop() }
             if mode == .search { search.refresh() } else { search.close() }
             if mode != .scenes { scenes.close() }
             if mode != .fileCabinet { cabinet.close() }
@@ -125,6 +132,7 @@ struct BookWindow: View {
             // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.
             if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
+        .onDisappear { readAloud.stop() }
         .onAppear {
             // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
             chrome.keys = keys

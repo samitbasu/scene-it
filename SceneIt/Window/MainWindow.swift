@@ -18,7 +18,8 @@ struct MainWindow: View {
                 // read again (Open Anyway, Open Other Version) or a filed copy shows over it.
                 OpenBookWindow(
                     book: book, store: books.store, preferences: books.preferences,
-                    formatting: books.formatting, mainChrome: books.mainWindowChrome,
+                    formatting: books.formatting, readAloud: books.readAloud,
+                    mainChrome: books.mainWindowChrome,
                     exportDestination: { [books] in books.exportDestination },
                     newBookDestination: books.newBookDestination
                 )
@@ -80,6 +81,7 @@ private struct OpenBookWindow: View {
     let store: AppBookStore
     let preferences: AppPreferences
     let formatting: EditorFormatting
+    let readAloud: ReadAloud
     let mainChrome: MainWindowChrome
     @State private var mode = WindowMode.page
     @State private var chrome = WindowChrome()
@@ -89,7 +91,8 @@ private struct OpenBookWindow: View {
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
-        mainChrome: MainWindowChrome, exportDestination: @escaping () -> SaveDestination,
+        readAloud: ReadAloud, mainChrome: MainWindowChrome,
+        exportDestination: @escaping () -> SaveDestination,
         newBookDestination: SaveDestination
     ) {
         self.newBookDestination = newBookDestination
@@ -97,6 +100,7 @@ private struct OpenBookWindow: View {
         self.store = store
         self.preferences = preferences
         self.formatting = formatting
+        self.readAloud = readAloud
         self.mainChrome = mainChrome
         _filing = State(initialValue: FilingFlow(book: book))
         _export = State(initialValue: ExportFlow(book: book, destination: exportDestination))
@@ -105,7 +109,8 @@ private struct OpenBookWindow: View {
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            filing: filing, export: export, chrome: chrome, newBookDestination: newBookDestination
+            filing: filing, export: export, chrome: chrome, readAloud: readAloud,
+            newBookDestination: newBookDestination
         )
         .onAppear { mainChrome.show(chrome, mode: $mode) }
         .onDisappear { mainChrome.gone(chrome) }

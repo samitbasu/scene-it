@@ -19,12 +19,3 @@ struct PendingSelection {
         return pending.range
     }
 }
-
-extension NSRange {
-    /// This range cut to text of `length` UTF-16 units, so a range from older text can't
-    /// reach past the end.
-    func clamped(toLength length: Int) -> NSRange {
-        let start = Swift.min(Swift.max(location, 0), length)
-        return NSRange(location: start, length: Swift.min(self.length, length - start))
-    }
-}

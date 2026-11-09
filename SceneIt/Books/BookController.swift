@@ -51,6 +51,9 @@ final class BookController {
     let preferences: AppPreferences
     /// The open book's page, for the Format menu and the control bar.
     let formatting: EditorFormatting
+    /// The page's read aloud: the Mac's voice in the app, a silent recorder in the test host
+    /// and previews.
+    let readAloud: ReadAloud
     let mirror: BackupMirror
     /// Where reviews keep their backups, kept originals and locks (review format §9 Q9).
     let reviews: ReviewsFolder
@@ -59,6 +62,8 @@ final class BookController {
     var exportDestination: SaveDestination
     /// Where Save Review… writes, as `exportDestination`.
     var reviewDestination: SaveDestination
+    /// Where Export to Word… writes, as `exportDestination`.
+    var wordDestination: SaveDestination
     /// Where New Book from This Copy… makes the book, as `exportDestination`.
     var newBookDestination: SaveDestination
     /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
@@ -86,9 +91,12 @@ final class BookController {
         requests = AppRequests(carryOut: recorded.map { recorder in recorder.record } ?? AppRequests.appKit)
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
+        readAloud = ReadAloud(
+            preferences: preferences, speech: role == .app ? SystemSpeech() : RecordedSpeech())
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
+        wordDestination = role == .app ? .wordPanel : .nowhere
         newBookDestination = role == .app ? .newBookPanel : .nowhere
         reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(

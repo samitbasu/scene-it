@@ -88,6 +88,14 @@ extension OneAtATime {
                 copyPage.deleteForward(nil)
                 #expect(copyPage.string == "He read it twice.", "typing is refused")
                 #expect(copy.book.scene(letter)?.body == [[Run("He read it twice.")]])
+
+                // Read aloud works on the copy (PLAN §7.5): the selection on its page reads.
+                copyPage.setSelectedRange(NSRange(location: 0, length: 2))
+                await eventually { books.readAloud.control == .read }
+                #expect(books.readAloud.control == .read, "▶ is enabled on the copy")
+                books.readAloud.press()
+                #expect(books.readAloud.control == .stop)
+                books.readAloud.stop()
                 store.saveNow()
 
                 store.closeFiledCopy()
