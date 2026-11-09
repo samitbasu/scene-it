@@ -323,6 +323,111 @@ struct FileACopyTests {
         }
     }
 
+    // MARK: The book changed on disk with the dialog up (ADR 0018)
+
+    static let externalChangeTitle = "This book was changed by another program."
+
+    /// Types into the dialog, then has another program change `book.md` and asks for a save,
+    /// so ADR 0018's alert comes up. Returns the book that held the draft.
+    private static func draftThenExternalChange(
+        _ url: URL, store: TestStore,
+        change: (URL) throws -> Void = { try writeExternally(try draft(7), to: $0) }
+    ) async throws -> OpenBook<ManualClock> {
+        let book = try #require(store.current)
+        book.write("Mine")
+        store.saveNow()
+        await eventually { book.status == .saved }
+        book.filingDraft = typedDraft()
+        try change(url)
+        book.write("More of mine")
+        store.saveNow()
+        return book
+    }
+
+    @Test func keepMyVersionKeepsTheDialogAsTyped() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.keepMyVersion])
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+
+            let book = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { prompts.titles.count == 1 && book.status == .saved }
+
+            #expect(prompts.titles == [Self.externalChangeTitle], "nothing asked about the dialog")
+            #expect(store.current === book)
+            #expect(book.filingDraft == Self.typedDraft())
+        }
+    }
+
+    @Test func openOtherVersionKeepsTheDialogAsTypedOverTheirVersion() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+
+            let book = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { store.current !== book && store.current != nil }
+
+            let reopened = try #require(store.current)
+            #expect(reopened.book == (try draft(7)), "precondition: their version was read again")
+            #expect(prompts.titles == [Self.externalChangeTitle], "nothing asked about the dialog")
+            #expect(reopened.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+            guard case .filed = await store.fileACopy(as: Self.typedDraft().record) else {
+                Issue.record("the draft couldn't be filed on the book read again")
+                return
+            }
+            #expect(try Self.indexOnDisk(url).copies.map(\.note) == ["Before the ending"])
+        }
+    }
+
+    @Test func openMyVersionKeepsTheDialogAsTyped() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+
+            let book = try await Self.draftThenExternalChange(url, store: store) { url in
+                let bookMd = url.appending(path: "book.md")
+                try FileManager.default.removeItem(at: bookMd)
+                try FileManager.default.createDirectory(at: bookMd, withIntermediateDirectories: false)
+            }
+            await eventually { store.current !== book && store.current != nil }
+
+            let reopened = try #require(store.current)
+            let copy = folder.appending(path: "Novel (my edits).sceneit")
+            #expect(
+                reopened.layout.root.canonicalPath == copy.canonicalPath, "precondition: my version opened")
+            #expect(reopened.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+            #expect(!prompts.titles.contains(Self.quitTitle) && !prompts.titles.contains(Self.closeTitle))
+        }
+    }
+
+    /// The original, read again, turns out to be open on another Mac; the writer chooses Open
+    /// Anyway, which reads it once more.
+    @Test func openOtherVersionThenOpenAnywayKeepsTheDialogAsTyped() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.override(locality: .network)
+            let other = LockRecord(
+                host: "Other Mac", hostID: "OTHER", userID: 501, processID: 1,
+                since: Date(timeIntervalSince1970: 1_800_000_000))
+            let prompts = ScriptedPrompts([
+                ExternalChangeChoice.openOtherVersion, ReadOnlyChoice.openAnyway(other),
+            ])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let lock = url.appending(path: ".lock")
+            fileSystem.before(.lock("Novel.sceneit/.lock")) { try? other.encoded().write(to: lock) }
+
+            let book = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { store.current?.isEditable == true && store.current !== book }
+
+            #expect(prompts.titles.count == 2, "asked about the change, then about the other Mac")
+            #expect(prompts.labels.last == [ReadOnlyWording.keepReadOnly, ReadOnlyWording.openAnyway])
+            #expect(store.current?.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
+        }
+    }
+
     // MARK: Reconciliation on open
 
     @Test func openingReconcilesTheArchiveAndSavesTheIndex() async throws {

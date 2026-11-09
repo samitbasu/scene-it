@@ -546,7 +546,8 @@ choices keep illegal combinations out:
 - **No sheet without a book.** The mode is `@State` inside `BookWindow`, which only exists while
   a book is open, and `MainWindow` gives it `.id(book.instanceID)`. A new identity is a
   new view, so a book read again (Open Anyway, Open Other Version) starts again at the page,
-  with new editors. It's the SwiftUI spelling of "this
+  with new editors. What must survive the rebuild lives on the book, not the view: File a Copy's
+  draft is carried to the new `OpenBook`, so its dialog comes back up. It's the SwiftUI spelling of "this
   state is owned by that value".
 - **No second copy of "can I edit?".** Read-only is the book's own state (`OpenBook.isEditable`),
   so the window reads it instead of storing it again.
