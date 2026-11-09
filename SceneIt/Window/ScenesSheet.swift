@@ -1,9 +1,10 @@
 import SceneItCore
 import SwiftUI
 
-/// The Scenes sheet (PLAN §7.2, mockups 07–09): the header, then the story as cards or as a light
-/// table, with a dashed tile that adds a scene at the end. Clicking a card opens its scene. Esc or
-/// × closes it. Read-only, it adds and tags nothing.
+/// The Scenes sheet (PLAN §7.2, §7.3, mockups 07–09): the header, then the story as cards or as a
+/// light table, with a dashed tile that adds a scene at the end, then the Boneyard. Clicking a
+/// card or tile opens its scene; dragging moves, cuts or restores it. Esc or × closes it.
+/// Read-only, it changes nothing.
 struct ScenesSheet: View {
     let book: AppOpenBook
     let preferences: AppPreferences
@@ -29,11 +30,21 @@ struct ScenesSheet: View {
                     guard let scene = model.titling else { return }
                     proxy.scrollTo(scene)
                 }
+                .onChange(of: model.focused) {
+                    guard let scene = model.focused else { return }
+                    proxy.scrollTo(scene)
+                }
             }
-            // The Boneyard tray (#29) goes below the grid.
+            BoneyardTray(book: book, model: model, actions: actions, editability: editability)
         }
         .background(.background)
-        .background(UndoFocusHolder(role: .sheet))
+        .background(
+            UndoFocusHolder(
+                role: .sheet, anchor: model.keyFocus,
+                keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
+                focusChanged: { model.sheetKeys($0) })
+        )
+        .onChange(of: book.book.scenes.map(\.id)) { model.keepToTheStory(of: book.book) }
         .background(EscapeKey(keys: keys, inner: { model.closeCardField() }))
         .task { await model.ticker.run() }
     }
@@ -99,6 +110,7 @@ private struct ScenesGrid: View {
 
     var body: some View {
         let shown = model.cards(of: book.book)
+        let entries = GridEntry.entries(shown, drag: model.drop.drag, slot: model.drop.slot(in: book.book))
         VStack(alignment: .leading, spacing: WindowMetrics.Scenes.gap) {
             if book.book.scenes.isEmpty {
                 message(
@@ -107,13 +119,26 @@ private struct ScenesGrid: View {
                 message(ScenesWording.noMatches(model.filter), hint: ScenesWording.noMatchesHint)
             }
             LazyVGrid(columns: columns, alignment: .leading, spacing: WindowMetrics.Scenes.gap) {
-                ForEach(shown, id: \.scene.id) { entry in
-                    card(entry.scene, number: entry.number)
-                        .id(entry.scene.id)
+                ForEach(entries) { entry in
+                    switch entry {
+                    case .card(let card):
+                        self.card(card.scene, number: card.number)
+                            .sceneDropZone(.card(card.scene.id), actions: actions, editability: editability)
+                            .id(card.scene.id)
+                    case .slot(let drag):
+                        DropSlot(drag: drag, view: view)
+                            .sceneDropZone(.slot, actions: actions, editability: editability)
+                    }
                 }
                 if editability == .editable {
                     NewSceneTile(view: view) { actions.add(.atEnd) }
+                        .sceneDropZone(.end, actions: actions, editability: editability)
                 }
+            }
+            .onGeometryChange(for: CGSize.self) {
+                $0.size
+            } action: {
+                model.gridSize = $0
             }
         }
         .padding(WindowMetrics.Scenes.gridPadding)
@@ -121,18 +146,20 @@ private struct ScenesGrid: View {
     }
 
     private var columns: [GridItem] {
-        let width =
-            switch view {
-            case .cards: WindowMetrics.Scenes.cardWidth
-            case .lightTable: WindowMetrics.Scenes.tileWidth
-            }
-        return [GridItem(.adaptive(minimum: width), spacing: WindowMetrics.Scenes.gap, alignment: .top)]
+        [
+            GridItem(
+                .adaptive(minimum: WindowMetrics.Scenes.minimumCardWidth(view)),
+                spacing: WindowMetrics.Scenes.gap,
+                alignment: .top)
+        ]
     }
 
     @ViewBuilder private func card(_ scene: BookScene, number: Int) -> some View {
         let content = SceneCardContent(
             scene: scene, number: number, isOpen: scene.id == book.openScene ? .open : .notOpen,
-            titling: scene.id == model.titling && editability == .editable ? .typing : .done)
+            titling: scene.id == model.titling && editability == .editable ? .typing : .done,
+            focus: scene.id == model.focused ? .focused : .unfocused,
+            dragging: model.drop.drag == .card(scene.id) ? .dragged : .still)
         switch view {
         case .cards:
             SceneCard(
@@ -153,6 +180,37 @@ private struct ScenesGrid: View {
         case .plain:
             Text(text).font(.system(size: 13)).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// What the grid shows, in order: the cards, and the slot where a dragged scene will land.
+private enum GridEntry: Identifiable {
+    case card(ScenesSheetModel.Card)
+    case slot(SceneDrag)
+
+    enum ID: Hashable {
+        case card(SceneID)
+        case slot
+    }
+
+    var id: ID {
+        switch self {
+        case .card(let card): .card(card.scene.id)
+        case .slot: .slot
+        }
+    }
+
+    /// The cards, with the slot before the card the drag is over, or after the last.
+    static func entries(_ cards: [ScenesSheetModel.Card], drag: SceneDrag?, slot: StorySlot?) -> [GridEntry] {
+        var entries = cards.map(GridEntry.card)
+        guard let drag, let slot else { return entries }
+        let index: Int? =
+            switch slot {
+            case .end: entries.endIndex
+            case .before(let scene): cards.firstIndex { $0.scene.id == scene }
+            }
+        if let index { entries.insert(.slot(drag), at: index) }
+        return entries
     }
 }
 
@@ -178,6 +236,31 @@ extension WindowMetrics {
         static let cornerRadius: CGFloat = 8
         static let lightTableHeight: CGFloat = 84
         static let newTileHeight: CGFloat = 46
+        /// The slot is as tall as the row it's in, and at least this.
+        static func slotHeight(_ view: ScenesView) -> CGFloat {
+            switch view {
+            case .cards: 120
+            case .lightTable: lightTableHeight
+            }
+        }
+        static let slotFillOpacity = 0.08
+        static let focusRing: CGFloat = 3
+        static let draggedOpacity = 0.4
+        /// How often a drag outside every zone looks for the mouse button's release.
+        static let releaseCheck = Interval(clamping: .milliseconds(100))
+
+        /// How many columns the grid's adaptive layout makes across `size`, as `LazyVGrid` counts
+        /// them.
+        static func columns(fitting size: CGSize, _ view: ScenesView) -> Int {
+            max(1, Int(((size.width + gap) / (minimumCardWidth(view) + gap)).rounded(.down)))
+        }
+
+        static func minimumCardWidth(_ view: ScenesView) -> CGFloat {
+            switch view {
+            case .cards: cardWidth
+            case .lightTable: tileWidth
+            }
+        }
         static let excerptSize: CGFloat = 15
         static let titleSize: CGFloat = 14
         static let metaSize: CGFloat = 12
@@ -193,7 +276,24 @@ extension WindowMetrics {
             static let gap: CGFloat = 3
             static let color = Color(red: 0xB4 / 255, green: 0xB2 / 255, blue: 0xAC / 255)
         }
-        /// The look while the owner hasn't picked (#28): the recommended candidate.
+        /// The Boneyard tray, from mockup 07.
+        enum Boneyard {
+            static let spacing: CGFloat = 8
+            static let verticalPadding: CGFloat = 10
+            static let titleSize: CGFloat = 13
+            static let tileWidth: CGFloat = 180
+            static let tileHeight: CGFloat = 36
+            static let tileGap: CGFloat = 8
+            static let tileCornerRadius: CGFloat = 6
+            static let tileTitleSize: CGFloat = 13
+            static let tileWordsSize: CGFloat = 11
+            static let fill = Color(red: 0xEC / 255, green: 0xEA / 255, blue: 0xE4 / 255)
+            static let tileFill = Color(red: 0xF7 / 255, green: 0xF6 / 255, blue: 0xF3 / 255)
+            static let tileLine = Color(red: 0xB4 / 255, green: 0xB2 / 255, blue: 0xAC / 255)
+            static let litFill = Color(red: 0xFB / 255, green: 0xE4 / 255, blue: 0xE1 / 255)
+            static let litLine = Color(red: 0xD9 / 255, green: 0x3B / 255, blue: 0x30 / 255)
+        }
+        /// The look while the owner hasn't picked (#28, #29): the recommended candidate.
         static var look = ScenesLook.recommended
     }
 }
@@ -216,8 +316,35 @@ struct ScenesLook {
         case plain
     }
 
+    /// How the slot where a dragged scene will land is drawn.
+    enum Slot {
+        /// Dashed and tinted in the accent color.
+        case accent
+        /// Dashed in gray, like the + New scene tile.
+        case neutral
+    }
+
+    /// How the Boneyard lights while a card is over it.
+    enum TrayLight {
+        /// A pale red fill inside a red outline.
+        case fillAndOutline
+        /// A pale red fill and a dashed red outline inset from its edges.
+        case fillAndDashedOutline
+    }
+
+    /// When a Boneyard tile shows its ↩.
+    enum RestoreButton {
+        case always
+        case onHover
+    }
+
     var tagEntry: TagEntry
     var messages: Messages
+    var slot: Slot
+    var trayLight: TrayLight
+    var restoreButton: RestoreButton
 
-    static let recommended = ScenesLook(tagEntry: .chipOpensField, messages: .withHint)
+    static let recommended = ScenesLook(
+        tagEntry: .chipOpensField, messages: .withHint, slot: .accent, trayLight: .fillAndOutline,
+        restoreButton: .always)
 }

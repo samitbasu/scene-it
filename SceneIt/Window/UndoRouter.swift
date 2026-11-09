@@ -184,6 +184,11 @@ final class UndoFocusView: NSView {
     /// for Esc to close.
     var escape: () -> Void = {}
     weak var keys: WindowKeys?
+    /// Keys the view's content takes before AppKit's key bindings see them: the Scenes sheet's
+    /// arrows, Delete and Return on its cards.
+    var keyHandler: ((NSEvent) -> KeyOutcome)?
+    /// Told as the view gains or loses the keys.
+    var focusChanged: ((FocusChange) -> Void)?
 
     var focus: UndoFocus {
         switch role {
@@ -217,15 +222,18 @@ final class UndoFocusView: NSView {
 
     override func becomeFirstResponder() -> Bool {
         needsDisplay = true
+        focusChanged?(.gained)
         return true
     }
 
     override func resignFirstResponder() -> Bool {
         needsDisplay = true
+        focusChanged?(.lost)
         return true
     }
 
     override func keyDown(with event: NSEvent) {
+        if keyHandler?(event) == .handled { return }
         interpretKeyEvents([event])
     }
 
@@ -259,6 +267,8 @@ struct UndoFocusHolder: NSViewRepresentable {
     let role: UndoFocusView.Role
     var anchor: UndoFocusAnchor?
     var escape: () -> Void = {}
+    var keyHandler: ((NSEvent) -> KeyOutcome)?
+    var focusChanged: ((FocusChange) -> Void)?
     @Environment(UndoRouter.self) private var router: UndoRouter?
     @Environment(\.windowKeys) private var keys
 
@@ -273,8 +283,15 @@ struct UndoFocusHolder: NSViewRepresentable {
         view.role = role
         view.escape = escape
         view.keys = keys
+        view.keyHandler = keyHandler
+        view.focusChanged = focusChanged
         anchor?.view = view
     }
+}
+
+/// A view gaining or losing the keyboard focus.
+enum FocusChange {
+    case gained, lost
 }
 
 /// Lets a SwiftUI view hand the focus to its `UndoFocusHolder`.

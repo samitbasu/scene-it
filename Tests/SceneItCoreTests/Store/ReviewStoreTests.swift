@@ -57,6 +57,8 @@ struct ReviewStoreTests {
                     BodyChange(lines: 0..<1, paragraphs: [[Run("The ferry left at dawn.", styles: [.bold])]]),
                     to: Self.dawn) == nil, "formatting is a change to the text")
             #expect(book.addScene(after: nil) == nil)
+            #expect(!book.change(.cut(Self.dawn)), "nor is its structure: no cut, move or restore")
+            #expect(!book.structureUndo.canUndo)
             #expect(!book.addTag("draft", to: Self.dawn))
             #expect(book.book == before)
             #expect(!book.hasUnsavedEdits)

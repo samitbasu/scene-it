@@ -42,7 +42,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// numbers turned out to hold other files (another program wrote them): forgotten, for the
     /// store to tell the writer. A number can appear twice.
     @ObservationIgnored private var overwrittenRecords: UnrecordedCopies = []
-    /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
+    /// Changes to the book's scenes: added, moved, cut, restored, deleted (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
     @ObservationIgnored public let errorsUndo = UndoManager()
@@ -637,6 +637,28 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         structureUndo.setActionName(ScenesWording.newSceneUndoName)
         driver.send(.edited)
+    }
+
+    /// Moves, cuts or restores a scene (PLAN §7.2, §7.3), keeping everything it holds. One change
+    /// on `structureUndo`, named for what it did. `false`, changing nothing, if the book is
+    /// read-only, the change doesn't apply to where the scene is, or it would leave the scene
+    /// where it is. The open scene stays open, wherever it goes.
+    @discardableResult
+    public func change(_ change: SceneChange) -> Bool {
+        guard accepts(.manuscript), let place = book.destination(of: change) else { return false }
+        let target = StructureTarget()
+        structureTargets[target] = change.scene
+        return relocate(target, to: place, named: ScenesWording.undoName(of: change))
+    }
+
+    private func relocate(_ target: StructureTarget, to place: ScenePlace, named name: String) -> Bool {
+        guard let driver = driver(for: .manuscript), let scene = structureTargets[target],
+            let from = book.relocate(scene, to: place)
+        else { return false }
+        structureUndo.registerUndo(withTarget: self) { _ = $0.relocate(target, to: from, named: name) }
+        structureUndo.setActionName(name)
+        driver.send(.edited)
+        return true
     }
 
     /// Deletes a Boneyard scene as far as the writer can tell (ADR 0031): it moves to the

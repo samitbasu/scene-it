@@ -172,6 +172,16 @@ public final class BookStore<C: Clock<Duration>> {
         await open(last)
     }
 
+    /// Asks the writer, the way the store asks its own questions.
+    public func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        await prompts.ask(alert)
+    }
+
+    /// Tells the writer, the way the store tells its own news.
+    public func tell(_ notice: Notice) async {
+        await prompts.tell(notice)
+    }
+
     /// Review Book… (ADR 0029, 0041): opens the review copy or review file at `url` from the start
     /// state, with the review that belongs to it, or a new one. The copy is never written. A
     /// review that opens read-only is told, as a book is.
