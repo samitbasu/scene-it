@@ -51,6 +51,11 @@ public struct FiledCopy: Hashable, Sendable {
         self.errors = errors
     }
 
+    /// Whether this section says what `record` gives, as the index would keep it.
+    func holds(_ record: FilingRecord) -> Bool {
+        let given = FiledCopy(number: number, filed: record.filed, tags: record.tags, note: record.note)
+        return (filed, tags, note) == (given.filed, given.tags, given.note)
+    }
 }
 
 /// How big a filed copy is, as the File Cabinet lists it.

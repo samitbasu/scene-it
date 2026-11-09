@@ -27,7 +27,7 @@ Measured on the hosted suite (`test-without-building`, 285 tests, idle machine):
 | 2 | 106 s | 7 s |
 | 1 (serial) | 163 s | 7 s |
 
-At width 4 the run takes no longer than before, and no test case takes more than about 12 s.
+At width 4 the run takes no longer than before, and no test case takes more than about 15 s in the gate.
 That held with eight busy-loop processes running alongside (load average 24): 90 s for the
 run, 9 s for the slowest case. Some parallelism is still worth having, because tests also
 wait on disk, timers and background search.
@@ -43,6 +43,8 @@ wait on disk, timers and background search.
 The variable is experimental in Swift Testing. If a toolchain drops it, the cap goes silently
 and the old timings return. `ParallelismTests` catches the setting being removed from the
 scheme, but not the toolchain ignoring it. A gate time near 90 s on a fuzz case is the sign.
+The cap lives in the scheme's test action under this exact name. An explicit `.xctestplan`,
+or a toolchain that renames the variable, must carry it, or the cap is lost the same way.
 
 ## Learning notes
 Swift Testing runs tests concurrently by default, as `cargo test` does with threads. But a

@@ -51,11 +51,10 @@ forbid_pattern() {
 }
 
 forbid_textkit1() {
-    # TextKit 2 only (PLAN §2): any of these silently puts a text view on TextKit 1. The tests'
-    # alarm names the notification a text view posts as it falls back, to fail on it.
+    # TextKit 2 only (PLAN §2): any of these silently puts a text view on TextKit 1.
+    # `willSwitchToNSLayoutManagerNotification`, which the tests' alarm listens for, isn't one.
     forbid_pattern 'TextKit 1 is forbidden (PLAN §2)' \
-        '\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false' \
-        SceneItTests/TextKit1Alarm.swift -- "$@"
+        '\blayoutManager\b|\bNSLayoutManager|usingTextLayoutManager: *false' -- "$@"
 }
 
 forbid_unchecked_logging() {
