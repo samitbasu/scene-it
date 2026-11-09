@@ -157,8 +157,13 @@ struct FocusModeWindowTests {
             #expect(harness.window.firstResponder === harness.page, "the page keeps the focus")
             #expect(harness.page.selectedRange() == NSRange(location: 17, length: 4), "and its selection")
 
+            let keys = try harness.keys
+            let responder = String(describing: harness.window.firstResponder.map { type(of: $0) })
             try press(.escape, in: harness.window)
-            #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
+            #expect(
+                harness.chrome.focusMode == .off,
+                "Esc leaves focus mode (first responder \(responder), last Esc \(String(describing: keys.lastEscape)))"
+            )
             try await settle(harness)
             #expect(harness.window.firstResponder === harness.page)
             #expect(harness.page.selectedRange() == NSRange(location: 17, length: 4))
