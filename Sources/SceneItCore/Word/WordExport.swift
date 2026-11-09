@@ -83,26 +83,10 @@ enum WordDocument {
             case .body: ""
             }
         var runs = ""
-        for piece in merged(paragraph.shown) {
+        for piece in paragraph.shown(.sameLook) {
             runs += try run(piece.run, showing: piece.text)
         }
         return "<w:p>" + properties + runs + "</w:p>"
-    }
-
-    /// Neighbouring runs Word would format alike joined into one, so a comment's edge, which
-    /// isn't exported, doesn't split a run.
-    static func merged(_ pieces: [(run: Run, text: String)]) -> [(run: Run, text: String)] {
-        var merged: [(run: Run, text: String)] = []
-        for piece in pieces {
-            if let last = merged.last, last.run.styles == piece.run.styles, last.run.color == piece.run.color,
-                last.run.highlight == piece.run.highlight
-            {
-                merged[merged.count - 1].text += piece.text
-            } else {
-                merged.append(piece)
-            }
-        }
-        return merged
     }
 
     /// A run's own formatting, in the schema's order: bold, italic, strikethrough, colour, shading.

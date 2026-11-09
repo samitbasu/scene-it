@@ -53,9 +53,9 @@ public enum RunCodec {
     }
 
     /// A scene's paragraphs as print puts them out: the title as its heading, and the typography
-    /// smartened (`OutputParagraph.shown`), which the editors never do.
+    /// smartened (`OutputParagraph.shown`) run by run, which the editors never do.
     static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttributedString {
-        attributedString(paragraphs.map { ($0.kind.role, $0.shown) })
+        attributedString(paragraphs.map { ($0.kind.role, $0.shown(.eachRun)) })
     }
 
     private static func attributedString(_ paragraphs: [Paragraph], role: ParagraphRole) -> NSAttributedString

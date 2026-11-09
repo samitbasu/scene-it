@@ -256,7 +256,8 @@ struct WordExportTests {
     }
 
     /// A comment's edges aren't exported, so they don't split a run: neighbours Word would format
-    /// alike are one run.
+    /// alike are one run, joined before the smartening, so a `--` or `...` across a comment's edge
+    /// is still a dash or an ellipsis.
     @Test func runsSplitOnlyByACommentAreOne() throws {
         var scene = Self.scene
         scene.body = [
@@ -268,6 +269,10 @@ struct WordExportTests {
         let runs = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
         #expect(runs.map(Self.text) == ["She had packed in the dark,", " by feel."])
         #expect(runs.map(Self.properties) == [[], ["i"]])
+
+        scene.body = [[Run("Wait -"), Run("- no", comments: [Self.comment]), Run(".."), Run(". Gone.")]]
+        let split = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
+        #expect(split.map(Self.text) == ["Wait \u{2014} no\u{2026} Gone."])
     }
 
     @Test func anUntitledSceneHasNoHeading() throws {

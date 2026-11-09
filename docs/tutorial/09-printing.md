@@ -108,7 +108,7 @@ none outside its column. That's a property test, like `proptest` in Rust, writte
 
 Print and Export to Word put a scene out the same way: its title as a heading (decision 0015), then
 its body. `OutputParagraph.paragraphs(of:)` is that rule, shared by both, and so is how the text
-looks: `OutputParagraph.shown` gives each run its text with the typography smartened (decision 0022),
+looks: `OutputParagraph.shown(_:)` gives each run its text with the typography smartened (decision 0022),
 straight quotes turned curly, `--` a dash and `...` an ellipsis. It uses the same `SmartUnit` that Copy
 Review uses ([chapter 07g](07g-copy-and-save-review.md)): quotes are decided over the whole paragraph,
 then each run takes its piece, so a run's formatting and comments stay on exactly its characters.
@@ -116,12 +116,14 @@ Print builds its attributed string with the page's own `RunCodec`, which gained 
 
 ```swift
 static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttributedString {
-    attributedString(paragraphs.map { ($0.kind.role, $0.shown) })
+    attributedString(paragraphs.map { ($0.kind.role, $0.shown(.eachRun)) })
 }
 ```
 
-The editors call the same builder with each run's stored text. Word writes `shown` too, joining runs it
-would format alike ([chapter 07i](07i-export-to-word.md)). The comment colours are the palette's,
+The editors call the same builder with each run's stored text. Word writes `shown(.sameLook)`, which
+first joins the runs it would format alike ([chapter 07i](07i-export-to-word.md)). Print keeps each run
+a piece, since it underlines each run's comments, so a `--` split only by a comment's edge stays two
+hyphens in print, while Word makes it a dash. The comment colours are the palette's,
 through the page's `CommentPalette`.
 
 ### Connectors that can't be confused

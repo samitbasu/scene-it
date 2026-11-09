@@ -66,10 +66,10 @@ text gets no `w:color` at all, which Word reads as its automatic colour: black o
 Word shows the document dark.
 
 The text is the stored text smartened (decision 0022): straight quotes become curly, `--` a dash and
-`...` an ellipsis. `OutputParagraph.shown` does it, the one rule print uses too ([chapter
+`...` an ellipsis. `OutputParagraph.shown(.sameLook)` does it, the one rule print uses too ([chapter
 09](09-printing.md)): quotes are decided over the whole paragraph, then each run takes its own piece,
-so its formatting stays on exactly its characters. Runs Word would format alike are then joined
-(`WordDocument.merged`): a comment's edges aren't exported, so they mustn't split a run.
+so its formatting stays on exactly its characters. Runs Word would format alike are joined first:
+a comment's edges aren't exported, so they mustn't split a run, nor a `--` or `...` across them.
 
 ## 3. XML as text, behind one escaping function
 

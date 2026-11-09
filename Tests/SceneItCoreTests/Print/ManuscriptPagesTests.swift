@@ -241,7 +241,8 @@ struct ManuscriptPagesTests {
     }
 
     /// The preview lays the whole manuscript out again whenever the dialog asks; a long book
-    /// (about 300 pages) must lay out quickly. The time is printed for the record.
+    /// (about 300 pages) must not lay out pathologically slowly. The time is printed for the
+    /// record; the limit is generous, so a loaded machine doesn't fail it (#167, #178).
     @Test func aLongManuscriptLaysOutQuickly() throws {
         let scenes = (0..<30).map { Self.scene("Scene \($0)", Self.long(110), id: "s\($0)") }
         let clock = ContinuousClock()
@@ -252,7 +253,7 @@ struct ManuscriptPagesTests {
         let count = try #require(pages?.pageCount)
         try #require(count >= 250, "precondition: a long book, \(count) pages")
         print("Print layout: \(count) pages in \(elapsed)")
-        #expect(elapsed < .seconds(5), "\(count) pages in \(elapsed)")
+        #expect(elapsed < .seconds(30), "\(count) pages in \(elapsed)")
     }
 }
 

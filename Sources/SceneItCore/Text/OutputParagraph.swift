@@ -15,16 +15,36 @@ struct OutputParagraph: Hashable {
     let kind: Kind
     let runs: [Run]
 
-    /// Each run with its text as print and Export to Word show it: the typography smartened
-    /// over the whole paragraph (decision 0022), so a run's piece keeps exactly its characters.
-    /// The stored text is never smartened.
-    var shown: [(run: Run, text: String)] {
+    /// How the paragraph is cut into pieces before they're smartened.
+    enum Pieces {
+        /// Each run is a piece: print, which underlines each run's comments.
+        case eachRun
+        /// Neighbouring runs that look alike (styles, colour, highlight) are one piece: Word,
+        /// which doesn't export comments, so a `--` split only by a comment's edge is still a dash.
+        case sameLook
+    }
+
+    /// The paragraph's pieces as print and Export to Word show them, each with a run that
+    /// carries its formatting: the typography smartened over the whole paragraph (decision 0022),
+    /// so a piece keeps exactly its characters. A `--` or `...` split between pieces stays as it
+    /// is. The stored text is never smartened.
+    func shown(_ pieces: Pieces) -> [(run: Run, text: String)] {
+        var groups: [(run: Run, length: Int)] = []
+        for run in runs {
+            let length = run.text.unicodeScalars.count
+            if pieces == .sameLook, let last = groups.last, last.run.styles == run.styles,
+                last.run.color == run.color, last.run.highlight == run.highlight
+            {
+                groups[groups.count - 1].length += length
+            } else {
+                groups.append((run, length))
+            }
+        }
         let unit = SmartUnit(runs.map(\.text).joined())
         var offset = 0
-        return runs.map { run in
-            let length = run.text.unicodeScalars.count
-            defer { offset += length }
-            return (run, unit.piece(offset..<offset + length))
+        return groups.map { group in
+            defer { offset += group.length }
+            return (group.run, unit.piece(offset..<offset + group.length))
         }
     }
 
