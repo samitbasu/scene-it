@@ -3,10 +3,11 @@ import Foundation
 /// Export to Word (PLAN §10.2, ADR 0045, 0047): a scene as a .docx that Scene It writes itself,
 /// a minimal WordprocessingML package. The title paragraph has Word's Heading 1 style and the body
 /// the default style (`WordStyles`); each run carries only its own bold, italic, strikethrough,
-/// colour and highlight. Comments and notes aren't exported.
+/// colour and highlight, its typography smartened as print's is (decision 0022). Comments and
+/// notes aren't exported.
 public enum WordExport {
     public static func document(of scene: BookScene) throws(WordExportFailure) -> Data {
-        let document = try WordDocument.document(WordParagraph.paragraphs(of: scene))
+        let document = try WordDocument.document(OutputParagraph.paragraphs(of: scene))
         do {
             return try ZipWriter.archive([
                 .init(name: "[Content_Types].xml", bytes: Data(WordDocument.contentTypes.utf8)),
@@ -21,25 +22,6 @@ public enum WordExport {
         } catch {
             throw .tooLarge
         }
-    }
-}
-
-/// A paragraph of the exported document.
-struct WordParagraph: Hashable {
-    enum Kind: Hashable {
-        case title, body
-    }
-
-    let kind: Kind
-    let runs: [Run]
-
-    /// The scene's title, unless it has none, then its body. A scene with nothing at all is one
-    /// empty paragraph, as an empty Word document is.
-    static func paragraphs(of scene: BookScene) -> [WordParagraph] {
-        let title =
-            scene.title.text.isEmpty ? [] : [WordParagraph(kind: .title, runs: [Run(scene.title.text)])]
-        let paragraphs = title + scene.body.map { WordParagraph(kind: .body, runs: $0.runs) }
-        return paragraphs.isEmpty ? [WordParagraph(kind: .body, runs: [])] : paragraphs
     }
 }
 
@@ -85,7 +67,7 @@ enum WordDocument {
         + #"<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" "#
         + #"w:val="15"/></w:compat></w:settings>"#
 
-    static func document(_ paragraphs: [WordParagraph]) throws(WordExportFailure) -> String {
+    static func document(_ paragraphs: [OutputParagraph]) throws(WordExportFailure) -> String {
         var body = ""
         for paragraph in paragraphs {
             body += try self.paragraph(paragraph)
@@ -94,15 +76,15 @@ enum WordDocument {
             + "</w:body></w:document>"
     }
 
-    private static func paragraph(_ paragraph: WordParagraph) throws(WordExportFailure) -> String {
+    private static func paragraph(_ paragraph: OutputParagraph) throws(WordExportFailure) -> String {
         let properties =
             switch paragraph.kind {
             case .title: #"<w:pPr><w:pStyle w:val="\#(WordStyles.headingID)"/></w:pPr>"#
             case .body: ""
             }
         var runs = ""
-        for run in paragraph.runs {
-            runs += try self.run(run)
+        for piece in paragraph.shown(.sameLook) {
+            runs += try run(piece.run, showing: piece.text)
         }
         return "<w:p>" + properties + runs + "</w:p>"
     }
@@ -110,7 +92,7 @@ enum WordDocument {
     /// A run's own formatting, in the schema's order: bold, italic, strikethrough, colour, shading.
     /// Uncoloured text has no colour of its own, so it's Word's automatic colour: black on a white
     /// page, light when Word shows the document dark.
-    private static func run(_ run: Run) throws(WordExportFailure) -> String {
+    private static func run(_ run: Run, showing text: String) throws(WordExportFailure) -> String {
         var properties = ""
         if run.styles.contains(.bold) { properties += "<w:b/>" }
         if run.styles.contains(.italic) { properties += "<w:i/>" }
@@ -122,7 +104,7 @@ enum WordDocument {
             properties += #"<w:shd w:val="clear" w:color="auto" w:fill="\#(hex(highlight.hex))"/>"#
         }
         let formatting = properties.isEmpty ? "" : "<w:rPr>" + properties + "</w:rPr>"
-        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(run.text))
+        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(text))
             + "</w:t></w:r>"
     }
 
@@ -135,9 +117,6 @@ enum WordDocument {
     /// can't hold a lone surrogate), so a document Word would reject is never written.
     static func escaped(_ text: String) throws(WordExportFailure) -> String {
         guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
-        assert(
-            text.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed), "run text the character policy refuses"
-        )
         var result = ""
         for character in text {
             switch character {

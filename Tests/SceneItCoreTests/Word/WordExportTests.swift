@@ -240,6 +240,41 @@ struct WordExportTests {
         #expect(runs.map { Self.values($0, "w:rPr/w:shd", "fill") } == [["E6E6E6"], ["E9DDF7"], []])
     }
 
+    /// Decision 0022: the stored ASCII punctuation is put out smartened, as print puts it, quotes
+    /// decided over the whole paragraph however its runs split it.
+    @Test func theTypographyIsSmartened() throws {
+        var scene = Self.scene
+        scene.title = SceneTitle("Mara's \"ferry\"")
+        scene.body = [[Run("\"Go,\" she said -- "), Run("quietly...", styles: [.italic]), Run("\"")]]
+        let parts = try Parts(scene)
+        #expect(
+            parts.paragraphs.map(Self.text) == [
+                "Mara\u{2019}s \u{201C}ferry\u{201D}",
+                "\u{201C}Go,\u{201D} she said \u{2014} quietly\u{2026}\u{201D}",
+            ])
+        #expect(!parts.everything.contains("--") && !parts.everything.contains("..."))
+    }
+
+    /// A comment's edges aren't exported, so they don't split a run: neighbours Word would format
+    /// alike are one run, joined before the smartening, so a `--` or `...` across a comment's edge
+    /// is still a dash or an ellipsis.
+    @Test func runsSplitOnlyByACommentAreOne() throws {
+        var scene = Self.scene
+        scene.body = [
+            [
+                Run("She"), Run(" had packed", comments: [Self.comment]), Run(" in the dark,"),
+                Run(" by feel", styles: [.italic], comments: [Self.comment]), Run(".", styles: [.italic]),
+            ]
+        ]
+        let runs = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
+        #expect(runs.map(Self.text) == ["She had packed in the dark,", " by feel."])
+        #expect(runs.map(Self.properties) == [[], ["i"]])
+
+        scene.body = [[Run("Wait -"), Run("- no", comments: [Self.comment]), Run(".."), Run(". Gone.")]]
+        let split = try Parts(scene).paragraphs.dropFirst().flatMap(Self.runs)
+        #expect(split.map(Self.text) == ["Wait \u{2014} no\u{2026} Gone."])
+    }
+
     @Test func anUntitledSceneHasNoHeading() throws {
         var scene = Self.scene
         scene.title = ""
@@ -271,7 +306,9 @@ struct WordExportTests {
         scene.title = SceneTitle(allowed)
         scene.body = [[Run(allowed, styles: [.bold])]]
         try #require(scene.title.text == allowed, "precondition: the title keeps every character")
-        #expect(try Parts(scene).paragraphs.map(Self.text) == [allowed, allowed])
+        let shown = Typography.smartened(allowed)
+        try #require(shown != allowed, "precondition: its quotes are turned")
+        #expect(try Parts(scene).paragraphs.map(Self.text) == [shown, shown])
         #expect(try WordDocument.escaped("<a & 'b'>") == "&lt;a &amp; &apos;b&apos;&gt;")
     }
 

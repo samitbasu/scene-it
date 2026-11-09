@@ -1,15 +1,16 @@
 import SceneItCore
 import SwiftUI
 
-/// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Print arrives with
-/// #35 and Export to Word with #37, and until then those are disabled. File a copy… is only
-/// for a book open for editing and not being closed (`FilingFlow.canBegin`).
+/// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Export to Word is
+/// disabled until #37 reaches the toolbar. File a copy… is only for a book open for editing and
+/// not being closed (`FilingFlow.canBegin`).
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
     let store: AppBookStore
     let preferences: AppPreferences
     let undo: UndoRouter
     let filing: FilingFlow
+    let printing: PrintFlow
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -39,9 +40,9 @@ struct WindowToolbar: ToolbarContent {
         }
         ToolbarSpacer(.fixed)
         ToolbarItem {
-            Button(WindowWording.print, systemImage: "printer") {}
+            Button(WindowWording.print, systemImage: "printer") { printing.begin() }
                 .labelStyle(.titleAndIcon)
-                .disabled(true)
+                .disabled(!printing.canBegin)
         }
         ToolbarItem {
             Button(WindowWording.exportToWord, systemImage: "doc.text") {}
