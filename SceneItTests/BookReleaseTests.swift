@@ -8,7 +8,7 @@ import Testing
 /// Runs the main run loop for a moment inside a pool of its own, so whatever the turns it runs
 /// autorelease is released when they end. The test host's outermost pool is never drained.
 /// It runs from the run loop, never inside the test's job: a run loop nested in a job makes
-/// every block it runs, other tests' included, run with a task current (`UnwoundTaskTrapTests`).
+/// every block it runs, other tests' included, run with a task current (`UnwoundJobTrapTests`).
 @MainActor
 private func drainARunLoopTurn() async {
     await onTheRunLoop {

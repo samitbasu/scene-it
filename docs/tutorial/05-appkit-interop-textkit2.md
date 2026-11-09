@@ -748,11 +748,32 @@ runs, so an exception there doesn't unwind a task.
 It happened again in #120, where the crash surfaced in `UndoRouter`, an innocent bystander.
 `NSApplicationCrashOnExceptions` ([ADR 0026](../decisions/0026-crash-on-exceptions.md)) doesn't
 help here: only AppKit's own event-dispatch handlers read it, and HIToolbox's doesn't. So the app
-also arms `UnwoundTaskTrap`, a run-loop observer that stops the app at the next run-loop
-activity if a task is "current" while no job runner frame is on the stack. Only a non-local exit
-from a job (an exception, a `longjmp`) leaves that state. The trap can't be tested by causing one: the test host would be corrupt. Its tests
-check that it's armed and that it stays quiet inside jobs, outside them, and in a run loop
-nested inside a job.
+also arms `UnwoundJobTrap`, a run-loop observer that stops the app at the next run-loop
+activity if a task or an executor is "current" while no job runner frame is on the stack. Only a
+non-local exit from a job (an exception, a `longjmp`) leaves that state.
+
+Not every job has a task. The app target defaults to `@MainActor` (ADR 0011), and in such a
+module Swift 6.4 makes every class's implicit `deinit` an *isolated* deinit: when the last
+reference goes away off the main thread, the runtime (`swift_task_deinitOnExecutor`) queues the
+deinit as a main-actor job of its own, with an executor but no task. In #142 an exception
+unwound a job, most likely such a deinit, and the trap, which then read only the task record,
+missed it; the crash came later, in `FilingFlow`'s deinit, the first isolation check after the
+unwind. The trap now reads the executor record too, through the runtime's
+`swift_task_getCurrentExecutor`. Swift has no API that reads it without acting on it, and acting on
+a dead frame's record is exactly what crashes.
+
+The trap looks the function up with `dlsym` and `unsafeBitCast`s the pointer to
+`@convention(c) () -> UInt`: the Rust analogue is `libloading` plus a `transmute` of the symbol to
+an `extern "C" fn() -> usize`. The real function uses the Swift calling convention and returns a
+two-word struct (the executor's identity, then its witness table). On arm64 both conventions
+return the first word in `x0`, and on x86_64 in `rax`, so a C signature that returns one word
+reads exactly the identity and ignores the second. Because the runtime ships with the OS and
+promises nothing here, the trap first calibrates: from a run-loop block, outside any job, the
+identity must be null, or it stops reading the record and logs a fault.
+
+The trap can't be tested by causing one: the test host would be corrupt. Its tests check that
+it's armed and calibrated, and that it stays quiet inside jobs (an isolated deinit's included),
+outside them, and in a run loop nested inside a job.
 
 ## 11. The notes: one editor, two texts
 
