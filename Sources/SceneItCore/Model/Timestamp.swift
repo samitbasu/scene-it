@@ -52,11 +52,16 @@ public struct Timestamp: Hashable, Sendable, CustomStringConvertible {
     }
 
     public var description: String {
-        let local = LocalDateTime(secondsSince1970: secondsSince1970 + Int64(offset.minutes * 60))
         let sign = offset.minutes < 0 ? "-" : "+"
         let magnitude = abs(offset.minutes)
-        return local.description + sign + zeroPadded(magnitude / 60, width: 2) + ":"
+        return localDescription + sign + zeroPadded(magnitude / 60, width: 2) + ":"
             + zeroPadded(magnitude % 60, width: 2)
+    }
+
+    /// The date and time on the clock where it was taken, without the offset:
+    /// `2026-11-03T10:15:00`.
+    var localDescription: String {
+        LocalDateTime(secondsSince1970: secondsSince1970 + Int64(offset.minutes * 60)).description
     }
 
     /// Reads `description`'s form, and also `Z` for `+00:00` (book format §2.2), which

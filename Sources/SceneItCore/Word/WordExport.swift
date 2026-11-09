@@ -1,32 +1,154 @@
 import Foundation
 
-/// Export to Word (PLAN §10.2, ADR 0045, 0047): a scene as a .docx that Scene It writes itself,
-/// a minimal WordprocessingML package. The title paragraph has Word's Heading 1 style and the body
-/// the default style (`WordStyles`); each run carries only its own bold, italic, strikethrough,
-/// colour and highlight, its typography smartened as print's is (decision 0022). Comments and
-/// notes aren't exported.
+/// Export to Word (PLAN §10.2, ADR 0045, 0047, 0048): a scene as a .docx that Scene It writes
+/// itself, a minimal WordprocessingML package. The title paragraph has Word's Heading 1 style and
+/// the body the default style (`WordStyles`); each run carries only its own bold, italic,
+/// strikethrough, colour and highlight, its typography smartened as print's is (decision 0022).
+/// The scene's comments become Word's comments when the writer asks for them; notes never go.
 public enum WordExport {
-    public static func document(of scene: BookScene) throws(WordExportFailure) -> Data {
-        let document = try WordDocument.document(OutputParagraph.paragraphs(of: scene))
+    public static func document(of scene: BookScene, comments: WordComments) throws(WordExportFailure) -> Data
+    {
+        let paragraphs = OutputParagraph.paragraphs(of: scene)
+        let list = WordCommentList(scene, comments)
+        let parts = [WordDocument.Part.styles, .settings] + (list == nil ? [] : [.comments])
+        var entries: [ZipWriter.Entry] = [
+            .init(name: "[Content_Types].xml", bytes: Data(WordDocument.contentTypes(parts).utf8)),
+            .init(name: "_rels/.rels", bytes: Data(WordDocument.packageRelationships.utf8)),
+            .init(
+                name: WordDocument.Part.document.name,
+                bytes: Data(try WordDocument.document(paragraphs, list).utf8)),
+            .init(
+                name: "word/_rels/document.xml.rels",
+                bytes: Data(WordDocument.documentRelationships(parts).utf8)),
+            .init(name: WordDocument.Part.styles.name, bytes: Data(WordStyles.xml(for: parts).utf8)),
+            .init(name: WordDocument.Part.settings.name, bytes: Data(WordDocument.settings.utf8)),
+        ]
+        if let list {
+            entries.append(.init(name: WordDocument.Part.comments.name, bytes: Data(try list.xml().utf8)))
+        }
         do {
-            return try ZipWriter.archive([
-                .init(name: "[Content_Types].xml", bytes: Data(WordDocument.contentTypes.utf8)),
-                .init(name: "_rels/.rels", bytes: Data(WordDocument.packageRelationships.utf8)),
-                .init(name: "word/document.xml", bytes: Data(document.utf8)),
-                .init(
-                    name: "word/_rels/document.xml.rels", bytes: Data(WordDocument.documentRelationships.utf8)
-                ),
-                .init(name: "word/styles.xml", bytes: Data(WordStyles.xml.utf8)),
-                .init(name: "word/settings.xml", bytes: Data(WordDocument.settings.utf8)),
-            ])
+            return try ZipWriter.archive(entries)
         } catch {
             throw .tooLarge
         }
     }
 }
 
-/// The package's XML parts other than the styles. Elements are written in the order the schema
-/// (ECMA-376) requires.
+/// Whether Export to Word writes the scene's comments, and as whose.
+public enum WordComments: Hashable, Sendable {
+    case omitted
+    case included(by: CommentAuthor)
+}
+
+/// The save panel's Include comments checkbox.
+public enum WordCommentChoice: Hashable, Sendable {
+    case omit, include
+
+    /// What the export writes for this choice, by `author`.
+    public func comments(by author: CommentAuthor) -> WordComments {
+        switch self {
+        case .omit: .omitted
+        case .include: .included(by: author)
+        }
+    }
+}
+
+/// Who Word says wrote the exported comments: a name, and initials from it.
+public struct CommentAuthor: Hashable, Sendable {
+    public let name: String
+    public let initials: String
+
+    /// `fullName`'s words, or `WordExportWording.unnamedAuthor` when it has none; the initials
+    /// are each word's first letter.
+    public init(fullName: String) {
+        let words = fullName.split(whereSeparator: \.isWhitespace)
+        let named = words.isEmpty ? WordExportWording.unnamedAuthor.split(separator: " ") : words
+        name = named.joined(separator: " ")
+        initials = String(named.compactMap(\.first)).uppercased()
+    }
+}
+
+/// The comments an exported document carries: the scene's anchored comments, in the order their
+/// text starts (as the Comments tab lists them, `CommentCards`), each numbered as its Word id by
+/// its place in that order. Detached comments have no text to anchor to, so they're left out.
+struct WordCommentList {
+    let author: CommentAuthor
+    let comments: [Comment]
+    let numbers: [CommentID: Int]
+
+    init?(_ scene: BookScene, _ choice: WordComments) {
+        guard case .included(let author) = choice else { return nil }
+        self.author = author
+        comments = CommentCards(scene).anchored.map(\.comment)
+        numbers = Dictionary(uniqueKeysWithValues: comments.enumerated().map { ($1.id, $0) })
+    }
+
+    /// `word/comments.xml`: each comment's text, smartened as print's comments are, one paragraph
+    /// a line, dated with its creation's local time (Word shows `w:date` as it's written).
+    func xml() throws(WordExportFailure) -> String {
+        let name = try WordDocument.escaped(author.name)
+        let initials = try WordDocument.escaped(author.initials)
+        var body = ""
+        for (number, comment) in comments.enumerated() {
+            var paragraphs = ""
+            let lines = Typography.smartened(comment.text).split(
+                separator: "\n", omittingEmptySubsequences: false)
+            for (index, line) in lines.enumerated() {
+                let reference = index == 0 ? "<w:r><w:annotationRef/></w:r>" : ""
+                let text =
+                    line.isEmpty ? "" : WordDocument.textRun("", try WordDocument.escaped(String(line)))
+                paragraphs +=
+                    #"<w:p><w:pPr><w:pStyle w:val="\#(WordStyles.commentID)"/></w:pPr>"#
+                    + reference + text + "</w:p>"
+            }
+            body +=
+                #"<w:comment w:id="\#(number)" w:author="\#(name)" "#
+                + #"w:date="\#(comment.created.localDescription)" w:initials="\#(initials)">"#
+                + paragraphs + "</w:comment>"
+        }
+        return WordDocument.declaration + #"<w:comments xmlns:w="\#(WordDocument.Namespace.word)">"# + body
+            + "</w:comments>"
+    }
+
+    /// Where each comment's range starts and ends among the document's pieces: it starts before
+    /// the first piece it covers and ends after the last, in whichever paragraphs those are.
+    /// Ranges starting together open in number order and ending together close in reverse, so
+    /// they nest; others overlap as their text does.
+    func boundaries(_ pieces: [[(run: Run, text: String)]]) -> CommentBoundaries {
+        var first: [Int: PiecePlace] = [:]
+        var last: [Int: PiecePlace] = [:]
+        for (paragraph, paragraphPieces) in pieces.enumerated() {
+            for (piece, shown) in paragraphPieces.enumerated() {
+                for id in shown.run.comments {
+                    guard let number = numbers[id] else { continue }
+                    let place = PiecePlace(paragraph: paragraph, piece: piece)
+                    if first[number] == nil { first[number] = place }
+                    last[number] = place
+                }
+            }
+        }
+        func grouped(_ places: [Int: PiecePlace]) -> [PiecePlace: [Int]] {
+            Dictionary(grouping: places, by: \.value).mapValues { $0.map(\.key).sorted() }
+        }
+        return CommentBoundaries(starts: grouped(first), ends: grouped(last).mapValues { $0.reversed() })
+    }
+}
+
+struct PiecePlace: Hashable {
+    let paragraph: Int
+    let piece: Int
+}
+
+/// The Word ids of the comment ranges that start before, and end after, each piece.
+struct CommentBoundaries {
+    static let none = CommentBoundaries(starts: [:], ends: [:])
+
+    let starts: [PiecePlace: [Int]]
+    let ends: [PiecePlace: [Int]]
+}
+
+/// The package's XML parts other than the styles and comments. Elements are written in the order
+/// the schema (ECMA-376) requires.
 enum WordDocument {
     enum Namespace {
         static let word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -35,30 +157,70 @@ enum WordDocument {
         static let officeRelationships = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     }
 
-    private static let declaration = #"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"# + "\n"
+    /// The parts of `word/`, with their content types and how the main document links to them.
+    enum Part {
+        case document, styles, settings, comments
 
-    static let contentTypes =
-        declaration + #"<Types xmlns="\#(Namespace.contentTypes)">"#
-        + #"<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>"#
-        + #"<Default Extension="xml" ContentType="application/xml"/>"#
-        + #"<Override PartName="/word/document.xml" "#
-        + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>"#
-        + #"<Override PartName="/word/styles.xml" "#
-        + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>"#
-        + #"<Override PartName="/word/settings.xml" "#
-        + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>"#
-        + "</Types>"
+        var name: String {
+            "word/" + file
+        }
+
+        var file: String {
+            switch self {
+            case .document: "document.xml"
+            case .styles: "styles.xml"
+            case .settings: "settings.xml"
+            case .comments: "comments.xml"
+            }
+        }
+
+        var contentType: String {
+            let kind =
+                switch self {
+                case .document: "document.main"
+                case .styles: "styles"
+                case .settings: "settings"
+                case .comments: "comments"
+                }
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.\(kind)+xml"
+        }
+
+        /// The relationship's type, after the office relationships namespace.
+        var relationship: String {
+            switch self {
+            case .document: "officeDocument"
+            case .styles: "styles"
+            case .settings: "settings"
+            case .comments: "comments"
+            }
+        }
+    }
+
+    static let declaration = #"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"# + "\n"
+
+    /// The types of the main document and the parts it links to.
+    static func contentTypes(_ linked: [Part]) -> String {
+        let overrides = ([Part.document] + linked).map {
+            #"<Override PartName="/\#($0.name)" ContentType="\#($0.contentType)"/>"#
+        }
+        return declaration + #"<Types xmlns="\#(Namespace.contentTypes)">"#
+            + #"<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>"#
+            + #"<Default Extension="xml" ContentType="application/xml"/>"# + overrides.joined() + "</Types>"
+    }
 
     static let packageRelationships =
         declaration + #"<Relationships xmlns="\#(Namespace.packageRelationships)">"#
-        + #"<Relationship Id="rId1" Type="\#(Namespace.officeRelationships)/officeDocument" "#
-        + #"Target="word/document.xml"/></Relationships>"#
+        + #"<Relationship Id="rId1" Type="\#(Namespace.officeRelationships)/\#(Part.document.relationship)" "#
+        + #"Target="\#(Part.document.name)"/></Relationships>"#
 
-    static let documentRelationships =
-        declaration + #"<Relationships xmlns="\#(Namespace.packageRelationships)">"#
-        + #"<Relationship Id="rId1" Type="\#(Namespace.officeRelationships)/styles" Target="styles.xml"/>"#
-        + #"<Relationship Id="rId2" Type="\#(Namespace.officeRelationships)/settings" Target="settings.xml"/>"#
-        + "</Relationships>"
+    static func documentRelationships(_ linked: [Part]) -> String {
+        let links = linked.enumerated().map { index, part in
+            #"<Relationship Id="rId\#(index + 1)" Type="\#(Namespace.officeRelationships)/\#(part.relationship)" "#
+                + #"Target="\#(part.file)"/>"#
+        }
+        return declaration + #"<Relationships xmlns="\#(Namespace.packageRelationships)">"# + links.joined()
+            + "</Relationships>"
+    }
 
     /// Word's current compatibility mode (15, Word 2013 and later); without it, Word opens the
     /// document in Compatibility Mode, as if an older Word had written it.
@@ -67,26 +229,45 @@ enum WordDocument {
         + #"<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" "#
         + #"w:val="15"/></w:compat></w:settings>"#
 
-    static func document(_ paragraphs: [OutputParagraph]) throws(WordExportFailure) -> String {
+    /// The body. Without comments, runs Word would format alike are joined; with them, runs are
+    /// joined only where the comments are the same too, since a comment's range starts and ends
+    /// between runs.
+    static func document(_ paragraphs: [OutputParagraph], _ comments: WordCommentList?)
+        throws(WordExportFailure)
+        -> String
+    {
+        let pieces = paragraphs.map { $0.shown(comments == nil ? .sameLook : .sameFormat) }
+        let boundaries = comments?.boundaries(pieces) ?? .none
         var body = ""
-        for paragraph in paragraphs {
-            body += try self.paragraph(paragraph)
+        for (index, paragraph) in paragraphs.enumerated() {
+            body += try self.paragraph(paragraph.kind, pieces[index], number: index, boundaries)
         }
         return declaration + #"<w:document xmlns:w="\#(Namespace.word)"><w:body>"# + body
             + "</w:body></w:document>"
     }
 
-    private static func paragraph(_ paragraph: OutputParagraph) throws(WordExportFailure) -> String {
+    private static func paragraph(
+        _ kind: OutputParagraph.Kind, _ pieces: [(run: Run, text: String)], number: Int,
+        _ boundaries: CommentBoundaries
+    ) throws(WordExportFailure) -> String {
         let properties =
-            switch paragraph.kind {
+            switch kind {
             case .title: #"<w:pPr><w:pStyle w:val="\#(WordStyles.headingID)"/></w:pPr>"#
             case .body: ""
             }
-        var runs = ""
-        for piece in paragraph.shown(.sameLook) {
-            runs += try run(piece.run, showing: piece.text)
+        var content = ""
+        for (index, piece) in pieces.enumerated() {
+            let place = PiecePlace(paragraph: number, piece: index)
+            for id in boundaries.starts[place] ?? [] {
+                content += #"<w:commentRangeStart w:id="\#(id)"/>"#
+            }
+            content += try run(piece.run, showing: piece.text)
+            for id in boundaries.ends[place] ?? [] {
+                content +=
+                    #"<w:commentRangeEnd w:id="\#(id)"/><w:r><w:commentReference w:id="\#(id)"/></w:r>"#
+            }
         }
-        return "<w:p>" + properties + runs + "</w:p>"
+        return "<w:p>" + properties + content + "</w:p>"
     }
 
     /// A run's own formatting, in the schema's order: bold, italic, strikethrough, colour, shading.
@@ -103,18 +284,23 @@ enum WordDocument {
         if let highlight = run.highlight {
             properties += #"<w:shd w:val="clear" w:color="auto" w:fill="\#(hex(highlight.hex))"/>"#
         }
+        return textRun(properties, try escaped(text))
+    }
+
+    /// A run of `escapedText` with the run properties `properties`, if any.
+    static func textRun(_ properties: String, _ escapedText: String) -> String {
         let formatting = properties.isEmpty ? "" : "<w:rPr>" + properties + "</w:rPr>"
-        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(text))
-            + "</w:t></w:r>"
+        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + escapedText + "</w:t></w:r>"
     }
 
     private static func hex(_ rgb: UInt32) -> String {
         String(format: "%06X", rgb)
     }
 
-    /// `text` as XML character data. It refuses a character XML 1.0 can't hold at all (a control
-    /// character other than tab, line feed and carriage return, or U+FFFE and U+FFFF; a `String`
-    /// can't hold a lone surrogate), so a document Word would reject is never written.
+    /// `text` as XML character data or an attribute's value. It refuses a character XML 1.0 can't
+    /// hold at all (a control character other than tab, line feed and carriage return, or U+FFFE
+    /// and U+FFFF; a `String` can't hold a lone surrogate), so a document Word would reject is
+    /// never written.
     static func escaped(_ text: String) throws(WordExportFailure) -> String {
         guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
         var result = ""
@@ -146,7 +332,8 @@ public enum WordExportFailure: Error, Hashable, Sendable {
     case notAWordDocument
     /// The scene is beyond what a .docx without zip64 can hold, 4 GiB.
     case tooLarge
-    /// The scene holds a character XML can't, so no Word document can.
+    /// The scene, its comments or their author's name holds a character XML can't, so no Word
+    /// document can.
     case unwritableCharacter
     case destination(ChosenFileFailure)
 }

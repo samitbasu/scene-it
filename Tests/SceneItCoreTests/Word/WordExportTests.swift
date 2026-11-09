@@ -1,4 +1,5 @@
 import AppKit
+import SceneItTestSupport
 import Testing
 
 @testable import SceneItCore
@@ -6,7 +7,8 @@ import Testing
 /// Export to Word's document (PLAN §10.2, ADR 0045, 0047), unzipped by macOS's own `unzip` and read
 /// as XML: the title is Word's Heading 1, defined as Times New Roman 18 pt bold; the body is the
 /// default style, Times New Roman 12 pt, double-spaced with a half-inch first-line indent; each run
-/// carries its own formatting and the palette's colours; the comments and notes aren't there.
+/// carries its own formatting and the palette's colours; the notes aren't there, nor the comments
+/// unless they're asked for (`WordCommentsTests`).
 struct WordExportTests {
     static let comment = CommentID(rawValue: "01JC4K0000000000000000C001")
     static let modified = Timestamp("2026-11-03T10:15:00-08:00")!
@@ -37,12 +39,17 @@ struct WordExportTests {
         let packageRelationships: XMLDocument
         let documentRelationships: XMLDocument
         let settings: XMLDocument
+        /// `nil` without comments.
+        let comments: XMLDocument?
         let everything: String
 
-        init(_ scene: BookScene) throws {
-            let docx = try WordExport.document(of: scene)
+        init(_ scene: BookScene, comments included: WordComments = .omitted) throws {
+            let docx = try WordExport.document(of: scene, comments: included)
             #expect(try Unzip.test(docx), "macOS's unzip finds every part intact")
             names = try Unzip.names(docx)
+            comments =
+                names.contains("word/comments.xml")
+                ? try XMLDocument(data: try Unzip.part("word/comments.xml", of: docx)) : nil
             let parts = try names.map { try Unzip.part($0, of: docx) }
             document = try XMLDocument(data: try Unzip.part("word/document.xml", of: docx))
             styles = try XMLDocument(data: try Unzip.part("word/styles.xml", of: docx))
@@ -143,7 +150,9 @@ struct WordExportTests {
         let run = Run(admitted: "a\(character)b", styles: [], color: nil, highlight: nil, comments: [])
         try #require(run.text.unicodeScalars.count == 3, "precondition: the character got past the policy")
         let scene = BookScene(id: SceneID(rawValue: "s"), modified: Self.modified, title: "T", body: [[run]])
-        #expect(throws: WordExportFailure.unwritableCharacter) { try WordExport.document(of: scene) }
+        #expect(throws: WordExportFailure.unwritableCharacter) {
+            try WordExport.document(of: scene, comments: .omitted)
+        }
         #expect(WordExportWording.notice(for: .unwritableCharacter).message.contains("character"))
     }
 
@@ -255,7 +264,7 @@ struct WordExportTests {
         #expect(!parts.everything.contains("--") && !parts.everything.contains("..."))
     }
 
-    /// A comment's edges aren't exported, so they don't split a run: neighbours Word would format
+    /// Without comments, a comment's edges don't split a run: neighbours Word would format
     /// alike are one run, joined before the smartening, so a `--` or `...` across a comment's edge
     /// is still a dash or an ellipsis.
     @Test func runsSplitOnlyByACommentAreOne() throws {
@@ -314,7 +323,7 @@ struct WordExportTests {
 
     @Test func macOSReadsTheDocument() throws {
         let read = try NSAttributedString(
-            data: WordExport.document(of: Self.scene),
+            data: WordExport.document(of: Self.scene, comments: .omitted),
             options: [.documentType: NSAttributedString.DocumentType.officeOpenXML], documentAttributes: nil)
         #expect(
             read.string.hasPrefix("The ferry\nMara took the night ferry, alone and afraid.\n\nShe watched"))

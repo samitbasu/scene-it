@@ -63,7 +63,7 @@ final class BookController {
     /// Where Save Review… writes, as `exportDestination`.
     var reviewDestination: SaveDestination
     /// Where Export to Word… writes, as `exportDestination`.
-    var wordDestination: SaveDestination
+    var wordDestination: WordDestination
     /// Where New Book from This Copy… makes the book, as `exportDestination`.
     var newBookDestination: SaveDestination
     /// Where Copy Review puts the review: the general pasteboard in the app; in the test host
@@ -96,7 +96,7 @@ final class BookController {
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
-        wordDestination = role == .app ? .wordPanel : .nowhere
+        wordDestination = role == .app ? .panel : .nowhere
         newBookDestination = role == .app ? .newBookPanel : .nowhere
         reviewPasteboard = role == .app ? .general : .withUniqueName()
         store = BookStore(

@@ -65,16 +65,26 @@ struct SaveDestination {
     /// The save panel, with its title and prompt, for files with `fileExtension`.
     static func savePanel(title: String, prompt: String, fileExtension: String) -> SaveDestination {
         SaveDestination { name in
-            let panel = NSSavePanel()
-            panel.title = title
-            panel.prompt = prompt
-            panel.nameFieldStringValue = name
-            panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
-            panel.canCreateDirectories = true
-            panel.isExtensionHidden = false
-            guard panel.runModal() == .OK else { return nil }
-            return panel.url
+            run(panel(title: title, prompt: prompt, fileExtension: fileExtension), suggesting: name)
         }
+    }
+
+    /// A save panel with its title and prompt, for files with `fileExtension`, not yet shown.
+    static func panel(title: String, prompt: String, fileExtension: String) -> NSSavePanel {
+        let panel = NSSavePanel()
+        panel.title = title
+        panel.prompt = prompt
+        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        return panel
+    }
+
+    /// Shows `panel` with `name` suggested; where the writer chose, or `nil` if they cancelled.
+    static func run(_ panel: NSSavePanel, suggesting name: String) -> URL? {
+        panel.nameFieldStringValue = name
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
     }
 
     static let exportPanel = savePanel(

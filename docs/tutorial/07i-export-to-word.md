@@ -1,12 +1,13 @@
 # 07i — Export to Word: writing a file format yourself
 
-Issue #37 (PLAN §10.2, ADR 0045, ADR 0047). File → Export to Word… saves the open scene as a `.docx`:
-the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt, double-spaced with a
-half-inch first-line indent, with bold, italic, strikethrough, colours and highlights, the
-punctuation smartened as print's is, and without the comments. The Swift and macOS lessons: when not
-to use the system's converter, what a `.docx` is inside, generating XML as text behind one escaping
-function, writing a zip
-with the system's zlib, and testing a file format with a reader that isn't yours.
+Issues #37 and #183 (PLAN §10.2, ADR 0045, 0047, 0048). File → Export to Word… saves the open scene as
+a `.docx`: the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt,
+double-spaced with a half-inch first-line indent, with bold, italic, strikethrough, colours and
+highlights, the punctuation smartened as print's is, and, if the save panel's Include comments is
+ticked, the comments as Word's own margin comments. The Swift and macOS lessons: when not to use the
+system's converter, what a `.docx` is inside, generating XML as text behind one escaping function,
+writing a zip with the system's zlib, testing a file format with a reader that isn't yours, adding a
+control to a system panel, and proving an option changes nothing when it's off.
 
 Files: [`Sources/SceneItCore/Word/WordExport.swift`](../../Sources/SceneItCore/Word/WordExport.swift),
 [`Sources/SceneItCore/Word/WordStyles.swift`](../../Sources/SceneItCore/Word/WordStyles.swift),
@@ -14,6 +15,7 @@ Files: [`Sources/SceneItCore/Word/WordExport.swift`](../../Sources/SceneItCore/W
 [`Sources/SceneItCore/Word/WordDocumentWriter.swift`](../../Sources/SceneItCore/Word/WordDocumentWriter.swift),
 [`SceneIt/Books/ExportToWord.swift`](../../SceneIt/Books/ExportToWord.swift),
 [`Tests/SceneItCoreTests/Word/WordExportTests.swift`](../../Tests/SceneItCoreTests/Word/WordExportTests.swift),
+[`Tests/SceneItCoreTests/Word/WordCommentsTests.swift`](../../Tests/SceneItCoreTests/Word/WordCommentsTests.swift),
 [`Tests/SceneItCoreTests/Word/ZipWriterTests.swift`](../../Tests/SceneItCoreTests/Word/ZipWriterTests.swift).
 
 ## 1. Why not `NSAttributedString`'s writer
@@ -68,8 +70,9 @@ Word shows the document dark.
 The text is the stored text smartened (decision 0022): straight quotes become curly, `--` a dash and
 `...` an ellipsis. `OutputParagraph.shown(.sameLook)` does it, the one rule print uses too ([chapter
 09](09-printing.md)): quotes are decided over the whole paragraph, then each run takes its own piece,
-so its formatting stays on exactly its characters. Runs Word would format alike are joined first:
-a comment's edges aren't exported, so they mustn't split a run, nor a `--` or `...` across them.
+so its formatting stays on exactly its characters. Without comments, runs Word would format alike are
+joined first: a comment's edges aren't exported, so they mustn't split a run, nor a `--` or `...`
+across them. With comments, the edges matter (section 7).
 
 ## 3. XML as text, behind one escaping function
 
@@ -121,7 +124,46 @@ or a review's own is called. The store takes the scene by id after the save pane
 export is the scene as it is then, saved or not. A read-only book or review exports like any other,
 since nothing in it changes.
 
+## 7. Comments as Word comments
+
+With Include comments ticked (ADR 0048), each comment whose text is still there becomes a Word
+comment. A Word comment has three pieces, and only one is a container:
+
+```xml
+<w:commentRangeStart w:id="1"/><w:r><w:t>packed </w:t></w:r>
+<w:commentRangeStart w:id="2"/><w:r><w:t>in the dark</w:t></w:r>
+<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r>
+<w:r><w:t>, by feel</w:t></w:r>
+<w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="2"/></w:r>
+```
+
+The range marks are *milestones*, empty elements between runs rather than elements around them, so
+two ranges can overlap (as here), nest, or start in one paragraph and end in another, none of which a
+tree of containers could say. The comment's text lives in `word/comments.xml`, and the reference run
+after the end is where Word hangs the balloon. A Rust analogy: the ranges are like a list of
+`(start, end)` byte offsets beside a string, not like nested spans in an AST.
+
+Because a range can only start or end between runs, `OutputParagraph.shown(.sameFormat)` joins runs
+only when their comments match as well as their look. The same single function still does the
+smartening, so a `--` that a comment's edge splits stays two hyphens with comments (each side is its
+own run), and is a dash without them. `WordCommentList.boundaries` then walks the pieces once and
+records, for each comment, the first and last piece it touches; the writer emits the starts before a
+piece and the ends (each followed by its reference) after it.
+
+The checkbox is the save panel's `accessoryView`, an `NSHostingView` around a SwiftUI `Toggle` bound
+to a small `@Observable` options object. `exportToWord()` makes a fresh object for each export, so
+the box always starts unticked: no stored preference to leak a writer's private notes into the next
+export. The panel itself sits behind a `WordDestination` closure, as the other save panels sit behind
+`SaveDestination`, so the hosted test hands the export a closure that ticks the box through the very
+object the accessory is bound to, without showing a panel or synthesizing a click.
+
+**Proving "off changes nothing".** The output is deterministic (stored zip entries, fixed dates), so
+the test that the unticked document is unchanged compares SHA-256 digests (CryptoKit) with the bytes
+`main` wrote before the change. If a later change alters the document on purpose, the digest is
+updated in review, like any golden file.
+
 ## What isn't automated
 
 Whether Word and Pages open the file, list the title in the Navigation pane and lay out the body as
-expected can't be checked here. It's on the owner's hand-test list.
+expected can't be checked here, nor whether their comment balloons sit on exactly the anchored words.
+They're on the owner's hand-test list.

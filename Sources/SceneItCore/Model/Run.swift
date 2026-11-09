@@ -41,8 +41,12 @@ public struct Run: Hashable, Sendable {
 
     /// Whether the two runs differ only in their text, so they can be one run.
     func hasSameFormat(as other: Run) -> Bool {
+        hasSameLook(as: other) && comments == other.comments
+    }
+
+    /// Whether the two runs differ only in their text and comments, so they're drawn alike.
+    func hasSameLook(as other: Run) -> Bool {
         styles == other.styles && color == other.color && highlight == other.highlight
-            && comments == other.comments
     }
 }
 
