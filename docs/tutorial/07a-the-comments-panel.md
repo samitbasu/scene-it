@@ -114,6 +114,6 @@ with no synthesized event.
 The menu item handler first had `@objc func perform(_:)`. `NSObject` already has `perform(_:)`,
 which is `performSelector:` in Objective-C, and `#selector(Handler.perform(_:))` resolved to that
 method. Choosing an item then sent the menu item itself as a selector. That raised "unrecognized
-selector", and the `UnwoundTaskTrap` (ADR 0026) stopped the app. The method is now `run(_:)`. In
+selector", and the `UnwoundJobTrap` (ADR 0026) stopped the app. The method is now `run(_:)`. In
 Rust a name clash like this is a compile error. In Swift, `#selector` picks whichever
 Objective-C method the name resolves to, so names that `NSObject` already uses are best avoided.
