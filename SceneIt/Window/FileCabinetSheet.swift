@@ -192,7 +192,7 @@ private struct CabinetFilters: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: WindowMetrics.Scenes.filterWidth)
             if let span = FileCabinet.span(of: index) {
-                DateRange(span: span, filter: $filter)
+                FiledDatesField(span: span, dates: $filter.dates)
             }
             ChipFlow(spacing: ChipSpacing(points: WindowMetrics.Tags.chipGap)) {
                 ForEach(FileCabinet.tags(of: index), id: \.self) { tag in
@@ -209,16 +209,18 @@ private struct CabinetFilters: View {
 }
 
 /// From and to, as native date fields (the owner's pick, #33), and ⓧ, which clears both. An end
-/// left as it is shows the oldest or newest copy's day and filters nothing.
-private struct DateRange: View {
+/// left as it is shows the oldest or newest copy's day and filters nothing. The File Cabinet's
+/// filters and the Search sheet's File Cabinet scope both use it.
+struct FiledDatesField: View {
     let span: ClosedRange<CalendarDay>
-    @Binding var filter: CabinetFilter
+    @Binding var dates: FiledDates
+    var label = FileCabinetWording.from
 
     var body: some View {
-        let from = filter.from ?? span.lowerBound
-        let to = filter.to ?? span.upperBound
+        let from = dates.from ?? span.lowerBound
+        let to = dates.to ?? span.upperBound
         HStack(spacing: 6) {
-            Text(FileCabinetWording.from).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(.secondary)
             DatePicker(
                 FileCabinetWording.from, selection: date(\.from, shown: from),
                 in: ...to.noon(in: .current), displayedComponents: .date
@@ -227,10 +229,9 @@ private struct DateRange: View {
             DatePicker(
                 FileCabinetWording.to, selection: date(\.to, shown: to), in: from.noon(in: .current)...,
                 displayedComponents: .date)
-            if filter.hasDateRange {
+            if !dates.isOpen {
                 Button {
-                    filter.from = nil
-                    filter.to = nil
+                    dates = FiledDates()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
@@ -246,12 +247,12 @@ private struct DateRange: View {
         .fixedSize()
     }
 
-    private func date(_ end: WritableKeyPath<CabinetFilter, CalendarDay?>, shown: CalendarDay) -> Binding<
+    private func date(_ end: WritableKeyPath<FiledDates, CalendarDay?>, shown: CalendarDay) -> Binding<
         Date
     > {
         Binding(
             get: { shown.noon(in: .current) },
-            set: { filter[keyPath: end] = CalendarDay($0, in: .current) })
+            set: { dates[keyPath: end] = CalendarDay($0, in: .current) })
     }
 }
 

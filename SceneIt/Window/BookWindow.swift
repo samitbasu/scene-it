@@ -136,12 +136,18 @@ struct BookWindow: View {
             // Whatever had the focus in the chrome is gone; the page takes it, its caret where it was.
             if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
-        .onDisappear { readAloud.stop() }
+        .onDisappear {
+            readAloud.stop()
+            search.close()
+        }
         .onAppear {
             // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
             chrome.keys = keys
             search.opener = SearchOpener(
-                book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
+                book: book, store: store, preferences: preferences, editors: editors, focus: pageFocus,
+                mode: $mode)
+            // A filed copy opened from a search result shows the result.
+            if let hit = book.takeSearchArrival() { search.open(hit) }
         }
         .toolbar {
             WindowToolbar(

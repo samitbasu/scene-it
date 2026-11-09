@@ -67,16 +67,16 @@ import Testing
         #expect(units[2].text == "Mara waved")
         #expect(units[5].text == "opening\nMara")
         #expect(
-            units.map(\.placement) == Array(repeating: .story(number: 1), count: 6) + [
+            units.compactMap(\.scene?.placement) == Array(repeating: .story(number: 1), count: 6) + [
                 .story(number: 2), .story(number: 2), .boneyard, .boneyard,
             ])
         #expect(units.allSatisfy { $0.version == .working })
-        #expect(units.last?.sceneTitle == "The station")
+        #expect(units.last?.scene?.title == "The station")
     }
 
     @Test func boneyardScenesAreSearchedAndMarked() async throws {
         let update = try await finalUpdate(SearchUnit.units(of: book(), version: .working), "otter")
-        let placements = update.scenes.map(\.best.unit.placement)
+        let placements = update.scenes.compactMap(\.best.unit.scene?.placement)
         #expect(Set(placements) == [.story(number: 1), .boneyard])
         let fields = Set(hits(update).map(\.unit.field))
         #expect(fields == [.body(paragraph: 0), .notes(paragraph: 0), .comment(CommentID(rawValue: "c1"))])

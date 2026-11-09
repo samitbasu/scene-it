@@ -128,6 +128,74 @@ extension WindowRenders {
         }
     }
 
+    static let cabinetSearchMockup = "11-search-file-cabinet-range.png"
+
+    /// The File Cabinet scope (#34) over mockup 12's five copies, beside mockup 11: the copy picker
+    /// and the date range, results grouped by copy, one copy picked, the copies' own tags, and a
+    /// copy that couldn't be read.
+    @Test func searchCabinet() async throws {
+        let output = try #require(renderFolder).appending(path: "search", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try await withFiledSample(Self.mockupCopies()) { store, book, preferences in
+            let model = SearchSheetModel(book: book)
+            @MainActor func state(
+                _ name: String, _ caption: String, _ prepare: @escaping (SearchSheetModel) async -> Void
+            ) async throws {
+                let renders = try await Self.renderSheet(store, book, preferences, model) {
+                    $0.scope = .fileCabinet
+                    await prepare($0)
+                }
+                try Self.write(
+                    renders, name: name, caption: caption, to: output, beside: Self.cabinetSearchMockup)
+            }
+            try await state("search-cabinet-prompt", "File Cabinet, nothing typed: the picker and the dates")
+            {
+                $0.text = ""
+            }
+            try await state("search-cabinet-all", "\"letter\" in all five filed copies") {
+                $0.set(.searchTags, .on)
+                $0.text = "letter"
+            }
+            try #require(
+                Self.listing(model).map(model.versions)?.count == 5, "precondition: five copies' groups")
+            try await state("search-cabinet-range", "\"letter\", filed from Sep 1, 2026 (mockup 11)") {
+                $0.cabinet = CabinetChoice(dates: FiledDates(from: Self.cabinetDay(9, 1)))
+                $0.text = "letter"
+            }
+            try await state("search-cabinet-one-copy", "\"letter\" in one copy, picked: Oct 13, 2026") {
+                $0.cabinet = CabinetChoice(copy: FiledCopyNumber(4))
+                $0.text = "letter"
+            }
+            try await state("search-cabinet-tags", "\"draft\" with Search tags: the copies' own tags") {
+                $0.cabinet = CabinetChoice()
+                $0.text = "draft"
+            }
+        }
+        try await withFiledSample(Self.mockupCopies()) { store, book, preferences in
+            let gone = PackageLayout(root: book.document.url).filedCopy(try #require(FiledCopyNumber(2)))
+            let aside = gone.deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appending(path: "aside.md")
+            let manager = FileManager.default
+            try manager.setAttributes([.immutable: false], ofItemAtPath: gone.path(percentEncoded: false))
+            try manager.moveItem(at: gone, to: aside)
+            defer {
+                try? manager.moveItem(at: aside, to: gone)
+                try? manager.setAttributes([.immutable: true], ofItemAtPath: gone.path(percentEncoded: false))
+            }
+            let model = SearchSheetModel(book: book)
+            let renders = try await Self.renderSheet(store, book, preferences, model) {
+                $0.scope = .fileCabinet
+                $0.text = "ferry"
+            }
+            try #require(model.unreadable.count == 1, "precondition: one copy couldn't be read")
+            try Self.write(
+                renders, name: "search-cabinet-unreadable",
+                caption: "\"ferry\" with the Jul 14 copy's file gone",
+                to: output, beside: Self.cabinetSearchMockup)
+        }
+    }
+
     private static func listing(_ model: SearchSheetModel) -> SearchListing? {
         if case .results(let listing, .current) = model.state { listing } else { nil }
     }

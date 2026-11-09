@@ -1,5 +1,26 @@
 import Foundation
 
+/// A range of days a copy was filed in, either end of which may be open (PLAN §7.4, §9.1).
+public struct FiledDates: Hashable, Sendable {
+    public var from: CalendarDay?
+    public var to: CalendarDay?
+
+    public init(from: CalendarDay? = nil, to: CalendarDay? = nil) {
+        self.from = from
+        self.to = to
+    }
+
+    /// Both ends open: every day is in it.
+    public var isOpen: Bool {
+        from == nil && to == nil
+    }
+
+    /// Nothing is in a range that ends before it starts.
+    public func contains(_ day: CalendarDay) -> Bool {
+        from.map { day >= $0 } != false && to.map { day <= $0 } != false
+    }
+}
+
 /// The File Cabinet's filters (PLAN §7.4): words, a date range and tags. A filed copy shows when
 /// every word typed appears, ignoring case, in one of its tags or its note; it was filed within
 /// the range, either end of which may be open; and it has every tag chosen.
@@ -7,33 +28,26 @@ import Foundation
 /// Searching the copies' text needs them read; that comes with the File Cabinet's search (#34).
 public struct CabinetFilter: Hashable, Sendable {
     public var words = ""
-    public var from: CalendarDay?
-    public var to: CalendarDay?
+    public var dates: FiledDates
     /// As the cabinet spells them, compared ignoring case (`SceneTag.key`).
     public private(set) var tags: [String] = []
 
     public init(words: String = "", from: CalendarDay? = nil, to: CalendarDay? = nil, tags: [String] = []) {
         self.words = words
-        self.from = from
-        self.to = to
+        dates = FiledDates(from: from, to: to)
         self.tags = tags
     }
 
     /// Nothing to filter by: every copy shows.
     public var isEmpty: Bool {
-        typedWords.isEmpty && from == nil && to == nil && tags.isEmpty
-    }
-
-    public var hasDateRange: Bool {
-        from != nil || to != nil
+        typedWords.isEmpty && dates.isOpen && tags.isEmpty
     }
 
     public func matches(_ copy: FiledCopy) -> Bool {
         let tags = copy.tags.map(SceneTag.key)
         let note = copy.note.lowercased()
         return typedWords.allSatisfy { word in note.contains(word) || tags.contains { $0.contains(word) } }
-            && from.map { copy.filed >= $0 } != false
-            && to.map { copy.filed <= $0 } != false
+            && dates.contains(copy.filed)
             && self.tags.allSatisfy { tags.contains(SceneTag.key($0)) }
     }
 
@@ -66,7 +80,12 @@ public struct CabinetFilter: Hashable, Sendable {
 public enum FileCabinet {
     /// The copies `filter` shows, newest first: by the date they were filed, then by number.
     public static func cards(of index: ArchiveIndex, _ filter: CabinetFilter) -> [FiledCopy] {
-        index.copies.filter(filter.matches).sorted { ($0.filed, $0.number) > ($1.filed, $1.number) }
+        newestFirst(index.copies.filter(filter.matches))
+    }
+
+    /// `copies` by the date they were filed, then by number, newest first.
+    public static func newestFirst(_ copies: [FiledCopy]) -> [FiledCopy] {
+        copies.sorted { ($0.filed, $0.number) > ($1.filed, $1.number) }
     }
 
     /// Every tag the copies have, each once, in the spelling of the newest copy that has it,

@@ -69,12 +69,12 @@ public final class BookStore<C: Clock<Duration>> {
     }
 
     @ObservationIgnored private let clock: C
-    @ObservationIgnored private let fileSystem: any FileSystem
+    @ObservationIgnored let fileSystem: any FileSystem
     @ObservationIgnored private let mirror: BackupMirror
     @ObservationIgnored private let reviews: ReviewsFolder
     @ObservationIgnored private let memory: any BookMemory
     @ObservationIgnored private let prompts: any StorePrompts
-    @ObservationIgnored private let parseDefaults: ParseDefaults
+    @ObservationIgnored let parseDefaults: ParseDefaults
     @ObservationIgnored private var operation = Operation.idle
 
     private enum Operation {
@@ -468,6 +468,7 @@ public final class BookStore<C: Clock<Duration>> {
         await exclusively {
             if let current, current !== book { return .unavailable }
             let result = current == nil ? .unavailable : await book.fileCopy(as: record)
+            if case .filed(let outcome) = result { book.filedCopyIndexes?.filed(outcome.number) }
             if let notice = ArchiveWording.notice(for: result, record: record) { await prompts.tell(notice) }
             await tellRecords(book.takeRecordsToTell(.kept), in: book)
             return result
@@ -496,9 +497,13 @@ public final class BookStore<C: Clock<Duration>> {
     // MARK: A filed copy, read-only (PLAN §7.5)
 
     /// Opens `book`'s filed copy `number` read-only over it, at the scene the book has open if the
-    /// copy has it. The copy is only read: its bytes are parsed into a book that has no writer.
+    /// copy has it, or, given a search result in the copy (PLAN §9.1), at the result's scene, for
+    /// the window to select the result. The copy is only read: its bytes are parsed into a book
+    /// that has no writer.
     @discardableResult
-    public func openFiledCopy(_ number: FiledCopyNumber, of book: OpenBook<C>) async -> FiledCopyOutcome {
+    public func openFiledCopy(_ number: FiledCopyNumber, of book: OpenBook<C>, showing hit: SearchHit? = nil)
+        async -> FiledCopyOutcome
+    {
         await exclusively {
             guard case .open(let open) = session, open === book, case .book(let layout) = book.document,
                 let filed = book.archive.copies.first(where: { $0.number == number })
@@ -518,7 +523,7 @@ public final class BookStore<C: Clock<Duration>> {
                 }
             let shown = OpenBook(
                 parsed.book, filed: FiledCopyContext(book: layout, copy: filed, format: format),
-                at: book.openScene, store: self)
+                at: hit?.unit.scene?.id ?? book.openScene, arriving: hit, store: self)
             session = .viewingCopy(book, copy: shown)
             Log.store.info("opened a filed copy read-only", ["number": .count(number.value)])
             return .opened
@@ -618,7 +623,7 @@ public final class BookStore<C: Clock<Duration>> {
     private nonisolated static func readFiledCopy(
         _ file: URL, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
     ) async throws(FileSystemError) -> ParsedBook {
-        defaults.parse(try fileSystem.read(file))
+        try defaults.parseFiledCopy(file, fileSystem)
     }
 
     @concurrent
