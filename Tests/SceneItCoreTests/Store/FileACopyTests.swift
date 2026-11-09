@@ -640,20 +640,190 @@ struct FileACopyTests {
         }
     }
 
-    @Test func theUnrecordedNoticeQuotesEveryCopy() throws {
+    @Test func theUnrecordedNoticeQuotesEveryCopyWithTheWritersDate() throws {
         let url = URL(filePath: "/Books/Novel.sceneit", directoryHint: .isDirectory)
-        #expect(ArchiveWording.unrecorded([:], in: url) == nil)
-        let second = FilingRecord(filed: Self.record.filed, note: "After")
+        let second = FilingRecord(filed: CalendarDay(year: 2026, month: 11, day: 2)!, note: "After")
+        let dateOnly = FilingRecord(filed: Self.record.filed)
         let notice = try #require(
-            ArchiveWording.unrecorded([FiledCopyNumber(2)!: second, .first: Self.record], in: url))
+            ArchiveWording.unrecorded(
+                [FiledCopyNumber(2)!: second, .first: Self.record, FiledCopyNumber(3)!: dateOnly], in: url))
         #expect(notice.title == "Scene It couldn't save some filed copies' tags and notes.")
-        let day = ArchiveWording.day(Self.record.filed)
+        let first = ArchiveWording.day(Self.record.filed)
+        let next = ArchiveWording.day(second.filed)
         #expect(
             notice.message
                 == "Scene It couldn't save them to the File Cabinet's list in \u{201C}Novel\u{201D}, so it "
-                + "lists those copies without them.\n\nThe copy filed \(day). Your tags: \u{201C}draft 4\u{201D}. "
-                + "Your note: \u{201C}Before the ending\u{201D}.\n\nThe copy filed \(day). Your note: "
-                + "\u{201C}After\u{201D}.")
+                + "lists those copies without them.\n\nYour date: \u{201C}\(first)\u{201D}. Your tags: "
+                + "\u{201C}draft 4\u{201D}. Your note: \u{201C}Before the ending\u{201D}.\n\nYour date: "
+                + "\u{201C}\(next)\u{201D}. Your note: \u{201C}After\u{201D}.",
+            "the copy with no tags and no note loses nothing, so it isn't quoted")
+    }
+
+    @Test func theUnrecordedNoticeNamesWhatWasTyped() throws {
+        let url = URL(filePath: "/Books/Novel.sceneit", directoryHint: .isDirectory)
+        let day = Self.record.filed
+        let tags = FilingRecord(filed: day, tags: ["a"])
+        let note = FilingRecord(filed: day, note: "n")
+        let second = FiledCopyNumber(2)!
+        let cases: [([FiledCopyNumber: FilingRecord], String, String)] = [
+            ([.first: tags], "Scene It couldn't save a filed copy's tags.", "them"),
+            ([.first: note], "Scene It couldn't save a filed copy's note.", "it"),
+            ([.first: Self.record], "Scene It couldn't save a filed copy's tags and note.", "them"),
+            ([.first: tags, second: tags], "Scene It couldn't save some filed copies' tags.", "them"),
+            ([.first: note, second: note], "Scene It couldn't save some filed copies' notes.", "them"),
+            (
+                [.first: tags, second: note], "Scene It couldn't save some filed copies' tags and notes.",
+                "them"
+            ),
+        ]
+        for (pending, title, pronoun) in cases {
+            let notice = try #require(ArchiveWording.unrecorded(pending, in: url))
+            #expect(notice.title == title)
+            #expect(notice.message.hasPrefix("Scene It couldn't save \(pronoun) "), "\(title)")
+        }
+        #expect(ArchiveWording.unrecorded([:], in: url) == nil)
+        #expect(
+            ArchiveWording.unrecorded([.first: FilingRecord(filed: day)], in: url) == nil, "nothing to lose")
+    }
+
+    // MARK: Leaving or losing a book with tags the index couldn't save (#148)
+
+    @Test(arguments: LeavePath.allCases)
+    func leavingTellsPendingTagsTheIndexStillCantSave(_ path: LeavePath) async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            _ = try await Self.fileWithIndexFailing(store, fileSystem)
+
+            let outcome = path == .quit ? await store.prepareToQuit() : await store.closeBook()
+
+            #expect(outcome == .left)
+            #expect(store.current == nil)
+            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+            #expect(prompts.notices.count == 2, "the filing's notice, then what's lost")
+        }
+    }
+
+    @Test func leavingRecordsPendingTagsOnceTheIndexCanBeSaved() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.clearFault()
+            try #require(book.pendingRecords.count == 1, "precondition: nothing has retried yet")
+
+            #expect(await store.closeBook() == .left)
+
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+            #expect(prompts.notices.count == 1, "only the filing's notice")
+        }
+    }
+
+    /// Open Other Version, where the original read again won't load: the start screen shows,
+    /// and nothing holds the pending record any more.
+    @Test func aReloadThatFailsTellsTheBookLostThenThePendingTags() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            _ = try await Self.fileWithIndexFailing(store, fileSystem)
+            let bookMd = url.appending(path: "book.md")
+            fileSystem.before(.writeTemporary("Novel (my edits).sceneit/book.md")) {
+                try? FileManager.default.removeItem(at: bookMd)
+                try? FileManager.default.createDirectory(at: bookMd, withIntermediateDirectories: false)
+            }
+
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { prompts.notices.count == 3 }
+
+            #expect(store.current == nil, "precondition: the reload failed")
+            #expect(prompts.notices[1].message.hasSuffix("is first in Recent Books."), "the book-lost notice")
+            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+        }
+    }
+
+    @Test func aReloadThatComesBackReadOnlyCarriesThePendingTags() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            fileSystem.override(locality: .network)
+            prompts.answer([ExternalChangeChoice.openOtherVersion, ReadOnlyChoice.keepReadOnly])
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+            let lock = url.appending(path: ".lock")
+            let other = Self.otherMac
+            fileSystem.before(.lock("Novel.sceneit/.lock")) { try? other.encoded().write(to: lock) }
+
+            _ = try await Self.draftThenExternalChange(url, store: store)
+            await eventually { prompts.titles.count == 2 && store.current !== old && store.current != nil }
+
+            let reopened = try #require(store.current)
+            try #require(!reopened.isEditable, "precondition: kept read-only")
+            #expect(reopened.pendingRecords == [.first: Self.record])
+            #expect(reopened.archive.copies.map(\.tags) == [["draft 4"]])
+            #expect(reopened.archive.copies.map(\.note) == ["Before the ending"])
+            #expect(prompts.notices.count == 1, "nothing lost, so nothing more told")
+        }
+    }
+
+    @Test func makeEditableOnABookReadAgainRecordsThePendingTags() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts([
+                ExternalChangeChoice.openOtherVersion, ReadOnlyChoice.keepReadOnly,
+            ])
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(
+                in: folder, prompts: prompts, fileSystem: fileSystem, parseDefaults: fixedDefaults)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let old = try await Self.fileWithIndexFailing(store, fileSystem)
+
+            _ = try await Self.draftThenExternalChange(url, store: store) { url in
+                try damaged(try draft(7)).write(to: url.appending(path: "book.md"), options: .atomic)
+            }
+            await eventually { prompts.titles.count == 2 && store.current !== old && store.current != nil }
+            let reopened = try #require(store.current)
+            try #require(reopened.canBeMadeEditable, "precondition: read again, repaired and read-only")
+            try #require(reopened.pendingRecords == [.first: Self.record], "precondition: carried")
+            fileSystem.clearFault()
+
+            #expect(await store.makeEditable() == .editable)
+
+            #expect(reopened.pendingRecords.isEmpty)
+            let copy = try #require(try Self.indexOnDisk(url).copies.first)
+            #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
+        }
+    }
+
+    /// Another program gave the copy a section while its record was pending: that section is
+    /// kept, and the writer is told what they typed.
+    @Test func aSectionAnotherProgramWroteIsKeptAndThePendingTagsAreTold() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let book = try await Self.fileWithIndexFailing(store, fileSystem)
+            fileSystem.clearFault()
+            try Data("---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-10-30\ntags: theirs\n".utf8)
+                .write(to: PackageLayout(root: url).archiveIndex)
+
+            book.write("A save retries the record")
+            store.saveNow()
+            await eventually { prompts.notices.count == 2 }
+
+            #expect(book.pendingRecords.isEmpty)
+            #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]], "their section is kept")
+            #expect(prompts.notices.last == ArchiveWording.unrecorded([.first: Self.record], in: url))
+            #expect(await store.closeBook() == .left)
+            #expect(prompts.notices.count == 2, "told once")
+        }
     }
 
     // MARK: Reconciliation on open

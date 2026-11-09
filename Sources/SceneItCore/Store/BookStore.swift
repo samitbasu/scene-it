@@ -464,10 +464,8 @@ public final class BookStore<C: Clock<Duration>> {
             session = .choosing
             await prompts.tell(OneBookWording.bookLost(failure, myVersion: copyURL))
         }
-        if case .again = replacement, current != nil { return }
-        if let notice = ArchiveWording.unrecorded(book.pendingRecords, in: original) {
-            await prompts.tell(notice)
-        }
+        let readAgainHoldsTheRecords = if case .again = replacement, current != nil { true } else { false }
+        if !readAgainHoldsTheRecords { await tellUnrecorded(book) }
     }
 
     // MARK: Closing and quitting
@@ -511,8 +509,10 @@ public final class BookStore<C: Clock<Duration>> {
         case (.discarding, .quit):
             writer?.releaseUnlessSaving()
         case (.saved, _):
+            if let writer { await book.recordPending(writer) }
             await writer?.release()
         }
+        await tellUnrecorded(book)
         return .left
     }
 
@@ -539,6 +539,21 @@ public final class BookStore<C: Clock<Duration>> {
     }
 
     // MARK: Helpers
+
+    /// Tells the writer of `book`'s pending records, which nothing will record once it's left.
+    private func tellUnrecorded(_ book: OpenBook<C>) async {
+        guard let notice = ArchiveWording.unrecorded(book.pendingRecords, in: book.layout.root) else {
+            return
+        }
+        await prompts.tell(notice)
+    }
+
+    /// For an open book whose index turned out to hold other sections for `records`' copies,
+    /// told after whatever operation is running.
+    func tellUnrecorded(_ records: Archive.Pending, in book: URL) {
+        guard let notice = ArchiveWording.unrecorded(records, in: book) else { return }
+        Task { await exclusively { await prompts.tell(notice) } }
+    }
 
     private func remember(_ book: URL) {
         updateRecentBooks { RecentBooks.remembering(book, in: $0) }

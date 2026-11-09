@@ -57,8 +57,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         case refused
     }
 
-    /// `pending` is what a book read again in this one's place had pending (`pendingRecords`);
-    /// `archive` was reconciled with it.
+    /// `pending`: the records the book this one replaces still had pending; `archive` was
+    /// reconciled with them.
     init(
         _ opened: OpenedBook, archive: ReconciledArchive, pending: Archive.Pending, clock: C,
         mirror: BackupMirror, store: BookStore<C>
@@ -80,7 +80,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             access = .readOnly(reason)
         }
         pendingRecords = pending
-        if isEditable, archive.isSaved { forgetPending(recordedIn: archive.index) }
+        settlePending(against: archive.index, isEditable && archive.isSaved ? .saved : .notSaved)
         openScene = book.scenes.first?.id
     }
 
@@ -570,7 +570,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             let outcome = try await writer.fileCopy(of: book, as: record, pending: pendingRecords)
             switch outcome.index {
             case .updated(let index):
-                forgetPending(recordedIn: index)
+                settlePending(against: index, .saved)
             case .notUpdated(.couldNotRead), .notUpdated(.notWritten):
                 pendingRecords[outcome.number] = record
             case .notUpdated(.newerFormat):
@@ -584,6 +584,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         if let reconciled = await writer.reconcileArchive(.readOnly, pending: pendingRecords) {
             show(reconciled)
+            settlePending(against: reconciled.index, .notSaved)
         }
         return result
     }
@@ -601,11 +602,34 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             return
         }
         show(reconciled)
-        if reconciled.isSaved { forgetPending(recordedIn: reconciled.index) }
+        settlePending(against: reconciled.index, reconciled.isSaved ? .saved : .notSaved)
     }
 
-    private func forgetPending(recordedIn index: ArchiveIndex) {
-        for copy in index.copies { pendingRecords[copy.number] = nil }
+    private enum IndexState {
+        case saved
+        case notSaved
+    }
+
+    /// Forgets the pending records `index` holds, once it's saved. A copy that `index` gives
+    /// a section of its own (another program wrote it) keeps that section, and its record is
+    /// told to the writer and forgotten.
+    private func settlePending(against index: ArchiveIndex, _ state: IndexState) {
+        var overwritten: Archive.Pending = [:]
+        for copy in index.copies {
+            guard let record = pendingRecords[copy.number] else { continue }
+            if !copy.holds(record) {
+                overwritten[copy.number] = record
+                pendingRecords[copy.number] = nil
+            } else if state == .saved {
+                pendingRecords[copy.number] = nil
+            }
+        }
+        if !overwritten.isEmpty {
+            Log.store.error(
+                "the archive index has other sections for filed copies whose records were pending",
+                ["count": .count(overwritten.count)])
+            store?.tellUnrecorded(overwritten, in: layout.root)
+        }
     }
 
     // MARK: Error entries (book format §5.4)

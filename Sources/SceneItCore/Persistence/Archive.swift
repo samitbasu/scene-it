@@ -35,7 +35,8 @@ struct Archive {
             let parsed = (try? readIndex())?.parsed ?? Self.emptyIndex
             return report(
                 ReconciledArchive(
-                    index: parsed.index, notices: [.archiveUnreadable(error)], next: nil, rewrite: .unneeded))
+                    index: parsed.index, notices: [.archiveUnreadable(error)], next: nil, rewrite: .unneeded),
+                .notSaved)
         }
         let locking = access == .writable ? lockUnlockedCopies(in: listing) : []
         let file: IndexFile
@@ -47,19 +48,20 @@ struct Archive {
                 ReconciledArchive(
                     index: reconciled.index,
                     notices: [.indexUnreadable(error)] + reconciled.notices + locking,
-                    next: reconciled.next, rewrite: .unneeded))
+                    next: reconciled.next, rewrite: .unneeded),
+                .notSaved)
         }
         let reconciled = reconcile(listing, file.parsed, pending).adding(locking)
         guard access == .writable,
             reconciled.rewrite == .needed || reconciled.rewrite == .neededKeepingOriginal
-        else { return report(reconciled) }
+        else { return report(reconciled, .notSaved) }
         do throws(IndexWriteFailure) {
             let kept = try replaceIndex(
                 with: reconciled.index,
                 keepingOriginal: reconciled.rewrite == .neededKeepingOriginal ? file.bytes : nil)
-            return report(reconciled.adding(kept))
+            return report(reconciled.adding(kept), .saved)
         } catch {
-            return report(reconciled.adding([.indexNotSaved(error)]))
+            return report(reconciled.adding([.indexNotSaved(error)]), .notSaved)
         }
     }
 
@@ -70,8 +72,8 @@ struct Archive {
             listing: listing, index: parsed, modified: modifiedDay, counts: counts, pending: pending)
     }
 
-    private func report(_ reconciled: ReconciledArchive) -> ReconciledArchive {
-        for notice in reconciled.notices { notice.log() }
+    private func report(_ reconciled: ReconciledArchive, _ index: IndexState) -> ReconciledArchive {
+        for notice in reconciled.notices { notice.log(index) }
         return reconciled
     }
 
@@ -198,8 +200,11 @@ struct Archive {
             return .notUpdated(.couldNotRead(error))
         }
         let reconciled = reconcile(listing, file.parsed, pending)
-        for notice in reconciled.notices where notice != .listedWithoutEntry(copy.number) { notice.log() }
-        if case .refused(let format) = reconciled.rewrite { return .notUpdated(.newerFormat(format)) }
+        let noticed = reconciled.notices.filter { $0 != .listedWithoutEntry(copy.number) }
+        if case .refused(let format) = reconciled.rewrite {
+            for notice in noticed { notice.log(.notSaved) }
+            return .notUpdated(.newerFormat(format))
+        }
         var index = reconciled.index
         index.copies.removeAll { $0.number == copy.number }
         index.copies.append(copy)
@@ -207,9 +212,10 @@ struct Archive {
         do throws(IndexWriteFailure) {
             let kept = try replaceIndex(
                 with: index, keepingOriginal: reconciled.rewrite == .neededKeepingOriginal ? file.bytes : nil)
-            for notice in kept { notice.log() }
+            for notice in noticed + kept { notice.log(.saved) }
             return .updated(index)
         } catch {
+            for notice in noticed { notice.log(.notSaved) }
             return .notUpdated(.notWritten(error))
         }
     }
@@ -449,16 +455,29 @@ public enum IndexFailure: Hashable, Sendable {
     case notWritten(IndexWriteFailure)
 }
 
+/// Whether the index a notice was logged for is on disk, for what the log says was recorded.
+private enum IndexState {
+    case saved
+    case notSaved
+}
+
 extension ArchiveNotice {
-    fileprivate func log() {
+    fileprivate func log(_ index: IndexState) {
         switch self {
         case .listedWithoutEntry(let number):
             Log.store.info(
                 "listed a filed copy the archive index didn't have", ["number": .count(number.value)])
         case .recordedPendingEntry(let number):
-            Log.store.info(
-                "recorded a filed copy's tags and note that its filing couldn't save",
-                ["number": .count(number.value)])
+            switch index {
+            case .saved:
+                Log.store.info(
+                    "recorded a filed copy's tags and note that its filing couldn't save",
+                    ["number": .count(number.value)])
+            case .notSaved:
+                Log.store.info(
+                    "listed a filed copy's pending tags and note without saving them",
+                    ["number": .count(number.value)])
+            }
         case .keptEntryWithoutFile(let number):
             Log.store.error(
                 "kept an archive index entry whose filed copy is missing as unparsed lines",

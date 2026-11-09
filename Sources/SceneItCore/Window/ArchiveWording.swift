@@ -103,24 +103,33 @@ public enum ArchiveWording {
         return parts.joined(separator: " ")
     }
 
-    /// Told when `book` is replaced by another (ADR 0018's Open My Version) or can't be read
-    /// again, while some copies' sections still couldn't be saved in its index: nothing will
-    /// record them now, so each is quoted. `nil` when there are none.
+    /// Told when records still pending can no longer be saved in `book`'s index: it was left
+    /// (closed, quit, replaced by my version, or not read again), or another program gave
+    /// those copies sections of its own. Each record is quoted, its date included; one with no
+    /// tags and no note loses nothing and isn't told. `nil` when none is left to tell.
     public static func unrecorded(_ pending: [FiledCopyNumber: FilingRecord], in book: URL) -> Notice? {
-        guard !pending.isEmpty else { return nil }
-        let one = pending.count == 1
-        let copies = pending.sorted { $0.key < $1.key }.map { _, record in
-            "\n\n"
-                + ["The copy filed \(day(record.filed)).", quotedTyping(record)].filter { !$0.isEmpty }
-                .joined(separator: " ")
+        let records = pending.sorted { $0.key < $1.key }.map(\.value)
+            .filter { !$0.tags.isEmpty || !$0.note.isEmpty }
+        guard !records.isEmpty else { return nil }
+        let one = records.count == 1
+        let what: String
+        let pronoun: String
+        switch (records.contains { !$0.tags.isEmpty }, records.contains { !$0.note.isEmpty }) {
+        case (true, false): (what, pronoun) = ("tags", "them")
+        case (false, true): (what, pronoun) = (one ? "note" : "notes", one ? "it" : "them")
+        case (true, true), (false, false):
+            (what, pronoun) = (one ? "tags and note" : "tags and notes", "them")
+        }
+        let copies = records.map { record in
+            "\n\nYour date: \(quoted(day(record.filed))). " + quotedTyping(record)
         }
         return Notice(
             title: one
-                ? "Scene It couldn't save a filed copy's tags and note."
-                : "Scene It couldn't save some filed copies' tags and notes.",
-            message: "Scene It couldn't save them to the File Cabinet's list in "
+                ? "Scene It couldn't save a filed copy's \(what)."
+                : "Scene It couldn't save some filed copies' \(what).",
+            message: "Scene It couldn't save \(pronoun) to the File Cabinet's list in "
                 + "\(quoted(StoreWording.bookName(book))), so it lists \(one ? "that copy" : "those copies") "
-                + "without them." + copies.joined())
+                + "without \(pronoun)." + copies.joined())
     }
 
     private static func quoted(_ text: String) -> String {
