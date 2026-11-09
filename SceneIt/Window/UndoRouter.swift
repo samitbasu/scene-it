@@ -301,6 +301,17 @@ final class UndoFocusAnchor {
     func takeFocus() {
         view?.takeFocus()
     }
+
+    /// A field in a sheet is done with: no view has the keys, and on the next turn, once SwiftUI
+    /// has taken the field away, this anchor's view takes them, unless something else did
+    /// meanwhile. Taking them at once leaves the field in the window.
+    func takeFocus(after field: NSView?) {
+        field?.window?.makeFirstResponder(nil)
+        DispatchQueue.main.async { [self] in
+            guard let window = view?.window, window.firstResponder === window else { return }
+            takeFocus()
+        }
+    }
 }
 
 /// Tells the router which window it serves.

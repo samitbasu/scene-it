@@ -25,13 +25,15 @@ struct BookWindowWithMode: View {
     @Bindable var box: ModeBox
     var search: SearchSheetModel?
     var scenes: ScenesSheetModel?
+    var cabinet: FileCabinetModel?
     var chrome: WindowChrome?
+    var readAloud: ReadAloud?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
             formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
-            search: search, scenes: scenes, chrome: chrome)
+            search: search, scenes: scenes, cabinet: cabinet, chrome: chrome, readAloud: readAloud)
     }
 }
 
@@ -46,12 +48,15 @@ struct PageHarness {
     let page: ManuscriptTextView
     let title: NSTextField
     let formatting: EditorFormatting
+    let readAloud: ReadAloud
     let preferences: AppPreferences
     let modes: ModeBox
     /// The window's Search sheet.
     let search: SearchSheetModel
     /// The window's Scenes sheet.
     let scenes: ScenesSheetModel
+    /// The window's File Cabinet.
+    let cabinet: FileCabinetModel
     /// The window's focus mode.
     let chrome: WindowChrome
     /// Whether the editors keep the writer's automatic-change preferences or have them off.
@@ -134,6 +139,8 @@ func withPage(
     books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
     scenesSheet: ScenesSheetModel = ScenesSheetModel(),
+    cabinet: FileCabinetModel = FileCabinetModel(),
+    filed: [FilingRecord] = [],
     automaticChanges: AutomaticChangesInTests = .off,
     _ body: (PageHarness) async throws -> Void
 ) async throws {
@@ -143,16 +150,21 @@ func withPage(
         let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
         let store = books.store
         let holder: EditableBook?
+        let written = Book(title: "Novel", scenes: scenes, boneyard: boneyard)
         if lock == .heldElsewhere {
             holder = try BookPackage.create(at: url, title: "Novel")
-            _ = try holder?.package.save(Book(title: "Novel", scenes: scenes, boneyard: boneyard))
+            _ = try holder?.package.save(written)
+            for record in filed { _ = try holder?.package.fileCopy(of: written, as: record) }
             #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
         } else {
             holder = nil
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
-            try BookFormat.serialize(Book(title: "Novel", scenes: scenes, boneyard: boneyard)).write(
-                to: url.appending(path: "book.md"), options: .atomic)
+            try BookFormat.serialize(written).write(to: url.appending(path: "book.md"), options: .atomic)
+            if !filed.isEmpty {
+                let filing = try #require(try BookPackage.open(at: url).editable, "precondition: filing")
+                for record in filed { _ = try filing.package.fileCopy(of: written, as: record) }
+            }
             #expect(await store.open(url) == .opened)
         }
         let book = try #require(store.current)
@@ -164,7 +176,8 @@ func withPage(
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
-                box: modes, search: search, scenes: scenesSheet, chrome: chrome))
+                box: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
+                readAloud: books.readAloud))
         controller.sizingOptions = []
         let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -184,8 +197,9 @@ func withPage(
             })
         let harness = PageHarness(
             url: url, store: store, book: book, window: window, page: page, title: title,
-            formatting: books.formatting, preferences: books.preferences, modes: modes, search: search,
-            scenes: scenesSheet, chrome: chrome, automaticChanges: automaticChanges)
+            formatting: books.formatting, readAloud: books.readAloud, preferences: books.preferences,
+            modes: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
+            automaticChanges: automaticChanges)
         harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)

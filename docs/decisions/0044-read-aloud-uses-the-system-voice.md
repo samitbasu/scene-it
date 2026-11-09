@@ -1,6 +1,8 @@
 # 0044 — Read aloud starts with the system's voice at rate 0.5
 
-**Status:** Accepted (2026-11-09, the owner, on #38). Confirms PLAN §9 Q6's default.
+**Status:** Accepted (2026-11-09, the owner, on #38). Confirms PLAN §9 Q6's default. Amended
+2026-11-09 (#39): the voice and rate are app-wide preferences, not the book's `settings`, as ADR
+0022 moved them; the defaults are unchanged.
 
 ## Context
 A new book needs a read-aloud voice and rate (PLAN §10.3, `settings.voice` and `settings.rate`).
@@ -8,10 +10,12 @@ The owner listened to `AVSpeechSynthesizer` samples of the system default voice 
 Mac) at rates 0.45, 0.50 and 0.55, and of the best installed voice (a downloaded Siri voice, Nora).
 
 ## Decision
-- A new book's `settings.voice` is absent: read aloud uses the voice chosen in System Settings ›
-  Accessibility › Spoken Content (`AVSpeechSynthesisVoice(language: nil)`). A book stores a voice only
-  once the writer picks one.
-- A new book's `settings.rate` is 0.5 (`AVSpeechUtteranceDefaultSpeechRate`).
+The voice and rate are app-wide preferences (`AppPreferences.readAloudVoice` and `readAloudRate`,
+kept in UserDefaults), like the zoom: ADR 0022 moved the book's `settings` out of the book.
+- No voice is stored at first: read aloud uses the voice chosen in System Settings › Accessibility ›
+  Spoken Content (`AVSpeechSynthesisVoice(language: nil)`). A voice is stored only once the writer
+  picks one.
+- The rate starts at 0.5 (`AVSpeechUtteranceDefaultSpeechRate`).
 
 ## Alternatives
 - **The best installed voice** (highest `quality`, falling back to the default). More natural where a

@@ -2,13 +2,15 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// The + tag field of the Tags tab and of the Scenes sheet's cards: an `AdmittingTextField`
-/// (ADR 0028), so Return and Esc arrive as its field editor's commands. Return hands what's typed
+/// The + tag field of the Tags tab, the Scenes sheet's cards and the File Cabinet's cards: an
+/// `AdmittingTextField` (ADR 0028), so Return and Esc arrive as its field editor's commands. Return hands what's typed
 /// to `add` and empties the field, which keeps the focus for the next tag (the owner, #20); Esc
 /// empties it and calls `leave`, which says where the focus goes. The field's own typing history,
 /// which ⌘Z undoes while it has the focus, goes with what it held.
 struct NewTagField: NSViewRepresentable {
     let book: AppOpenBook
+    /// What a tag added here changes: a scene's tags, or a filed copy's record.
+    var kind = EditKind.manuscript
     let add: (String) -> Void
     let leave: (NSTextView) -> Void
     var opening = Opening.unfocused
@@ -29,7 +31,7 @@ struct NewTagField: NSViewRepresentable {
         coordinator.actions = (add, leave, ended)
         let editor = AdmittingTextView.fieldEditor(
             admitting: CharacterPolicy.admittedLine,
-            editability: { [weak book] in Editability(book, for: .manuscript) })
+            editability: { [weak book, kind] in Editability(book, for: kind) })
         editor.history = coordinator.history
         let field = AdmittingTextField(string: "", editor: editor, lineBreakMode: .byClipping)
         field.font = .systemFont(ofSize: WindowMetrics.Tags.chipPointSize)

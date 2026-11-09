@@ -172,7 +172,17 @@ private struct ScenesGrid: View {
         }
     }
 
-    @ViewBuilder private func message(_ text: String, hint: String?) -> some View {
+    private func message(_ text: String, hint: String?) -> some View {
+        GridMessage(text: text, hint: hint)
+    }
+}
+
+/// What a sheet's grid says with no cards, or none its filter shows, in the Scenes sheet's look.
+struct GridMessage: View {
+    let text: String
+    let hint: String?
+
+    var body: some View {
         switch WindowMetrics.Scenes.look.messages {
         case .withHint:
             VStack(alignment: .leading, spacing: 4) {

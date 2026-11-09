@@ -80,6 +80,19 @@ final class BookWriter: Sendable {
         }
     }
 
+    /// `Archive.edit`, after any running save or filing.
+    @concurrent
+    func edit(_ number: FiledCopyNumber, _ change: RecordChange, pending: Archive.Pending)
+        async
+        throws(RecordEditFailure) -> ReconciledArchive
+    {
+        try held.withLock { (held) throws(RecordEditFailure) -> ReconciledArchive in
+            guard let held else { throw .unavailable }
+            return try Archive(layout: held.package.layout, fileSystem: held.package.fileSystem)
+                .edit(number, change, pending: pending)
+        }
+    }
+
     /// Waits for a running save, then drops the package, which releases the book's lock.
     @concurrent
     func release() async {

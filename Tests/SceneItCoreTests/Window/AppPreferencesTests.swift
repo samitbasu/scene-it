@@ -137,3 +137,40 @@ struct LastUsedColorTests {
         #expect(preferences.lastHighlight == .green)
     }
 }
+
+/// Read aloud's voice and rate (PLAN §10.3), the app's since ADR 0022, starting as ADR 0044 says.
+@Suite @MainActor
+struct ReadAloudPreferenceTests {
+    @Test func readAloudStartsWithTheSystemVoiceAtRateOneHalf() {
+        let preferences = AppPreferences(TransientPreferenceStorage())
+        #expect(preferences.readAloudVoice == nil)
+        #expect(preferences.readAloudRate == SpeechRate(clamping: 0.5))
+    }
+
+    @Test func aChosenVoiceAndRateAreKeptForTheNextLaunch() throws {
+        let storage = TransientPreferenceStorage()
+        let preferences = AppPreferences(storage)
+        let zoe = try #require(VoiceIdentifier("com.apple.voice.premium.en-US.Zoe"))
+        preferences.setReadAloudVoice(zoe)
+        preferences.setReadAloudRate(SpeechRate(clamping: 0.45))
+        #expect(storage.values == ["readAloudVoice": zoe.rawValue, "readAloudRate": "0.45"])
+        let next = AppPreferences(storage)
+        #expect(next.readAloudVoice == zoe)
+        #expect(next.readAloudRate == SpeechRate(clamping: 0.45))
+
+        next.setReadAloudVoice(nil)
+        #expect(AppPreferences(storage).readAloudVoice == nil, "back to the system's voice")
+    }
+
+    @Test func aStoredRateOutsideTheRangeOrUnreadableIsOneHalf() {
+        for stored in ["1.5", "-0.1", "nan", "fast", ""] {
+            #expect(
+                AppPreferences(TransientPreferenceStorage(["readAloudRate": stored])).readAloudRate
+                    == .standard,
+                "\(stored)")
+        }
+        #expect(
+            AppPreferences(TransientPreferenceStorage(["readAloudRate": "1"])).readAloudRate
+                == SpeechRate(clamping: 1))
+    }
+}

@@ -82,7 +82,6 @@ public enum WindowWording {
     }
 
     public static let closeSheet = "Close"
-    public static let sheetComingLater = "Coming in a later version."
 
     // MARK: Page (PLAN §4.3, ADR 0015)
 
@@ -99,6 +98,8 @@ public enum WindowWording {
     public static let noHighlight = "None"
     public static let showPalette = "Show the palette"
     public static let readAloud = "Read aloud"
+    /// The read-aloud button's name while it reads (PLAN §10.3).
+    public static let stopReadingAloud = "Stop"
     /// A bar's tooltip while its editor doesn't have the focus (PLAN §6.2; approved, #18, #19).
     public static func clickToFormat(_ part: TextPart) -> String {
         switch part {

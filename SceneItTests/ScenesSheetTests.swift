@@ -299,23 +299,23 @@ extension OneAtATime {
 
         /// The click count is the system's, from the event the tap ends with.
         @Test func theEventsClickCountSaysSingleOrDouble() throws {
-            @MainActor func click(_ count: Int) throws -> SceneClick {
+            @MainActor func click(_ count: Int) throws -> CardClick {
                 let event = try #require(
                     NSEvent.mouseEvent(
                         with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
                         context: nil, eventNumber: 0, clickCount: count, pressure: 0))
-                return SceneClick(event)
+                return CardClick(event)
             }
             #expect(try click(1) == .single)
             #expect(try click(2) == .double)
             #expect(try click(3) == .double)
-            #expect(SceneClick(nil) == .single, "no event: never opens")
+            #expect(CardClick(nil) == .single, "no event: never opens")
             let key = try #require(
                 NSEvent.keyEvent(
                     with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
                     context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false,
                     keyCode: 36))
-            #expect(SceneClick(key) == .single, "a key event has no click count to ask")
+            #expect(CardClick(key) == .single, "a key event has no click count to ask")
         }
 
         /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not

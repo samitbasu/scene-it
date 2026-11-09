@@ -8,6 +8,7 @@ struct EditorArea: View {
     let book: AppOpenBook
     let preferences: AppPreferences
     let formatting: EditorFormatting
+    let readAloud: ReadAloud
     let focus: PageFocus
     let editors: SceneEditors
 
@@ -15,7 +16,10 @@ struct EditorArea: View {
         let scene = book.location.scene
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                FormattingBar(formatting: formatting, part: .body)
+                HStack(spacing: WindowMetrics.Bar.groupSpacing) {
+                    FormattingBar(formatting: formatting, part: .body)
+                    ReadAloudButton(readAloud: readAloud)
+                }
                 Spacer()
             }
             .padding(.horizontal, 12)

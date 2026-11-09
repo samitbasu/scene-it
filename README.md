@@ -401,6 +401,11 @@ state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
 `search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`. To
 render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)`.
 
+`readAloud` renders read aloud (#39, `ReadAloudRenders.swift`): `read-aloud-1-no-selection` (▶
+dimmed), `read-aloud-2-selection` (▶) and `read-aloud-3-reading` (■, the sentence being read
+highlighted), each at 1× and 2× with a `-close-up@2x.png` of the bar and the top of the page.
+Nothing is heard. To render only these, add `-only-testing:SceneItTests/WindowRenders/readAloud\(\)`.
+
 `commentUnderlines` renders comment underlines (#24, ADR 0032) on the page (`underlines`) and in
 the Notes tab (`underlines-notes`), each as `@1x.png`, `@2x.png` and `-vs-mockup.png`.
 
@@ -434,6 +439,13 @@ can't be drawn offscreen. To render only these, add
 and the look candidates the owner hasn't picked between, as `candidate-tag-always-field`,
 `candidate-messages-plain-no-matches` and `candidate-messages-plain-empty`. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/scenesSheet\(\)`.
+
+`fileCabinet` renders the File Cabinet sheet (#33, `FileCabinetRenders.swift`) into a `cabinet/` subfolder, at 1×
+and 2× beside mockup 12, on mockup 12's day (Nov 1, 2026) with its five copies: `final-cabinet`,
+`final-cabinet-selected`, `final-cabinet-tagging`, `final-cabinet-filters` (a date and a tag chosen),
+`final-cabinet-search`, `final-cabinet-no-matches`, `final-cabinet-empty` and `final-cabinet-read-only`. To render
+only these, add
+`-only-testing:SceneItTests/WindowRenders/fileCabinet\(\)`.
 
 `boneyard` renders the Boneyard tray and the sheet's drags and keys (#29, `BoneyardRenders.swift`) into a
 `boneyard/` subfolder, at 1× and 2× and beside mockup 07: `final-tray`, `final-tray-lit` (a card over the tray),
