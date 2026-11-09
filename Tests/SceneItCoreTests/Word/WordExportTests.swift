@@ -36,6 +36,7 @@ struct WordExportTests {
         let contentTypes: XMLDocument
         let packageRelationships: XMLDocument
         let documentRelationships: XMLDocument
+        let settings: XMLDocument
         let everything: String
 
         init(_ scene: BookScene) throws {
@@ -49,6 +50,7 @@ struct WordExportTests {
             packageRelationships = try XMLDocument(data: try Unzip.part("_rels/.rels", of: docx))
             documentRelationships = try XMLDocument(
                 data: try Unzip.part("word/_rels/document.xml.rels", of: docx))
+            settings = try XMLDocument(data: try Unzip.part("word/settings.xml", of: docx))
             everything = String(decoding: parts.reduce(Data(), +), as: UTF8.self)
         }
 
@@ -94,7 +96,7 @@ struct WordExportTests {
         #expect(
             Set(parts.names) == [
                 "[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/_rels/document.xml.rels",
-                "word/styles.xml",
+                "word/styles.xml", "word/settings.xml",
             ])
         let types = Parts.elements(parts.contentTypes, "//w:Override")
         #expect(
@@ -109,13 +111,48 @@ struct WordExportTests {
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
                     "/word/styles.xml":
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+                    "/word/settings.xml":
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
                 ])
         let main = try #require(Parts.elements(parts.packageRelationships, "//w:Relationship").first)
         #expect(main.attribute(forName: "Target")?.stringValue == "word/document.xml")
         #expect(main.attribute(forName: "Type")?.stringValue?.hasSuffix("/officeDocument") == true)
-        let styles = try #require(Parts.elements(parts.documentRelationships, "//w:Relationship").first)
-        #expect(styles.attribute(forName: "Target")?.stringValue == "styles.xml")
-        #expect(styles.attribute(forName: "Type")?.stringValue?.hasSuffix("/styles") == true)
+        let links = Parts.elements(parts.documentRelationships, "//w:Relationship")
+        #expect(
+            links.map { $0.attribute(forName: "Target")?.stringValue } == ["styles.xml", "settings.xml"])
+        #expect(
+            links.map { $0.attribute(forName: "Type")?.stringValue?.split(separator: "/").last } == [
+                "styles", "settings",
+            ])
+        let ids = links.compactMap { $0.attribute(forName: "Id")?.stringValue }
+        #expect(Set(ids).count == 2, "each link has its own id")
+    }
+
+    @Test func wordDoesntOpenItInCompatibilityMode() throws {
+        let parts = try Parts(Self.scene)
+        let setting = "/w:settings/w:compat/w:compatSetting"
+        try #require(
+            Parts.elements(parts.settings, setting).count == 1, "precondition: one compatibility setting")
+        #expect(Self.values(parts.settings, setting, "name") == ["compatibilityMode"])
+        #expect(Self.values(parts.settings, setting, "uri") == ["http://schemas.microsoft.com/office/word"])
+        #expect(Self.values(parts.settings, setting) == ["15"])
+    }
+
+    @Test(arguments: ["\u{0}", "\u{1}", "\u{8}", "\u{B}", "\u{1F}", "\u{FFFE}", "\u{FFFF}"])
+    func aCharacterXMLCantHoldRefusesTheExport(_ character: String) throws {
+        let run = Run(admitted: "a\(character)b", styles: [], color: nil, highlight: nil, comments: [])
+        try #require(run.text.unicodeScalars.count == 3, "precondition: the character got past the policy")
+        let scene = BookScene(id: SceneID(rawValue: "s"), modified: Self.modified, title: "T", body: [[run]])
+        #expect(throws: WordExportFailure.unwritableCharacter) { try WordExport.document(of: scene) }
+        #expect(WordExportWording.notice(for: .unwritableCharacter).message.contains("character"))
+    }
+
+    @Test func xmlsCharacterRangeIsExact() {
+        let allowed: [UInt32] = [0x9, 0xA, 0xD, 0x20, 0xD7FF, 0xE000, 0xFFFD, 0x1_0000, 0x10_FFFF]
+        let refused: [UInt32] = [0x0, 0x8, 0xB, 0xC, 0xE, 0x1F, 0xFFFE, 0xFFFF]
+        #expect(allowed.compactMap(Unicode.Scalar.init).allSatisfy(WordDocument.isXMLCharacter))
+        #expect(!refused.compactMap(Unicode.Scalar.init).contains(where: WordDocument.isXMLCharacter))
+        #expect(refused.compactMap(Unicode.Scalar.init).count == refused.count, "precondition: all scalars")
     }
 
     @Test func theTitleIsHeading1DefinedAsTimesNewRoman18PointBold() throws {
@@ -235,7 +272,7 @@ struct WordExportTests {
         scene.body = [[Run(allowed, styles: [.bold])]]
         try #require(scene.title.text == allowed, "precondition: the title keeps every character")
         #expect(try Parts(scene).paragraphs.map(Self.text) == [allowed, allowed])
-        #expect(WordDocument.escaped("<a & 'b'>") == "&lt;a &amp; &apos;b&apos;&gt;")
+        #expect(try WordDocument.escaped("<a & 'b'>") == "&lt;a &amp; &apos;b&apos;&gt;")
     }
 
     @Test func macOSReadsTheDocument() throws {

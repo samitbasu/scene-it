@@ -6,16 +6,17 @@ import Foundation
 /// colour and highlight. Comments and notes aren't exported.
 public enum WordExport {
     public static func document(of scene: BookScene) throws(WordExportFailure) -> Data {
-        let paragraphs = WordParagraph.paragraphs(of: scene)
+        let document = try WordDocument.document(WordParagraph.paragraphs(of: scene))
         do {
             return try ZipWriter.archive([
                 .init(name: "[Content_Types].xml", bytes: Data(WordDocument.contentTypes.utf8)),
                 .init(name: "_rels/.rels", bytes: Data(WordDocument.packageRelationships.utf8)),
-                .init(name: "word/document.xml", bytes: Data(WordDocument.document(paragraphs).utf8)),
+                .init(name: "word/document.xml", bytes: Data(document.utf8)),
                 .init(
                     name: "word/_rels/document.xml.rels", bytes: Data(WordDocument.documentRelationships.utf8)
                 ),
                 .init(name: "word/styles.xml", bytes: Data(WordStyles.xml.utf8)),
+                .init(name: "word/settings.xml", bytes: Data(WordDocument.settings.utf8)),
             ])
         } catch {
             throw .tooLarge
@@ -62,6 +63,8 @@ enum WordDocument {
         + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>"#
         + #"<Override PartName="/word/styles.xml" "#
         + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>"#
+        + #"<Override PartName="/word/settings.xml" "#
+        + #"ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>"#
         + "</Types>"
 
     static let packageRelationships =
@@ -72,25 +75,42 @@ enum WordDocument {
     static let documentRelationships =
         declaration + #"<Relationships xmlns="\#(Namespace.packageRelationships)">"#
         + #"<Relationship Id="rId1" Type="\#(Namespace.officeRelationships)/styles" Target="styles.xml"/>"#
+        + #"<Relationship Id="rId2" Type="\#(Namespace.officeRelationships)/settings" Target="settings.xml"/>"#
         + "</Relationships>"
 
-    static func document(_ paragraphs: [WordParagraph]) -> String {
-        declaration + #"<w:document xmlns:w="\#(Namespace.word)"><w:body>"#
-            + paragraphs.map(paragraph).joined() + "</w:body></w:document>"
+    /// Word's current compatibility mode (15, Word 2013 and later); without it, Word opens the
+    /// document in Compatibility Mode, as if an older Word had written it.
+    static let settings =
+        declaration + #"<w:settings xmlns:w="\#(Namespace.word)"><w:compat>"#
+        + #"<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" "#
+        + #"w:val="15"/></w:compat></w:settings>"#
+
+    static func document(_ paragraphs: [WordParagraph]) throws(WordExportFailure) -> String {
+        var body = ""
+        for paragraph in paragraphs {
+            body += try self.paragraph(paragraph)
+        }
+        return declaration + #"<w:document xmlns:w="\#(Namespace.word)"><w:body>"# + body
+            + "</w:body></w:document>"
     }
 
-    private static func paragraph(_ paragraph: WordParagraph) -> String {
+    private static func paragraph(_ paragraph: WordParagraph) throws(WordExportFailure) -> String {
         let properties =
             switch paragraph.kind {
             case .title: #"<w:pPr><w:pStyle w:val="\#(WordStyles.headingID)"/></w:pPr>"#
             case .body: ""
             }
-        return "<w:p>" + properties + paragraph.runs.map(run).joined() + "</w:p>"
+        var runs = ""
+        for run in paragraph.runs {
+            runs += try self.run(run)
+        }
+        return "<w:p>" + properties + runs + "</w:p>"
     }
 
     /// A run's own formatting, in the schema's order: bold, italic, strikethrough, colour, shading.
-    /// Uncoloured text takes the style's black.
-    private static func run(_ run: Run) -> String {
+    /// Uncoloured text has no colour of its own, so it's Word's automatic colour: black on a white
+    /// page, light when Word shows the document dark.
+    private static func run(_ run: Run) throws(WordExportFailure) -> String {
         var properties = ""
         if run.styles.contains(.bold) { properties += "<w:b/>" }
         if run.styles.contains(.italic) { properties += "<w:i/>" }
@@ -102,16 +122,19 @@ enum WordDocument {
             properties += #"<w:shd w:val="clear" w:color="auto" w:fill="\#(hex(highlight.hex))"/>"#
         }
         let formatting = properties.isEmpty ? "" : "<w:rPr>" + properties + "</w:rPr>"
-        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + escaped(run.text) + "</w:t></w:r>"
+        return "<w:r>" + formatting + #"<w:t xml:space="preserve">"# + (try escaped(run.text))
+            + "</w:t></w:r>"
     }
 
     private static func hex(_ rgb: UInt32) -> String {
         String(format: "%06X", rgb)
     }
 
-    /// `text` as XML character data. Run text is printable ASCII (`CharacterPolicy`), all of which
-    /// XML allows, so escaping the markup characters is all it needs.
-    static func escaped(_ text: String) -> String {
+    /// `text` as XML character data. It refuses a character XML 1.0 can't hold at all (a control
+    /// character other than tab, line feed and carriage return, or U+FFFE and U+FFFF; a `String`
+    /// can't hold a lone surrogate), so a document Word would reject is never written.
+    static func escaped(_ text: String) throws(WordExportFailure) -> String {
+        guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
         assert(
             text.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed), "run text the character policy refuses"
         )
@@ -128,6 +151,14 @@ enum WordDocument {
         }
         return result
     }
+
+    /// XML 1.0's `Char` production.
+    static func isXMLCharacter(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x9, 0xA, 0xD, 0x20...0xD7FF, 0xE000...0xFFFD, 0x1_0000...0x10_FFFF: true
+        default: false
+        }
+    }
 }
 
 /// Why Export to Word wrote nothing. Nothing at the destination changed.
@@ -136,6 +167,8 @@ public enum WordExportFailure: Error, Hashable, Sendable {
     case notAWordDocument
     /// The scene is beyond what a .docx without zip64 can hold, 4 GiB.
     case tooLarge
+    /// The scene holds a character XML can't, so no Word document can.
+    case unwritableCharacter
     case destination(ChosenFileFailure)
 }
 

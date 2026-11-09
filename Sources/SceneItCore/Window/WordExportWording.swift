@@ -36,6 +36,7 @@ public enum WordExportWording {
         switch failure {
         case .notAWordDocument: "A Word document is saved with a name ending in .docx."
         case .tooLarge: "The scene is too long for a Word document."
+        case .unwritableCharacter: "The scene holds a character a Word document can't contain."
         case .destination(.notAFile): ChosenFileWording.notAFile
         case .destination(.writeProtected(let protection)): ChosenFileWording.reason(protection)
         case .destination(.fileSystem(let error)): ChosenFileWording.reason(error)

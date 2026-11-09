@@ -22,8 +22,10 @@ names things), which a macOS update could change on users' machines, after we've
 
 ## Decision
 Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingML package:
-- **Parts:** `[Content_Types].xml`, `_rels/.rels`, `word/document.xml`, `word/_rels/document.xml.rels`
-  and `word/styles.xml`. No document properties or theme; Word doesn't need them.
+- **Parts:** `[Content_Types].xml`, `_rels/.rels`, `word/document.xml`, `word/_rels/document.xml.rels`,
+  `word/styles.xml` and `word/settings.xml`, which sets Word's current compatibility mode (15) so
+  Word doesn't open the document in Compatibility Mode. No document properties, theme or section
+  properties: Word doesn't need them, and its own default page setup applies.
 - **Styles** (`WordStyles`): `Normal`, the default, Times New Roman 12 pt, double-spaced
   (`w:line="480" w:lineRule="auto"`) with a half-inch first-line indent; `Heading1` ("heading 1"),
   based on it, 18 pt bold black, single-spaced, not indented, outline level 0. The sizes and the
@@ -31,9 +33,12 @@ Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingM
 - **The document:** the title paragraph has `pStyle Heading1`; body paragraphs have no properties, so
   they take `Normal`. Each run carries only what the scene says: bold, italic, strikethrough, a
   palette colour (`w:color`) and a highlight as shading (`w:shd`, the palette's fill), in the schema's
-  order. Comments and notes aren't written.
-- **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII; one function escapes
-  XML's markup characters and asserts that invariant.
+  order; uncoloured text has no `w:color`, so it's Word's automatic colour. Comments and notes aren't
+  written.
+- **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII. One function escapes
+  XML's markup characters and guarantees well-formed XML on its own: a character XML can't hold
+  refuses the export (`WordExportFailure.unwritableCharacter`) in every build, and the
+  `CharacterPolicy` invariant is asserted as a debug tripwire.
 - **The zip** is written by an owned, writer-only `ZipWriter` of about 100 lines: stored entries (no
   compression), a CRC-32 from the system zlib, fixed dates so the same scene makes the same bytes. No
   dependency, no subprocess.
@@ -43,8 +48,8 @@ Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingM
 - **macOS's writer, patched (0045 as first implemented, #174's first version).** Keeps the system
   writer, but fixes four kinds of loss by editing its output, and breaks if the writer changes.
 - **macOS's writer, unpatched.** Loses double spacing, highlights and exact colours, and the heading.
-- **A third-party .docx or zip library.** More than a five-part package needs, and a dependency
-  ([0025](0025-core-stays-swift.md) keeps the core free of them).
+- **A third-party .docx or zip library.** A dependency to add, update and trust, for a need of about
+  100 lines: a writer-only zip of a handful of small parts.
 - **Deflated entries.** Smaller files, but a compressor's output and failure modes to depend on, for
   documents of a few kilobytes; Word and Pages read stored entries.
 

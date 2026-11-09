@@ -34,15 +34,16 @@ crate's `Debug` output in Rust.
 ## 2. A `.docx` is a zip of XML parts
 
 Office Open XML uses the Open Packaging Conventions: a zip whose parts are found through
-relationships. The minimal Word document has five:
+relationships. Scene It's document has six:
 
 | Part | What it holds |
 | --- | --- |
 | `[Content_Types].xml` | the type of every part |
 | `_rels/.rels` | the package's link to its main document |
 | `word/document.xml` | paragraphs (`w:p`) of runs (`w:r`) of text (`w:t`) |
-| `word/_rels/document.xml.rels` | the document's link to its styles |
+| `word/_rels/document.xml.rels` | the document's links to its styles and settings |
 | `word/styles.xml` | the named styles |
+| `word/settings.xml` | Word's compatibility mode, 15 (Word 2013 on), so Word doesn't open it in Compatibility Mode |
 
 A paragraph's style is `<w:pStyle w:val="Heading1"/>` inside its `w:pPr`; a paragraph without one
 takes the style marked `w:default="1"`. So the body's look lives once, in the `Normal` style, and the
@@ -59,7 +60,9 @@ static let firstLineIndent = Int(ParagraphRole.firstLineIndent * 20)
 
 Each run carries only its own formatting, and the schema fixes the order of a run's properties
 (bold, italic, strikethrough, colour, shading), so `WordDocument.run` appends them in that order.
-Colours come straight from the palette's hex values, the same ones the page draws with.
+Colours come straight from the palette's hex values, the same ones the page draws with. Uncoloured
+text gets no `w:color` at all, which Word reads as its automatic colour: black on white, light when
+Word shows the document dark.
 
 ## 3. XML as text, behind one escaping function
 
@@ -68,16 +71,23 @@ The parts are small and fixed in shape, so they're built as strings, Swift's raw
 scene's, and all of it passes through one function:
 
 ```swift
-static func escaped(_ text: String) -> String {
+static func escaped(_ text: String) throws(WordExportFailure) -> String {
+    guard text.unicodeScalars.allSatisfy(isXMLCharacter) else { throw .unwritableCharacter }
     assert(
         text.unicodeScalars.allSatisfy(CharacterPolicy.isAllowed), "run text the character policy refuses"
     )
 ```
 
-Stored text is printable ASCII (ADR 0028), all of which XML allows, so escaping `&`, `<`, `>`, `"`
-and `'` is enough. The `assert` states the invariant the function relies on; like Rust's
-`debug_assert!`, it traps in debug builds (and so in every test) and costs nothing in release. A test
-pushes every allowed character through the title and the body and reads them back from the XML.
+The function keeps its own contract, well-formed XML, in every build. XML 1.0 can't hold most
+control characters or U+FFFE and U+FFFF even escaped, so such a character refuses the export with a
+typed error and a notice rather than writing a file Word would reject. (A Swift `String` can't hold a
+lone surrogate at all, unlike an `NSString`.) Stored text is printable ASCII (ADR 0028), so that path
+should never run; the `assert` after it is a tripwire for the stronger invariant. Like Rust's
+`debug_assert!`, it traps in debug builds (and so in every test) and costs nothing in release. The
+order matters: the check that holds in release comes first, so a test can build a scene containing a
+control character, bypassing the policy through the model's internal initializer, and see the refusal.
+Another test pushes every allowed character through the title and the body and reads them back from
+the XML.
 
 ## 4. A writer-only zip with the system's zlib
 
