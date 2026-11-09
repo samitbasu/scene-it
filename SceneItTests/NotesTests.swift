@@ -320,7 +320,7 @@ extension NotesTests {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// The real path: the app's own window, store and Format menu, with the notes focused.
     @Test func theFormatMenuFormatsTheNotesWhileTheyHaveTheFocus() async throws {
         try await withTemporaryFolder { folder in

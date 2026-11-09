@@ -249,5 +249,14 @@ sees no focused window when the test app isn't active.
   frame proves the rail, panel and status bar hide and come back to the pixel; the caret is kept;
   Esc with a palette, a sheet, the dialog (editing and filing) and the find bar; Tab round the
   stops, and nowhere under a sheet.
+
+  These tests run one at a time, in the `OneAtATime` group (#165). The test host never becomes
+  the active app, so no window is key. With no key window, SwiftUI can pass a key equivalent
+  pressed in one window to a `.keyboardShortcut` in another window's sheet or palette. So when
+  tests ran in parallel, one test's Esc cancelled another test's File a Copy dialog, and its own
+  Esc was lost. The test can't isolate SwiftUI's routing, as it can a store or a temporary folder,
+  so the tests that press keys and the tests that show a sheet window or palette are grouped
+  under one `.serialized` suite. In Rust terms, that's a process-wide mutex taken by the test
+  scheduler, not by the test, so the wait doesn't count against a test's time limit.
 - `SceneItTests/FocusModeAppWindowTests.swift`: the toolbar in the app's own window, a toolbar the
   writer hid, and Close Book in focus mode.

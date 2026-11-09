@@ -12,7 +12,7 @@ import Testing
 /// reaches the window's flow through SwiftUI's focused value, so only while the window is key:
 /// the test host never takes the key window from the owner's apps, so these tests start from
 /// what the item runs, `ExportFlow.begin()`.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theFileMenuHasExportAsSceneItAfterFileACopy() throws {
         let item = try #require(menuItem(titled: ExportWording.menuItem, in: NSApp.mainMenu))
         let menu = try #require(item.menu)

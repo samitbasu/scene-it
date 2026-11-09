@@ -135,7 +135,7 @@ struct ReviewOutputRenders {
 }
 
 /// File → Copy Review and Save Review… with a review open, as the menu draws it.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func reviewOutputMenuRenders() async throws {
         let output = try #require(renderFolder).appending(path: "review-output", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

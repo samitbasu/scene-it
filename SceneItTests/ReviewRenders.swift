@@ -136,7 +136,7 @@ private struct StartCandidate: View {
 }
 
 /// File → Review Book… on the start screen and with a book open, as the menu draws it.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func reviewBookMenuRenders() async throws {
         let output = try #require(renderFolder).appending(path: "review", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

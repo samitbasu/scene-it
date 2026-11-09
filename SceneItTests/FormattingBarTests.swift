@@ -306,7 +306,7 @@ extension FormattingCommand {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theFormatMenuHasEveryCommandWithItsShortcut() throws {
         let expected: [(FormattingCommand, String, NSEvent.ModifierFlags)] =
             [
@@ -390,7 +390,7 @@ extension BookStoreIntegrationTests {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent.
     @Test func noTwoMenuItemsShareAKeyEquivalent() {
         @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {

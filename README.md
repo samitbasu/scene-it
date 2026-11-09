@@ -466,7 +466,7 @@ start screen after a close (`start-screen-after-close`, 1440 × 900 pt); and, as
 refusal (`refusal`), new-book refusal (`create-refusal`), lost-book (`book-lost`) and several-books alerts, with
 the first book open (`several-books`) and with none open (`several-books-none-open`). It drives the app's own
 store, so it runs in `BookStoreIntegrationTests`: to render only these, use
-`-only-testing:SceneItTests/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
+`-only-testing:SceneItTests/OneAtATime/BookStoreIntegrationTests/oneBookPerProcessRenders\(\)`.
 
 `fixField` renders the Errors tab's fix field (#127, `FixFieldRenders.swift`) into a `fix-field/`
 subfolder as `fix-field@1x.png` and `fix-field@2x.png`: the SwiftUI `TextField` it was, above the
@@ -478,7 +478,7 @@ and 2× and 1440 × 900 pt, from the app's own window (its toolbar is the `Windo
 hosting windows don't have), the page focused with a two-page formatted scene: `normal`, `focus` (the "Press
 Esc…" hint as focus mode begins), `focus-vs-normal.png` side by side, and `normal-panel-collapsed` with
 `focus-from-panel-collapsed`. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to
-render only these, use `-only-testing:SceneItTests/BookStoreIntegrationTests/focusModeRenders\(\)`.
+render only these, use `-only-testing:SceneItTests/OneAtATime/BookStoreIntegrationTests/focusModeRenders\(\)`.
 
 ### `scripts/release.sh`: build a distributable app
 

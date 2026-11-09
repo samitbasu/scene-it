@@ -7,7 +7,7 @@ import Testing
 
 /// Focus mode in the app's own window, whose toolbar is the `Window` scene's: the hosted page
 /// tests' windows have none.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @MainActor
     private func openBook(at url: URL, in books: BookController) async throws -> (NSWindow, WindowChrome) {
         let window = try #require(books.mainWindow, "precondition: the app's main window")

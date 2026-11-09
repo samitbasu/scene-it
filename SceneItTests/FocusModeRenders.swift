@@ -9,7 +9,7 @@ import Testing
 /// Focus mode as the owner picked it (#21), beside normal mode. It's drawn from the app's own
 /// window, whose toolbar is the `Window` scene's, so the render shows the toolbar hidden as the
 /// app hides it.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func focusModeRenders() async throws {
         let output = try #require(renderFolder).appending(path: "focus-mode", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

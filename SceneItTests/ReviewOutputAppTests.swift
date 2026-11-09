@@ -10,7 +10,7 @@ import WebKit
 /// the clipboard's two representations, and the page Save Review… writes, from what the items run.
 /// The test host's clipboard is a private pasteboard and its save panel names a file in the test's
 /// own folder, so nothing here reaches the owner's clipboard or files.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theFileMenuHasCopyReviewAndSaveReviewAfterExport() throws {
         let copy = try #require(menuItem(titled: ReviewOutputWording.copyMenuItem, in: NSApp.mainMenu))
         let menu = try #require(copy.menu)

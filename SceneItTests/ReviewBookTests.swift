@@ -10,7 +10,7 @@ import Testing
 /// `.review.md` beside the copy, and resumes from it when it's opened again. The open panel is
 /// the app's alone: the test host never puts one up, so these start from what the menu item runs
 /// with the chosen file, `BookStore.openReview(_:)`.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theFileMenuHasReviewBookAfterOpenBook() throws {
         let item = try #require(menuItem(titled: ReviewWording.menuItem, in: NSApp.mainMenu))
         let menu = try #require(item.menu)
