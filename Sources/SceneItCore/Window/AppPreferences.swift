@@ -17,6 +17,8 @@ public final class AppPreferences {
     public private(set) var lastCommentColor: PaletteColor
     /// The page's magnification, the same for every book (ADR 0022).
     public private(set) var zoom: Zoom
+    /// The Scenes sheet's Cards or Light table (PLAN §7.2).
+    public private(set) var scenesView: ScenesView
     @ObservationIgnored public let storage: any PreferenceStorage
 
     /// A value missing from `storage`, or one this version doesn't know, is the default.
@@ -33,6 +35,12 @@ public final class AppPreferences {
         lastCommentColor =
             storage.string(forKey: Key.lastCommentColor).flatMap(PaletteColor.init(rawValue:)) ?? .purple
         zoom = storage.string(forKey: Key.zoom).flatMap(Double.init).flatMap(Zoom.init(exactly:)) ?? .standard
+        scenesView = storage.string(forKey: Key.scenesView).flatMap(ScenesView.init(rawValue:)) ?? .cards
+    }
+
+    public func showScenes(as view: ScenesView) {
+        scenesView = view
+        storage.set(view.rawValue, forKey: Key.scenesView)
     }
 
     /// Keeps the color or highlight `command` applies as the last used, unless it removes one.
@@ -98,6 +106,7 @@ public final class AppPreferences {
         static let lastHighlight = "lastHighlight"
         static let lastCommentColor = "lastCommentColor"
         static let zoom = "zoom"
+        static let scenesView = "scenesView"
     }
 }
 

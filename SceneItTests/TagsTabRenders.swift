@@ -115,7 +115,7 @@ extension WindowRenders {
     }
 
     /// `sample` opened read-only, its lock held by another opening, as when it's open elsewhere.
-    private func withReadOnlyBook(
+    func withReadOnlyBook(
         _ sample: Book, _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
     ) async throws {
         try await withTemporaryFolder { folder in

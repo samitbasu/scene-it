@@ -133,7 +133,7 @@ struct UndoRouterTests {
 
     @Test func aReadOnlyBookHasNothingToUndo() async throws {
         let one = scene("One", [[Run("First.")]])
-        try await withPage([one], holdingTheLock: true) { page in
+        try await withPage([one], lock: .heldElsewhere) { page in
             #expect(!page.book.isEditable, "precondition: read-only")
             let router = try page.undo
             focus(page.page, in: page)

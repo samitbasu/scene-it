@@ -64,17 +64,35 @@ struct SheetFocusTests {
             #expect(
                 editors.count == 3, "precondition: the window's only editors are the title, body and notes")
 
+            /// What the covered window can be typed into: everything but the sheet's own fields (the
+            /// Scenes sheet's filter, #28).
+            @MainActor func coveredTakesTyping() -> Bool {
+                views(in: window.contentView).contains {
+                    takesTyping($0)
+                        && ($0 as? NSTextField)?.placeholderString != ScenesWording.filterPlaceholder
+                }
+            }
+            /// Whether the title, the page or the notes has the focus.
+            @MainActor func coveredHasTheFocus() -> Bool {
+                window.firstResponder === body || window.firstResponder === notes
+                    || title.currentEditor() != nil
+            }
+
             // A sheet takes the focus from any editor, and gives each back when it closes.
             for focused in [title, body, notes] as [NSView] {
                 #expect(window.makeFirstResponder(focused))
                 #expect(window.firstResponder is NSText, "precondition: an editor has the focus")
 
                 box.mode = .scenes
-                await eventually {
-                    !(window.firstResponder is NSText)
-                        && !views(in: window.contentView).contains(where: takesTyping)
+                await eventually { !coveredHasTheFocus() && !coveredTakesTyping() }
+                #expect(!coveredHasTheFocus(), "no text in the covered page keeps the focus")
+                await eventually { window.firstResponder is UndoFocusView }
+                #expect(window.firstResponder is UndoFocusView, "the sheet holds the focus itself")
+                let routers = views(in: window.contentView).compactMap {
+                    ($0 as? UndoRouterWindow.WindowView)?.router
                 }
-                #expect(!(window.firstResponder is NSText), "no text in the covered page keeps the focus")
+                let router = try #require(routers.first)
+                #expect(router.stack == .structure, "so Undo is the structure's")
                 #expect(
                     title.window === window, "precondition: the title field is still there, under the sheet")
                 #expect(body.window === window, "precondition: the page is still there, under the sheet")
@@ -83,9 +101,7 @@ struct SheetFocusTests {
                 #expect(!body.isEditable, "the page can't be typed in under the sheet")
                 #expect(!notes.isEditable, "the notes can't be typed in under the sheet")
                 #expect(books.formatting.active == nil, "neither bar is active under the sheet")
-                #expect(
-                    !views(in: window.contentView).contains(where: takesTyping),
-                    "nothing in the window takes typing")
+                #expect(!coveredTakesTyping(), "nothing the sheet covers takes typing")
 
                 box.mode = .page
                 await eventually { title.isEnabled && takesTyping(body) && takesTyping(notes) }

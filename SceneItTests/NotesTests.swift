@@ -193,7 +193,7 @@ struct NotesTests {
     }
 
     @Test func theNotesOfAReadOnlyBookCantBeEdited() async throws {
-        try await withPage([sceneWithNotes("One")], holdingTheLock: true) { page in
+        try await withPage([sceneWithNotes("One")], lock: .heldElsewhere) { page in
             let notes = try await page.showNotes()
             #expect(!notes.isEditable)
             page.window.makeFirstResponder(notes)

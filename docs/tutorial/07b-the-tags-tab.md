@@ -16,7 +16,8 @@ meets here:
 | [`BookTags.swift`](../../Sources/SceneItCore/Model/BookTags.swift) | `BookTags` (the list, its sort, the book's spelling) and `SceneTag` (one tag: typed, compared, searched) |
 | [`OpenBook.swift`](../../Sources/SceneItCore/Store/OpenBook.swift) | `addTag`, `removeTag`, `toggleTag`, and their undo on the page's manager |
 | [`TagWording.swift`](../../Sources/SceneItCore/Window/TagWording.swift) | every string the tab shows, and the undo names |
-| [`TagsTab.swift`](../../SceneIt/Window/TagsTab.swift) | the tab, `TagActions` and the + tag field |
+| [`TagsTab.swift`](../../SceneIt/Window/TagsTab.swift) | the tab and `TagActions` |
+| [`NewTagField.swift`](../../SceneIt/Window/NewTagField.swift) | the + tag field, shared with the Scenes sheet's cards (#28) |
 | [`TagChip.swift`](../../SceneIt/Window/TagChip.swift) | the chip, shared with File a Copy |
 | [`ChipFlow.swift`](../../SceneIt/Window/ChipFlow.swift) | the wrapping layout, shared with File a Copy |
 

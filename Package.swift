@@ -21,6 +21,7 @@ let package = Package(
         ),
         .target(
             name: "SceneItTestSupport",
+            dependencies: ["SceneItCore"],
             swiftSettings: strictSettings
         ),
         .testTarget(

@@ -468,7 +468,7 @@ struct AdversarialPageTests {
     }
 
     @Test func aClipIsntPastedIntoAReadOnlyBook() async throws {
-        try await withPage([scene("Held", [[Run("Kept.")]])], holdingTheLock: true) { page in
+        try await withPage([scene("Held", [[Run("Kept.")]])], lock: .heldElsewhere) { page in
             try await PageHarness.withPasteboard { pasteboard in
                 let held = try #require(page.book.book.scene(page.book.openScene))
                 let data = try #require(PageClip([[Run("Kept.")]], from: held).data)

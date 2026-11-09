@@ -1,10 +1,9 @@
 import SceneItCore
 import SwiftUI
 
-/// A rail sheet, over the page and the right panel (PLAN §4.2). Empty until #28 (Scenes)
-/// and #33 (File Cabinet) fill them; × or Esc closes it. Search is `SearchSheet`.
+/// A rail sheet, over the page and the right panel (PLAN §4.2). Empty until #33 (File Cabinet)
+/// fills it; × or Esc closes it. Scenes is `ScenesSheet`, Search is `SearchSheet`.
 struct SheetPlaceholder: View {
-    let book: AppOpenBook
     @Binding var mode: WindowMode
     @Environment(\.windowKeys) private var keys
 
@@ -25,39 +24,13 @@ struct SheetPlaceholder: View {
             .padding(.horizontal, 16)
             .frame(height: WindowMetrics.barHeight)
             Divider()
-            if mode == .scenes {
-                TemporarySceneList(book: book, mode: $mode)
-            } else {
-                Text(WindowWording.sheetComingLater)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            Text(WindowWording.sheetComingLater)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(.background)
         // Takes the keyboard focus, so the page or panel the sheet covers no longer has it.
         .background(UndoFocusHolder(role: .sheet))
         .background(EscapeKey(keys: keys))
-    }
-}
-
-// TEMPORARY (#11 scaffolding, until #28's Scenes sheet): open and add scenes.
-
-private struct TemporarySceneList: View {
-    let book: AppOpenBook
-    @Binding var mode: WindowMode
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            List(book.book.scenes) { scene in
-                Button(WindowWording.sceneName(scene)) {
-                    book.select(scene.id)
-                    mode = mode.closingSheet
-                }
-                .buttonStyle(.link)
-            }
-            Button(WindowWording.addScene) { book.addScene(after: book.openScene) }
-                .disabled(!book.isEditable)
-                .padding(12)
-        }
     }
 }
