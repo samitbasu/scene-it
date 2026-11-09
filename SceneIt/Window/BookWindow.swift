@@ -43,7 +43,6 @@ struct BookWindow: View {
         let chrome = chrome ?? WindowChrome()
         _chrome = State(initialValue: chrome)
         let keys = WindowKeys(chrome: chrome, filing: filing, export: export, page: focus, mode: mode)
-        chrome.keys = keys
         _keys = State(initialValue: keys)
         _editors = State(
             initialValue: SceneEditors(
@@ -119,6 +118,8 @@ struct BookWindow: View {
             if chrome.focusMode == .on, !pageFocus.holdsFocus { pageFocus.focusBody() }
         }
         .onAppear {
+            // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
+            chrome.keys = keys
             search.opener = SearchOpener(
                 book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
         }
