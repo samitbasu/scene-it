@@ -45,6 +45,9 @@ final class BookController {
     let preferences: AppPreferences
     /// The open book's page, for the Format menu and the control bar.
     let formatting: EditorFormatting
+    /// The page's read aloud: the Mac's voice in the app, a silent recorder in the test host
+    /// and previews.
+    let readAloud: ReadAloud
     let mirror: BackupMirror
     /// Where reviews keep their backups, kept originals and locks (review format §9 Q9).
     let reviews: ReviewsFolder
@@ -80,6 +83,8 @@ final class BookController {
         requests = AppRequests(carryOut: recorded.map { recorder in recorder.record } ?? AppRequests.appKit)
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
+        readAloud = ReadAloud(
+            preferences: preferences, speech: role == .app ? SystemSpeech() : RecordedSpeech())
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .exportPanel : .nowhere
         reviewDestination = role == .app ? .reviewPanel : .nowhere
