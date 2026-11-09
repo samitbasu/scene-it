@@ -108,18 +108,34 @@ struct FileCabinetTests {
     @Test func theCardsWording() {
         let english = Locale(identifier: "en_US")
         let counts = FiledCopyCounts(scenes: 24, words: 1409, comments: 3)
+        let line = FileCabinetWording.details(.ago(.days(2)), counts, locale: english)
         #expect(
-            FileCabinetWording.details(.ago(.days(2)), counts, locale: english)
+            line.replacingOccurrences(of: "\u{00A0}", with: " ")
                 == "2 days ago \u{00B7} 24 scenes \u{00B7} 1,409 words \u{00B7} 3 comments")
         #expect(
+            line.split(separator: " ").dropFirst().allSatisfy { $0.hasPrefix("\u{00B7}\u{00A0}") },
+            "the line can break only before a dot, never after one")
+        #expect(
             FileCabinetWording.details(
-                .today, FiledCopyCounts(scenes: 1, words: 1, comments: 1), locale: english)
+                .today, FiledCopyCounts(scenes: 1, words: 1, comments: 1), locale: english
+            )
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
                 == "today \u{00B7} 1 scene \u{00B7} 1 word \u{00B7} 1 comment")
         #expect(FileCabinetWording.details(.yesterday, nil, locale: english) == "yesterday")
         #expect(
             FileCabinetWording.subtitle(copies: 5)
                 == "5 filed copies \u{00B7} double-click one to open it read-only")
         #expect(FileCabinetWording.subtitle(copies: 0) == "0 filed copies")
+    }
+
+    @Test func chosenTagsNoCopyHasAnyMoreAreDropped() {
+        var filter = CabinetFilter()
+        filter.toggle("draft 3")
+        filter.toggle("contest")
+        filter.keepTags(in: ["Draft 3", "beta readers"])
+        #expect(filter.tags == ["draft 3"], "kept in any case; the gone one dropped")
+        filter.keepTags(in: [])
+        #expect(filter.isEmpty)
     }
 
     // MARK: Clicks (ADR 0043, 0046)

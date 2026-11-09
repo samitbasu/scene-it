@@ -438,8 +438,8 @@ and the look candidates the owner hasn't picked between, as `candidate-tag-alway
 `fileCabinet` renders the File Cabinet sheet (#33, `FileCabinetRenders.swift`) into a `cabinet/` subfolder, at 1×
 and 2× beside mockup 12, on mockup 12's day (Nov 1, 2026) with its five copies: `final-cabinet`,
 `final-cabinet-selected`, `final-cabinet-tagging`, `final-cabinet-filters` (a date and a tag chosen),
-`final-cabinet-search`, `final-cabinet-no-matches`, `final-cabinet-empty` and `final-cabinet-read-only`; and the
-date-field candidates `candidate-dates-stepper` and `candidate-dates-field`. To render only these, add
+`final-cabinet-search`, `final-cabinet-no-matches`, `final-cabinet-empty` and `final-cabinet-read-only`. To render
+only these, add
 `-only-testing:SceneItTests/WindowRenders/fileCabinet\(\)`.
 
 `boneyard` renders the Boneyard tray and the sheet's drags and keys (#29, `BoneyardRenders.swift`) into a

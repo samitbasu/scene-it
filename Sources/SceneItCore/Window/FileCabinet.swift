@@ -50,6 +50,12 @@ public struct CabinetFilter: Hashable, Sendable {
         }
     }
 
+    /// Drops the chosen tags no copy has any more (the last copy with one lost it), so no chosen
+    /// tag filters without its chip showing.
+    public mutating func keepTags(in existing: [String]) {
+        tags.removeAll { !SceneTag.contains(existing, $0) }
+    }
+
     /// Model text is ASCII (ADR 0028), so lowercasing is exact.
     private var typedWords: [String] {
         words.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }

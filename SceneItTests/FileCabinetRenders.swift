@@ -6,8 +6,8 @@ import Testing
 
 @testable import SceneIt
 
-/// The File Cabinet sheet (#33) in the window at 1× and 2×, beside mockup 12: the recommended look
-/// (`final-cabinet-*`) in each state, and the date-field candidates (`candidate-*`). In a
+/// The File Cabinet sheet (#33) in the window at 1× and 2×, beside mockup 12: the look the owner
+/// picked (`final-cabinet-*`) in each state. In a
 /// `cabinet/` subfolder. The day is mockup 12's, Nov 1, 2026, so the ages read as its do.
 extension WindowRenders {
     static let fileCabinetMockup = "12-file-cabinet.png"
@@ -55,8 +55,6 @@ extension WindowRenders {
     @Test func fileCabinet() async throws {
         let output = try #require(renderFolder).appending(path: "cabinet", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let recommended = WindowMetrics.Cabinet.look
-        defer { WindowMetrics.Cabinet.look = recommended }
 
         @MainActor func state(
             _ book: AppOpenBook, _ store: AppBookStore, _ preferences: AppPreferences,
@@ -106,14 +104,6 @@ extension WindowRenders {
             try await state(
                 book, store, preferences, model, "final-cabinet-no-matches", "Search with no matches")
             model.filter = CabinetFilter()
-            for (look, name) in [(CabinetLook.DateFields.stepper, "stepper"), (.field, "field")] {
-                WindowMetrics.Cabinet.look.dateFields = look
-                model.filter = CabinetFilter(from: Self.cabinetDay(9, 1))
-                try await state(
-                    book, store, preferences, model, "candidate-dates-\(name)",
-                    "Candidate: the dates as a \(name == "stepper" ? "field with a stepper" : "plain field")")
-            }
-            WindowMetrics.Cabinet.look = recommended
         }
         try await withFiledSample([]) { store, book, preferences in
             try await state(

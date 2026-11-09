@@ -117,6 +117,24 @@ struct CabinetRecordTests {
         }
     }
 
+    /// `Archive.edit` itself, below the store's `accepts(.archive)`: an index a newer Scene It
+    /// wrote is refused, and left byte for byte.
+    @Test func archiveEditRefusesAnIndexFromANewerVersion() async throws {
+        try await withFiledCopy { store, _, url in
+            #expect(await store.closeBook() == .left)
+            let layout = PackageLayout(root: url)
+            let newer = Data("---\nformat: 3\n---\n\n## save0001.md\nfiled: 2026-10-30\ntags: theirs\n".utf8)
+            try newer.write(to: layout.archiveIndex)
+            let archive = Archive(layout: layout, fileSystem: LocalFileSystem())
+            #expect {
+                _ = try archive.edit(.first, .addTag("mine"), pending: [:])
+            } throws: { error in
+                if case .newerFormat? = error as? RecordEditFailure { true } else { false }
+            }
+            #expect(try Data(contentsOf: layout.archiveIndex) == newer)
+        }
+    }
+
     @Test func aReadOnlyBooksCardsChangeNothing() async throws {
         try await withFiledCopy { store, _, url in
             #expect(await store.closeBook() == .left)

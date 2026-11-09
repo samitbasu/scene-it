@@ -28,7 +28,8 @@ public enum FileCabinetWording {
     }
 
     /// The card's line: "2 days ago · 24 scenes · 1,409 words · 3 comments"; only the age when the
-    /// counts aren't known.
+    /// counts aren't known. It may wrap only before a "·": each part's spaces, and the one after
+    /// each "·", don't break, so a "·" never ends a line.
     public static func details(_ age: FiledAge, _ counts: FiledCopyCounts?, locale: Locale = .current)
         -> String
     {
@@ -40,7 +41,8 @@ public enum FileCabinetWording {
                 counts.comments == 1 ? "1 comment" : "\(counts.comments.formatted()) comments",
             ]
         }
-        return parts.joined(separator: " \u{00B7} ")
+        return parts.map { $0.replacingOccurrences(of: " ", with: "\u{00A0}") }
+            .joined(separator: " \u{00B7}\u{00A0}")
     }
 
     public static func age(_ age: FiledAge, locale: Locale = .current) -> String {

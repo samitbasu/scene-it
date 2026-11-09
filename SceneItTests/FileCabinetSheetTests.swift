@@ -117,6 +117,40 @@ extension OneAtATime {
             }
         }
 
+        /// The window's own From field narrows the cards; a tag chip (its action, `filter.toggle`)
+        /// narrows them further. When the last copy with the chosen tag loses it, through a card's ×,
+        /// the tag stops filtering rather than filter with no chip showing, and the last click is
+        /// forgotten, since the cards changed under the pointer (ADR 0043 §5).
+        @Test func theDateFieldsAndTagChipsFilterTheCards() async throws {
+            try await withCabinet { harness, actions, _ in
+                @MainActor func shown() -> [Int] {
+                    FileCabinet.cards(of: harness.book.archive, harness.cabinet.filter).map(\.number.value)
+                }
+                let pickers = subviewTree(of: harness.window.contentView).compactMap { $0 as? NSDatePicker }
+                try #require(pickers.count == 2, "precondition: From and to")
+                #expect(pickers.allSatisfy { $0.datePickerStyle == .textField }, "the owner's plain fields")
+                let from = try #require(
+                    pickers.min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX })
+                from.dateValue = Self.day(9, 1).noon(in: .current)
+                from.sendAction(from.action, to: from.target)
+                await eventually { harness.cabinet.filter.from == Self.day(9, 1) }
+                #expect(harness.cabinet.filter.from == Self.day(9, 1))
+                #expect(shown() == [2, 3])
+
+                harness.cabinet.filter.toggle("draft 3")
+                #expect(shown() == [2])
+                let second = try #require(FiledCopyNumber(2))
+                actions.click(.single, on: second)
+                try #require(harness.cabinet.clicks.last == second, "precondition: the click is kept")
+
+                actions.removeTag("draft 3", from: second)
+                await eventually { harness.cabinet.filter.tags.isEmpty }
+                #expect(harness.cabinet.filter.tags.isEmpty, "no chosen tag without its chip")
+                #expect(shown() == [2, 3])
+                #expect(harness.cabinet.clicks.last == nil, "a change to a card's tags forgets the click")
+            }
+        }
+
         @Test func aReadOnlyBooksCardsOfferNoTagEditing() async throws {
             try await withCabinet(lock: .heldElsewhere) { harness, actions, _ in
                 try #require(!harness.book.archive.copies.isEmpty, "precondition: the cabinet lists copies")

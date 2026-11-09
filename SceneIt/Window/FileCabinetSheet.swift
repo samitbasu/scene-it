@@ -136,7 +136,12 @@ struct FileCabinetSheet: View {
                 keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
                 focusChanged: { model.sheetKeys($0) })
         )
-        .onChange(of: cards.map(\.number)) { model.cardsMoved() }
+        // A change to a card's tags or note, as well as to the cards shown, forgets the last click
+        // (ADR 0043 §5).
+        .onChange(of: cards) { model.cardsMoved() }
+        .onChange(of: FileCabinet.tags(of: book.archive), initial: true) { _, tags in
+            model.filter.keepTags(in: tags)
+        }
         .background(EscapeKey(keys: keys, inner: closeTagField))
         .task { await model.ticker.run() }
     }
@@ -203,8 +208,8 @@ private struct CabinetFilters: View {
     }
 }
 
-/// From and to, as native date pickers. An end left as it is shows the oldest or newest copy's day
-/// and filters nothing.
+/// From and to, as native date fields (the owner's pick, #33), and ⓧ, which clears both. An end
+/// left as it is shows the oldest or newest copy's day and filters nothing.
 private struct DateRange: View {
     let span: ClosedRange<CalendarDay>
     @Binding var filter: CabinetFilter
@@ -236,7 +241,7 @@ private struct DateRange: View {
             }
         }
         .labelsHidden()
-        .modifier(DateFieldStyle(style: WindowMetrics.Cabinet.look.dateFields))
+        .datePickerStyle(.field)
         .font(.system(size: 13))
         .fixedSize()
     }
@@ -410,37 +415,5 @@ extension WindowMetrics {
         static let cardSpacing: CGFloat = 8
         static let dateSize: CGFloat = 15
         static let noteSize: CGFloat = 13
-        /// The look while the owner hasn't picked (#33): the recommended candidate.
-        static var look = CabinetLook.recommended
-    }
-}
-
-/// The File Cabinet's look candidates (#33), until the owner picks.
-struct CabinetLook {
-    /// How the date range's two dates are shown: all are the system's date picker.
-    enum DateFields {
-        /// The date as text; a click shows a calendar under it (the mockup's field with its
-        /// calendar button).
-        case compact
-        /// The date as text with a stepper beside it, the classic Mac date field.
-        case stepper
-        /// The date as text alone.
-        case field
-    }
-
-    var dateFields: DateFields
-
-    static let recommended = CabinetLook(dateFields: .compact)
-}
-
-private struct DateFieldStyle: ViewModifier {
-    let style: CabinetLook.DateFields
-
-    func body(content: Content) -> some View {
-        switch style {
-        case .compact: content.datePickerStyle(.compact)
-        case .stepper: content.datePickerStyle(.stepperField)
-        case .field: content.datePickerStyle(.field)
-        }
     }
 }
