@@ -2,8 +2,9 @@ import SceneItCore
 import SwiftUI
 
 /// The Scenes sheet (PLAN §7.2, §7.3, mockups 07–09): the header, then the story as cards or as a
-/// light table, with a dashed tile that adds a scene at the end, then the Boneyard. Clicking a
-/// card or tile opens its scene; dragging moves, cuts or restores it. Esc or × closes it.
+/// light table, with a dashed tile that adds a scene at the end, then the Boneyard. Clicking a card
+/// selects it, and double-clicking a card or tile opens its scene (ADR 0043); dragging moves, cuts
+/// or restores it. Esc or × closes it.
 /// Read-only, it changes nothing.
 struct ScenesSheet: View {
     let book: AppOpenBook
@@ -31,7 +32,8 @@ struct ScenesSheet: View {
                     proxy.scrollTo(scene)
                 }
                 .onChange(of: model.focused) {
-                    guard let scene = model.focused else { return }
+                    // A clicked card is under the pointer: only the keys scroll, as in the Finder.
+                    guard let scene = model.focused, model.clicked != .card(scene) else { return }
                     proxy.scrollTo(scene)
                 }
             }
@@ -44,7 +46,7 @@ struct ScenesSheet: View {
                 keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
                 focusChanged: { model.sheetKeys($0) })
         )
-        .onChange(of: book.book.scenes.map(\.id)) { model.keepToTheStory(of: book.book) }
+        .onChange(of: ScenesSheetModel.Arrangement(book.book)) { model.keepToTheStory(of: book.book) }
         .background(EscapeKey(keys: keys, inner: { model.closeCardField() }))
         .task { await model.ticker.run() }
     }

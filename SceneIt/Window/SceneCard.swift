@@ -91,8 +91,9 @@ enum Hovering {
 }
 
 /// A card's frame: white, outlined (in the accent color while its scene is open), with the focus
-/// ring while the keys act on it, filling its grid cell. A click anywhere the card's own controls
-/// don't take opens the scene; a drag moves it. Faded while it's being dragged.
+/// ring while the keys act on it, filling its grid cell. Where the card's own controls don't take
+/// the click, a click selects the card and a double click opens the scene; a drag moves it. Faded
+/// while it's being dragged.
 private struct CardShell<Content: View>: View {
     let content: SceneCardContent
     let view: ScenesView
@@ -118,7 +119,7 @@ private struct CardShell<Content: View>: View {
             }
             .contentShape(shape)
             .opacity(content.dragging == .dragged ? WindowMetrics.Scenes.draggedOpacity : 1)
-            .onTapGesture { actions.open(content.scene.id) }
+            .sceneClicks(.card(content.scene.id), actions: actions)
             .onHover { hovering = $0 ? .hovering : .away }
             .help(ScenesWording.openHelp)
             .sceneDragSource(.card(content.scene.id), actions: actions, editability: editability)
@@ -137,6 +138,15 @@ private struct CardShell<Content: View>: View {
 
     private var borderWidth: CGFloat {
         content.isOpen == .open ? WindowMetrics.Scenes.openBorder : 1
+    }
+}
+
+extension View {
+    /// The clicks on a card or tile (`ScenesActions.click`). One tap gesture sees every click, each
+    /// as it ends, with the event's click count: a separate double-tap gesture would hold back the
+    /// single click until the double click could no longer come.
+    func sceneClicks(_ item: SceneDrag, actions: ScenesActions) -> some View {
+        onTapGesture { actions.click(SceneClick(NSApp.currentEvent), on: item) }
     }
 }
 

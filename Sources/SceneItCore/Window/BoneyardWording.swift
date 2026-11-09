@@ -20,7 +20,7 @@ public enum BoneyardWording {
     public static let restore = "Restore"
     public static let restoreHelp = "Restore to the end of the manuscript"
     public static let open = "Open"
-    public static let openHelp = "Open this scene, or drag it onto the grid to restore it"
+    public static let openHelp = "Double-click to open this scene, or drag it onto the grid to restore it"
     public static let deletePermanently = "Delete Permanently\u{2026}"
 
     /// Why Delete Permanently… deleted nothing after the writer chose Delete.

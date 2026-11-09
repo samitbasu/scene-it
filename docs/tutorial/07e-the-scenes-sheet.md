@@ -171,7 +171,7 @@ step on that scene's page undo, as in the Tags tab. The Search sheet's numbered 
   scene with its undo and redo (blank, holding words, read-only).
 - **Hosted:** View → Scenes on ⌘1 in the app's own window; both add buttons with the title typed on
   the card, the window's Undo and Redo; Esc closing the field and then the sheet; + tag on a card and
-  its undo; the real filter field; a card's click; the ages moving on with the clock; a title typed
+  its undo; the real filter field; a card's clicks; the ages moving on with the clock; a title typed
   on a card saved when the book closes without Return; and a
   read-only book.
 
@@ -250,6 +250,31 @@ Delete and Return ignore `event.isARepeat`, so holding Delete cuts one card. Whe
 field. The card focus goes whenever the sheet's view loses the keys (its `focusChanged`), so Delete
 can never act on a card the writer stopped looking at.
 
+### A click selects, a double click opens (ADR 0043)
+
+As in the Finder, a click on a card selects it (`ScenesActions.select`: the sheet takes the keys and
+the card gets the focus), and a double click on a card or tile opens its scene. SwiftUI's
+`onTapGesture(count: 2)` beside `onTapGesture(count: 1)` would make the single click wait until the
+double click could no longer come, so the selection would lag. Instead `sceneClicks(_:actions:)` is
+one tap gesture that reads the click count AppKit already put on the event, `NSApp.currentEvent`'s
+`clickCount`, as `SceneClick.single` or `.double`; the second click of a double click arrives as
+its own tap with a count of 2. That rests on SwiftUI running the tap's action while the mouse-up is
+still the current event, which no test can show; it waits on the owner's hand test, and if it's
+wrong a double click opens nothing. `clickCount` raises on a key event, so `SceneClick` asks only
+mouse-button events.
+
+`ScenesActions.click(_:on:)`, shared by cards and tiles, decides what each click does. The model
+keeps the item the last single click landed on, `clicked: SceneDrag?`, and a double click opens
+only that item; anything else counts as a first click. So a click on a tile's ↩, which never
+reaches the tile's own gesture, can't make the tile that slides under the pointer open on the
+second click. A key, or any change in the sheet's `Arrangement` (the story's order, the Boneyard's order,
+the cards' tags), forgets the click. The two orders are compared apart: cutting the last card or
+restoring the first tile leaves them the same joined end to end.
+A click doesn't scroll (the card is under the pointer); the sheet's `onChange(of: model.focused)`
+scrolls only when the focus didn't come from a click. A tile has no single-click selection,
+because the card focus belongs to the story grid. The tile behaviour, the tooltips and the
+no-scroll click are defaults awaiting the owner (decision log entry 37).
+
 ### Deleting for good
 
 The tile's context menu asks with `BoneyardWording.confirmDelete` through `BookStore.ask(_:)`, the
@@ -264,5 +289,5 @@ store's own `StorePrompts`, so hosted tests answer with a scripted prompt object
   the grid's ends), `SceneChangeTests` (each change one named undo step; cut and restore keep notes,
   comments, tags and error entries, in the file byte for byte; read-only).
 - **Hosted (`BoneyardTests`):** the drop handlers on the real sheet with the window's Undo and Redo
-  and `book.md` read back; the keys sent to the window; ↩; Delete Permanently… with Cancel and
-  Delete; a read-only book.
+  and `book.md` read back; the keys sent to the window; ↩; a tile's double click; Delete
+  Permanently… with Cancel and Delete; a read-only book.

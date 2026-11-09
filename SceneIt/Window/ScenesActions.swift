@@ -22,6 +22,9 @@ final class ScenesSheetModel {
     var field: CardField?
     /// The card the arrow keys, Delete and Return act on (PLAN §7.2).
     var focused: SceneID?
+    /// The card or tile the last single click landed on, while nothing has moved since: the only
+    /// item a double click may open (ADR 0043).
+    var clicked: SceneDrag?
     var drop = SceneDropState.idle
     /// The size of the grid's cards, laid out: how many go across, for the up and down arrows.
     @ObservationIgnored var gridSize = CGSize.zero
@@ -105,8 +108,25 @@ final class ScenesSheetModel {
         if change == .lost { focused = nil }
     }
 
-    /// Forgets a card field or focus whose scene has left the story (cut, or its add undone).
+    /// What the sheet shows of `book` that, changing, can take a card from the story or move cards
+    /// and tiles under the pointer. The story and the Boneyard are kept apart: a cut of the last
+    /// card, or a restore of the first tile, leaves the two joined unchanged.
+    struct Arrangement: Equatable {
+        let story: [SceneID]
+        let boneyard: [SceneID]
+        let tags: [[String]]
+
+        init(_ book: Book) {
+            story = book.scenes.map(\.id)
+            boneyard = book.boneyard.map(\.id)
+            tags = book.scenes.map(\.tags)
+        }
+    }
+
+    /// The `Arrangement` changed. Forgets a card field or focus whose scene has left the story (cut,
+    /// or its add undone), and the last click, since the cards and tiles may have moved.
     func keepToTheStory(of book: Book) {
+        clicked = nil
         let story = Set(book.scenes.map(\.id))
         if let scene = titling ?? tagging, !story.contains(scene) { field = nil }
         if let focused, !story.contains(focused) { self.focused = nil }
@@ -159,6 +179,7 @@ final class ScenesSheetModel {
         filter = ""
         field = nil
         focused = nil
+        clicked = nil
         drop.end()
         stopWatchingTheDrag()
         releaseWatch?.cancel()
@@ -183,11 +204,33 @@ struct ScenesActions {
     let tags: TagActions
     let mode: Binding<WindowMode>
 
-    /// A click on a card: the scene opens and the sheet closes.
+    /// The scene opens and the sheet closes.
     func open(_ scene: SceneID) {
         guard book.book.scene(scene) != nil else { return }
         book.select(scene)
         mode.wrappedValue = mode.wrappedValue.closingSheet
+    }
+
+    /// A click on a card or tile, as in the Finder: a double click opens its scene. A single click
+    /// puts the card focus on a card at once, so the first click of a double click does too. The
+    /// focus is the story grid's, so a single click on a Boneyard tile only records the click.
+    ///
+    /// A double click opens only the item its first click landed on. Its first click may have gone
+    /// to a control (a tile's ↩, a chip's ×) that moved another item under the pointer; then the
+    /// second click counts as a first click.
+    func click(_ click: SceneClick, on item: SceneDrag) {
+        if click == .double, model.clicked == item {
+            open(item.scene)
+            return
+        }
+        model.clicked = item
+        if case .card(let scene) = item { select(scene) }
+    }
+
+    /// The sheet takes the keys, and they act on `scene`'s card.
+    func select(_ scene: SceneID) {
+        model.keyFocus.takeFocus()
+        model.focused = scene
     }
 
     /// Adds an untitled scene, which opens, and puts the title field on its card. The sheet stays
@@ -292,6 +335,7 @@ struct ScenesActions {
     /// The arrows move the focus from card to card, and with Option move the card; Delete cuts
     /// the focused card, and Return opens it. The first arrow puts the focus on a card.
     func handle(_ key: CardKey) -> KeyOutcome {
+        model.clicked = nil
         let grid = model.grid(of: book.book, preferences.scenesView)
         guard let focused = model.focused, grid.cards.contains(focused) else {
             switch key {
@@ -354,6 +398,24 @@ enum CardKey: Equatable {
         }
         if event.isARepeat, self == .cut || self == .open { return nil }
     }
+}
+
+/// A click on a card or tile, counted as the system counts them.
+enum SceneClick: Equatable {
+    case single, double
+
+    /// Only a mouse button event has a click count; asking any other raises.
+    init(_ event: NSEvent?) {
+        guard let event, Self.buttonEvents.contains(event.type), event.clickCount >= 2 else {
+            self = .single
+            return
+        }
+        self = .double
+    }
+
+    private static let buttonEvents: Set<NSEvent.EventType> = [
+        .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp,
+    ]
 }
 
 extension UTType {

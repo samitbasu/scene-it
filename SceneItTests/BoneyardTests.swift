@@ -458,6 +458,77 @@ extension OneAtATime {
             }
         }
 
+        /// Cutting the last card puts it first in the Boneyard, and restoring the first tile puts it
+        /// last in the story: the story and the Boneyard joined are the same before and after, yet
+        /// the focus and the last click are forgotten each time.
+        @Test func cuttingTheLastCardOrRestoringTheFirstTileForgetsTheFocusAndClick() async throws {
+            try await withScenesSheet(boneyard: [brother]) { harness, actions in
+                let story = harness.book.book.scenes.map(\.id)
+                let last = try #require(story.last)
+                actions.click(.single, on: .card(last))
+                try #require(
+                    harness.scenes.focused == last && harness.scenes.clicked == .card(last),
+                    "precondition: the last card is clicked and focused")
+
+                _ = actions.beginDrag(.card(last))
+                actions.enter(.tray)
+                #expect(actions.drop(on: .tray))
+                try #require(
+                    harness.book.book.scenes.map(\.id) + harness.book.book.boneyard.map(\.id)
+                        == story + [brother.id],
+                    "precondition: joined, the story and the Boneyard are unchanged")
+                await eventually { harness.scenes.focused == nil && harness.scenes.clicked == nil }
+                #expect(harness.scenes.focused == nil, "the cut card's focus is forgotten")
+                #expect(harness.scenes.clicked == nil, "and so is the click")
+
+                actions.click(.single, on: .tile(brother.id))
+                try #require(
+                    harness.scenes.clicked == .tile(brother.id), "precondition: a later tile is clicked")
+                #expect(actions.restoreToEnd(last))
+                try #require(
+                    harness.book.book.boneyard.map(\.id) == [brother.id],
+                    "precondition: the first tile restored")
+                await eventually { harness.scenes.clicked == nil }
+                #expect(harness.scenes.clicked == nil, "the tile that slid along isn't the clicked one")
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.modes.mode == .scenes, "so a double click on it opens nothing")
+            }
+        }
+
+        /// A double click opens a tile's scene. The card focus is the story grid's, so a single click
+        /// on a tile selects nothing and leaves a card's focus where it was (ADR 0043). A double
+        /// click opens only the tile its first click landed on: restoring one tile slides the next
+        /// under the pointer.
+        @Test func aDoubleClickOpensATileAndAClickSelectsNothing() async throws {
+            let other = scene("The other", [[Run("Unread.")]])
+            try await withScenesSheet(boneyard: [brother, other]) { harness, actions in
+                actions.click(.single, on: .tile(other.id))
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.book.openScene != brother.id, "a double click on another tile opens nothing")
+                #expect(harness.modes.mode == .scenes)
+                try #require(harness.scenes.clicked == .tile(brother.id), "it counts as a first click")
+
+                #expect(actions.restoreToEnd(other.id))
+                await eventually { harness.scenes.clicked == nil }
+                #expect(harness.scenes.clicked == nil, "a restore forgets the click: the tiles moved")
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.modes.mode == .scenes, "so the next double click opens nothing")
+
+                let story = harness.book.book.scenes.map(\.id)
+                actions.click(.single, on: .card(story[1]))
+                try #require(harness.scenes.focused == story[1], "precondition: a card is selected")
+
+                actions.click(.single, on: .tile(brother.id))
+                #expect(harness.scenes.focused == story[1])
+                #expect(harness.book.openScene == story[0], "nothing opens")
+                #expect(harness.modes.mode == .scenes)
+
+                actions.click(.double, on: .tile(brother.id))
+                #expect(harness.book.openScene == brother.id)
+                await eventually { harness.modes.mode == .page }
+            }
+        }
+
         @Test func aReadOnlyBookMovesCutsRestoresAndDeletesNothing() async throws {
             try await withScenesSheet(boneyard: [brother], lock: .heldElsewhere) { harness, actions in
                 let before = harness.book.book
@@ -470,7 +541,8 @@ extension OneAtATime {
                 #expect(actions.handle(.move(.right)) == .passedOn)
                 #expect(actions.handle(.cut) == .passedOn)
                 #expect(harness.book.book == before)
-                actions.open(brother.id)
+                actions.click(.single, on: .tile(brother.id))
+                actions.click(.double, on: .tile(brother.id))
                 #expect(harness.book.openScene == brother.id, "a tile still opens its scene")
             }
         }

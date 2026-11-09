@@ -73,7 +73,7 @@ enum Dragging {
 }
 
 /// A cut scene in the tray (mockup 07): the drag handle, the title and the words, in a dashed
-/// outline, then ↩. A click opens the scene; its menu restores it or deletes it for good.
+/// outline, then ↩. A double click opens the scene; its menu restores it or deletes it for good.
 private struct BoneyardTile: View {
     let scene: BookScene
     let words: WordCount
@@ -111,7 +111,7 @@ private struct BoneyardTile: View {
         .overlay(border(shape))
         .contentShape(shape)
         .opacity(dragging == .dragged ? WindowMetrics.Scenes.draggedOpacity : 1)
-        .onTapGesture { actions.open(scene.id) }
+        .sceneClicks(.tile(scene.id), actions: actions)
         .onHover { hovering = $0 ? .hovering : .away }
         .help(BoneyardWording.openHelp)
         .sceneDragSource(.tile(scene.id), actions: actions, editability: editability)
