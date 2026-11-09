@@ -57,6 +57,24 @@ doomed() {
     echo "$pid"
 }
 
+# kill_doomed <pid> <folders> <before>: kills what `doomed` lists, other than this shell. It
+# stops each process first and lists again until nothing new turns up, so a child started
+# between the listing and the kill can't outlive it.
+kill_doomed() {
+    local pid=$1 folders=$2 before=$3 stopped=' ' process found
+    while :; do
+        found=0
+        for process in $(doomed "$pid" "$folders" "$before"); do
+            [[ $process == "$$" || $stopped == *" $process "* ]] && continue
+            kill -STOP "$process" 2>/dev/null || continue
+            stopped+="$process "
+            found=1
+        done
+        ((found)) || break
+    done
+    kill -9 $stopped 2>/dev/null || true
+}
+
 # sample_test_runners <prefix> <pid>...: samples up to four of the test runners among the
 # processes, at once, for 3 seconds, to <prefix>-<pid>.txt. Prints how many it sampled.
 sample_test_runners() {
@@ -75,12 +93,13 @@ sample_test_runners() {
 
 # with_time_limit <seconds> <sample-prefix> <folders> <command>...: runs the command, and if
 # it's still running after <seconds>, samples its stuck test runners to
-# <sample-prefix>-<pid>.txt, kills what `doomed` lists, and returns 124. Swift Testing's time
-# limits can't end a test that's blocked, so this is what stops a hung test run (#77).
+# <sample-prefix>-<pid>.txt, kills what `doomed` lists (kill_doomed), and returns 124. Swift
+# Testing's time limits can't end a test that's blocked, so this is what stops a hung test run
+# (#77).
 # <folders> is the `built_here` pattern for the command's own build folders, so a timeout
 # spares a command running alongside it from another folder.
 with_time_limit() {
-    local limit=$1 prefix=$2 folders=$3 pid deadline before victims sampled duration
+    local limit=$1 prefix=$2 folders=$3 pid deadline before sampled duration
     shift 3
     before=" $(built_here "$folders" | tr '\n' ' ') "
     "$@" &
@@ -88,9 +107,8 @@ with_time_limit() {
     deadline=$((SECONDS + limit))
     while kill -0 "$pid" 2>/dev/null; do
         if ((SECONDS >= deadline)); then
-            victims=$(doomed "$pid" "$folders" "$before" | sort -u)
-            sampled=$(sample_test_runners "$prefix" $victims)
-            kill -9 $victims 2>/dev/null || true
+            sampled=$(sample_test_runners "$prefix" $(doomed "$pid" "$folders" "$before" | sort -u))
+            kill_doomed "$pid" "$folders" "$before"
             wait "$pid" 2>/dev/null || true
             if ((limit < 60)); then duration="$limit s"; else duration="$((limit / 60)) min"; fi
             echo "error: still running after $duration, so it was killed: $*" >&2
@@ -102,6 +120,31 @@ with_time_limit() {
     wait "$pid"
 }
 
+
+# The toolchain a build folder is built with: Xcode, the macOS SDK and Swift.
+describe_toolchain() {
+    xcodebuild -version
+    xcrun --sdk macosx --show-sdk-build-version
+    swift --version 2>&1
+}
+
+# clear_stale_build <folder> <toolchain> <input>...: deletes the build folder unless it was
+# built with this toolchain (from describe_toolchain) and these inputs (files or directories),
+# then records them in the folder. An incremental build can't be trusted across either: a new
+# SDK doesn't recompile what it breaks, and a package-graph change can leave a stale module
+# that shadows the new one (#151).
+clear_stale_build() {
+    local folder=$1 toolchain=$2 stamp=$1/scene-it-build-inputs fingerprint
+    shift 2
+    fingerprint=$({
+        echo "$toolchain"
+        find "$@" -type f -not -path '*/xcuserdata/*' -exec shasum -a 256 {} + | sort
+    } | shasum -a 256)
+    [[ -f $stamp && $(<"$stamp") == "$fingerprint" ]] && return 0
+    rm -rf "$folder"
+    mkdir -p "$folder"
+    echo "$fingerprint" >"$stamp"
+}
 
 # Prints a failed step's error and warning lines from its log, or the log's tail if none match.
 print_log_diagnostics() {

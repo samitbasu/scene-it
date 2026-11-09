@@ -94,8 +94,9 @@ which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcres
 runs steps 1–6 in order, stopping at the first failure. If they pass, it runs steps 7 and 8
 at the same time and waits for both:
 
-1. `scripts/test-guards.sh` (below): checks that the source guards in steps 2–5 reject
-   and accept what they should.
+1. `scripts/test-guards.sh` and `scripts/test-lib.sh` (below): check that the source guards
+   in steps 2–5 reject and accept what they should, and that the gate's own helpers
+   (the stale-build check and the cleanup on a timeout or an interrupt) work.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
    `textLayoutManager` is allowed, and so is `SceneItTests/TextKit1Alarm.swift`, the test alarm that
@@ -124,6 +125,14 @@ Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and x
 builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
 an incremental build on a quiet machine, and less when the machine is busy.
 
+**Stale builds:** before steps 7 and 8, check.sh deletes a build folder whose recorded inputs
+have changed, so that step builds from clean (ADR 0008). The inputs are the toolchain
+(`xcodebuild -version`, the macOS SDK's build version and `swift --version`), plus
+`Package.swift`, `SceneIt.xcodeproj` (without `xcuserdata`) and `Config/` for
+`build/DerivedData`, and `Package.swift` for `.build/`. Each folder records a hash of them in
+its own `scene-it-build-inputs` file, so deleting a folder by hand also means a clean build.
+Otherwise the builds are incremental. A clean build adds about 30 s to each of steps 7 and 8.
+
 Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
@@ -131,13 +140,17 @@ check.sh kills two sets of processes: the step's own process tree, and any proce
 something from the step's own build folder (`.build/` for `swift test`, `build/` for
 xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`.
 That spares a Debug app or an IDE build that was already running, and an app the step didn't
-start itself. So a timeout in one of steps 7 and 8 never kills the other. Before it kills them, check.sh samples up to four of them that are test runners
-(`swiftpm-testing-helper`, an `.xctest` bundle or a test host app), all at once, for 3 seconds,
-into `build/check/<step>-hang-<pid>.txt`.
+start itself. So a timeout in one of steps 7 and 8 never kills the other. Before it kills
+them, check.sh samples up to four of them that are test runners (`swiftpm-testing-helper`,
+an `.xctest` bundle or a test host app), all at once, for 3 seconds, into
+`build/check/<step>-hang-<pid>.txt`. It then stops each one (`SIGSTOP`), lists them again
+until no new process turns up, and only then kills them all, so none can start a child that
+outlives the kill.
 
-**Interrupted** (Ctrl-C or `SIGTERM`): check.sh kills everything it started, as a timeout does
-(children before parents, sparing `Scene It.app` unless it's in the gate's own process tree),
-and exits with status 130 (Ctrl-C) or 143 (`SIGTERM`). No step keeps running in the background.
+**Interrupted** (Ctrl-C or `SIGTERM`): check.sh kills everything it started, in the same way,
+then dies of the same signal, so a calling shell or loop sees the interrupt (status 130 or
+143). No step keeps running in the background. A test-host `Scene It.app` outside the gate's
+own process tree is spared on purpose: it might be the writer's own Debug run.
 
 **Output on success:** nothing, exit status 0.
 
@@ -150,10 +163,11 @@ A step that ran out of time adds `error: still running after <n> min (or s), so 
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
-**Products:** one log per step in `build/check/` (`guard-tests.log`, `textkit1-guard.log`,
+**Products:** one log per step in `build/check/` (`guard-tests.log`, `lib-tests.log`, `textkit1-guard.log`,
 `logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
-`build/DerivedData/Build/Products/Debug/Scene It.app`. All of `build/` except
+`build/DerivedData/Build/Products/Debug/Scene It.app`, and each build folder's
+`scene-it-build-inputs` (above). All of `build/` except
 `build/release/` (see release.sh) can be deleted at any time. Run this before every commit; nothing lands on `main`
 without it passing.
 
@@ -171,6 +185,24 @@ violating fixture, reporting the fixture's `file:1`, and accept each allowed one
 files, comments, interpolation outside traps. It also checks that a missing path fails
 with status 2. **Output:** nothing on success. On failure, one `✘` line per case that went
 the wrong way, and exit status 1. **Products:** none; the fixtures are deleted on exit.
+
+### `scripts/test-lib.sh`: tests for the gate's helpers
+
+**Status:** available.
+
+```sh
+scripts/test-lib.sh
+```
+
+Takes no arguments; `check.sh` runs it after `test-guards.sh`. It checks `clear_stale_build`
+from `scripts/lib.sh` on a fixture project in a temporary directory: the build folder is kept
+when nothing changed or only `xcuserdata` did, and cleared when an input file changes, a file
+is added to or renamed in an input directory, the toolchain changes, or the folder's record is
+gone. It checks `kill_doomed` against a process that starts a `sleep` every 10 ms, both from
+inside the tree (as an interrupted gate does, which must survive the call) and from outside
+it (as a timeout does): nothing may be left running. Takes about 5 seconds. **Output:**
+nothing on success. On failure, one `✘` line per failed check, and exit status 1.
+**Products:** none; the fixtures are deleted and any leftover `sleep` is killed on exit.
 
 The gate never rewrites the format test corpus: `check.sh` unsets `CORPUS_REGENERATE` (see `Tests/Corpus/README.md` for regenerating cases on purpose).
 
