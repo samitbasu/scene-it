@@ -23,7 +23,8 @@ import Testing
         _ listing: [DirectoryEntry], _ index: ParsedArchiveIndex, counts: FiledCopyCounts? = counted
     ) -> ReconciledArchive {
         ArchiveReconciliation.reconcile(
-            listing: listing, index: index, modified: { _ in fileDay }, counts: { _ in counts })
+            listing: listing, index: index, modified: { _ in fileDay }, counts: { _ in counts }, pending: [:],
+            digest: { _ in nil })
     }
 
     static let twoCopies = """
@@ -104,12 +105,16 @@ import Testing
         #expect(Self.reconcile(Self.files(1), rewritten).rewrite == .unneeded)
     }
 
+    static let filedBytes = ContentDigest(Data("the copy as filed".utf8))
+
     @Test func aPendingRecordGivesACopyWithNoEntryItsTagsNoteAndDate() throws {
         let record = FilingRecord(
             filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["draft 5"], note: "Kept")
+        let pending = PendingRecord(record, copy: Self.filedBytes)
         let reconciled = ArchiveReconciliation.reconcile(
             listing: Self.files(1, 2, 3), index: Self.parse(Self.twoCopies), modified: { _ in Self.fileDay },
-            counts: { _ in Self.counted }, pending: [Self.number(3): record, Self.number(1): record])
+            counts: { _ in Self.counted }, pending: [Self.number(3): pending, Self.number(1): pending],
+            digest: { _ in Self.filedBytes })
         #expect(
             reconciled.index.copies.last
                 == FiledCopy(
@@ -118,6 +123,24 @@ import Testing
         #expect(
             reconciled.index.copies.first == Self.parse(Self.twoCopies).index.copies.first, "an entry wins")
         #expect(reconciled.notices == [.recordedPendingEntry(Self.number(3))])
+    }
+
+    /// Another Mac or a sync tool replaced `Archive/`, so a different file has the record's number,
+    /// or the file can't be read to tell.
+    @Test(arguments: [ContentDigest(Data("another copy".utf8)), nil])
+    func aPendingRecordForAnotherFileAtItsNumberIsntGivenToIt(_ onDisk: ContentDigest?) throws {
+        let record = FilingRecord(
+            filed: try #require(CalendarDay(year: 2026, month: 11, day: 2)), tags: ["mine"])
+        let reconciled = ArchiveReconciliation.reconcile(
+            listing: Self.files(1, 2, 3), index: Self.parse(Self.twoCopies), modified: { _ in Self.fileDay },
+            counts: { _ in Self.counted },
+            pending: [Self.number(3): PendingRecord(record, copy: Self.filedBytes)],
+            digest: { _ in onDisk })
+        #expect(
+            reconciled.index.copies.last
+                == FiledCopy(number: Self.number(3), filed: Self.fileDay, counts: Self.counted))
+        #expect(reconciled.notices == [.pendingEntryForAnotherCopy(Self.number(3))])
+        #expect(reconciled.rewrite == .needed)
     }
 
     @Test func aNumberPastTheHighestIsNotCountedAndDoesntBlockNumbering() {

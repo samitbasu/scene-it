@@ -105,28 +105,36 @@ public enum ArchiveWording {
 
     /// Told when records still pending can no longer be saved in `book`'s index: it was left
     /// (closed, quit, replaced by my version, or not read again), or another program gave
-    /// those copies sections of its own. Each record is quoted, its date included; one with no
-    /// tags, no note and the date the copy is listed with anyway (`listedOn`) loses nothing
-    /// and isn't told. `nil` when none is left to tell.
+    /// those copies sections or files of its own. Each record is quoted, its date included; one
+    /// with no tags, no note and the date the copy is listed with anyway (`listedOn`) loses
+    /// nothing and isn't told. The title names everything lost across the copies. `nil` when
+    /// none is left to tell.
     public static func unrecorded(
-        _ pending: [FiledCopyNumber: FilingRecord], listedOn: (FiledCopyNumber) -> CalendarDay, in book: URL
+        _ copies: UnrecordedCopies, listedOn: (FiledCopyNumber) -> CalendarDay, in book: URL
     ) -> Notice? {
-        let records = pending.sorted { $0.key < $1.key }
-            .filter { number, record in
-                !record.tags.isEmpty || !record.note.isEmpty || record.filed != listedOn(number)
-            }
-            .map(\.value)
-        guard !records.isEmpty else { return nil }
+        let lost = copies.sorted { $0.number < $1.number }
+            .map { (record: $0.record, losesDate: $0.record.filed != listedOn($0.number)) }
+            .filter { !$0.record.tags.isEmpty || !$0.record.note.isEmpty || $0.losesDate }
+        guard !lost.isEmpty else { return nil }
+        let records = lost.map(\.record)
         let one = records.count == 1
+        let note = one ? "note" : "notes"
+        let date = one ? "date" : "dates"
         let what: String
         let pronoun: String
-        switch (records.contains { !$0.tags.isEmpty }, records.contains { !$0.note.isEmpty }) {
-        case (true, false): (what, pronoun) = ("tags", "them")
-        case (false, true): (what, pronoun) = (one ? "note" : "notes", one ? "it" : "them")
-        case (true, true): (what, pronoun) = (one ? "tags and note" : "tags and notes", "them")
-        case (false, false): (what, pronoun) = (one ? "date" : "dates", one ? "it" : "them")
+        switch (
+            records.contains { !$0.tags.isEmpty }, records.contains { !$0.note.isEmpty },
+            lost.contains(where: \.losesDate)
+        ) {
+        case (true, false, false): (what, pronoun) = ("tags", "them")
+        case (false, true, false): (what, pronoun) = (note, one ? "it" : "them")
+        case (false, false, _): (what, pronoun) = (date, one ? "it" : "them")
+        case (true, true, false): (what, pronoun) = ("tags and \(note)", "them")
+        case (true, false, true): (what, pronoun) = ("tags and \(date)", "them")
+        case (false, true, true): (what, pronoun) = ("\(note) and \(date)", "them")
+        case (true, true, true): (what, pronoun) = ("tags, \(note) and \(date)", "them")
         }
-        let copies = records.map { record in
+        let quotedCopies = records.map { record in
             "\n\n"
                 + ["Your date: \(quoted(day(record.filed))).", quotedTyping(record)].filter { !$0.isEmpty }
                 .joined(separator: " ")
@@ -137,7 +145,7 @@ public enum ArchiveWording {
                 : "Scene It couldn't save some filed copies' \(what).",
             message: "Scene It couldn't save \(pronoun) to the File Cabinet's list in "
                 + "\(quoted(StoreWording.bookName(book))), so it lists \(one ? "that copy" : "those copies") "
-                + "without \(pronoun)." + copies.joined())
+                + "without \(pronoun)." + quotedCopies.joined())
     }
 
     private static func quoted(_ text: String) -> String {
@@ -183,6 +191,11 @@ public enum ArchiveWording {
         }
     }
 }
+
+/// Filed copies and the records they couldn't be given, in no particular order. A number can
+/// appear twice: a record for a copy another program replaced, and one for the copy filed there
+/// since.
+public typealias UnrecordedCopies = [(number: FiledCopyNumber, record: FilingRecord)]
 
 public typealias UnfiledDraftAlert = WriterAlert<UnfiledDraftChoice>
 

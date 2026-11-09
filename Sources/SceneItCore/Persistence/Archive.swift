@@ -19,7 +19,7 @@ struct Archive {
     }
 
     /// Records for filed copies whose filing couldn't save their section (`ArchiveReconciliation`).
-    typealias Pending = [FiledCopyNumber: FilingRecord]
+    typealias Pending = [FiledCopyNumber: PendingRecord]
 
     // MARK: Reconciliation
 
@@ -69,7 +69,8 @@ struct Archive {
         -> ReconciledArchive
     {
         ArchiveReconciliation.reconcile(
-            listing: listing, index: parsed, modified: modifiedDay, counts: counts, pending: pending)
+            listing: listing, index: parsed, modified: modifiedDay, counts: counts, pending: pending,
+            digest: digest)
     }
 
     private func report(_ reconciled: ReconciledArchive, _ index: IndexState) -> ReconciledArchive {
@@ -137,7 +138,7 @@ struct Archive {
                 "number": .count(number.value), "bytes": .bytes(Int64(bytes.count)),
                 "locked": .symbol(lock.logSymbol), "index": .symbol(index.logSymbol),
             ])
-        return FilingOutcome(number: number, lock: lock, index: index)
+        return FilingOutcome(number: number, copy: ContentDigest(bytes), lock: lock, index: index)
     }
 
     /// Under the first free number from `first` on: another filing that took a number
@@ -354,6 +355,11 @@ struct Archive {
         guard let bytes = try? fileSystem.read(layout.filedCopy(number)) else { return nil }
         return FiledCopyCounts(filedBytes: bytes)
     }
+
+    private func digest(_ number: FiledCopyNumber) -> ContentDigest? {
+        guard let bytes = try? fileSystem.read(layout.filedCopy(number)) else { return nil }
+        return ContentDigest(bytes)
+    }
 }
 
 /// What the writer gives a copy as it's filed (PLAN §7.1). `FiledCopy` admits the text.
@@ -366,6 +372,19 @@ public struct FilingRecord: Hashable, Sendable {
         self.filed = filed
         self.tags = tags
         self.note = note
+    }
+}
+
+/// A filing's record whose section its index write couldn't save, waiting to be recorded.
+/// Another Mac or a sync tool can replace `Archive/`, putting a different file at the record's
+/// number, so the record holds the digest of the copy it was given to.
+public struct PendingRecord: Hashable, Sendable {
+    public let record: FilingRecord
+    public let copy: ContentDigest
+
+    public init(_ record: FilingRecord, copy: ContentDigest) {
+        self.record = record
+        self.copy = copy
     }
 }
 
@@ -399,6 +418,8 @@ public enum FilingFailure: Error, Hashable, Sendable {
 /// What filing did once the copy was published as `number`.
 public struct FilingOutcome: Hashable, Sendable {
     public let number: FiledCopyNumber
+    /// The digest of the copy's bytes.
+    public let copy: ContentDigest
     public let lock: CopyLock
     public let index: IndexUpdate
 
@@ -479,6 +500,10 @@ extension ArchiveNotice {
                     "listed a filed copy's pending tags and note without saving them",
                     ["number": .count(number.value)])
             }
+        case .pendingEntryForAnotherCopy(let number):
+            Log.store.error(
+                "listed a filed copy without the pending tags and note given to an earlier file there",
+                ["number": .count(number.value)])
         case .keptEntryWithoutFile(let number):
             Log.store.error(
                 "kept an archive index entry whose filed copy is missing as unparsed lines",

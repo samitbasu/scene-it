@@ -3,7 +3,8 @@
 /// a filed copy (its modification day, its counts) come from the caller.
 public enum ArchiveReconciliation {
     /// - A filed copy with no section is listed with `pending`'s record for it if there is one
-    ///   (a filing whose index write failed), else with no tags; its counts are `counts(number)`.
+    ///   (a filing whose index write failed) and the copy's `digest` is the record's, else with
+    ///   no tags; its counts are `counts(number)`. A digest that can't be read isn't the record's.
     /// - A section whose filed copy isn't in `listing` (renamed, moved, re-cased, replaced by a
     ///   link) isn't listed, and its lines are kept in the index's `### Unparsed`.
     /// - A section with no counts gets `counts(number)`.
@@ -15,7 +16,7 @@ public enum ArchiveReconciliation {
     public static func reconcile(
         listing: [DirectoryEntry], index parsed: ParsedArchiveIndex,
         modified: (FiledCopyNumber) -> CalendarDay, counts: (FiledCopyNumber) -> FiledCopyCounts?,
-        pending: [FiledCopyNumber: FilingRecord] = [:]
+        pending: [FiledCopyNumber: PendingRecord], digest: (FiledCopyNumber) -> ContentDigest?
     ) -> ReconciledArchive {
         let named = numbered(listing)
         let onDisk = Set(named.filter(\.isInRange))
@@ -37,15 +38,18 @@ public enum ArchiveReconciliation {
         }
         let indexed = Set(parsed.index.copies.map(\.number))
         for number in onDisk.sorted() where !indexed.contains(number) {
-            if let record = pending[number] {
+            switch pending[number] {
+            case let pending? where digest(number) == pending.copy:
+                let record = pending.record
                 copies.append(
                     FiledCopy(
                         number: number, filed: record.filed, tags: record.tags, note: record.note,
                         counts: counts(number)))
                 notices.append(.recordedPendingEntry(number))
-            } else {
+            case let pending:
                 copies.append(FiledCopy(number: number, filed: modified(number), counts: counts(number)))
-                notices.append(.listedWithoutEntry(number))
+                notices.append(
+                    pending == nil ? .listedWithoutEntry(number) : .pendingEntryForAnotherCopy(number))
             }
         }
         copies.sort { $0.number < $1.number }
@@ -129,6 +133,9 @@ public enum ArchiveNotice: Hashable, Sendable {
     case listedWithoutEntry(FiledCopyNumber)
     /// A filed copy whose filing couldn't save its section: listed with what the writer gave.
     case recordedPendingEntry(FiledCopyNumber)
+    /// A filed copy with no section whose number has a pending record given to a different file
+    /// there (`Archive/` was replaced): listed with no tags, as `listedWithoutEntry`.
+    case pendingEntryForAnotherCopy(FiledCopyNumber)
     /// A section whose filed copy isn't there: not listed, and kept in `### Unparsed`.
     case keptEntryWithoutFile(FiledCopyNumber)
     /// A `saveNNNN.md` numbered past `FiledCopyNumber.highest`: not listed or counted.

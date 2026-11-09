@@ -56,6 +56,9 @@ public enum ExportWording {
     private static func reason(_ failure: ExportFailure) -> String {
         switch failure {
         case .insideTheBook: "That's inside the book itself. Choose a place outside it."
+        case .bookUnidentified:
+            "Scene It couldn't identify the book on its disk, so it can't make sure the file stays "
+                + "outside the book."
         case .notAFile: "Something that isn't a file already has that name."
         case .writeProtected(.locked): "The file with that name is locked in Finder."
         case .writeProtected(.readOnly): "The file with that name is read-only."

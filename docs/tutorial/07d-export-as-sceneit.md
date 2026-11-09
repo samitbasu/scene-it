@@ -73,7 +73,11 @@ pipeline from chapter 03: `writeTemporary` (durable under a hidden name), then `
 name or `move` over an existing file. Before any of it, it refuses a destination inside the open
 book's package, comparing canonical paths (`.`, `..` and links resolved, case ignored) and file
 identities (`FileSystem.identity`, the volume and file number) of the folders above it, and refuses
-anything at the destination that isn't a plain file the writer can write. The store runs it through
+anything at the destination that isn't a plain file the writer can write. The package's identity is
+the one read as the book opened (`OpenBook.packageIdentity`), not read again from its path: if the
+writer renames or moves the package in Finder while it's open, the old path names nothing, but the
+renamed folder still has that identity (#157). A package that couldn't be identified at all exports
+nothing, since nothing could tell a destination inside it apart. The store runs it through
 `exclusively` and a `@concurrent` hop (chapter 04), and tells the writer through `StorePrompts` when
 nothing was written.
 

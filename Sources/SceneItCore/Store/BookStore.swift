@@ -330,7 +330,8 @@ public final class BookStore<C: Clock<Duration>> {
     @discardableResult
     private func install(_ loaded: LoadedBook, as target: Target) async -> OpenBook<C> {
         let book = OpenBook(
-            loaded.opened, archive: loaded.archive, pending: target.pending, clock: clock, mirror: mirror,
+            loaded.opened, identity: loaded.identity, archive: loaded.archive, pending: target.pending,
+            clock: clock, mirror: mirror,
             store: self)
         let replaced: BookWriter?
         switch target {
@@ -383,7 +384,9 @@ public final class BookStore<C: Clock<Duration>> {
             }
             let copy = ReviewCopy(projecting: book.book, chosen: chosen, export: export, exported: exported)
             do throws(ExportFailure) {
-                try await Self.write(copy, to: destination, outside: book.layout, fileSystem)
+                try await Self.write(
+                    copy, to: destination, outside: book.layout, identifiedAs: book.packageIdentity,
+                    fileSystem)
                 return .exported
             } catch {
                 await prompts.tell(ExportWording.notice(for: error))
@@ -394,9 +397,12 @@ public final class BookStore<C: Clock<Duration>> {
 
     @concurrent
     private nonisolated static func write(
-        _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout, _ fileSystem: any FileSystem
+        _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout,
+        identifiedAs identity: FileIdentity?,
+        _ fileSystem: any FileSystem
     ) async throws(ExportFailure) {
-        try ReviewCopyWriter.write(copy, to: destination, outside: book, fileSystem: fileSystem)
+        try ReviewCopyWriter.write(
+            copy, to: destination, outside: book, identifiedAs: identity, fileSystem: fileSystem)
     }
 
     // MARK: Saving
@@ -538,7 +544,6 @@ public final class BookStore<C: Clock<Duration>> {
         session = .choosing
         switch (departure, leaving) {
         case (.discarding, .closeBook):
-            // Told as lost even if the stuck save later records it; a false alarm is the safe direction.
             if let writer { Task { await writer.release() } }
         case (.discarding, .quit):
             writer?.releaseUnlessSaving()
@@ -546,6 +551,7 @@ public final class BookStore<C: Clock<Duration>> {
             if let writer { await book.recordPending(writer) }
             await writer?.release()
         }
+        // Told as lost even if a stuck save later records them; a false alarm is the safe direction.
         await tellRecords(book.takeRecordsToTell(.lost), in: book)
         return .left
     }
@@ -575,7 +581,7 @@ public final class BookStore<C: Clock<Duration>> {
     // MARK: Helpers
 
     /// Tells the writer of `records`, which `book`'s index won't hold.
-    private func tellRecords(_ records: Archive.Pending, in book: OpenBook<C>) async {
+    private func tellRecords(_ records: UnrecordedCopies, in book: OpenBook<C>) async {
         let archive = Archive(layout: book.layout, fileSystem: fileSystem)
         guard
             let notice = ArchiveWording.unrecorded(
@@ -631,9 +637,12 @@ public final class BookStore<C: Clock<Duration>> {
     private struct LoadedBook: Sendable {
         let opened: OpenedBook
         let archive: ReconciledArchive
+        /// The package's, as it opened; `nil` if it couldn't be identified.
+        let identity: FileIdentity?
 
         init(_ opened: OpenedBook, pending: Archive.Pending = [:], _ fileSystem: any FileSystem) {
             self.opened = opened
+            identity = try? fileSystem.identity(of: opened.layout.root)
             archive =
                 switch opened {
                 case .editing(let editable): editable.package.reconcileArchive(pending: pending)
