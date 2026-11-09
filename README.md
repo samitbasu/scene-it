@@ -259,7 +259,10 @@ notes together, across scene and tab switches; the gate runs 2 seeds × 120 step
 `-only-testing:SceneItTests/NotesFuzzTests`.
 
 Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time limit grows with
-the steps (never under two minutes). **Output:** the test results; a failure lists the last
+the steps (never under two minutes). Those limits assume the scheme's cap of four hosted tests at
+a time (ADR 0039). A run that doesn't take the scheme's test action (an explicit `.xctestplan`,
+say) loses it; put `TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4` in front of the
+command to restore it. **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
 
 ### A longer run of the formatting fuzz
