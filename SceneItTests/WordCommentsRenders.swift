@@ -5,11 +5,10 @@ import Testing
 
 @testable import SceneIt
 
-/// Export to Word's Include comments (#183, ADR 0048), for the owner to judge: the save panel's
-/// accessory alone, unticked and ticked, as shipped (A) and with a line naming the author (B),
-/// since the system panel around it can't be drawn offscreen; and a sample .docx of the ferry
-/// scene with six comments, two of them overlapping and one running over a paragraph break, to
-/// open in Word and Pages.
+/// Export to Word's Include comments (#183, ADR 0048): the save panel's accessory alone,
+/// unticked and ticked, since the system panel around it can't be drawn offscreen; and a sample
+/// .docx of the ferry scene with six comments, two of them overlapping and one running over a
+/// paragraph break, to open in Word and Pages.
 extension WindowRenders {
     @Test func wordComments() async throws {
         let output = try #require(renderFolder).appending(path: "word-comments", directoryHint: .isDirectory)
@@ -18,21 +17,11 @@ extension WindowRenders {
             let options = WordExportOptions()
             options.comments = choice
             let state = choice == .omit ? "unticked" : "ticked"
-            let candidates: [(String, AnyView)] = [
-                ("a-checkbox", AnyView(WordExportAccessory(options: options))),
-                (
-                    "b-checkbox-naming-the-author",
-                    AnyView(
-                        AuthorNamingAccessoryCandidate(options: options, author: CommentAuthor.account.name))
-                ),
-            ]
-            for (name, view) in candidates {
-                let framed = view.background(Color(nsColor: .windowBackgroundColor))
-                for scale in [1, 2] {
-                    let rep = try await Self.withHostedView(framed) { Self.bitmap(of: $0, scale: scale) }
-                    try Self.png(rep).write(
-                        to: output.appending(path: "accessory-\(name)-\(state)@\(scale)x.png"))
-                }
+            let view = WordExportAccessory(options: options).background(
+                Color(nsColor: .windowBackgroundColor))
+            for scale in [1, 2] {
+                let rep = try await Self.withHostedView(view) { Self.bitmap(of: $0, scale: scale) }
+                try Self.png(rep).write(to: output.appending(path: "accessory-\(state)@\(scale)x.png"))
             }
         }
         let sample = try WordExport.document(of: Self.wordCommentsSample(), comments: .included(by: .account))
@@ -84,24 +73,5 @@ extension WindowRenders {
         return BookScene(
             id: SceneID(rawValue: "ferry"), modified: created, title: "The ferry", body: body,
             comments: [schedule, packed, feel, girl, reveal, ashore])
-    }
-}
-
-/// Candidate B: the checkbox, with a line under it saying whose name the comments will carry.
-private struct AuthorNamingAccessoryCandidate: View {
-    @Bindable var options: WordExportOptions
-    let author: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            WordExportAccessory(options: options).padding(
-                .bottom, -WordExportAccessoryMetrics.verticalPadding)
-            Text("They appear in Word's margin as comments by \(author).")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.leading, WordExportAccessoryMetrics.horizontalPadding + 20)
-                .padding(.trailing, WordExportAccessoryMetrics.horizontalPadding)
-                .padding(.bottom, WordExportAccessoryMetrics.verticalPadding)
-        }
     }
 }

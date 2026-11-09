@@ -1,5 +1,5 @@
+import AppKit
 import CryptoKit
-import Foundation
 import Testing
 
 @testable import SceneItCore
@@ -104,8 +104,11 @@ struct WordCommentsTests {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The digests of what Export to Word wrote before comments could be exported (main at
-    /// 163502a), for `WordExportTests.scene` and for a `--` and a `...` split by a comment's edges.
+    /// A golden test: the SHA-256 of the unticked document for `WordExportTests.scene` and for a
+    /// `--` and a `...` split by a comment's edges, which ticking Include comments must not
+    /// change. A change that alters the document on purpose regenerates these digests, and the
+    /// review checks the new document. (They were first taken from the export as it was before
+    /// comments could be exported.)
     @Test func withoutCommentsTheBytesAreUnchanged() throws {
         var split = WordExportTests.scene
         split.body = [
@@ -224,6 +227,67 @@ struct WordCommentsTests {
             Self.marks(parts.document) == [
                 "s0", "s1", "e1", "r1", "e0", "r0", "s2", "s3", "e3", "r3", "e2", "r2",
             ])
+    }
+
+    /// Two ranges starting on the same words open longest first, so the shorter nests inside the
+    /// longer, whichever has the lower id.
+    @Test func rangesStartingTogetherOpenLongestFirst() throws {
+        var scene = Self.scene
+        scene.comments = [Self.schedule, Self.lights]
+        scene.body = [
+            [
+                Run("She had ", comments: [Self.schedule.id, Self.lights.id]),
+                Run("packed", comments: [Self.lights.id]), Run("."),
+            ]
+        ]
+        let parts = try Self.parts(scene)
+        let anchored = Self.anchored(parts.document)
+        try #require(anchored == [0: "She had ", 1: "She had packed"], "precondition: the shorter has id 0")
+        #expect(Self.marks(parts.document) == ["s1", "s0", "e0", "r0", "e1", "r1"])
+    }
+
+    /// The marks' runs, in the document and in the balloons, are in Word's "annotation reference"
+    /// style, 8 pt, which the styles define.
+    @Test func theMarksAreInWordsReferenceStyle() throws {
+        let parts = try Self.parts()
+        let reference = "//w:r[w:commentReference]"
+        let references = Parts.elements(parts.document, reference)
+        try #require(references.count == 4, "precondition: a reference to each comment")
+        #expect(
+            WordExportTests.values(parts.document, reference + "/w:rPr/w:rStyle")
+                == Array(repeating: "CommentReference", count: 4))
+        let xml = try #require(parts.comments)
+        let marks = "//w:r[w:annotationRef]"
+        try #require(Parts.elements(xml, marks).count == 4, "precondition: a mark in each balloon")
+        #expect(
+            WordExportTests.values(xml, marks + "/w:rPr/w:rStyle")
+                == Array(repeating: "CommentReference", count: 4))
+
+        let style = "//w:style[@*[local-name()='styleId']='CommentReference']"
+        try #require(Parts.elements(parts.styles, style).count == 1, "precondition: the style is defined")
+        #expect(WordExportTests.values(parts.styles, style, "type") == ["character"])
+        #expect(WordExportTests.values(parts.styles, style + "/w:name") == ["annotation reference"])
+        #expect(WordExportTests.values(parts.styles, style + "/w:rPr/w:sz") == ["16"])
+    }
+
+    @Test(arguments: [WordCommentChoice.omit, .include])
+    func theCheckboxShowsTheChoiceAndSetsIt(_ choice: WordCommentChoice) {
+        #expect(WordCommentChoice(ticked: choice.isTicked) == choice)
+        #expect(WordCommentChoice(ticked: false) == .omit && WordCommentChoice(ticked: true) == .include)
+        #expect(choice.isTicked == (choice == .include))
+        #expect(
+            choice.comments(by: Self.author) == (choice == .include ? .included(by: Self.author) : .omitted))
+    }
+
+    /// macOS's own Office Open XML importer reads a document with comments.
+    @Test func macOSReadsADocumentWithComments() throws {
+        let read = try NSAttributedString(
+            data: WordExport.document(of: Self.scene, comments: .included(by: Self.author)),
+            options: [.documentType: NSAttributedString.DocumentType.officeOpenXML], documentAttributes: nil)
+        #expect(
+            read.string.hasPrefix(
+                "The ferry\nThe ferry left at dawn, and Mara watched the harbor lights go out one by one behind her."
+                    + "\nNobody met her at the landing."))
     }
 
     @Test func aCommentCanSpanParagraphs() throws {

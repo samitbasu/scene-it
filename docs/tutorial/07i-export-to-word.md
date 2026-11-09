@@ -148,7 +148,11 @@ only when their comments match as well as their look. The same single function s
 smartening, so a `--` that a comment's edge splits stays two hyphens with comments (each side is its
 own run), and is a dash without them. `WordCommentList.boundaries` then walks the pieces once and
 records, for each comment, the first and last piece it touches; the writer emits the starts before a
-piece and the ends (each followed by its reference) after it.
+piece and the ends (each followed by its reference) after it. Ranges that start on the same piece
+open longest first, and ranges that end together close in reverse, so ranges sharing an edge nest
+instead of crossing. (The snippet above leaves out one detail: each reference run, and the mark at the
+start of each balloon, carries `<w:rStyle w:val="CommentReference"/>`, Word's small "annotation
+reference" style, which the styles define only when comments are written.)
 
 The checkbox is the save panel's `accessoryView`, an `NSHostingView` around a SwiftUI `Toggle` bound
 to a small `@Observable` options object. `exportToWord()` makes a fresh object for each export, so

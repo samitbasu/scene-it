@@ -85,9 +85,9 @@ struct WordExportAccessory: View {
         Toggle(
             WordExportWording.includeComments,
             isOn: Binding {
-                options.comments == .include
+                options.comments.isTicked
             } set: {
-                options.comments = $0 ? .include : .omit
+                options.comments = WordCommentChoice(ticked: $0)
             }
         )
         .toggleStyle(.checkbox)

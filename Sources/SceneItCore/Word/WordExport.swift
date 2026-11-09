@@ -44,6 +44,16 @@ public enum WordComments: Hashable, Sendable {
 public enum WordCommentChoice: Hashable, Sendable {
     case omit, include
 
+    /// The choice a checkbox ticked (`true`) or not shows.
+    public init(ticked: Bool) {
+        self = ticked ? .include : .omit
+    }
+
+    /// Whether the checkbox showing this choice is ticked.
+    public var isTicked: Bool {
+        self == .include
+    }
+
     /// What the export writes for this choice, by `author`.
     public func comments(by author: CommentAuthor) -> WordComments {
         switch self {
@@ -84,7 +94,8 @@ struct WordCommentList {
     }
 
     /// `word/comments.xml`: each comment's text, smartened as print's comments are, one paragraph
-    /// a line, dated with its creation's local time (Word shows `w:date` as it's written).
+    /// a line, dated with its creation's local time and no offset (ADR 0048: how Word reads that
+    /// is unverified until a hand test).
     func xml() throws(WordExportFailure) -> String {
         let name = try WordDocument.escaped(author.name)
         let initials = try WordDocument.escaped(author.initials)
@@ -94,7 +105,7 @@ struct WordCommentList {
             let lines = Typography.smartened(comment.text).split(
                 separator: "\n", omittingEmptySubsequences: false)
             for (index, line) in lines.enumerated() {
-                let reference = index == 0 ? "<w:r><w:annotationRef/></w:r>" : ""
+                let reference = index == 0 ? WordDocument.referenceRun("<w:annotationRef/>") : ""
                 let text =
                     line.isEmpty ? "" : WordDocument.textRun("", try WordDocument.escaped(String(line)))
                 paragraphs +=
@@ -112,8 +123,8 @@ struct WordCommentList {
 
     /// Where each comment's range starts and ends among the document's pieces: it starts before
     /// the first piece it covers and ends after the last, in whichever paragraphs those are.
-    /// Ranges starting together open in number order and ending together close in reverse, so
-    /// they nest; others overlap as their text does.
+    /// Ranges starting together open longest first and ranges ending together close in the
+    /// reverse of the order they opened, so they nest; others overlap as their text does.
     func boundaries(_ pieces: [[(run: Run, text: String)]]) -> CommentBoundaries {
         var first: [Int: PiecePlace] = [:]
         var last: [Int: PiecePlace] = [:]
@@ -127,16 +138,29 @@ struct WordCommentList {
                 }
             }
         }
-        func grouped(_ places: [Int: PiecePlace]) -> [PiecePlace: [Int]] {
-            Dictionary(grouping: places, by: \.value).mapValues { $0.map(\.key).sorted() }
+        let opening = first.compactMap { number, start in
+            last[number].map { (number: number, start: start, end: $0) }
         }
-        return CommentBoundaries(starts: grouped(first), ends: grouped(last).mapValues { $0.reversed() })
+        .sorted { ($0.start, $1.end, $0.number) < ($1.start, $0.end, $1.number) }
+        var starts: [PiecePlace: [Int]] = [:]
+        var ends: [PiecePlace: [Int]] = [:]
+        for range in opening {
+            starts[range.start, default: []].append(range.number)
+        }
+        for range in opening.reversed() {
+            ends[range.end, default: []].append(range.number)
+        }
+        return CommentBoundaries(starts: starts, ends: ends)
     }
 }
 
-struct PiecePlace: Hashable {
+struct PiecePlace: Hashable, Comparable {
     let paragraph: Int
     let piece: Int
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        (lhs.paragraph, lhs.piece) < (rhs.paragraph, rhs.piece)
+    }
 }
 
 /// The Word ids of the comment ranges that start before, and end after, each piece.
@@ -264,7 +288,8 @@ enum WordDocument {
             content += try run(piece.run, showing: piece.text)
             for id in boundaries.ends[place] ?? [] {
                 content +=
-                    #"<w:commentRangeEnd w:id="\#(id)"/><w:r><w:commentReference w:id="\#(id)"/></w:r>"#
+                    #"<w:commentRangeEnd w:id="\#(id)"/>"#
+                    + referenceRun(#"<w:commentReference w:id="\#(id)"/>"#)
             }
         }
         return "<w:p>" + properties + content + "</w:p>"
@@ -285,6 +310,11 @@ enum WordDocument {
             properties += #"<w:shd w:val="clear" w:color="auto" w:fill="\#(hex(highlight.hex))"/>"#
         }
         return textRun(properties, try escaped(text))
+    }
+
+    /// A run holding a comment's mark `mark`, in Word's style for it.
+    static func referenceRun(_ mark: String) -> String {
+        #"<w:r><w:rPr><w:rStyle w:val="\#(WordStyles.commentReferenceID)"/></w:rPr>"# + mark + "</w:r>"
     }
 
     /// A run of `escapedText` with the run properties `properties`, if any.

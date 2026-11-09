@@ -1,7 +1,7 @@
 # 0048 — Export to Word can include comments
 
-**Status:** Accepted (2026-11-09, the owner's request on #183; the defaults below are proposed, pending the owner's
-review). Amends PLAN §10.2 ("Comments are omitted") and adds to [0047](0047-word-export-writes-its-own-docx.md).
+**Status:** Accepted (2026-11-09, the owner's request on #183; the owner chose the checkbox, its wording and the
+author on #185; the other defaults below are proposed, pending the owner's review). Amends PLAN §10.2 ("Comments are omitted") and adds to [0047](0047-word-export-writes-its-own-docx.md).
 Implemented in #183.
 
 ## Context
@@ -10,19 +10,22 @@ opposite: the notes to self as Word comments, in the margin beside the words the
 there. Since 0047 Scene It writes the .docx itself, so it can write Word's comments exactly.
 
 ## Decision
-- **The save panel has an Include comments checkbox,** its accessory, off every time the panel opens. It isn't
+- **The save panel has an Include comments checkbox** (the owner's pick of the rendered candidates: the checkbox
+  alone, worded "Include comments"), its accessory, off every time the panel opens. It isn't
   remembered: comments are often private, and a remembered tick would send them to the next reader unasked. Unticked,
   the document is byte for byte what it was before this change (a test compares digests).
 - **Ticked, each anchored comment becomes a Word comment:** `word/comments.xml` holds its text, and the body wraps the
   text it covers in `w:commentRangeStart` and `w:commentRangeEnd`, followed by a `w:commentReference` run. The part
   has its content-type Override and its relationship from the document (`rId3`), and `styles.xml` gains Word's
   "annotation text" style (`CommentText`: single-spaced, not indented, 10 pt, Word's own size), so the balloons
-  aren't double-spaced and indented like the body.
+  aren't double-spaced and indented like the body, and its "annotation reference" character style
+  (`CommentReference`, 8 pt), which the reference runs and the balloons' `w:annotationRef` runs take, as Word's do.
+  Unticked, neither style is written.
 - **Ranges are exact.** With comments, runs are joined only when they're alike in look *and* comments
   (`OutputParagraph.Pieces.sameFormat`), so every comment edge is a run edge. A range starts before the first piece
   its comment covers and ends after the last, in whatever paragraphs those are, so ranges overlap, nest and cross
-  paragraph breaks as the scene's comments do. Ranges starting together open in id order and ending together close in
-  reverse. A comment whose text is in separate stretches (text inserted inside it later) gets one range from its first
+  paragraph breaks as the scene's comments do. Ranges starting together open longest first, and ranges ending
+  together close in the reverse of the order they opened, so ranges sharing an edge nest. A comment whose text is in separate stretches (text inserted inside it later) gets one range from its first
   stretch to its last: one balloon, as print shows one card.
 - **Ids and order:** the comments are numbered 0, 1, 2… in the order their text starts, the Comments tab's order
   (`CommentCards`).
@@ -30,11 +33,14 @@ there. Since 0047 Scene It writes the .docx itself, so it can write Word's comme
   none anchored still gets an empty `comments.xml` when the box is ticked.
 - **Comment text** is smartened as print's comments are (decision 0022), one Word paragraph per line, plain: no
   colour, since Word colours comments by author.
-- **Author:** the Mac account's full name (`NSFullUserName()`), with initials from its words' first letters; "Scene
-  It" ("SI") when the account has no name.
+- **Author** (the owner's choice): the Mac account's full name (`NSFullUserName()`), with initials from its words'
+  first letters; "Scene It" ("SI") when the account has no name. It puts the account's real name in a file sent to
+  someone else, as Word does with its own user name.
 - **Date:** the comment's creation, as `w:date`, written as the local time the writer's clock showed, without an
-  offset. Word itself writes local time in `w:date` and shows it as written, so the balloon shows the time the writer
-  saw.
+  offset, which xsd:dateTime allows. Word is believed to write local time in `w:date` and show it as written, so the
+  balloon would show the time the writer saw. **This is unverified until the owner's hand test in Word** (on #183's
+  list): the risk is that Word or Pages reads a date without an offset as UTC and shows it shifted by the writer's
+  offset (eight hours early in California). If so, the fix is to write the offset (`Timestamp.description`).
 - **Smartening:** a `--` or `...` split by a comment's edge stays two hyphens or three dots when comments are
   included, since the two pieces are separate runs smartened apart; without comments it's still a dash. Inside a
   stretch with the same comments it's smartened as before.

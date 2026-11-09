@@ -25,6 +25,11 @@ enum WordStyles {
     static let commentID = "CommentText"
     /// Word's own size for comments' text, 10 pt.
     static let commentHalfPoints = 20
+    /// Word recognises its built-in style for a comment's mark by this id and the name
+    /// "annotation reference".
+    static let commentReferenceID = "CommentReference"
+    /// Word's own size for a comment's mark, 8 pt.
+    static let commentReferenceHalfPoints = 16
 
     /// The styles, with the comments' when the document has comments.
     static func xml(for parts: [WordDocument.Part]) -> String {
@@ -33,14 +38,19 @@ enum WordStyles {
 
     private static let plain = xml(addingStyles: "")
 
-    /// The comments' paragraphs are Word's "annotation text": single-spaced, not indented, 10 pt.
+    /// The comments' paragraphs are Word's "annotation text": single-spaced, not indented, 10 pt;
+    /// their marks are Word's "annotation reference", 8 pt.
     private static let withComments = xml(
         addingStyles:
             #"<w:style w:type="paragraph" w:styleId="\#(commentID)"><w:name w:val="annotation text"/>"#
             + #"<w:basedOn w:val="\#(bodyID)"/><w:uiPriority w:val="99"/>"#
             + #"<w:pPr>\#(spacing(singleSpacing))<w:ind w:firstLine="0"/></w:pPr>"#
             + #"<w:rPr><w:sz w:val="\#(commentHalfPoints)"/><w:szCs w:val="\#(commentHalfPoints)"/></w:rPr>"#
-            + "</w:style>")
+            + "</w:style>"
+            + #"<w:style w:type="character" w:styleId="\#(commentReferenceID)">"#
+            + #"<w:name w:val="annotation reference"/><w:uiPriority w:val="99"/>"#
+            + #"<w:rPr><w:sz w:val="\#(commentReferenceHalfPoints)"/>"#
+            + #"<w:szCs w:val="\#(commentReferenceHalfPoints)"/></w:rPr></w:style>"#)
 
     private static func spacing(_ line: Int) -> String {
         #"<w:spacing w:before="0" w:after="0" w:line="\#(line)" w:lineRule="auto"/>"#

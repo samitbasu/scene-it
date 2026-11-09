@@ -487,8 +487,7 @@ Each also has a `-vs-mockup.png` beside `15-print-dialog.png`. To render only th
 
 `wordComments` renders Export to Word's Include comments (#183, ADR 0048, `WordCommentsRenders.swift`) into a
 `word-comments/` subfolder: the save panel's accessory alone, since the system panel around it can't be drawn
-offscreen, as shipped (`accessory-a-checkbox-<state>`) and with a line naming the author
-(`accessory-b-checkbox-naming-the-author-<state>`), each `unticked` and `ticked` at 1× and 2×; and
+offscreen (`accessory-<state>`, `unticked` and `ticked`, at 1× and 2×); and
 `sample-with-comments.docx`, the ferry scene with six comments (two overlapping, one across a paragraph break),
 authored by the Mac account's name, to open in Word and Pages. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/wordComments\(\)`.

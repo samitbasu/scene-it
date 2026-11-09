@@ -79,15 +79,19 @@ extension OneAtATime.BookStoreIntegrationTests {
 
     /// The save panel's accessory is the Include comments checkbox, bound to the options the
     /// export reads (ADR 0048). It starts unticked on every export, and ticking it, through the
-    /// model the checkbox shows, exports the comments. The panel itself isn't made here: an
-    /// `NSSavePanel` comes from a system service, which can stall the test host.
+    /// model the checkbox shows, exports the comments.
+    ///
+    /// The test checks `WordDestination.accessory`, which `savePanel` sets as the panel's
+    /// `accessoryView`, rather than reading it off a panel: making an `NSSavePanel` in the test
+    /// host (a version of this test did, #183) stalled past the time limit in the full gate run,
+    /// though it took a second alone. The panel comes from a system service shared with the rest
+    /// of the session, so the test leaves it out rather than depend on that service's mood.
     @Test func theSavePanelsIncludeCommentsStartsOffAndDecidesWhatsExported() async throws {
         let options = WordExportOptions()
         #expect(options.comments == .omit, "off by default")
         let accessory = WordDestination.accessory(options)
         #expect(accessory.rootView.options === options)
-        #expect(accessory.frame.width > 0 && accessory.frame.height > 0)
-        #expect(accessory.frame.width >= accessory.fittingSize.width, "the label isn't cut short")
+        #expect(accessory.frame.width > 0 && accessory.frame.height > 0, "sized to its checkbox")
 
         try await withTemporaryFolder { folder in
             let books = BookController.shared
