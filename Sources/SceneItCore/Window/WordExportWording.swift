@@ -10,6 +10,11 @@ public enum WordExportWording {
     public static let panelTitle = "Export to Word"
     public static let panelPrompt = "Export"
     public static let fileExtension = "docx"
+    /// The save panel's checkbox (ADR 0048).
+    public static let includeComments = "Include comments"
+
+    /// The exported comments' author when the Mac account has no full name.
+    public static let unnamedAuthor = "Scene It"
 
     /// "The ferry.docx", or "Untitled scene.docx"; from a filed copy, "The ferry, Oct 13, 2026.docx".
     public static func defaultFileName(scene: BookScene, package: URL) -> String {

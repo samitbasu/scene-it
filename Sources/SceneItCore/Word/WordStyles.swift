@@ -3,7 +3,8 @@ import Foundation
 /// The exported document's `word/styles.xml` (ADR 0045, 0047): the body's style, which is the
 /// default, and Word's built-in Heading 1 for the title, both in the page's fonts and sizes (PLAN
 /// §10.2). The body is double-spaced with the page's first-line indent; the title is single-spaced,
-/// not indented and black, where Word's own Heading 1 is blue.
+/// not indented and black, where Word's own Heading 1 is blue. With comments (ADR 0048), also
+/// Word's style for their text.
 enum WordStyles {
     /// Word recognises its built-in heading by this id and the name "heading 1".
     static let headingID = "Heading1"
@@ -19,15 +20,48 @@ enum WordStyles {
     static let singleSpacing = 240
     static let doubleSpacing = 2 * singleSpacing
 
-    static let xml: String = {
+    /// Word recognises its built-in style for comments' text by this id and the name
+    /// "annotation text".
+    static let commentID = "CommentText"
+    /// Word's own size for comments' text, 10 pt.
+    static let commentHalfPoints = 20
+    /// Word recognises its built-in style for a comment's mark by this id and the name
+    /// "annotation reference".
+    static let commentReferenceID = "CommentReference"
+    /// Word's own size for a comment's mark, 8 pt.
+    static let commentReferenceHalfPoints = 16
+
+    /// The styles, with the comments' when the document has comments.
+    static func xml(for parts: [WordDocument.Part]) -> String {
+        parts.contains(.comments) ? withComments : plain
+    }
+
+    private static let plain = xml(addingStyles: "")
+
+    /// The comments' paragraphs are Word's "annotation text": single-spaced, not indented, 10 pt;
+    /// their marks are Word's "annotation reference", 8 pt.
+    private static let withComments = xml(
+        addingStyles:
+            #"<w:style w:type="paragraph" w:styleId="\#(commentID)"><w:name w:val="annotation text"/>"#
+            + #"<w:basedOn w:val="\#(bodyID)"/><w:uiPriority w:val="99"/>"#
+            + #"<w:pPr>\#(spacing(singleSpacing))<w:ind w:firstLine="0"/></w:pPr>"#
+            + #"<w:rPr><w:sz w:val="\#(commentHalfPoints)"/><w:szCs w:val="\#(commentHalfPoints)"/></w:rPr>"#
+            + "</w:style>"
+            + #"<w:style w:type="character" w:styleId="\#(commentReferenceID)">"#
+            + #"<w:name w:val="annotation reference"/><w:uiPriority w:val="99"/>"#
+            + #"<w:rPr><w:sz w:val="\#(commentReferenceHalfPoints)"/>"#
+            + #"<w:szCs w:val="\#(commentReferenceHalfPoints)"/></w:rPr></w:style>"#)
+
+    private static func spacing(_ line: Int) -> String {
+        #"<w:spacing w:before="0" w:after="0" w:line="\#(line)" w:lineRule="auto"/>"#
+    }
+
+    private static func xml(addingStyles extra: String) -> String {
         let font = ParagraphRole.fontFamily
         let fonts =
             #"<w:rFonts w:ascii="\#(font)" w:hAnsi="\#(font)" w:eastAsia="\#(font)" w:cs="\#(font)"/>"#
         func size(_ role: ParagraphRole) -> String {
             #"<w:sz w:val="\#(halfPoints(role))"/><w:szCs w:val="\#(halfPoints(role))"/>"#
-        }
-        func spacing(_ line: Int) -> String {
-            #"<w:spacing w:before="0" w:after="0" w:line="\#(line)" w:lineRule="auto"/>"#
         }
         return #"""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -42,7 +76,7 @@ enum WordStyles {
             <w:pPr><w:keepNext/><w:keepLines/>\#(spacing(singleSpacing))<w:ind w:firstLine="0"/>\#
             <w:outlineLvl w:val="0"/></w:pPr>\#
             <w:rPr>\#(fonts)<w:b/><w:bCs/><w:color w:val="000000"/>\#(size(.title))</w:rPr></w:style>\#
-            </w:styles>
+            \#(extra)</w:styles>
             """#
-    }()
+    }
 }

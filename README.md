@@ -485,6 +485,13 @@ system dialog around it can't be drawn offscreen (`accessory-text-only@2x.png`, 
 Each also has a `-vs-mockup.png` beside `15-print-dialog.png`. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/print\(\)`.
 
+`wordComments` renders Export to Word's Include comments (#183, ADR 0048, `WordCommentsRenders.swift`) into a
+`word-comments/` subfolder: the save panel's accessory alone, since the system panel around it can't be drawn
+offscreen (`accessory-<state>`, `unticked` and `ticked`, at 1× and 2×); and
+`sample-with-comments.docx`, the ferry scene with six comments (two overlapping, one across a paragraph break),
+authored by the Mac account's name, to open in Word and Pages. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/wordComments\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

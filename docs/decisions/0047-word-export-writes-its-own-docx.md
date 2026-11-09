@@ -2,7 +2,8 @@
 
 **Status:** Accepted (2026-11-09, the owner, on #174). Amends PLAN §10.2's "How" and
 [0045](0045-word-export-title-is-heading-1.md)'s "after macOS writes the .docx"; 0045's decision (the
-title is Word's Heading 1 and looks as before) stands. Implemented in #37.
+title is Word's Heading 1 and looks as before) stands. Implemented in #37. Added to by
+[0048](0048-word-export-can-include-comments.md): the comments can be written too.
 
 ## Context
 PLAN §10.2 said to build an `NSAttributedString` and write it with the `.officeOpenXML` document
@@ -33,8 +34,8 @@ Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingM
 - **The document:** the title paragraph has `pStyle Heading1`; body paragraphs have no properties, so
   they take `Normal`. Each run carries only what the scene says: bold, italic, strikethrough, a
   palette colour (`w:color`) and a highlight as shading (`w:shd`, the palette's fill), in the schema's
-  order; uncoloured text has no `w:color`, so it's Word's automatic colour. Comments and notes aren't
-  written.
+  order; uncoloured text has no `w:color`, so it's Word's automatic colour. Notes aren't written, nor
+  comments unless the writer asks for them (0048).
 - **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII, smartened as print
   smartens it (decision 0022; added by #35, which also joins neighbouring runs Word would format alike).
   One function escapes XML's markup characters and guarantees well-formed XML on its own: a character

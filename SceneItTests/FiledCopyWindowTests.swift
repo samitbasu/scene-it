@@ -278,6 +278,39 @@ extension OneAtATime {
             }
         }
 
+        /// With Include comments ticked, a filed copy's export carries the copy's comments, not the
+        /// book's as they are now (ADR 0048).
+        @Test func exportToWordWhileACopyShowsExportsTheCopysComments() async throws {
+            try await withTemporaryFolder { folder in
+                let books = BookController(role: .testHost)
+                let store = books.store
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await store.create(at: url) == .created)
+                let book = try #require(store.current)
+                let scene = try #require(book.addScene(after: nil))
+                try OneAtATime.BookStoreIntegrationTests.comment(scene, of: book)
+                guard case .filed = await store.fileACopy(of: book, as: Self.record) else {
+                    Issue.record("precondition: a copy is filed")
+                    return
+                }
+                let comment = try #require(book.book.scene(scene)?.comments.first)
+                try #require(book.setText("Changed since.", ofComment: comment.id, in: scene))
+                #expect(await store.openFiledCopy(.first, of: book) == .opened)
+                try #require(store.shown !== book, "precondition: the copy shows")
+                let destination = folder.appending(path: "Filed.docx")
+                books.wordDestination = .fixed(destination, choosing: .include)
+
+                #expect(await books.exportToWord() == .exported)
+
+                let comments = try #require(
+                    try OneAtATime.BookStoreIntegrationTests.exportedComments(destination))
+                #expect(comments.contains(">Check the schedule.<"), "the copy's comment")
+                #expect(!comments.contains("Changed since."))
+                store.closeFiledCopy()
+                #expect(await store.closeBook() == .left)
+            }
+        }
+
         /// The banner's Restore and New Book stay enabled; refused, they tell the writer why and
         /// write nothing: Restore into a book open elsewhere, a new book from a copy a newer Scene
         /// It wrote.

@@ -33,7 +33,9 @@ struct ExportToWordTests {
             #expect(name == "The ferry.docx")
             let destination = folder.appending(path: name)
 
-            #expect(await store.exportToWord(of: book, scene: scene, to: destination) == .exported)
+            #expect(
+                await store.exportToWord(of: book, scene: scene, to: destination, comments: .omitted)
+                    == .exported)
 
             let xml = try Self.documentXML(destination)
             #expect(xml.contains(">dusk<") && !xml.contains("dawn"), "the scene as it is now, unsaved")
@@ -62,7 +64,9 @@ struct ExportToWordTests {
             let scene = try #require(book.book.scenes.first?.id)
             let destination = folder.appending(path: "Ferry.docx")
 
-            #expect(await store.exportToWord(of: book, scene: scene, to: destination) == .exported)
+            #expect(
+                await store.exportToWord(of: book, scene: scene, to: destination, comments: .omitted)
+                    == .exported)
 
             #expect(try Self.documentXML(destination).contains("Mara took the ferry."))
             #expect(await store.closeBook() == .left)
@@ -79,7 +83,8 @@ struct ExportToWordTests {
             let scene = try #require(book.write("Text."))
 
             #expect(
-                await store.exportToWord(of: book, scene: scene, to: folder.appending(path: name))
+                await store.exportToWord(
+                    of: book, scene: scene, to: folder.appending(path: name), comments: .omitted)
                     == .failed(.notAWordDocument))
 
             #expect(
@@ -101,7 +106,7 @@ struct ExportToWordTests {
                 [.posixPermissions: 0o444], ofItemAtPath: destination.path(percentEncoded: false))
 
             #expect(
-                await store.exportToWord(of: book, scene: scene, to: destination)
+                await store.exportToWord(of: book, scene: scene, to: destination, comments: .omitted)
                     == .failed(.destination(.writeProtected(.readOnly))))
             #expect(try Data(contentsOf: destination) == Data("keep me".utf8))
         }
@@ -116,7 +121,8 @@ struct ExportToWordTests {
             let destination = folder.appending(path: "Ferry.docx")
 
             #expect(
-                await store.exportToWord(of: book, scene: SceneID(rawValue: "gone"), to: destination)
+                await store.exportToWord(
+                    of: book, scene: SceneID(rawValue: "gone"), to: destination, comments: .omitted)
                     == .unavailable)
 
             #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
