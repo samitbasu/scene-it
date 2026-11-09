@@ -12,10 +12,27 @@ public enum ScenesWording {
     public static let filterPlaceholder = "Filter scenes"
     public static let viewLabel = "View"
     public static let titleLabel = "Title of the new scene"
-    public static let dragHelp = "Dragging to reorder comes in a later version"
+    public static let dragHelp = "Drag to move this scene, or onto the Boneyard to cut it"
     public static let openHelp = "Open this scene"
     public static let noScenes = "No scenes yet."
     public static let noScenesHint = "Add one with + New scene."
+
+    /// Undo and Redo's name for a change to where a scene is.
+    public static func undoName(of change: SceneChange) -> String {
+        switch change {
+        case .move: "Move Scene"
+        case .cut: "Cut Scene"
+        case .restore: "Restore Scene"
+        }
+    }
+
+    /// The slot in the grid that shows where a dragged scene will land.
+    public static func slot(for drag: SceneDrag) -> String {
+        switch drag {
+        case .card: "Move here"
+        case .tile: "Restore here"
+        }
+    }
 
     public static func view(_ view: ScenesView) -> String {
         switch view {

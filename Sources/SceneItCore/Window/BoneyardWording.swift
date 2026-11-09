@@ -1,6 +1,27 @@
-/// Deleting a scene from the Boneyard (ADR 0031): the words the owner approved on 2026-11-04
-/// (#94), kept here for the Boneyard's UI.
+/// The Boneyard tray of the Scenes sheet (PLAN §7.3, mockup 07), and deleting a scene from it
+/// (ADR 0031: the words the owner approved on 2026-11-04, #94).
 public enum BoneyardWording {
+    public static let title = WindowWording.boneyard
+
+    /// "(2)", after the title.
+    public static func count(_ scenes: Int) -> String {
+        "(\(scenes.formatted()))"
+    }
+
+    public static let hint =
+        "Scenes cut from the manuscript, kept with their notes and comments. Drag a card here to cut it; "
+        + "drag a scene back onto the grid (or click \u{21A9}) to restore it."
+
+    /// A tile's word count: "60 w".
+    public static func words(_ count: WordCount) -> String {
+        "\(count.words.formatted()) w"
+    }
+
+    public static let restore = "Restore"
+    public static let restoreHelp = "Restore to the end of the manuscript"
+    public static let open = "Open"
+    public static let openHelp = "Open this scene, or drag it onto the grid to restore it"
+    public static let deletePermanently = "Delete Permanently\u{2026}"
     /// What Undo and Redo name the delete: "Undo Delete Scene".
     public static let deleteUndoName = "Delete Scene"
 

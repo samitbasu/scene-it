@@ -41,6 +41,16 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).scene</string>
+			<key>UTTypeDescription</key>
+			<string>Scene It Scene</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

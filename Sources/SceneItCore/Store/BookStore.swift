@@ -165,6 +165,11 @@ public final class BookStore<C: Clock<Duration>> {
         await open(last)
     }
 
+    /// Asks the writer, the way the store asks its own questions.
+    public func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
+        await prompts.ask(alert)
+    }
+
     /// Creates a book from the start state; refused while a book is open (ADR 0038).
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {

@@ -343,6 +343,14 @@ and the look candidates the owner hasn't picked between, as `candidate-tag-alway
 `candidate-messages-plain-no-matches` and `candidate-messages-plain-empty`. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/scenesSheet\(\)`.
 
+`boneyard` renders the Boneyard tray and the sheet's drags and keys (#29, `BoneyardRenders.swift`) into a
+`boneyard/` subfolder, at 1× and 2× and beside mockup 07: `final-tray`, `final-tray-lit` (a card over the tray),
+`final-restore-here` and `final-move-here` (the slot), `final-card-focused` (the arrow keys' focus ring),
+`final-tray-open-scene`, `final-boneyard-scene-page` ("Boneyard ›" and the rail's B), `final-tray-light-table`,
+`final-deleted-open-scene-page` (no scene open), `final-tray-empty` and `final-tray-read-only`; and the candidates
+`candidate-tray-lit-dashed`, `candidate-restore-here-neutral` and `candidate-restore-on-hover`. To render only
+these, add `-only-testing:SceneItTests/WindowRenders/boneyard\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

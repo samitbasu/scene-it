@@ -184,6 +184,9 @@ final class UndoFocusView: NSView {
     /// for Esc to close.
     var escape: () -> Void = {}
     weak var keys: WindowKeys?
+    /// Keys the view's content takes before AppKit's key bindings see them: the Scenes sheet's
+    /// arrows, Delete and Return on its cards.
+    var keyHandler: ((NSEvent) -> KeyOutcome)?
 
     var focus: UndoFocus {
         switch role {
@@ -226,6 +229,7 @@ final class UndoFocusView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if keyHandler?(event) == .handled { return }
         interpretKeyEvents([event])
     }
 
@@ -259,6 +263,7 @@ struct UndoFocusHolder: NSViewRepresentable {
     let role: UndoFocusView.Role
     var anchor: UndoFocusAnchor?
     var escape: () -> Void = {}
+    var keyHandler: ((NSEvent) -> KeyOutcome)?
     @Environment(UndoRouter.self) private var router: UndoRouter?
     @Environment(\.windowKeys) private var keys
 
@@ -273,8 +278,14 @@ struct UndoFocusHolder: NSViewRepresentable {
         view.role = role
         view.escape = escape
         view.keys = keys
+        view.keyHandler = keyHandler
         anchor?.view = view
     }
+}
+
+/// Whether a view took a key.
+enum KeyOutcome {
+    case handled, passedOn
 }
 
 /// Lets a SwiftUI view hand the focus to its `UndoFocusHolder`.

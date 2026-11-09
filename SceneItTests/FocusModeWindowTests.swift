@@ -43,8 +43,12 @@ private func type(_ text: String, in window: NSWindow) throws {
     }
 }
 
-enum TestKey {
+enum TestKey: Equatable {
     case escape, tab, shiftTab, `return`
+    /// Delete, the key that deletes backward.
+    case delete
+    case arrow(GridStep)
+    case optionArrow(GridStep)
 
     var characters: String {
         switch self {
@@ -52,6 +56,8 @@ enum TestKey {
         case .return: "\r"
         case .tab: "\t"
         case .shiftTab: "\u{19}"
+        case .delete: "\u{7f}"
+        case .arrow(let step), .optionArrow(let step): String(Character(UnicodeScalar(Self.arrowKey(step))!))
         }
     }
 
@@ -60,11 +66,33 @@ enum TestKey {
         case .escape: 53
         case .tab, .shiftTab: 48
         case .return: 36
+        case .delete: 51
+        case .arrow(let step), .optionArrow(let step):
+            switch step {
+            case .left: 123
+            case .right: 124
+            case .down: 125
+            case .up: 126
+            }
         }
     }
 
     var modifiers: NSEvent.ModifierFlags {
-        self == .shiftTab ? [.shift] : []
+        switch self {
+        case .shiftTab: [.shift]
+        case .arrow: [.function, .numericPad]
+        case .optionArrow: [.function, .numericPad, .option]
+        case .escape, .tab, .return, .delete: []
+        }
+    }
+
+    private static func arrowKey(_ step: GridStep) -> Int {
+        switch step {
+        case .left: NSLeftArrowFunctionKey
+        case .right: NSRightArrowFunctionKey
+        case .up: NSUpArrowFunctionKey
+        case .down: NSDownArrowFunctionKey
+        }
     }
 }
 
