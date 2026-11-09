@@ -224,7 +224,9 @@ private struct TagEntry: View {
     var body: some View {
         ChipFlow(spacing: ChipSpacing(points: 5)) {
             ForEach(draft.tags, id: \.self) { tag in
-                TagChip(tag: tag) { draft.remove(tag) }
+                TagChip(
+                    label: tag,
+                    remove: TagChip.Removal(label: ArchiveWording.removeTag(tag)) { draft.remove(tag) })
             }
             TagTextField(draft: $draft)
                 .frame(minWidth: 150)
@@ -235,26 +237,6 @@ private struct TagEntry: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
-    }
-}
-
-private struct TagChip: View {
-    let tag: String
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Text(tag).font(.callout).lineLimit(1)
-            Button(action: remove) {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(ArchiveWording.removeTag(tag))
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
-        .background(Color.secondary.opacity(0.14), in: Capsule())
     }
 }
 
@@ -401,76 +383,6 @@ struct NoteTextView: NSViewRepresentable {
         init(draft: Binding<FilingDraft>) {
             self.draft = draft
         }
-    }
-}
-
-/// The gap between chips, and between their lines.
-private struct ChipSpacing {
-    let points: CGFloat
-}
-
-/// Lays its views out left to right, wrapping to a new line where the next doesn't fit; the
-/// last view (the text field) takes the rest of its line.
-private struct ChipFlow: Layout {
-    let spacing: ChipSpacing
-
-    /// How wide a line of chips may be.
-    private struct LineWidth {
-        let points: CGFloat
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 400
-        let rows = arrange(subviews, within: LineWidth(points: width))
-        let height = rows.reduce(0) { $0 + $1.height } + spacing.points * CGFloat(max(rows.count - 1, 0))
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for row in arrange(subviews, within: LineWidth(points: bounds.width)) {
-            var x = bounds.minX
-            for (index, size) in row.items {
-                let isLast = index == subviews.count - 1
-                let width = isLast ? bounds.maxX - x : size.width
-                subviews[index].place(
-                    at: CGPoint(x: x, y: y + (row.height - size.height) / 2), anchor: .topLeading,
-                    proposal: ProposedViewSize(width: width, height: size.height))
-                x += width + spacing.points
-            }
-            y += row.height + spacing.points
-        }
-    }
-
-    private struct Row {
-        var items: [(Int, CGSize)] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-
-        private func gap(_ spacing: ChipSpacing) -> CGFloat {
-            items.isEmpty ? 0 : spacing.points
-        }
-
-        /// An empty line takes anything.
-        func fits(_ size: CGSize, _ spacing: ChipSpacing, _ line: LineWidth) -> Bool {
-            items.isEmpty || width + gap(spacing) + size.width <= line.points
-        }
-
-        mutating func add(_ index: Int, _ size: CGSize, _ spacing: ChipSpacing) {
-            width += gap(spacing) + size.width
-            height = max(height, size.height)
-            items.append((index, size))
-        }
-    }
-
-    private func arrange(_ subviews: Subviews, within line: LineWidth) -> [Row] {
-        var rows = [Row()]
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            if !rows[rows.count - 1].fits(size, spacing, line) { rows.append(Row()) }
-            rows[rows.count - 1].add(index, size, spacing)
-        }
-        return rows
     }
 }
 

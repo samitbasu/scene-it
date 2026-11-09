@@ -162,6 +162,105 @@ struct ErrorEntryEditTests {
         }
     }
 
+    /// What the page's history covers, as a Fix may change it (ADR 0040).
+    enum PageField: CaseIterable {
+        case tags, body, comments
+    }
+
+    /// The book, the entry and the payload of a Fix that changes only `field` of the scene: a
+    /// `tags:` line, a mark on the text, or a detached comment (which covers no text).
+    private func fixChanging(_ field: PageField) -> (text: String, tag: ErrorTag, payload: String) {
+        let entry = "- [comments] \(Self.broken)"
+        switch field {
+        case .tags: return (Self.text, .metadata, "tags: grim")
+        case .body:
+            return (
+                Self.text.replacingOccurrences(
+                    of: entry, with: "- [marks] - color red | c12-19 | \"letter\""),
+                .marks, "- color red | c12-18 | \"letter\""
+            )
+        case .comments:
+            return (
+                Self.text.replacingOccurrences(
+                    of: entry, with: "- [comments] - c1 | mauve | \(Self.created) | detached | Cut?"),
+                .comments, "- c1 | purple | \(Self.created) | detached | Cut?"
+            )
+        }
+    }
+
+    /// An Errors-tab action that changes only the errors list.
+    enum ErrorsOnly: CaseIterable {
+        /// Delete the entry.
+        case delete
+        /// A Fix the entry still can't take, which keeps it, edited.
+        case editKept
+    }
+
+    /// The open book with a step on the scene's page history and one on its notes history.
+    private func withHistories(
+        _ text: String, in folder: URL,
+        _ test: (OpenBook<ManualClock>, _ page: UndoManager, _ notes: UndoManager) async throws -> Void
+    ) async throws {
+        let (store, book, _) = try await openBook(text, in: folder)
+        let scene = try #require(book.book.scenes.first?.id)
+        let page = book.pageUndo(for: scene)
+        let notes = book.notesUndo(for: scene)
+        #expect(book.addTag("storm", to: scene))
+        book.apply(BodyChange(lines: 0..<0, paragraphs: [[Run("Typed.")]]), to: scene, in: .notes)
+        notes.registerUndo(withTarget: book) { _ in }
+        try #require(page.canUndo && notes.canUndo, "precondition: histories to clear or keep")
+        try await test(book, page, notes)
+        #expect(await store.closeBook() == .left)
+    }
+
+    /// A Fix that changes anything the page's history edits (the body, the scene's comments or
+    /// its tags, ADR 0040) clears that history, so no step can act on what the Fix changed; the
+    /// notes' history, which the Fix didn't touch, is kept. Each Fix changes its field alone.
+    @Test(arguments: PageField.allCases)
+    func aFixOfWhatThePageUndoesClearsItsHistory(field: PageField) async throws {
+        try await withTemporaryFolder { folder in
+            let fix = fixChanging(field)
+            try await withHistories(fix.text, in: folder) { book, page, notes in
+                let before = try #require(book.book.scenes.first)
+                #expect(book.repairError(try ref(fix.tag, in: book), as: fix.payload) == .repaired)
+                let after = try #require(book.book.scenes.first)
+                let changed = PageField.allCases.filter {
+                    switch $0 {
+                    case .tags: after.tags != before.tags
+                    case .body: after.body != before.body
+                    case .comments: after.comments != before.comments
+                    }
+                }
+                try #require(changed == [field], "precondition: the Fix changed \(field) alone")
+                #expect(!page.canUndo, "the page's history is cleared")
+                #expect(notes.canUndo, "the notes' history is kept")
+            }
+        }
+    }
+
+    /// A Fix that changes none of it keeps the page's history: deleting an entry, or a metadata
+    /// Fix that isn't to the tags.
+    @Test(arguments: ErrorsOnly.allCases)
+    func aFixOfAnythingElseKeepsThePageHistory(action: ErrorsOnly) async throws {
+        try await withTemporaryFolder { folder in
+            try await withHistories(Self.text, in: folder) { book, page, notes in
+                let before = try #require(book.book.scenes.first)
+                let mood = try ref(.metadata, in: book)
+                switch action {
+                case .delete: #expect(book.deleteError(mood))
+                case .editKept: #expect(book.repairError(mood, as: "mood: dark") != .refused)
+                }
+                let after = try #require(book.book.scenes.first)
+                try #require(
+                    after.errors != before.errors && after.tags == before.tags && after.body == before.body
+                        && after.comments == before.comments,
+                    "precondition: only the errors changed")
+                #expect(page.canUndo, "the page's history is kept")
+                #expect(notes.canUndo)
+            }
+        }
+    }
+
     @Test(arguments: [ErrorTag.comments, .marks])
     func undoingARepairKeepsWhatWasTypedSince(tag: ErrorTag) async throws {
         try await withTemporaryFolder { folder in
