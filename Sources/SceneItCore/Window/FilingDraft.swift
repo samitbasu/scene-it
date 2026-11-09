@@ -64,4 +64,12 @@ public struct FilingDraft: Hashable, Sendable {
 public enum FilingStage: Hashable, Sendable {
     case editing
     case filing
+
+    /// As Esc sees the dialog.
+    public var dialogStage: DialogStage {
+        switch self {
+        case .editing: .open
+        case .filing: .busy
+        }
+    }
 }

@@ -18,6 +18,7 @@ final class WindowKeys {
     var popover: WindowPopover?
     @ObservationIgnored let chrome: WindowChrome
     @ObservationIgnored let filing: FilingFlow
+    @ObservationIgnored let export: ExportFlow
     @ObservationIgnored private let page: PageFocus
     @ObservationIgnored let mode: Binding<WindowMode>
     /// The right panel's tab while the panel shows; `nil` while it's collapsed or hidden.
@@ -25,21 +26,40 @@ final class WindowKeys {
     /// How each tab takes the focus: its editor, or its first control. `true` only if it did.
     @ObservationIgnored private var panelFocus: [RightPanelTab: () -> Bool] = [:]
 
-    init(chrome: WindowChrome, filing: FilingFlow, page: PageFocus, mode: Binding<WindowMode>) {
+    init(
+        chrome: WindowChrome, filing: FilingFlow, export: ExportFlow, page: PageFocus,
+        mode: Binding<WindowMode>
+    ) {
         self.chrome = chrome
         self.filing = filing
+        self.export = export
         self.page = page
         self.mode = mode
     }
 
     /// File a Copy's dialog counts only while it's on screen: a draft whose sheet went (until File
-    /// a Copy… shows it again) can't be cancelled by an Esc meant for the page.
+    /// a Copy… shows it again) can't be cancelled by an Esc meant for the page. Export as
+    /// SceneIt's chooser is up while it has a choice, and can always close.
     var escapeContext: EscapeContext {
-        let dialogShown = filing.draft != nil && !filing.presentationLost
+        let dialog: DialogStage? =
+            switch shownDialog {
+            case .filing: filing.stage.dialogStage
+            case .export: .open
+            case nil: nil
+            }
         return EscapeContext(
-            popover: popover == nil ? .absent : .present, dialog: dialogShown ? filing.stage : nil,
+            popover: popover == nil ? .absent : .present, dialog: dialog,
             mode: mode.wrappedValue, findBar: page.desk?.findField == nil ? .absent : .present,
             focusMode: chrome.focusMode)
+    }
+
+    private enum ShownDialog {
+        case filing, export
+    }
+
+    private var shownDialog: ShownDialog? {
+        if filing.draft != nil, !filing.presentationLost { return .filing }
+        return export.choice == nil ? nil : .export
     }
 
     /// Closes what Esc closes now, or says there's nothing, so the focused view's own Esc applies.
@@ -85,7 +105,11 @@ final class WindowKeys {
         case .close(.popover):
             popover = nil
         case .close(.dialog):
-            filing.cancel()
+            switch shownDialog {
+            case .filing: filing.cancel()
+            case .export: export.cancel()
+            case nil: break
+            }
         case .close(.sheet):
             mode.wrappedValue = mode.wrappedValue.closingSheet
         case .close(.findBar):

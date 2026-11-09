@@ -6,15 +6,15 @@ public enum Presence: Hashable, Sendable {
 /// What's up in the window, as far as Esc is concerned.
 public struct EscapeContext: Hashable, Sendable {
     public var popover: Presence
-    /// File a Copy's dialog, and its stage while it's up.
-    public var dialog: FilingStage?
+    /// A dialog attached to the window, and its stage while it's up.
+    public var dialog: DialogStage?
     public var mode: WindowMode
     /// The page's find bar.
     public var findBar: Presence
     public var focusMode: FocusMode
 
     public init(
-        popover: Presence, dialog: FilingStage?, mode: WindowMode, findBar: Presence, focusMode: FocusMode
+        popover: Presence, dialog: DialogStage?, mode: WindowMode, findBar: Presence, focusMode: FocusMode
     ) {
         self.popover = popover
         self.dialog = dialog
@@ -33,7 +33,7 @@ public struct EscapeContext: Hashable, Sendable {
 public enum EscapeLayer: CaseIterable, Hashable, Sendable {
     /// A formatting bar's palette.
     case popover
-    /// File a Copy's dialog, a sheet attached to the window.
+    /// A dialog attached to the window as a sheet: File a Copy's, or Export as SceneIt's chooser.
     case dialog
     /// A rail sheet: Scenes, Search or File Cabinet. It covers the find bar.
     case sheet
@@ -62,10 +62,16 @@ public enum EscapeLayer: CaseIterable, Hashable, Sendable {
 
     private func canClose(in context: EscapeContext) -> Bool {
         switch self {
-        case .dialog: context.dialog != .filing
+        case .dialog: context.dialog != .busy
         case .popover, .sheet, .findBar, .focusMode: true
         }
     }
+}
+
+/// Whether a dialog can close: `busy` while it's doing what it was opened for, and closing it
+/// would lose something (File a Copy's dialog while it files).
+public enum DialogStage: Hashable, Sendable {
+    case open, busy
 }
 
 public enum EscapeResult: Hashable, Sendable {
