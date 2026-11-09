@@ -190,6 +190,94 @@ extension OneAtATime {
             }
         }
 
+        /// A ⌘W held past the grace still stops at the copy: its repeats are always ignored after a
+        /// copy closed, and each ⌘W swallowed starts the grace again. A fresh ⌘W after a quiet
+        /// grace closes the book.
+        @Test func aCloseHeldPastTheGraceStillStopsAtTheCopy() async throws {
+            try await withCopyShowing { books, book, _, _ in
+                var now = ContinuousClock.now
+                books.now = { now }
+                let grace = BookController.closeCopyGrace.duration
+                #expect(books.press(.menu(keyWindow: nil)) == nil)
+                try #require(books.store.shown === book, "precondition: the copy closed")
+
+                for _ in 0..<5 {
+                    now += grace * 0.8
+                    #expect(books.press(.menu(keyWindow: nil, press: .repeated)) == nil)
+                }
+                #expect(!books.store.isChoosing, "held for four graces: the book stays open")
+                now += grace * 0.8
+                #expect(
+                    books.closeAction(from: .menu(keyWindow: nil)) == .nothing,
+                    "a fresh press inside the grace a repeat re-armed")
+                now += grace * 3
+                #expect(
+                    books.closeAction(from: .menu(keyWindow: nil, press: .repeated)) == .nothing,
+                    "a repeat is ignored however long after")
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeBook)
+            }
+        }
+
+        /// The menu's ⌘W reads a repeat from the key event; anything else is a fresh press.
+        @Test func aCloseKeyEventSaysWhetherItRepeats() throws {
+            @MainActor func key(_ repeating: Bool) throws -> NSEvent {
+                try #require(
+                    NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                        windowNumber: 0,
+                        context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: repeating,
+                        keyCode: 13))
+            }
+            #expect(MenuPress(try key(true)) == .repeated)
+            #expect(MenuPress(try key(false)) == .first)
+            #expect(MenuPress(nil) == .first)
+            let click = try #require(
+                NSEvent.mouseEvent(
+                    with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
+            #expect(MenuPress(click) == .first, "a menu chosen with the mouse")
+        }
+
+        /// Export to Word… while a copy shows exports the copy's scene, named for the copy, never
+        /// the book hidden under it (PLAN §7.5).
+        @Test func exportToWordWhileACopyShowsExportsTheCopy() async throws {
+            try await withTemporaryFolder { folder in
+                let books = BookController(role: .testHost)
+                let store = books.store
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await store.create(at: url) == .created)
+                let book = try #require(store.current)
+                let scene = try #require(book.addScene(after: nil))
+                book.setTitle(of: scene, to: "The ferry")
+                book.replaceBody(of: scene, with: [[Run("As it was filed.")]])
+                guard case .filed = await store.fileACopy(of: book, as: Self.record) else {
+                    Issue.record("precondition: a copy is filed")
+                    return
+                }
+                book.replaceBody(of: scene, with: [[Run("Rewritten since.")]])
+                #expect(await store.openFiledCopy(.first, of: book) == .opened)
+                let copy = try #require(store.shown)
+                try #require(copy !== book, "precondition: the copy shows")
+                let exported = try #require(books.wordExportScene)
+                #expect(exported.book === copy)
+                #expect(
+                    WordExportWording.defaultFileName(scene: exported.scene, of: copy.document)
+                        == "The ferry, \(ArchiveWording.day(Self.record.filed)).docx")
+                let destination = folder.appending(path: "Filed.docx")
+                books.wordDestination = .fixed(destination)
+
+                #expect(await books.exportToWord() == .exported)
+
+                let read = try NSAttributedString(
+                    url: destination, options: [.documentType: NSAttributedString.DocumentType.officeOpenXML],
+                    documentAttributes: nil)
+                #expect(read.string.contains("As it was filed."), "the copy's text")
+                #expect(!read.string.contains("Rewritten since."))
+                store.closeFiledCopy()
+                #expect(await store.closeBook() == .left)
+            }
+        }
+
         /// The banner's Restore and New Book stay enabled; refused, they tell the writer why and
         /// write nothing: Restore into a book open elsewhere, a new book from a copy a newer Scene
         /// It wrote.

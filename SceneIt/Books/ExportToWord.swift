@@ -3,9 +3,10 @@ import SceneItCore
 /// Export to Word… (PLAN §10.2) for the open scene, from the File menu. It puts out the scene as it
 /// is now, saved or not, and works on a read-only book or review.
 extension BookController {
-    /// The open book and its open scene, while there's one to export.
+    /// The shown book and its open scene, while there's one to export: a filed copy's, while one
+    /// shows over the book (PLAN §7.5).
     var wordExportScene: (book: AppOpenBook, scene: BookScene)? {
-        guard let book = store.current, let scene = book.book.scene(book.openScene) else { return nil }
+        guard let book = store.shown, let scene = book.book.scene(book.openScene) else { return nil }
         return (book, scene)
     }
 
@@ -15,7 +16,7 @@ extension BookController {
     func exportToWord() async -> WordExportResult? {
         guard let (book, scene) = wordExportScene,
             let url = await wordDestination.choose(
-                WordExportWording.defaultFileName(scene: scene, package: book.document.url))
+                WordExportWording.defaultFileName(scene: scene, of: book.document))
         else { return nil }
         return await store.exportToWord(of: book, scene: scene.id, to: url)
     }

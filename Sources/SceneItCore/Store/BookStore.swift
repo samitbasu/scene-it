@@ -682,12 +682,13 @@ public final class BookStore<C: Clock<Duration>> {
 
     /// Export to Word (PLAN §10.2): the scene `scene` as it is now, saved or not, written as a .docx
     /// to `destination`. The book's own files are never touched, and the writer is told when nothing
-    /// was written. Works on a read-only book or review too.
+    /// was written. Works on a read-only book or review too, and on a filed copy shown over its book
+    /// (PLAN §7.5), which it only reads.
     public func exportToWord(of book: OpenBook<C>, scene id: SceneID, to destination: URL) async
         -> WordExportResult
     {
         await exclusively {
-            guard book === current, let scene = book.book.scene(id) else {
+            guard book === shown, let scene = book.book.scene(id) else {
                 await prompts.tell(WordExportWording.sceneClosed)
                 return .unavailable
             }
