@@ -41,7 +41,8 @@ made the old book's lifetime hard to reason about: it overlapped the new book's,
   book moves back to `choosing`. `open` and `create` while a book is open return `.refused` without reading
   anything.
 - Only a chosen book that won't load is forgotten from Recent Books. A book read again, or the writer's copy,
-  stays there when it won't load. An Open Anyway that can't read the book again leaves the read-only book open
+  stays there when it won't load. A book read again keeps File a Copy's draft (`filingDraft`), so the dialog
+  is up again over it as the writer left it, and nothing asks about leaving it (#146). An Open Anyway that can't read the book again leaves the read-only book open
   (`.openedReadOnly`), after telling the writer once, also when it follows Open Other Version.
 - A book stops taking edits the moment it's detached (Close Book, or Open Other Version's reload): the model
   refuses them, and the page, the notes, the title field and the comment cards refuse every change with a

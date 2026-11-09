@@ -682,6 +682,58 @@ extension BookStoreIntegrationTests {
         }
     }
 
+    /// File a Copy's dialog, up when another program changes the book, is up again over the
+    /// book read for Open Other Version, holding what was typed, in the window rebuilt for it.
+    @Test func openOtherVersionKeepsFileACopysDialogUpAsTyped() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = HoldingPrompts()
+            let books = BookController(role: .testHost, prompts: prompts)
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            let book = try #require(books.store.current)
+            let scene = try #require(book.addScene(after: nil))
+            await eventually { book.status == .saved }
+            let size = WindowMetrics.defaultSize
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable],
+                backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentViewController = NSHostingController(rootView: MainWindow(books: books))
+            window.setFrame(NSRect(origin: NSPoint(x: -30000, y: -30000), size: size), display: false)
+            window.orderFront(nil)
+            defer { window.close() }
+            @MainActor func sheetShowsTheNote() -> Bool {
+                guard let sheet = window.attachedSheet else { return false }
+                return subviewTree(of: sheet.contentView).contains {
+                    ($0 as? AdmittingTextView)?.string == "Before the ending"
+                }
+            }
+            var draft = FilingDraft(today: CalendarDay(.now, in: .current))
+            draft.note = "Before the ending"
+            book.filingDraft = draft
+            await eventually { sheetShowsTheNote() }
+            let firstSheet = try #require(window.attachedSheet, "precondition: the dialog is up")
+
+            var theirs = try bookOnDisk(url)
+            theirs.title = "Their version"
+            try BookFormat.serialize(theirs).write(to: url.appending(path: "book.md"), options: .atomic)
+            book.setTitle(of: scene, to: "My version")
+            books.store.saveNow()
+            await eventually { prompts.titles == [QuitWording.changedOnDiskTitle] }
+            prompts.answer(ExternalChangeChoice.openOtherVersion)
+            await eventually { books.store.current !== book && books.store.current != nil }
+            let reopened = try #require(books.store.current)
+            try #require(reopened.book.title == "Their version", "precondition: their version was read")
+
+            await eventually { window.attachedSheet.map { $0 !== firstSheet } == true && sheetShowsTheNote() }
+            #expect(reopened.filingDraft == draft, "nothing closing the old dialog cleared the new one's")
+            #expect(prompts.titles == [QuitWording.changedOnDiskTitle], "nothing else was asked")
+
+            reopened.filingDraft = nil
+            #expect(await books.store.closeBook() == .left)
+        }
+    }
+
     /// ⌘W with another window key closes that window, through its own close, and leaves the
     /// book alone.
     @Test func closeBookWithAnotherWindowKeyClosesThatWindow() async throws {

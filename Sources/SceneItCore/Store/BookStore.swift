@@ -316,7 +316,8 @@ public final class BookStore<C: Clock<Duration>> {
     }
 
     /// The only way a book becomes the session's. A replaced book is detached in this turn,
-    /// so it refuses edits before anything else runs.
+    /// so it refuses edits before anything else runs. File a Copy's dialog stays up across the
+    /// replacement, holding what was typed in it.
     @discardableResult
     private func install(_ loaded: LoadedBook, as target: Target) async -> OpenBook<C> {
         let book = OpenBook(loaded.opened, archive: loaded.archive, clock: clock, mirror: mirror, store: self)
@@ -327,6 +328,7 @@ public final class BookStore<C: Clock<Duration>> {
             replaced = nil
         case .again(let old), .myVersion(_, replacing: let old):
             precondition(old === current, "only the open book is replaced")
+            book.filingDraft = old.filingDraft
             replaced = old.detach()
         }
         session = .open(book)
@@ -340,10 +342,15 @@ public final class BookStore<C: Clock<Duration>> {
     /// The dialog's File copy: saves the book, files a copy with `record`, and tells the writer
     /// about anything that went wrong. A copy that was filed but couldn't be locked or indexed
     /// is still `.filed`.
+    ///
+    /// Only `book` is filed. A book read again in its place since (a filing queued behind Open
+    /// Other Version) files nothing and tells nothing: the new book's dialog holds the same draft,
+    /// for the writer to file deliberately.
     @discardableResult
-    public func fileACopy(as record: FilingRecord) async -> FilingResult {
+    public func fileACopy(of book: OpenBook<C>, as record: FilingRecord) async -> FilingResult {
         await exclusively {
-            let result = await current?.fileCopy(as: record) ?? .unavailable
+            if let current, current !== book { return .unavailable }
+            let result = current == nil ? .unavailable : await book.fileCopy(as: record)
             if let notice = ArchiveWording.notice(for: result, record: record) { await prompts.tell(notice) }
             return result
         }
