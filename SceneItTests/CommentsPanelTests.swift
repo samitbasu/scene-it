@@ -609,7 +609,7 @@ struct CommentsPanelTests {
 
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// Edit → New Comment acts on the app's own controller's page, so it's tested here.
     @Test func aNewCommentFromTheEditMenuUndoesAndRedoes() async throws {
         try await expectNewCommentUndoesAndRedoes(books: .shared) { _ in

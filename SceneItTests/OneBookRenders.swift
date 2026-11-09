@@ -11,7 +11,7 @@ import Testing
 /// start screen; the start screen after a close; and, as the app's own `NSAlert`, the refusal,
 /// new-book refusal, lost-book and several-books alerts (the first book open, and none). They
 /// drive the app's own menus and window, so they run with the other tests of the app's store.
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test(.enabled(if: renderFolder != nil)) func oneBookPerProcessRenders() async throws {
         let output = try #require(renderFolder).appending(path: "close-to-start", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)

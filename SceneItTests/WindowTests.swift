@@ -150,7 +150,7 @@ struct SceneTitleFieldTests {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theViewMenuHasTheSheetsAndTheRightPanel() {
         let expected: [(String, String, NSEvent.ModifierFlags)] = [
             ("Scenes", "1", [.command]),

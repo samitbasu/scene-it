@@ -112,7 +112,7 @@ private final class HoldingPrompts: StorePrompts {
 
 /// ADR 0038 through the app's own menus and window: one book at a time; Close Book returns to
 /// the start screen; the window's red close button quits (#130).
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func newAndOpenAreOfferedOnlyOnTheStartScreenAndSaveOnlyWithABook() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared

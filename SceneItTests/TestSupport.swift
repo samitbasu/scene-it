@@ -11,6 +11,18 @@ extension BookController {
     }
 }
 
+/// Suites whose tests share something in the process that no test can keep to itself, so their
+/// tests run one at a time, while the other suites' run beside them:
+///
+/// - the app's own store, `BookController.shared` (`BookStoreIntegrationTests`);
+/// - the keyboard. No window in the test host is key, and then SwiftUI can hand a key equivalent
+///   pressed in one window to a keyboard shortcut in another window's sheet or palette: one
+///   test's Esc cancels another test's File a Copy dialog, and its own Esc is lost (#165). So a
+///   suite that presses keys (`press`), or that shows a sheet window (a dialog, the Export
+///   chooser) or a palette, goes here.
+@Suite(.serialized)
+enum OneAtATime {}
+
 func withTemporaryFolder(_ body: (URL) async throws -> Void) async throws {
     let url = FileManager.default.temporaryDirectory
         .appending(path: "SceneItAppTests-\(UUID().uuidString)", directoryHint: .isDirectory)

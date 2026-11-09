@@ -16,7 +16,7 @@ private func viewItem(_ title: String) -> NSMenuItem? {
     return menuItem(titled: title, in: NSApp.mainMenu)
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     @Test func theViewMenuZoomsAndStepsThroughTheStory() {
         let expected: [(String, String, NSEvent.ModifierFlags)] = [
             (WindowWording.zoomIn, "=", [.command]),

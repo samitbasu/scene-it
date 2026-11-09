@@ -345,7 +345,7 @@ struct ErrorsTabTests {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     private var makeEditableItem: NSMenuItem? {
         if let menu = menuItem(titled: ErrorsWording.makeEditableItem, in: NSApp.mainMenu)?.menu {
             menu.delegate?.menuNeedsUpdate?(menu)

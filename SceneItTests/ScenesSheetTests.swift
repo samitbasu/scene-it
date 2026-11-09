@@ -10,258 +10,266 @@ private let ferry = scene("The ferry", [[Run("The ferry left at dawn. Mara watch
 private let arrival = scene("Arrival", [[Run("Nobody met her at the landing.")]])
 private let letter = scene("The letter", [[Run("He read it twice.")]])
 
-/// The Scenes sheet (#28) in the real window: opened from the View menu; both ways of adding a
-/// scene, each one step on `structureUndo` that the window's Undo reaches, with the title typed on
-/// the new card; + tag on a card, through the Tags tab's actions and undo; the filter; a card's
-/// click; the ages refreshing; and a read-only book.
-///
-/// SwiftUI exposes no accessibility tree offscreen, so the cards, the tile and the chips are
-/// exercised through the `ScenesActions` their buttons call, made from the window's own book and
-/// sheet model; the title, + tag and filter fields are the window's own, driven through their
-/// field editors.
-@Suite(.serialized, .timeLimit(.minutes(2)))
-@MainActor
-struct ScenesSheetTests {
-    @Test func theHeadersNewSceneAddsAfterTheOpenSceneAndTheTitleIsTypedOnItsCard() async throws {
-        try await withScenesSheet { harness, actions in
-            let added = try #require(actions.add(.afterOpenScene))
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, added, arrival.id, letter.id])
-            #expect(harness.modes.mode == .scenes, "the sheet stays open")
-            #expect(harness.scenes.titling == added)
+extension OneAtATime {
+    /// The Scenes sheet (#28) in the real window: opened from the View menu; both ways of adding a
+    /// scene, each one step on `structureUndo` that the window's Undo reaches, with the title typed on
+    /// the new card; + tag on a card, through the Tags tab's actions and undo; the filter; a card's
+    /// click; the ages refreshing; and a read-only book.
+    ///
+    /// SwiftUI exposes no accessibility tree offscreen, so the cards, the tile and the chips are
+    /// exercised through the `ScenesActions` their buttons call, made from the window's own book and
+    /// sheet model; the title, + tag and filter fields are the window's own, driven through their
+    /// field editors.
+    @Suite(.serialized, .timeLimit(.minutes(2)))
+    @MainActor
+    struct ScenesSheetTests {
+        @Test func theHeadersNewSceneAddsAfterTheOpenSceneAndTheTitleIsTypedOnItsCard() async throws {
+            try await withScenesSheet { harness, actions in
+                let added = try #require(actions.add(.afterOpenScene))
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, added, arrival.id, letter.id])
+                #expect(harness.modes.mode == .scenes, "the sheet stays open")
+                #expect(harness.scenes.titling == added)
 
-            let editor = try await harness.titleEditor()
-            editor.insertText("The crossing", replacementRange: editor.selectedRange())
-            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-            #expect(harness.book.book.scene(added)?.title == "The crossing")
-            #expect(harness.scenes.titling == nil, "Return accepts the title")
-            await eventually { harness.titleField == nil }
+                let editor = try await harness.titleEditor()
+                editor.insertText("The crossing", replacementRange: editor.selectedRange())
+                editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                #expect(harness.book.book.scene(added)?.title == "The crossing")
+                #expect(harness.scenes.titling == nil, "Return accepts the title")
+                await eventually { harness.titleField == nil }
 
-            try await harness.expectUndoMenu(undo: ScenesWording.newSceneUndoName, redo: nil)
-            try harness.undo.undo()
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
-            #expect(harness.book.openScene == ferry.id, "the scene that was open opens again")
-            #expect(harness.book.book.scene(added) == nil)
-            await eventually { harness.book.status == .saved }
-            let saved = String(
-                decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
-            #expect(!saved.contains("The crossing"), "a scene with only a title is blank: it goes (ADR 0041)")
-            try await harness.expectUndoMenu(undo: nil, redo: ScenesWording.newSceneUndoName)
-            try harness.undo.redo()
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, added, arrival.id, letter.id])
-            #expect(harness.book.book.scene(added)?.title == "The crossing")
-        }
-    }
-
-    /// The dashed tile, twice in a row as when outlining: each scene at the end, each one undo.
-    @Test func theTileAddsAtTheEndAndEachAddIsOneUndo() async throws {
-        try await withScenesSheet { harness, actions in
-            // A test has no events, so each click is made one for the structure's undo.
-            let structure = harness.book.structureUndo
-            structure.groupsByEvent = false
-            defer { structure.groupsByEvent = true }
-            let first = try #require(anEventReturning(structure) { actions.add(.atEnd) })
-            try await harness.acceptTitle("Fog")
-            let second = try #require(anEventReturning(structure) { actions.add(.atEnd) })
-            try await harness.acceptTitle("Salt")
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id, first, second])
-            #expect(harness.book.book.scenes.suffix(2).map(\.title) == ["Fog", "Salt"])
-            #expect(harness.modes.mode == .scenes)
-
-            try harness.undo.undo()
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id, first])
-            try harness.undo.undo()
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
-            await eventually { harness.book.status == .saved }
-            #expect(try bookOnDisk(harness.url).scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
-        }
-    }
-
-    /// Trust: a title typed on a new card is in the book as it's typed, so closing the book
-    /// without Return saves it.
-    @Test func aTitleTypedOnACardIsSavedWhenTheBookClosesWithoutReturn() async throws {
-        try await withScenesSheet { harness, actions in
-            let added = try #require(actions.add(.atEnd))
-            let editor = try await harness.titleEditor()
-            editor.insertText("The keeper", replacementRange: editor.selectedRange())
-            #expect(harness.book.book.scene(added)?.title == "The keeper", "written as it's typed")
-            try #require(harness.titleField?.currentEditor() != nil, "precondition: still typing")
-            #expect(await harness.store.closeBook() == .left)
-            let saved = String(
-                decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
-            #expect(saved.contains("## The keeper\n"))
-        }
-    }
-
-    /// Undo in the new card's title field is the scene's own title history, as on the page.
-    @Test func undoInTheCardsTitleFieldIsTheScenesTitleHistory() async throws {
-        try await withScenesSheet { harness, actions in
-            let added = try #require(actions.add(.atEnd))
-            let editor = try await harness.titleEditor()
-            #expect(editor.undoManager === harness.book.titleUndo(for: added))
-            editor.insertText("Fog", replacementRange: editor.selectedRange())
-            try harness.undo.undo()
-            #expect(harness.book.book.scene(added)?.title == "", "undone in the field, and in the book")
-            try harness.undo.redo()
-            #expect(harness.book.book.scene(added)?.title == "Fog")
-            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-            #expect(!harness.book.titleUndo(for: added).canUndo, "the field's steps go with it")
-        }
-    }
-
-    /// Esc with a title being typed: the first closes the field, keeping the title; the second
-    /// closes the sheet.
-    @Test func escClosesTheTitleFieldKeepingItsTitleThenTheSheet() async throws {
-        try await withScenesSheet { harness, actions in
-            let added = try #require(actions.add(.afterOpenScene))
-            let editor = try await harness.titleEditor()
-            editor.insertText("Market day", replacementRange: editor.selectedRange())
-            try press(.escape, in: harness.window)
-            await eventually { harness.titleField == nil }
-            #expect(harness.book.book.scene(added)?.title == "Market day")
-            #expect(harness.modes.mode == .scenes)
-            try press(.escape, in: harness.window)
-            await eventually { harness.modes.mode == .page }
-        }
-    }
-
-    /// A title typed but not accepted with Return is kept when the sheet closes.
-    @Test func closingTheSheetKeepsATitleBeingTyped() async throws {
-        try await withScenesSheet { harness, actions in
-            let added = try #require(actions.add(.atEnd))
-            let editor = try await harness.titleEditor()
-            editor.insertText("Half a title", replacementRange: editor.selectedRange())
-            harness.modes.mode = .page
-            await eventually { harness.titleField == nil }
-            #expect(harness.book.book.scene(added)?.title == "Half a title")
-            #expect(harness.scenes.titling == nil)
-        }
-    }
-
-    /// The title field and + tag undo their own typing while they have the focus; elsewhere in
-    /// the sheet, Undo is the structure's.
-    @Test func aFieldInTheSheetUndoesItsOwnTypingAndTheSheetUndoesTheStructure() async throws {
-        try await withScenesSheet { harness, actions in
-            _ = try #require(actions.add(.atEnd))
-            let editor = try await harness.titleEditor()
-            let router = try harness.undo
-            await eventually { router.stack == .focusedText }
-            #expect(router.manager === editor.undoManager)
-            #expect(router.manager !== harness.book.structureUndo)
-            editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-            await eventually { router.stack == .structure }
-            #expect(router.manager === harness.book.structureUndo)
-        }
-    }
-
-    /// + tag on a card: the Tags tab's rule (no `#`, the book's spelling), Return keeps the field
-    /// open and focused for the next, and each tag is a step on that scene's page undo.
-    @Test func aCardsTagFieldAddsTagsOnThatScenesPageUndo() async throws {
-        try await withScenesSheet { harness, actions in
-            actions.startTagging(arrival.id)
-            let field = try await harness.tagField()
-            try harness.typeTag("#MARA", in: field, on: arrival.id)
-            #expect(harness.tags(arrival.id) == ["Mara"], "the book's spelling, without the #")
-            #expect(harness.scenes.tagging == arrival.id, "Return keeps the field open")
-            #expect(field.stringValue.isEmpty)
-            #expect(field.currentEditor() != nil && harness.window.firstResponder === field.currentEditor())
-            try harness.typeTag("storm", in: field, on: arrival.id)
-            #expect(harness.tags(arrival.id) == ["Mara", "storm"])
-            #expect(harness.tags(ferry.id) == ["Mara"], "the open scene is untouched")
-
-            let undo = harness.book.pageUndo(for: arrival.id)
-            #expect(undo.undoActionName == TagWording.addUndoName)
-            undo.undo()
-            #expect(harness.tags(arrival.id) == ["Mara"])
-            undo.redo()
-            #expect(harness.tags(arrival.id) == ["Mara", "storm"])
-
-            try harness.asAnEvent(on: arrival.id) { #expect(actions.tags.remove("Mara", from: arrival.id)) }
-            #expect(harness.tags(arrival.id) == ["storm"])
-            undo.undo()
-            #expect(harness.tags(arrival.id) == ["Mara", "storm"], "a chip's × undoes in place")
-
-            try press(.escape, in: harness.window)
-            await eventually { harness.scenes.tagging == nil }
-            #expect(harness.modes.mode == .scenes, "Esc in the field closes the field, not the sheet")
-            try press(.escape, in: harness.window)
-            await eventually { harness.modes.mode == .page }
-        }
-    }
-
-    @Test func theFilterFieldShowsTheCardsWhoseTitleTextOrTagsMatch() async throws {
-        try await withScenesSheet { harness, _ in
-            let field = try #require(harness.filterField, "precondition: the filter field")
-            #expect(harness.window.makeFirstResponder(field))
-            let editor = try #require(field.currentEditor() as? NSTextView)
-            @MainActor func filter(_ text: String) async -> [SceneID] {
-                editor.selectAll(nil)
-                editor.insertText(text, replacementRange: editor.selectedRange())
-                await eventually { harness.scenes.filter == text }
-                return harness.scenes.cards(of: harness.book.book).map(\.scene.id)
+                try await harness.expectUndoMenu(undo: ScenesWording.newSceneUndoName, redo: nil)
+                try harness.undo.undo()
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
+                #expect(harness.book.openScene == ferry.id, "the scene that was open opens again")
+                #expect(harness.book.book.scene(added) == nil)
+                await eventually { harness.book.status == .saved }
+                let saved = String(
+                    decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
+                #expect(
+                    !saved.contains("The crossing"), "a scene with only a title is blank: it goes (ADR 0041)")
+                try await harness.expectUndoMenu(undo: nil, redo: ScenesWording.newSceneUndoName)
+                try harness.undo.redo()
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, added, arrival.id, letter.id])
+                #expect(harness.book.book.scene(added)?.title == "The crossing")
             }
-            #expect(await filter("landing") == [arrival.id], "the text")
-            #expect(await filter("LETTER") == [letter.id], "a title, ignoring case")
-            #expect(await filter("mara") == [ferry.id], "text and tags")
-            #expect(await filter("#mara") == [ferry.id], "tags only")
-            #expect(await filter("the") == [ferry.id, arrival.id, letter.id])
-            #expect(await filter("ghost").isEmpty)
-            #expect(await filter("twice") == [letter.id])
-            #expect(harness.scenes.cards(of: harness.book.book).map(\.number) == [3], "numbered in the story")
-
-            harness.modes.mode = .page
-            await eventually { harness.scenes.filter.isEmpty }
         }
-    }
 
-    @Test func clickingACardOpensItsSceneAndClosesTheSheet() async throws {
-        try await withScenesSheet { harness, actions in
-            actions.open(letter.id)
-            #expect(harness.book.openScene == letter.id)
-            #expect(harness.modes.mode == .page)
-            await eventually { harness.pageMirrorsModel && harness.body() == letter.body }
+        /// The dashed tile, twice in a row as when outlining: each scene at the end, each one undo.
+        @Test func theTileAddsAtTheEndAndEachAddIsOneUndo() async throws {
+            try await withScenesSheet { harness, actions in
+                // A test has no events, so each click is made one for the structure's undo.
+                let structure = harness.book.structureUndo
+                structure.groupsByEvent = false
+                defer { structure.groupsByEvent = true }
+                let first = try #require(anEventReturning(structure) { actions.add(.atEnd) })
+                try await harness.acceptTitle("Fog")
+                let second = try #require(anEventReturning(structure) { actions.add(.atEnd) })
+                try await harness.acceptTitle("Salt")
+                #expect(
+                    harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id, first, second])
+                #expect(harness.book.book.scenes.suffix(2).map(\.title) == ["Fog", "Salt"])
+                #expect(harness.modes.mode == .scenes)
+
+                try harness.undo.undo()
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id, first])
+                try harness.undo.undo()
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
+                await eventually { harness.book.status == .saved }
+                #expect(try bookOnDisk(harness.url).scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
+            }
         }
-    }
 
-    /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not
-    /// before.
-    @Test func theCardsAgesRefreshEveryMinute() async throws {
-        let clock = ManualClock()
-        // The scene was made when the suite first used it, maybe minutes ago: its own time is now.
-        let wall = ManualWallTime(at: ferry.modified.date)
-        let model = ScenesSheetModel(ticker: MinuteTicker(clock: clock, wallTime: { wall.now }))
-        try await withScenesSheet(model: model) { harness, _ in
-            let modified = try #require(harness.book.book.scene(ferry.id)?.modified)
-            @MainActor func age() -> String { ScenesWording.modified(model.ticker.age(of: modified)) }
-            await eventually { clock.sleeperCount == 1 }
-            #expect(age() == "just now", "precondition: the sheet's ticker is running")
-
-            wall.advance(.minutes(2))
-            clock.advance(by: .seconds(59))
-            for _ in 0..<20 { await Task.yield() }
-            #expect(age() == "just now", "nothing moves until the minute is up")
-            clock.advance(by: .seconds(1))
-            await eventually { age() == "2 minutes ago" }
-            #expect(age() == "2 minutes ago")
+        /// Trust: a title typed on a new card is in the book as it's typed, so closing the book
+        /// without Return saves it.
+        @Test func aTitleTypedOnACardIsSavedWhenTheBookClosesWithoutReturn() async throws {
+            try await withScenesSheet { harness, actions in
+                let added = try #require(actions.add(.atEnd))
+                let editor = try await harness.titleEditor()
+                editor.insertText("The keeper", replacementRange: editor.selectedRange())
+                #expect(harness.book.book.scene(added)?.title == "The keeper", "written as it's typed")
+                try #require(harness.titleField?.currentEditor() != nil, "precondition: still typing")
+                #expect(await harness.store.closeBook() == .left)
+                let saved = String(
+                    decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
+                #expect(saved.contains("## The keeper\n"))
+            }
         }
-    }
 
-    @Test func aReadOnlyBookShowsTheCardsWithoutAddingOrTagging() async throws {
-        try await withScenesSheet(lock: .heldElsewhere) { harness, actions in
-            #expect(actions.add(.afterOpenScene) == nil)
-            #expect(actions.add(.atEnd) == nil)
-            #expect(harness.scenes.titling == nil)
-            actions.startTagging(arrival.id)
-            #expect(harness.scenes.tagging == nil)
-            #expect(!actions.tags.add("storm", to: arrival.id))
-            #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
-            actions.open(arrival.id)
-            #expect(harness.book.openScene == arrival.id, "a card still opens its scene")
-            #expect(harness.modes.mode == .page)
+        /// Undo in the new card's title field is the scene's own title history, as on the page.
+        @Test func undoInTheCardsTitleFieldIsTheScenesTitleHistory() async throws {
+            try await withScenesSheet { harness, actions in
+                let added = try #require(actions.add(.atEnd))
+                let editor = try await harness.titleEditor()
+                #expect(editor.undoManager === harness.book.titleUndo(for: added))
+                editor.insertText("Fog", replacementRange: editor.selectedRange())
+                try harness.undo.undo()
+                #expect(harness.book.book.scene(added)?.title == "", "undone in the field, and in the book")
+                try harness.undo.redo()
+                #expect(harness.book.book.scene(added)?.title == "Fog")
+                editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                #expect(!harness.book.titleUndo(for: added).canUndo, "the field's steps go with it")
+            }
+        }
+
+        /// Esc with a title being typed: the first closes the field, keeping the title; the second
+        /// closes the sheet.
+        @Test func escClosesTheTitleFieldKeepingItsTitleThenTheSheet() async throws {
+            try await withScenesSheet { harness, actions in
+                let added = try #require(actions.add(.afterOpenScene))
+                let editor = try await harness.titleEditor()
+                editor.insertText("Market day", replacementRange: editor.selectedRange())
+                try press(.escape, in: harness.window)
+                await eventually { harness.titleField == nil }
+                #expect(harness.book.book.scene(added)?.title == "Market day")
+                #expect(harness.modes.mode == .scenes)
+                try press(.escape, in: harness.window)
+                await eventually { harness.modes.mode == .page }
+            }
+        }
+
+        /// A title typed but not accepted with Return is kept when the sheet closes.
+        @Test func closingTheSheetKeepsATitleBeingTyped() async throws {
+            try await withScenesSheet { harness, actions in
+                let added = try #require(actions.add(.atEnd))
+                let editor = try await harness.titleEditor()
+                editor.insertText("Half a title", replacementRange: editor.selectedRange())
+                harness.modes.mode = .page
+                await eventually { harness.titleField == nil }
+                #expect(harness.book.book.scene(added)?.title == "Half a title")
+                #expect(harness.scenes.titling == nil)
+            }
+        }
+
+        /// The title field and + tag undo their own typing while they have the focus; elsewhere in
+        /// the sheet, Undo is the structure's.
+        @Test func aFieldInTheSheetUndoesItsOwnTypingAndTheSheetUndoesTheStructure() async throws {
+            try await withScenesSheet { harness, actions in
+                _ = try #require(actions.add(.atEnd))
+                let editor = try await harness.titleEditor()
+                let router = try harness.undo
+                await eventually { router.stack == .focusedText }
+                #expect(router.manager === editor.undoManager)
+                #expect(router.manager !== harness.book.structureUndo)
+                editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                await eventually { router.stack == .structure }
+                #expect(router.manager === harness.book.structureUndo)
+            }
+        }
+
+        /// + tag on a card: the Tags tab's rule (no `#`, the book's spelling), Return keeps the field
+        /// open and focused for the next, and each tag is a step on that scene's page undo.
+        @Test func aCardsTagFieldAddsTagsOnThatScenesPageUndo() async throws {
+            try await withScenesSheet { harness, actions in
+                actions.startTagging(arrival.id)
+                let field = try await harness.tagField()
+                try harness.typeTag("#MARA", in: field, on: arrival.id)
+                #expect(harness.tags(arrival.id) == ["Mara"], "the book's spelling, without the #")
+                #expect(harness.scenes.tagging == arrival.id, "Return keeps the field open")
+                #expect(field.stringValue.isEmpty)
+                #expect(
+                    field.currentEditor() != nil && harness.window.firstResponder === field.currentEditor())
+                try harness.typeTag("storm", in: field, on: arrival.id)
+                #expect(harness.tags(arrival.id) == ["Mara", "storm"])
+                #expect(harness.tags(ferry.id) == ["Mara"], "the open scene is untouched")
+
+                let undo = harness.book.pageUndo(for: arrival.id)
+                #expect(undo.undoActionName == TagWording.addUndoName)
+                undo.undo()
+                #expect(harness.tags(arrival.id) == ["Mara"])
+                undo.redo()
+                #expect(harness.tags(arrival.id) == ["Mara", "storm"])
+
+                try harness.asAnEvent(on: arrival.id) {
+                    #expect(actions.tags.remove("Mara", from: arrival.id))
+                }
+                #expect(harness.tags(arrival.id) == ["storm"])
+                undo.undo()
+                #expect(harness.tags(arrival.id) == ["Mara", "storm"], "a chip's × undoes in place")
+
+                try press(.escape, in: harness.window)
+                await eventually { harness.scenes.tagging == nil }
+                #expect(harness.modes.mode == .scenes, "Esc in the field closes the field, not the sheet")
+                try press(.escape, in: harness.window)
+                await eventually { harness.modes.mode == .page }
+            }
+        }
+
+        @Test func theFilterFieldShowsTheCardsWhoseTitleTextOrTagsMatch() async throws {
+            try await withScenesSheet { harness, _ in
+                let field = try #require(harness.filterField, "precondition: the filter field")
+                #expect(harness.window.makeFirstResponder(field))
+                let editor = try #require(field.currentEditor() as? NSTextView)
+                @MainActor func filter(_ text: String) async -> [SceneID] {
+                    editor.selectAll(nil)
+                    editor.insertText(text, replacementRange: editor.selectedRange())
+                    await eventually { harness.scenes.filter == text }
+                    return harness.scenes.cards(of: harness.book.book).map(\.scene.id)
+                }
+                #expect(await filter("landing") == [arrival.id], "the text")
+                #expect(await filter("LETTER") == [letter.id], "a title, ignoring case")
+                #expect(await filter("mara") == [ferry.id], "text and tags")
+                #expect(await filter("#mara") == [ferry.id], "tags only")
+                #expect(await filter("the") == [ferry.id, arrival.id, letter.id])
+                #expect(await filter("ghost").isEmpty)
+                #expect(await filter("twice") == [letter.id])
+                #expect(
+                    harness.scenes.cards(of: harness.book.book).map(\.number) == [3], "numbered in the story")
+
+                harness.modes.mode = .page
+                await eventually { harness.scenes.filter.isEmpty }
+            }
+        }
+
+        @Test func clickingACardOpensItsSceneAndClosesTheSheet() async throws {
+            try await withScenesSheet { harness, actions in
+                actions.open(letter.id)
+                #expect(harness.book.openScene == letter.id)
+                #expect(harness.modes.mode == .page)
+                await eventually { harness.pageMirrorsModel && harness.body() == letter.body }
+            }
+        }
+
+        /// The cards' ages move on with the sheet's ticker, once its clock passes a minute and not
+        /// before.
+        @Test func theCardsAgesRefreshEveryMinute() async throws {
+            let clock = ManualClock()
+            // The scene was made when the suite first used it, maybe minutes ago: its own time is now.
+            let wall = ManualWallTime(at: ferry.modified.date)
+            let model = ScenesSheetModel(ticker: MinuteTicker(clock: clock, wallTime: { wall.now }))
+            try await withScenesSheet(model: model) { harness, _ in
+                let modified = try #require(harness.book.book.scene(ferry.id)?.modified)
+                @MainActor func age() -> String { ScenesWording.modified(model.ticker.age(of: modified)) }
+                await eventually { clock.sleeperCount == 1 }
+                #expect(age() == "just now", "precondition: the sheet's ticker is running")
+
+                wall.advance(.minutes(2))
+                clock.advance(by: .seconds(59))
+                for _ in 0..<20 { await Task.yield() }
+                #expect(age() == "just now", "nothing moves until the minute is up")
+                clock.advance(by: .seconds(1))
+                await eventually { age() == "2 minutes ago" }
+                #expect(age() == "2 minutes ago")
+            }
+        }
+
+        @Test func aReadOnlyBookShowsTheCardsWithoutAddingOrTagging() async throws {
+            try await withScenesSheet(lock: .heldElsewhere) { harness, actions in
+                #expect(actions.add(.afterOpenScene) == nil)
+                #expect(actions.add(.atEnd) == nil)
+                #expect(harness.scenes.titling == nil)
+                actions.startTagging(arrival.id)
+                #expect(harness.scenes.tagging == nil)
+                #expect(!actions.tags.add("storm", to: arrival.id))
+                #expect(harness.book.book.scenes.map(\.id) == [ferry.id, arrival.id, letter.id])
+                actions.open(arrival.id)
+                #expect(harness.book.openScene == arrival.id, "a card still opens its scene")
+                #expect(harness.modes.mode == .page)
+            }
         }
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// View → Scenes, on ⌘1 (ADR 0027), opens the sheet over the page of the app's own window,
     /// and chosen again closes it; with no book open it's off. The real menu item and window.
     @Test func theViewMenusScenesItemOpensTheScenesSheet() async throws {

@@ -18,7 +18,7 @@ private func drainARunLoopTurn() async {
     }
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// #88: closing a book in the app's own window, through File → Close Book, releases the
     /// `OpenBook` and the page's editor, while the window stays up for the start screen. (The page's `NSTextView` itself outlives
     /// them for a while, held by AppKit: a block `-[NSView _commonAwake]` registers with the

@@ -445,7 +445,7 @@ private func commandShiftM(in window: NSWindow) throws -> NSEvent {
             isARepeat: false, keyCode: 46))
 }
 
-extension BookStoreIntegrationTests {
+extension OneAtATime.BookStoreIntegrationTests {
     /// PLAN §11's New Comment, on ADR 0037's Cmd+Shift+M, which no other item has.
     @Test func theEditMenuHasNewCommentOnCommandShiftMAlone() throws {
         let item = try #require(newCommentItem())
