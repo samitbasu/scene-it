@@ -259,7 +259,10 @@ notes together, across scene and tab switches; the gate runs 2 seeds × 120 step
 `-only-testing:SceneItTests/NotesFuzzTests`.
 
 Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time limit grows with
-the steps (never under two minutes). **Output:** the test results; a failure lists the last
+the steps (never under two minutes). Those limits assume the scheme's cap of four hosted tests at
+a time (ADR 0039). A run that doesn't take the scheme's test action (an explicit `.xctestplan`,
+say) loses it; put `TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4` in front of the
+command to restore it. **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
 
 ### A longer run of the formatting fuzz
@@ -323,6 +326,14 @@ only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 `many-tags`, `many-tags-end` (the list scrolled to its end) and `read-only`, at 1× and 2×, beside
 `06-tags-tab.png`, with a `-panel@2x.png` close-up. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/tagsTab\(\)`.
+
+`exportChooser` renders Export as SceneIt's scene chooser (#79, `ExportChooserRenders.swift`) into an
+`export/` subfolder, with the sample book's 24 story scenes and four unticked: the shipped sheet
+(`export-a-sheet`) and the alternative list sheet (`export-b-list-sheet`), each over the window at 1×
+and 2× beside `14-file-a-copy-dialog.png`, with a `-dialog@3x.png` close-up; and the save-panel
+accessory alternative alone (`export-c-panel-accessory`, 1× and 2×), since the system panel around it
+can't be drawn offscreen. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/exportChooser\(\)`.
 
 `scenesSheet` renders the Scenes sheet (#28, `ScenesSheetRenders.swift`) into a `scenes/` subfolder, at 1× and
 2× and beside mockup 07, 08 or 09: the recommended look as `final-scenes-cards`, `final-scenes-cards-tagging`

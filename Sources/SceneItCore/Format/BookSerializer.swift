@@ -2,8 +2,9 @@
 /// book, and a book that breaks the model's invariants (§7.5) shows up as a failed
 /// verification, never as a crash.
 enum BookSerializer {
-    static func text(of book: Book) -> String {
-        var blocks = [frontMatter(book.title)]
+    /// `extraFrontMatter` follows `format`: a review copy's keys (review format §2.1).
+    static func text(of book: Book, extraFrontMatter: [String] = []) -> String {
+        var blocks = [frontMatter(fields: frontMatterFields(book.title) + extraFrontMatter)]
         blocks += unparsed(book.errors)
         for part in FilePart.allCases {
             let scenes = book[keyPath: part.scenes]
@@ -15,10 +16,6 @@ enum BookSerializer {
             }
         }
         return blocks.joined(separator: "\n\n") + "\n"
-    }
-
-    private static func frontMatter(_ title: String) -> String {
-        frontMatter(fields: frontMatterFields(title))
     }
 
     static func frontMatter(fields: [String]) -> String {

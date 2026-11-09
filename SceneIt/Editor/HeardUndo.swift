@@ -4,7 +4,8 @@ import Foundation
 /// (`object: nil`) would run the observer inside other code's undo, where asking a view for
 /// anything that goes through its delegate autoreleases the observer into that code's pool
 /// (#135). The observer's earlier observations of these names are removed by name alone, so
-/// none can outlive its manager and match a new one at the same address.
+/// none can outlive its manager and match a new one at the same address. Keep one per
+/// observer: a second would remove the first's observations too.
 final class HeardUndo {
     private weak var manager: UndoManager?
 

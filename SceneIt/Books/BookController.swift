@@ -46,6 +46,9 @@ final class BookController {
     /// The open book's page, for the Format menu and the control bar.
     let formatting: EditorFormatting
     let mirror: BackupMirror
+    /// Where Export as SceneIt… writes: the save panel in the app; in the test host and previews
+    /// nowhere, unless a test names a file.
+    var exportDestination: ExportDestination
     let prompts: any StorePrompts
     let requests: AppRequests
     /// The test host's and previews' record of `requests`; nil in the app.
@@ -69,6 +72,7 @@ final class BookController {
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
         self.prompts = prompts ?? standard
+        exportDestination = role == .app ? .savePanel : .nowhere
         store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: self.prompts)
         recorded?.storeIsBusy = { [store] in store.isBusy }
     }

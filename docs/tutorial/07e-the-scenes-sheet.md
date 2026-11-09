@@ -1,4 +1,4 @@
-# 07d — The Scenes sheet: a lazy grid, a clock you can inject, fields that appear focused, and an undo that keeps words
+# 07e — The Scenes sheet: a lazy grid, a clock you can inject, fields that appear focused, and an undo that keeps words
 
 The Scenes sheet (PLAN §7.2, issue #28) is ⌘1: the story as cards or as a dense light table, a filter,
 + New scene, and tags on the cards. This chapter covers what's new to a Rust programmer here:

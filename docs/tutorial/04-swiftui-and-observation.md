@@ -9,7 +9,7 @@ It covers `@Observable` (and why it isn't Rust's usual answer to shared mutable 
 
 The window ([`SceneIt/Window/`](../../SceneIt/Window/), #13) has PLAN §4's skeleton: toolbar,
 rail, page, right panel and status bar, with the rail's sheets over the page (the Scenes sheet,
-#28, is [chapter 07d](07d-the-scenes-sheet.md)'s subject). The page itself is an AppKit text view, the subject of
+#28, is [chapter 07e](07e-the-scenes-sheet.md)'s subject). The page itself is an AppKit text view, the subject of
 [chapter 05](05-appkit-interop-textkit2.md).
 
 ## Where the code is

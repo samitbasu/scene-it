@@ -90,12 +90,54 @@ public enum ArchiveWording {
 
     /// "Your tags: "draft 4", "before the ending". Your note: "Before the rewrite"."
     static func typed(_ record: FilingRecord) -> String {
+        let quoted = quotedTyping(record)
+        return quoted.isEmpty ? "" : "\n\n" + quoted
+    }
+
+    private static func quotedTyping(_ record: FilingRecord) -> String {
         var parts: [String] = []
         if !record.tags.isEmpty {
             parts.append("Your tags: " + record.tags.map(quoted).joined(separator: ", ") + ".")
         }
         if !record.note.isEmpty { parts.append("Your note: " + quoted(record.note) + ".") }
-        return parts.isEmpty ? "" : "\n\n" + parts.joined(separator: " ")
+        return parts.joined(separator: " ")
+    }
+
+    /// Told when records still pending can no longer be saved in `book`'s index: it was left
+    /// (closed, quit, replaced by my version, or not read again), or another program gave
+    /// those copies sections of its own. Each record is quoted, its date included; one with no
+    /// tags, no note and the date the copy is listed with anyway (`listedOn`) loses nothing
+    /// and isn't told. `nil` when none is left to tell.
+    public static func unrecorded(
+        _ pending: [FiledCopyNumber: FilingRecord], listedOn: (FiledCopyNumber) -> CalendarDay, in book: URL
+    ) -> Notice? {
+        let records = pending.sorted { $0.key < $1.key }
+            .filter { number, record in
+                !record.tags.isEmpty || !record.note.isEmpty || record.filed != listedOn(number)
+            }
+            .map(\.value)
+        guard !records.isEmpty else { return nil }
+        let one = records.count == 1
+        let what: String
+        let pronoun: String
+        switch (records.contains { !$0.tags.isEmpty }, records.contains { !$0.note.isEmpty }) {
+        case (true, false): (what, pronoun) = ("tags", "them")
+        case (false, true): (what, pronoun) = (one ? "note" : "notes", one ? "it" : "them")
+        case (true, true): (what, pronoun) = (one ? "tags and note" : "tags and notes", "them")
+        case (false, false): (what, pronoun) = (one ? "date" : "dates", one ? "it" : "them")
+        }
+        let copies = records.map { record in
+            "\n\n"
+                + ["Your date: \(quoted(day(record.filed))).", quotedTyping(record)].filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        return Notice(
+            title: one
+                ? "Scene It couldn't save a filed copy's \(what)."
+                : "Scene It couldn't save some filed copies' \(what).",
+            message: "Scene It couldn't save \(pronoun) to the File Cabinet's list in "
+                + "\(quoted(StoreWording.bookName(book))), so it lists \(one ? "that copy" : "those copies") "
+                + "without \(pronoun)." + copies.joined())
     }
 
     private static func quoted(_ text: String) -> String {
