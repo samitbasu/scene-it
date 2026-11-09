@@ -82,7 +82,6 @@ public enum WindowWording {
     }
 
     public static let closeSheet = "Close"
-    public static let sheetComingLater = "Coming in a later version."
 
     // MARK: Page (PLAN §4.3, ADR 0015)
 

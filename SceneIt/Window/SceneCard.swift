@@ -119,7 +119,7 @@ private struct CardShell<Content: View>: View {
             }
             .contentShape(shape)
             .opacity(content.dragging == .dragged ? WindowMetrics.Scenes.draggedOpacity : 1)
-            .sceneClicks(.card(content.scene.id), actions: actions)
+            .cardClicks { actions.click($0, on: .card(content.scene.id)) }
             .onHover { hovering = $0 ? .hovering : .away }
             .help(ScenesWording.openHelp)
             .sceneDragSource(.card(content.scene.id), actions: actions, editability: editability)
@@ -142,11 +142,11 @@ private struct CardShell<Content: View>: View {
 }
 
 extension View {
-    /// The clicks on a card or tile (`ScenesActions.click`). One tap gesture sees every click, each
-    /// as it ends, with the event's click count: a separate double-tap gesture would hold back the
-    /// single click until the double click could no longer come.
-    func sceneClicks(_ item: SceneDrag, actions: ScenesActions) -> some View {
-        onTapGesture { actions.click(SceneClick(NSApp.currentEvent), on: item) }
+    /// The clicks on a card or tile of a sheet (`CardClicks`). One tap gesture sees every click,
+    /// each as it ends, with the event's click count: a separate double-tap gesture would hold back
+    /// the single click until the double click could no longer come.
+    func cardClicks(_ take: @escaping (CardClick) -> Void) -> some View {
+        onTapGesture { take(CardClick(NSApp.currentEvent)) }
     }
 }
 
@@ -215,46 +215,58 @@ private enum TagOffer {
     case whileOpen
 }
 
-/// The scene's tags as the Tags tab's chips, then + tag while the scene can be tagged. + tag is
-/// the look's: a chip that opens the field, or the field itself. Return adds the tag and keeps
-/// the field open for the next; Esc, or the focus leaving it empty, closes it.
+/// The scene's tags as the Tags tab's chips, then + tag while the scene can be tagged. Return adds
+/// the tag and keeps the field open for the next; Esc, or the focus leaving it empty, closes it.
 private struct CardTags: View {
     let scene: BookScene
     let actions: ScenesActions
     let editability: Editability
     let offer: TagOffer
 
-    private enum Entry {
-        case closed, open
-    }
-
     var body: some View {
-        let entry: Entry = actions.model.tagging == scene.id ? .open : .closed
+        let entry: CardNewTag.Entry = actions.model.tagging == scene.id ? .open : .closed
         let offersTag = editability == .editable && (offer == .always || entry == .open)
         if !scene.tags.isEmpty || offersTag {
             ChipFlow(spacing: ChipSpacing(points: WindowMetrics.Tags.chipGap)) {
                 ForEach(Array(scene.tags.enumerated()), id: \.offset) { _, tag in
                     TagChip(label: SceneTag.shown(tag), remove: removal(of: tag))
                 }
-                if offersTag { newTag(entry) }
+                if offersTag {
+                    CardNewTag(entry: entry, start: { actions.startTagging(scene.id) }) {
+                        NewTagField(
+                            book: actions.book, add: { actions.tags.add($0, to: scene.id) },
+                            leave: { actions.model.returnKeys(from: $0) },
+                            opening: entry == .open ? .focused : .unfocused,
+                            ended: { actions.stopTagging(scene.id) })
+                    }
+                }
             }
         }
     }
 
-    @ViewBuilder private func newTag(_ entry: Entry) -> some View {
+    private func removal(of tag: String) -> TagChip.Removal? {
+        guard editability == .editable else { return nil }
+        return TagChip.Removal(label: TagWording.removeHelp(tag)) { actions.tags.remove(tag, from: scene.id) }
+    }
+}
+
+/// + tag on a card of the Scenes sheet or the File Cabinet, as the look has it: a small dashed
+/// chip that opens the field, or the field itself.
+struct CardNewTag: View {
+    let entry: Entry
+    let start: () -> Void
+    @ViewBuilder let field: () -> NewTagField
+
+    enum Entry {
+        case closed, open
+    }
+
+    var body: some View {
         switch (WindowMetrics.Scenes.look.tagEntry, entry) {
         case (.alwaysField, _), (.chipOpensField, .open):
-            NewTagField(
-                book: actions.book, add: { actions.tags.add($0, to: scene.id) },
-                leave: { actions.model.returnKeys(from: $0) },
-                opening: entry == .open ? .focused : .unfocused,
-                ended: { actions.stopTagging(scene.id) }
-            )
-            .frame(width: WindowMetrics.Tags.addFieldWidth)
+            field().frame(width: WindowMetrics.Tags.addFieldWidth)
         case (.chipOpensField, .closed):
-            Button {
-                actions.startTagging(scene.id)
-            } label: {
+            Button(action: start) {
                 Text(TagWording.addPlaceholder)
                     .font(WindowMetrics.Tags.chipFont)
                     .foregroundStyle(.secondary)
@@ -271,11 +283,6 @@ private struct CardTags: View {
             .help(TagWording.addHelp)
             .fixedSize()
         }
-    }
-
-    private func removal(of tag: String) -> TagChip.Removal? {
-        guard editability == .editable else { return nil }
-        return TagChip.Removal(label: TagWording.removeHelp(tag)) { actions.tags.remove(tag, from: scene.id) }
     }
 }
 
