@@ -85,8 +85,7 @@ extension WindowRenders {
     }
 
     /// `view` alone in an offscreen window sized to it, laid out and drawn, for `capture`.
-    private static func withHostedView<T>(_ view: some View, capture: (NSView) throws -> T) async throws -> T
-    {
+    static func withHostedView<T>(_ view: some View, capture: (NSView) throws -> T) async throws -> T {
         let hosting = NSHostingView(rootView: view)
         hosting.frame.size = hosting.fittingSize
         let window = NSWindow(

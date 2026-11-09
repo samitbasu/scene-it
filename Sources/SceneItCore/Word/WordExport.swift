@@ -6,7 +6,7 @@ import Foundation
 /// colour and highlight. Comments and notes aren't exported.
 public enum WordExport {
     public static func document(of scene: BookScene) throws(WordExportFailure) -> Data {
-        let document = try WordDocument.document(WordParagraph.paragraphs(of: scene))
+        let document = try WordDocument.document(OutputParagraph.paragraphs(of: scene))
         do {
             return try ZipWriter.archive([
                 .init(name: "[Content_Types].xml", bytes: Data(WordDocument.contentTypes.utf8)),
@@ -21,25 +21,6 @@ public enum WordExport {
         } catch {
             throw .tooLarge
         }
-    }
-}
-
-/// A paragraph of the exported document.
-struct WordParagraph: Hashable {
-    enum Kind: Hashable {
-        case title, body
-    }
-
-    let kind: Kind
-    let runs: [Run]
-
-    /// The scene's title, unless it has none, then its body. A scene with nothing at all is one
-    /// empty paragraph, as an empty Word document is.
-    static func paragraphs(of scene: BookScene) -> [WordParagraph] {
-        let title =
-            scene.title.text.isEmpty ? [] : [WordParagraph(kind: .title, runs: [Run(scene.title.text)])]
-        let paragraphs = title + scene.body.map { WordParagraph(kind: .body, runs: $0.runs) }
-        return paragraphs.isEmpty ? [WordParagraph(kind: .body, runs: [])] : paragraphs
     }
 }
 
@@ -85,7 +66,7 @@ enum WordDocument {
         + #"<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" "#
         + #"w:val="15"/></w:compat></w:settings>"#
 
-    static func document(_ paragraphs: [WordParagraph]) throws(WordExportFailure) -> String {
+    static func document(_ paragraphs: [OutputParagraph]) throws(WordExportFailure) -> String {
         var body = ""
         for paragraph in paragraphs {
             body += try self.paragraph(paragraph)
@@ -94,7 +75,7 @@ enum WordDocument {
             + "</w:body></w:document>"
     }
 
-    private static func paragraph(_ paragraph: WordParagraph) throws(WordExportFailure) -> String {
+    private static func paragraph(_ paragraph: OutputParagraph) throws(WordExportFailure) -> String {
         let properties =
             switch paragraph.kind {
             case .title: #"<w:pPr><w:pStyle w:val="\#(WordStyles.headingID)"/></w:pPr>"#

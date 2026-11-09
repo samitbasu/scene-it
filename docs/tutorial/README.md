@@ -23,7 +23,7 @@ app. Read the chapters in order. Each one assumes the ones before it.
 | 07g | [Copy Review and Save Review…](07g-copy-and-save-review.md): one pure report rendered three ways, smartening in two passes over different extents, ASCII escaping, a shared write with typed throws, the pasteboard's representations, WebKit in a hosted test | written |
 | 07i | [Export to Word](07i-export-to-word.md): why not `NSAttributedString`'s `.docx` writer, a `.docx` as a zip of XML parts, styles and runs in WordprocessingML, writing a stored zip with the system's zlib, escaping behind an asserted invariant, testing against an independent reader | written |
 | 08 | [The search engine](08-search-engine.md): search units as `Sendable` snapshots, the `SearchIndex` protocol as a trait object, `AsyncSequence` versus Rust's `Stream`, cooperative cancellation, words and endings, ranking as one comparison, near matches, the Search sheet's one task per query | written |
-| 09 | Printing: `NSPrintOperation` (Word export is chapter 07i) | planned, lands with #35 |
+| 09 | [Printing](09-printing.md): how AppKit prints a view, TextKit 2 without a text view, a pure page-and-margin layout with property tests, an accessory in the system's print dialog and KVO, printing to PDF in tests (Word export is chapter 07i) | written |
 | 10 | [Shipping](10-shipping.md): certificates and identities, Developer ID, the hardened runtime, timestamps, notarization and stapling, Gatekeeper, the DMG, dSYMs | written |
 | 11 | [Crash reporting](11-crash-reporting.md): logging, MetricKit, Report a Problem | written |
 
