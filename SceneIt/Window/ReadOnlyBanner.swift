@@ -82,14 +82,24 @@ struct FiledCopyBanner: View {
                 HStack(spacing: 8) {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.secondary)
-                    Text(FiledCopyWording.bannerTitle).fontWeight(.semibold)
-                    Text(FiledCopyWording.bannerDetail(context))
-                    Text(FiledCopyWording.readOnly).foregroundStyle(.secondary)
+                    // One run of text, so the title, the date and tags, and "read only" are spaced as
+                    // words, not as views.
+                    let title = Text(FiledCopyWording.bannerTitle).fontWeight(.semibold)
+                    let detail = FiledCopyWording.bannerDetail(context)
+                    let readOnly = Text(FiledCopyWording.readOnly).foregroundStyle(.secondary)
+                    Text("\(title) \(detail) \(readOnly)")
                     Spacer()
                     Menu {
-                        Button(FiledCopyWording.restoreScene) { store.restoreScene(from: book) }
-                            .disabled(book.openScene == nil)
+                        let restoreRefusal = store.refusalToRestore(from: book)
+                        Button(FiledCopyWording.restoreScene) {
+                            Task { await store.restoreScene(from: book) }
+                        }
+                        .disabled(restoreRefusal != nil)
+                        .help(restoreRefusal?.message ?? "")
+                        let bookRefusal = store.refusalToMakeBook(from: book)
                         Button(FiledCopyWording.newBook) { Task { await makeNewBook(context) } }
+                            .disabled(bookRefusal != nil)
+                            .help(bookRefusal?.message ?? "")
                     } label: {
                         Text(FiledCopyWording.close)
                     } primaryAction: {

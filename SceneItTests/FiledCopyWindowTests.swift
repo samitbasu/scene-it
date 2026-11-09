@@ -101,5 +101,67 @@ extension OneAtATime {
                 #expect(try bookOnDisk(url).scene(letter)?.body == [[Run("Rewritten since.")]])
             }
         }
+
+        /// A book of two scenes, the second open, filed once and then changed, with its copy open
+        /// over it through a test-host controller.
+        private func withCopyShowing(
+            _ body: (BookController, AppOpenBook, AppOpenBook, (ferry: SceneID, letter: SceneID)) async throws
+                -> Void
+        ) async throws {
+            try await withTemporaryFolder { folder in
+                let books = BookController(role: .testHost)
+                let store = books.store
+                let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+                #expect(await store.create(at: url) == .created)
+                let book = try #require(store.current)
+                let ferry = try #require(book.addScene(after: nil))
+                let letter = try #require(book.addScene(after: ferry))
+                guard case .filed = await store.fileACopy(of: book, as: Self.record) else {
+                    Issue.record("precondition: a copy is filed")
+                    return
+                }
+                try #require(book.openScene == letter, "precondition: the second scene is open")
+                #expect(await store.openFiledCopy(.first, of: book) == .opened)
+                let copy = try #require(store.shown)
+                try #require(copy !== book, "precondition: the copy shows")
+                try await body(books, book, copy, (ferry, letter))
+                #expect(await store.closeBook() == .left)
+            }
+        }
+
+        /// View → Previous Scene and Next Scene act on what the window shows: the copy, never the
+        /// book hidden under it.
+        @Test func previousAndNextSceneMoveInTheCopy() async throws {
+            try await withCopyShowing { books, book, copy, scenes in
+                #expect(books.scene(.previous) == scenes.ferry)
+                #expect(books.scene(.next) == nil, "the copy's last scene")
+                #expect(books.take(.previous))
+                #expect(copy.openScene == scenes.ferry)
+                #expect(book.openScene == scenes.letter, "the book's open scene is kept for Close")
+            }
+        }
+
+        /// ⌘W (File → Close Book) while a copy shows closes the copy, as the banner's Close does.
+        @Test func closeBookWhileACopyShowsClosesTheCopy() async throws {
+            try await withCopyShowing { books, book, _, scenes in
+                #expect(books.closeAction(from: .menu(keyWindow: nil)) == .closeCopy)
+                #expect(books.press(.menu(keyWindow: nil)) == nil)
+                #expect(books.store.shown === book, "the book shows again")
+                #expect(books.store.current === book, "and stays open")
+                #expect(book.openScene == scenes.letter)
+                #expect(
+                    books.closeAction(from: .menu(keyWindow: nil)) == .closeBook,
+                    "the next ⌘W closes the book")
+            }
+        }
+
+        /// The rail and the View menu offer no File Cabinet over a copy: it has none of its own.
+        @Test func theFileCabinetIsntOfferedOverACopy() async throws {
+            try await withCopyShowing { _, book, copy, _ in
+                #expect(!WindowMode.offers(.fileCabinet, over: copy))
+                #expect(WindowMode.offers(.scenes, over: copy) && WindowMode.offers(.search, over: copy))
+                #expect(WindowMode.offers(.fileCabinet, over: book))
+            }
+        }
     }
 }

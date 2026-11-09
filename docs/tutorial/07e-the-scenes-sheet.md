@@ -317,6 +317,15 @@ Restore This Scene to My Book (`restoreScene(from:)`, which goes through `OpenBo
 add-scene step with a fresh id, one `structureUndo` step) and New Book from This Copy…
 (`newBook(from:at:)`, which writes a new package that one-book-at-a-time leaves unopened).
 
+Anything outside the window that acts on "the book" must ask for `store.shown`, not
+`store.current`, or it reaches the hidden book: View → Previous/Next Scene go through
+`BookController.scene(_:)` and `take(_:)` for that reason. ⌘W while a copy shows closes the copy
+(`CloseAction.closeCopy`), and the rail offers no File Cabinet over it (`WindowMode.offers`).
+Restore and New Book ask the store first (`refusalToRestore`, `refusalToMakeBook`): a copy a newer
+Scene It wrote (`FiledCopyFormat.newer`, kept from the parse) is only read, and a book that takes no
+edits can't take a restored scene. The menu items are disabled with the reason as their tooltip,
+and the store tells the same notice if asked anyway.
+
 Search, Print and Read aloud act on the window's `book`, which here is the copy, so they reach it
 without any change once they land (#34, #35, #39).
 

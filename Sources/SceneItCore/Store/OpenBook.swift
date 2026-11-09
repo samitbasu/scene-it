@@ -1195,13 +1195,22 @@ public struct FiledCopyContext: Hashable, Sendable {
     public let number: FiledCopyNumber
     public let filed: CalendarDay
     public let tags: [String]
+    public let format: FiledCopyFormat
 
-    public init(book: PackageLayout, copy: FiledCopy) {
+    public init(book: PackageLayout, copy: FiledCopy, format: FiledCopyFormat = .readable) {
         self.book = book
         number = copy.number
         filed = copy.filed
         tags = copy.tags
+        self.format = format
     }
+}
+
+/// Whether this version reads a filed copy whole: one a newer Scene It wrote is shown as this
+/// version reads it, but not used to make a scene or a book, which could lose what it added.
+public enum FiledCopyFormat: Hashable, Sendable {
+    case readable
+    case newer(FormatVersion)
 }
 
 extension OpenBook {

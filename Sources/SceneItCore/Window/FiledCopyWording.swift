@@ -17,14 +17,38 @@ public enum FiledCopyWording {
 
     /// The banner's detail: "· Oct 13, 2026 · draft 3".
     public static func bannerDetail(_ context: FiledCopyContext) -> String {
-        ([""] + [ArchiveWording.day(context.filed)] + context.tags).joined(separator: " \u{00B7} ")
-            .trimmingCharacters(in: .whitespaces)
+        "\u{00B7} " + ([ArchiveWording.day(context.filed)] + context.tags).joined(separator: " \u{00B7} ")
     }
 
     /// The new book's suggested name: "My Novel, Oct 13, 2026".
     public static func newBookName(title: String, _ context: FiledCopyContext) -> String {
         let name = title.isEmpty ? StoreWording.newBookDefaultName : title
         return "\(name), \(ArchiveWording.day(context.filed))"
+    }
+
+    /// Why a scene wasn't restored to the book.
+    public enum NotRestored: Hashable, Sendable {
+        case readOnly(ReadOnlyReason)
+        case noScene
+        /// The book closed, or isn't taking edits just now.
+        case closed
+    }
+
+    public static func notRestored(because reason: NotRestored) -> Notice {
+        let message =
+            switch reason {
+            case .readOnly(let reason): ReadOnlyWording.readOnlyMessage(reason, of: .book)
+            case .noScene: "No scene of the filed copy is open."
+            case .closed: "Your book isn't open for editing just now."
+            }
+        return Notice(title: "The scene wasn't restored.", message: message)
+    }
+
+    /// A filed copy a newer Scene It wrote isn't used, in the newer-format wording.
+    public static func newerFormat(_ format: FormatVersion) -> Notice {
+        Notice(
+            title: "This copy can only be read here.",
+            message: ReadOnlyWording.readOnlyMessage(.newerFormat(format), of: .filedCopy))
     }
 
     public static func couldNotOpen(_ error: FileSystemError) -> Notice {

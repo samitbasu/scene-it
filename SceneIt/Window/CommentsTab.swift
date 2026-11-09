@@ -154,7 +154,8 @@ private struct CommentList: View {
         let shown = cards.filtered(by: query)
         let selected = editors.comments.comment(in: scene)
         if cards.isEmpty {
-            placeholder(CommentWording.noComments)
+            placeholder(
+                book.accepts(.annotations) ? CommentWording.noComments : CommentWording.noCommentsReadOnly)
         } else if shown.isEmpty {
             placeholder(CommentWording.noMatches)
         } else {

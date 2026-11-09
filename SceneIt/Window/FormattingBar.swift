@@ -13,6 +13,25 @@ struct FormattingBar: View {
 
     var body: some View {
         HStack(spacing: WindowMetrics.Bar.groupSpacing) {
+            formattingControls
+            if part == .body {
+                BarDivider()
+                // Not dimmed with the formatting: Read aloud works on a page that can't be
+                // formatted, such as a filed copy's (PLAN §7.5). It arrives with #39.
+                Button {
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .buttonStyle(BarButtonStyle(state: .off))
+                .disabled(true)
+                .help(WindowWording.readAloud)
+                .accessibilityLabel(WindowWording.readAloud)
+            }
+        }
+    }
+
+    private var formattingControls: some View {
+        HStack(spacing: WindowMetrics.Bar.groupSpacing) {
             HStack(spacing: WindowMetrics.Bar.buttonSpacing) {
                 ForEach(TextStyle.allCases, id: \.self) { style in
                     BarButton(
@@ -26,17 +45,6 @@ struct FormattingBar: View {
             BarDivider()
             ColorControl(formatting: formatting, part: part, kind: .textColor)
             ColorControl(formatting: formatting, part: part, kind: .highlight)
-            if part == .body {
-                BarDivider()
-                Button {
-                } label: {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(BarButtonStyle(state: .off))
-                .disabled(true)
-                .help(WindowWording.readAloud)
-                .accessibilityLabel(WindowWording.readAloud)
-            }
         }
         .disabled(formatting.selection(in: part) == nil)
     }

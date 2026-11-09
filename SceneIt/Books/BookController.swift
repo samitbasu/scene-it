@@ -145,6 +145,8 @@ final class BookController {
     enum CloseAction: Equatable {
         /// Close Book: save, release, show the start screen.
         case closeBook
+        /// A filed copy shows over the book: it closes, as its banner's Close does.
+        case closeCopy
         /// Quit, through AppKit's own path (`settleQuit`), which saves first.
         case quit
         /// Another window is key: it closes as usual.
@@ -175,7 +177,8 @@ final class BookController {
         case (_, .open) where closeUnderWay != nil, (_, .viewingCopy) where closeUnderWay != nil:
             return .nothing
         case (.closeButton, _), (.menu, .choosing): return .quit
-        case (.menu, .open), (.menu, .viewingCopy): return .closeBook
+        case (.menu, .open): return .closeBook
+        case (.menu, .viewingCopy): return .closeCopy
         }
     }
 
@@ -211,6 +214,8 @@ final class BookController {
                 await releasing.value
                 if quitUnderWay === attempt { requestQuit(attempt) }
             }
+        case .closeCopy:
+            store.closeFiledCopy()
         case .closeWindow(let window):
             window.performClose(nil)
         case .nothing:
@@ -401,5 +406,23 @@ final class RecordedRequests {
     func take() -> [Carried] {
         defer { carried = [] }
         return carried
+    }
+}
+
+// MARK: View → Previous Scene and Next Scene
+
+extension BookController {
+    /// The scene Previous Scene or Next Scene opens, in what the window shows: a filed copy while
+    /// one shows over the book, never the book hidden under it.
+    func scene(_ step: SceneStep) -> SceneID? {
+        store.shown.flatMap { $0.book.scene(step, from: $0.openScene) }
+    }
+
+    /// Opens that scene; `false` if there's none.
+    @discardableResult
+    func take(_ step: SceneStep) -> Bool {
+        guard let book = store.shown, let scene = scene(step) else { return false }
+        book.select(scene)
+        return true
     }
 }

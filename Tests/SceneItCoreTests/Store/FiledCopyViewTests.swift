@@ -112,7 +112,11 @@ struct FiledCopyViewTests {
         try await withFiledBook { store, book, url, scenes in
             let copy = try await open(store, book)
             copy.select(scenes.ferry)
-            let restored = try #require(store.restoreScene(from: copy))
+            guard case .restored(let restored) = await store.restoreScene(from: copy) else {
+                Issue.record("expected the scene restored")
+                return
+            }
+            #expect(restored != scenes.ferry, "an id of its own")
             #expect(store.shown === book, "the book shows again")
             #expect(book.openScene == restored, "with the restored scene open")
             #expect(book.book.scenes.map(\.id) == [scenes.ferry, scenes.letter, restored])
@@ -157,11 +161,107 @@ struct FiledCopyViewTests {
     @Test func closingTheBookWhileACopyShowsSavesTheBook() async throws {
         try await withFiledBook { store, book, url, scenes in
             _ = try await open(store, book)
-            book.replaceBody(of: scenes.letter, with: [[Run("Typed before the copy opened.")]])
+            book.replaceBody(of: scenes.letter, with: [[Run("Typed in the book while the copy shows.")]])
             #expect(await store.closeBook() == .left)
             #expect(store.isChoosing)
             #expect(
-                try bookOnDisk(url).scene(scenes.letter)?.body == [[Run("Typed before the copy opened.")]])
+                try bookOnDisk(url).scene(scenes.letter)?.body == [
+                    [Run("Typed in the book while the copy shows.")]
+                ])
+        }
+    }
+
+    /// Trust: a copy a newer Scene It wrote opens to read, but isn't used to make a scene or a
+    /// book, which could lose what that version added; the writer is told in the newer-format
+    /// wording.
+    @Test func aCopyFromANewerVersionIsReadButNotUsed() async throws {
+        let prompts = ScriptedPrompts()
+        try await withFiledBook(prompts: prompts) { store, book, url, scenes in
+            let file = PackageLayout(root: url).filedCopy(.first)
+            try FileManager.default.setAttributes(
+                [.immutable: false], ofItemAtPath: file.path(percentEncoded: false))
+            let text = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+            try #require(text.contains("format: 2\n"), "precondition: the copy declares its format")
+            try Data(text.replacingOccurrences(of: "format: 2\n", with: "format: 3\n").utf8).write(to: file)
+            let copy = try await open(store, book)
+            guard case .filedCopy(let context) = copy.document, case .newer(let format) = context.format
+            else {
+                Issue.record("expected the copy's newer format to be kept")
+                return
+            }
+            copy.select(scenes.ferry)
+            let story = book.book.scenes.map(\.id)
+
+            #expect(await store.restoreScene(from: copy) == .refused)
+            #expect(book.book.scenes.map(\.id) == story)
+            let made = url.deletingLastPathComponent().appending(
+                path: "Then.sceneit", directoryHint: .isDirectory)
+            #expect(await store.newBook(from: copy, at: made) == .refused)
+            #expect(!FileManager.default.fileExists(atPath: made.path(percentEncoded: false)))
+            #expect(prompts.notices == Array(repeating: FiledCopyWording.newerFormat(format), count: 2))
+            #expect(prompts.notices.first?.message.contains("newer version of Scene It") == true)
+        }
+    }
+
+    /// Restore into a book that takes no edits says why rather than doing nothing.
+    @Test func restoringIntoAReadOnlyBookIsRefusedAndTheWriterIsTold() async throws {
+        let prompts = ScriptedPrompts()
+        try await withFiledBook(prompts: prompts) { store, book, url, scenes in
+            #expect(await store.closeBook() == .left)
+            let holder = try #require(try BookPackage.open(at: url).editable)
+            #expect(await store.open(url) == .openedReadOnly(.openElsewhere))
+            let readOnly = try #require(store.current)
+            try #require(!readOnly.accepts(.manuscript), "precondition: read-only")
+            let copy = try await open(store, readOnly)
+            copy.select(scenes.ferry)
+            #expect(
+                store.refusalToRestore(from: copy)
+                    == FiledCopyWording.notRestored(because: .readOnly(.openElsewhere)))
+            let before = prompts.notices.count
+
+            #expect(await store.restoreScene(from: copy) == .refused)
+
+            #expect(
+                prompts.notices.dropFirst(before) == [
+                    FiledCopyWording.notRestored(because: .readOnly(.openElsewhere))
+                ])
+            #expect(store.shown === copy, "still showing the copy")
+            #expect(readOnly.book.scenes.count == 2)
+            #expect(store.refusalToMakeBook(from: copy) == nil, "a new book can still be made")
+            _ = holder
+            _ = book
+        }
+    }
+
+    /// A new book whose save fails after its package was made is removed again, so no empty book
+    /// is left; one that already existed is never touched.
+    @Test func aNewBookThatCantBeSavedLeavesNoEmptyPackage() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let book = try #require(store.current)
+            book.write("The ferry left at dawn.")
+            guard case .filed = await store.fileACopy(of: book, as: Self.record) else {
+                Issue.record("precondition: a copy is filed")
+                return
+            }
+            let copy = try await open(store, book)
+            let made = folder.appending(path: "Then.sceneit", directoryHint: .isDirectory)
+            fileSystem.inject(.fail(.exchange("Then.sceneit/book.md"), cause: .noSpace))
+
+            guard case .failed = await store.newBook(from: copy, at: made) else {
+                Issue.record("expected the new book's save to fail")
+                return
+            }
+            #expect(
+                fileSystem.calls.contains(.createDirectory("Then.sceneit")),
+                "precondition: the package was made")
+            #expect(
+                !FileManager.default.fileExists(atPath: made.path(percentEncoded: false)), "and removed again"
+            )
+            #expect(!store.recentBooks.contains { $0.canonicalPath == made.canonicalPath })
         }
     }
 

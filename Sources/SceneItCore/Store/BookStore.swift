@@ -119,6 +119,12 @@ public final class BookStore<C: Clock<Duration>> {
         case failed(FileSystemError)
     }
 
+    public enum RestoreOutcome: Hashable, Sendable {
+        case restored(SceneID)
+        /// The writer was told why.
+        case refused
+    }
+
     public enum CreateOutcome: Hashable, Sendable {
         case created
         case failed(CreateError)
@@ -497,52 +503,109 @@ public final class BookStore<C: Clock<Duration>> {
             guard case .open(let open) = session, open === book, case .book(let layout) = book.document,
                 let filed = book.archive.copies.first(where: { $0.number == number })
             else { return .unavailable }
-            let copy: Book
+            let parsed: ParsedBook
             do throws(FileSystemError) {
-                copy = try await Self.readFiledCopy(layout.filedCopy(number), parseDefaults, fileSystem)
+                parsed = try await Self.readFiledCopy(layout.filedCopy(number), parseDefaults, fileSystem)
             } catch {
                 await prompts.tell(FiledCopyWording.couldNotOpen(error))
                 return .failed(error)
             }
             guard case .open(let still) = session, still === book else { return .unavailable }
+            let format: FiledCopyFormat =
+                if parsed.isNewerThanSupported, let declared = parsed.declaredFormat { .newer(declared) } else
+                {
+                    .readable
+                }
             let shown = OpenBook(
-                copy, filed: FiledCopyContext(book: layout, copy: filed), at: book.openScene, store: self)
+                parsed.book, filed: FiledCopyContext(book: layout, copy: filed, format: format),
+                at: book.openScene, store: self)
             session = .viewingCopy(book, copy: shown)
             Log.store.info("opened a filed copy read-only", ["number": .count(number.value)])
             return .opened
         }
     }
 
-    /// The banner's Close: the book shows again, at the scene it had open.
+    /// The banner's Close, or Close Book while a copy shows: the book shows again, at the scene it
+    /// had open.
     public func closeFiledCopy() {
         if case .viewingCopy(let book, _) = session { session = .open(book) }
     }
 
-    /// The banner's Restore this scene to my book: a copy of the scene the filed copy shows is added
+    /// Why Restore This Scene to My Book can't use `copy` now, as the writer is told; `nil` if it
+    /// can. A copy a newer Scene It wrote may hold what this version would lose, and the book must
+    /// take edits.
+    public func refusalToRestore(from copy: OpenBook<C>) -> Notice? {
+        if let refusal = refusalToUse(copy) { return refusal }
+        guard case .viewingCopy(let book, let shown) = session, shown === copy else {
+            return FiledCopyWording.notRestored(because: .closed)
+        }
+        guard copy.book.scene(copy.openScene) != nil else {
+            return FiledCopyWording.notRestored(because: .noScene)
+        }
+        guard !book.accepts(.manuscript) else { return nil }
+        if case .readOnly(let reason) = book.status {
+            return FiledCopyWording.notRestored(because: .readOnly(reason))
+        }
+        return FiledCopyWording.notRestored(because: .closed)
+    }
+
+    /// Why New Book from This Copy… can't use `copy`; `nil` if it can.
+    public func refusalToMakeBook(from copy: OpenBook<C>) -> Notice? {
+        refusalToUse(copy)
+    }
+
+    private func refusalToUse(_ copy: OpenBook<C>) -> Notice? {
+        guard case .filedCopy(let context) = copy.document else {
+            return FiledCopyWording.notRestored(because: .closed)
+        }
+        if case .newer(let format) = context.format { return FiledCopyWording.newerFormat(format) }
+        return nil
+    }
+
+    /// The banner's Restore This Scene to My Book: a copy of the scene the filed copy shows is added
     /// at the end of the book's story, as one step on the book's structure undo, and the book shows
-    /// again with it open. `nil` if no scene is open in the copy or the book takes no edits.
+    /// again with it open. Refused, and the writer told why, as `refusalToRestore` says.
     @discardableResult
-    public func restoreScene(from copy: OpenBook<C>) -> SceneID? {
-        guard case .viewingCopy(let book, let shown) = session, shown === copy,
-            let scene = copy.book.scene(copy.openScene),
+    public func restoreScene(from copy: OpenBook<C>) async -> RestoreOutcome {
+        if let refusal = refusalToRestore(from: copy) {
+            await prompts.tell(refusal)
+            return .refused
+        }
+        guard case .viewingCopy(let book, _) = session, let scene = copy.book.scene(copy.openScene),
             let added = book.addScene(copying: scene)
-        else { return nil }
+        else { return .refused }
         session = .open(book)
-        return added
+        return .restored(added)
     }
 
     /// New book from this copy…: writes the filed copy's book as a new book at `url`, which isn't
     /// opened (one book at a time, ADR 0038) but goes to Recent Books. The filed copy is only read.
+    /// A package this makes but can't save the book into is removed again
+    /// (`BookWriter.discardCopy`), so no empty book is left behind; anything already at `url` is
+    /// never touched.
     @discardableResult
     public func newBook(from copy: OpenBook<C>, at url: URL) async -> CreateOutcome {
         await exclusively {
-            guard case .filedCopy = copy.document else { return .refused }
+            if let refusal = refusalToMakeBook(from: copy) {
+                await prompts.tell(refusal)
+                return .refused
+            }
+            let writer: BookWriter
             do throws(CreateError) {
-                try await Self.write(copy.book, asNewBookAt: url, fileSystem)
+                writer = try await Self.createPackage(at: url, title: copy.book.title, fileSystem, mirror)
             } catch {
                 await prompts.tell(StoreWording.createFailed(error))
                 return .failed(error)
             }
+            do throws(SaveError) {
+                _ = try await writer.save(copy.book, onExternalChange: .refuse)
+            } catch {
+                await writer.discardCopy()
+                let failure = CreateError(error, at: url)
+                await prompts.tell(StoreWording.createFailed(failure))
+                return .failed(failure)
+            }
+            await writer.release()
             remember(url)
             // The open book stays first in Recent Books.
             if let book = current { remember(book.document.url) }
@@ -554,25 +617,16 @@ public final class BookStore<C: Clock<Duration>> {
     @concurrent
     private nonisolated static func readFiledCopy(
         _ file: URL, _ defaults: ParseDefaults, _ fileSystem: any FileSystem
-    ) async throws(FileSystemError) -> Book {
-        defaults.parse(try fileSystem.read(file)).book
+    ) async throws(FileSystemError) -> ParsedBook {
+        defaults.parse(try fileSystem.read(file))
     }
 
     @concurrent
-    private nonisolated static func write(_ book: Book, asNewBookAt url: URL, _ fileSystem: any FileSystem)
-        async throws(CreateError)
-    {
-        let made = try BookPackage.create(at: url, title: book.title, fileSystem: fileSystem)
-        do throws(SaveError) {
-            _ = try made.package.save(book)
-        } catch {
-            switch error {
-            case .encoding(let failure): throw .encoding(failure)
-            case .fileSystem(let error), .couldNotBackUpTheirVersion(let error): throw .fileSystem(error)
-            case .externallyModified, .writeProtected:
-                throw .fileSystem(FileSystemError(.write, made.package.layout.book, .io))
-            }
-        }
+    private nonisolated static func createPackage(
+        at url: URL, title: String, _ fileSystem: any FileSystem, _ mirror: BackupMirror
+    ) async throws(CreateError) -> BookWriter {
+        BookWriter(
+            try BookPackage.create(at: url, title: title, fileSystem: fileSystem).package, mirror: mirror)
     }
 
     /// Export as SceneIt… (ADR 0029): the chosen story scenes of the book as it is now, saved or
