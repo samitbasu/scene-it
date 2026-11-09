@@ -33,7 +33,9 @@ import Testing
         let body = ParagraphRole.body.paragraphStyle
         #expect(body.lineSpacing == ParagraphRole.doubleSpacingGap, "double spacing, below the line")
         #expect(body.firstLineHeadIndent == 36)
-        #expect(ParagraphRole.title.paragraphStyle == NSParagraphStyle.default)
+        let title = NSMutableParagraphStyle()
+        title.paragraphSpacing = 24
+        #expect(ParagraphRole.title.paragraphStyle == title, "single-spaced, 24 pt above the body (#35)")
         let notes = ParagraphRole.notes.paragraphStyle
         #expect(notes.paragraphSpacing == 6, "6 pt between the notes' paragraphs (#19)")
         let single = NSMutableParagraphStyle()

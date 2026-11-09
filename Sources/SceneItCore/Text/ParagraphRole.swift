@@ -27,7 +27,7 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         let style = NSMutableParagraphStyle()
         switch (self, content) {
         case (.title, _):
-            break
+            style.paragraphSpacing = Self.titleGap
         case (.notes, _):
             style.paragraphSpacing = Self.notesParagraphGap
         case (.body, .text):
@@ -44,6 +44,9 @@ public enum ParagraphRole: Hashable, Sendable, CaseIterable {
         }
         return style
     }
+
+    /// Between a printed title and the scene's body.
+    private static let titleGap: CGFloat = 24
 
     /// The body's first-line indent, half an inch (PLAN §6.1).
     public static let firstLineIndent: CGFloat = 36

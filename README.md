@@ -478,6 +478,13 @@ by side (`compare-pages.png`). To render only these, add
 `-only-testing:SceneItTests/ReviewOutputRenders`. `reviewOutputMenuRenders`, in `BookStoreIntegrationTests`,
 draws the File menu with a review open (`menu-copy-and-save-review`).
 
+`print` renders Print (#35, `PrintRenders.swift`) into a `print/` subfolder: the first two pages of a sample
+scene with eight comments (three on one line, two on another), as the print operation saves them to PDF, drawn at 2× (`portrait-page-<n>@2x.png` for
+text only, `landscape-page-<n>@2x.png` for text with comments); and the print dialog's accessory alone, since the
+system dialog around it can't be drawn offscreen (`accessory-text-only@2x.png`, `accessory-with-comments@2x.png`).
+Each also has a `-vs-mockup.png` beside `15-print-dialog.png`. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/print\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

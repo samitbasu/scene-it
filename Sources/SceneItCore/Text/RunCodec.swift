@@ -52,19 +52,41 @@ public enum RunCodec {
         return lines == [[]] ? [] : lines
     }
 
+    /// A scene's paragraphs as print puts them out: the title as its heading, and the typography
+    /// smartened (`OutputParagraph.shown`) run by run, which the editors never do.
+    static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttributedString {
+        attributedString(paragraphs.map { ($0.kind.role, $0.shown(.eachRun)) })
+    }
+
     private static func attributedString(_ paragraphs: [Paragraph], role: ParagraphRole) -> NSAttributedString
     {
+        attributedString(paragraphs.map { (role, $0.runs.map { ($0, $0.text) }) })
+    }
+
+    /// Each run shown as the text given with it; each stretch of paragraphs in one role is
+    /// styled by that role.
+    private static func attributedString(
+        _ paragraphs: [(role: ParagraphRole, runs: [(run: Run, text: String)])]
+    ) -> NSAttributedString {
         let text = NSMutableAttributedString()
+        var stretches: [(role: ParagraphRole, start: Int)] = []
         for (index, paragraph) in paragraphs.enumerated() {
             if index > 0 {
-                text.append(NSAttributedString(string: "\n", attributes: role.typingAttributes))
-            }
-            for run in paragraph.runs {
                 text.append(
-                    NSAttributedString(string: run.text, attributes: RunFormat(run).attributes(in: role)))
+                    NSAttributedString(string: "\n", attributes: paragraphs[index - 1].role.typingAttributes))
+            }
+            if stretches.last?.role != paragraph.role { stretches.append((paragraph.role, text.length)) }
+            for (run, shown) in paragraph.runs {
+                text.append(
+                    NSAttributedString(
+                        string: shown, attributes: RunFormat(run).attributes(in: paragraph.role)))
             }
         }
-        role.styleParagraphs(of: text, around: NSRange(location: 0, length: text.length))
+        for (index, stretch) in stretches.enumerated() {
+            let end = index + 1 < stretches.count ? stretches[index + 1].start : text.length
+            stretch.role.styleParagraphs(
+                of: text, around: NSRange(location: stretch.start, length: end - stretch.start))
+        }
         return text
     }
 

@@ -35,10 +35,12 @@ Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingM
   palette colour (`w:color`) and a highlight as shading (`w:shd`, the palette's fill), in the schema's
   order; uncoloured text has no `w:color`, so it's Word's automatic colour. Comments and notes aren't
   written.
-- **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII. One function escapes
-  XML's markup characters and guarantees well-formed XML on its own: a character XML can't hold
-  refuses the export (`WordExportFailure.unwritableCharacter`) in every build, and the
-  `CharacterPolicy` invariant is asserted as a debug tripwire.
+- **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII, smartened as print
+  smartens it (decision 0022; added by #35, which also joins neighbouring runs Word would format alike).
+  One function escapes XML's markup characters and guarantees well-formed XML on its own: a character
+  XML can't hold refuses the export (`WordExportFailure.unwritableCharacter`) in every build. (The
+  first version also asserted the character policy; smartened text holds characters the policy
+  refuses, so #35 dropped that tripwire.)
 - **The zip** is written by an owned, writer-only `ZipWriter` of about 100 lines: stored entries (no
   compression), a CRC-32 from the system zlib, fixed dates so the same scene makes the same bytes. No
   dependency, no subprocess.

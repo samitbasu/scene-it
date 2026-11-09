@@ -13,6 +13,7 @@ struct BookWindow: View {
     @Binding var mode: WindowMode
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
+    @State private var printing: PrintFlow
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
@@ -28,6 +29,7 @@ struct BookWindow: View {
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
+        printing: PrintFlow? = nil,
         search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
         chrome: WindowChrome? = nil, readAloud: ReadAloud? = nil,
         newBookDestination: SaveDestination = .nowhere
@@ -42,6 +44,7 @@ struct BookWindow: View {
         _filing = State(initialValue: filing)
         let export = export ?? ExportFlow(book: book, destination: { .nowhere })
         _export = State(initialValue: export)
+        _printing = State(initialValue: printing ?? PrintFlow(book: book, filing: filing, export: export))
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _scenes = State(initialValue: scenes ?? ScenesSheetModel())
         _cabinet = State(initialValue: cabinet ?? FileCabinetModel())
@@ -114,6 +117,7 @@ struct BookWindow: View {
         .background(WindowEscapeFallback(keys: keys))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
+            printing.windowMode = new
             if new.isSheet { readAloud.stop() }
             if mode == .search { search.refresh() } else { search.close() }
             if mode != .scenes { scenes.close() }
@@ -146,12 +150,19 @@ struct BookWindow: View {
             if let hit = book.takeSearchArrival() { search.open(hit) }
         }
         .toolbar {
-            WindowToolbar(book: book, store: store, preferences: preferences, undo: undo, filing: filing)
+            WindowToolbar(
+                book: book, store: store, preferences: preferences, undo: undo, filing: filing,
+                printing: printing)
         }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.filingFlow, filing)
         .focusedSceneValue(\.exportFlow, export)
-        .background(WindowReporter { [filing] in filing.window = $0 })
+        .background(
+            WindowReporter { [filing, printing] in
+                filing.window = $0
+                printing.window = $0
+            }
+        )
         .sheet(item: dialog) { _ in
             FileACopyDialog(
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
