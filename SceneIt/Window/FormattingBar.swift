@@ -1,8 +1,8 @@
 import SceneItCore
 import SwiftUI
 
-/// An editor control bar (PLAN §6.2): B, I, S, the text color and highlight with their
-/// palettes, and, above the page only, Read aloud (#39). The Notes tab has its compact copy.
+/// An editor control bar (PLAN §6.2): B, I, S, and the text color and highlight with their
+/// palettes. Above the page, `ReadAloudButton` follows it; the Notes tab has its compact copy.
 /// Each control shows its state for its editor's selection; the whole bar is dimmed while its
 /// editor can't be formatted, which is always so for one of the two. Its look is the owner's
 /// pick (#18, `WindowMetrics.Bar`).
@@ -26,17 +26,6 @@ struct FormattingBar: View {
             BarDivider()
             ColorControl(formatting: formatting, part: part, kind: .textColor)
             ColorControl(formatting: formatting, part: part, kind: .highlight)
-            if part == .body {
-                BarDivider()
-                Button {
-                } label: {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(BarButtonStyle(state: .off))
-                .disabled(true)
-                .help(WindowWording.readAloud)
-                .accessibilityLabel(WindowWording.readAloud)
-            }
         }
         .disabled(formatting.selection(in: part) == nil)
     }
@@ -48,6 +37,35 @@ struct FormattingBar: View {
         case .strike: "strikethrough"
         }
     }
+}
+
+/// ▶ Read aloud, ■ Stop while reading (PLAN §6.2, §10.3), with its shortcut. It isn't dimmed with
+/// the formatting bar: it reads the page's selection even when the page can't be formatted.
+struct ReadAloudButton: View {
+    let readAloud: ReadAloud
+
+    var body: some View {
+        let control = readAloud.control
+        let name = control == .stop ? WindowWording.stopReadingAloud : WindowWording.readAloud
+        HStack(spacing: WindowMetrics.Bar.groupSpacing) {
+            BarDivider()
+            Button {
+                readAloud.press()
+            } label: {
+                Image(systemName: control == .stop ? "stop.fill" : "play.fill")
+            }
+            .buttonStyle(BarButtonStyle(state: .off))
+            .keyboardShortcut(.readAloud)
+            .disabled(control == .unavailable)
+            .help(name)
+            .accessibilityLabel(name)
+        }
+    }
+}
+
+extension KeyboardShortcut {
+    /// PLAN §11.
+    static let readAloud = KeyboardShortcut("r", modifiers: [.command, .shift])
 }
 
 /// A button that performs `command` and shows its state for its editor's selection.

@@ -179,7 +179,7 @@ class SceneTextView: KeyboardTextView {
         return layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
     }
 
-    private func bands(of ranges: [NSTextRange]) -> [NSRect] {
+    func bands(of ranges: [NSTextRange]) -> [NSRect] {
         guard let layout = textLayoutManager else { return [] }
         let origin = textContainerOrigin
         return SelectionBands.bands(of: ranges, in: layout).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
@@ -206,14 +206,19 @@ class SceneTextView: KeyboardTextView {
         let color = selectionColor
         guard highlightOverride.ranges != highlighted || highlightOverride.color != color else { return }
         layout.removeRenderingAttribute(.backgroundColor, for: layout.documentRange)
-        for run in highlighted {
-            guard let from = content.location(start, offsetBy: run.location),
-                let to = content.location(from, offsetBy: run.length),
-                let range = NSTextRange(location: from, end: to)
-            else { continue }
+        for range in highlighted.compactMap(textRange(of:)) {
             layout.addRenderingAttribute(.backgroundColor, value: color, for: range)
         }
         highlightOverride = (highlighted, color)
+    }
+
+    /// The text range of `offsets`, a range of the storage's UTF-16 offsets.
+    func textRange(of offsets: NSRange) -> NSTextRange? {
+        guard let content = textLayoutManager?.textContentManager,
+            let from = content.location(content.documentRange.location, offsetBy: offsets.location),
+            let to = content.location(from, offsetBy: offsets.length)
+        else { return nil }
+        return NSTextRange(location: from, end: to)
     }
 
     /// An edit can change what the same offsets hold, so the highlights are looked at afresh.

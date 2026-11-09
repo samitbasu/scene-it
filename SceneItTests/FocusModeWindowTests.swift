@@ -55,6 +55,8 @@ enum TestKey: Equatable {
     case delete
     case arrow(GridStep)
     case optionArrow(GridStep)
+    /// Cmd+Shift+R (PLAN §11).
+    case readAloud
 
     var characters: String {
         switch self {
@@ -63,6 +65,7 @@ enum TestKey: Equatable {
         case .tab: "\t"
         case .shiftTab: "\u{19}"
         case .delete: "\u{7f}"
+        case .readAloud: "r"
         case .arrow(let step), .optionArrow(let step): String(Character(UnicodeScalar(Self.arrowKey(step))!))
         }
     }
@@ -73,6 +76,7 @@ enum TestKey: Equatable {
         case .tab, .shiftTab: 48
         case .return: 36
         case .delete: 51
+        case .readAloud: 15
         case .arrow(let step), .optionArrow(let step):
             switch step {
             case .left: 123
@@ -88,6 +92,7 @@ enum TestKey: Equatable {
         case .shiftTab: [.shift]
         case .arrow: [.function, .numericPad]
         case .optionArrow: [.function, .numericPad, .option]
+        case .readAloud: [.command, .shift]
         case .escape, .tab, .return, .delete: []
         }
     }
