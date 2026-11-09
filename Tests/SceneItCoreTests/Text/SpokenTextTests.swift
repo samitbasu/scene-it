@@ -88,14 +88,18 @@ struct SpokenTextTests {
         #expect(spoken.sourceRanges(ofSentenceAround: two) == [beta])
     }
 
-    /// A sentence the synthesizer reads across the joiner maps to its part in each range.
-    @Test func aSentenceAcrossTwoRangesMapsToBoth() throws {
+    /// The line break joining two ranges ends a sentence, so no sentence spans two ranges: a
+    /// sentence of the text that the selection splits is highlighted one range at a time.
+    @Test func theJoinerEndsASentence() throws {
         let text = "Alpha one and beta two."
         let alpha = try Self.range(of: "Alpha one", in: text)
-        let beta = try Self.range(of: "beta two", in: text)
+        let beta = try Self.range(of: "beta two.", in: text)
         let spoken = try #require(SpokenText(selecting: [alpha, beta], in: text as NSString))
-        let whole = NSRange(location: 0, length: (spoken.utterance as NSString).length)
-        #expect(spoken.source(of: whole) == [alpha, beta], "the joiner maps to nothing")
+        #expect(spoken.utterance == "Alpha one\nbeta two.")
+        let one = try Self.range(of: "one", in: spoken.utterance)
+        #expect(spoken.sourceRanges(ofSentenceAround: one) == [alpha])
+        let betaWord = try Self.range(of: "beta", in: spoken.utterance)
+        #expect(spoken.sourceRanges(ofSentenceAround: betaWord) == [beta])
     }
 
     @Test func aRangePastTheTextIsCut() throws {

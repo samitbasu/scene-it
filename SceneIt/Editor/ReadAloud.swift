@@ -15,6 +15,7 @@ final class ReadAloud: NSObject {
     @ObservationIgnored let preferences: AppPreferences
     @ObservationIgnored let speech: any SpeechSynthesizing
     @ObservationIgnored private weak var page: ManuscriptTextView?
+    @ObservationIgnored private weak var book: AppOpenBook?
     @ObservationIgnored private var utterances = 0
 
     enum State: Equatable {
@@ -39,10 +40,11 @@ final class ReadAloud: NSObject {
         case unavailable, read, stop
     }
 
+    /// With no scene open the page is gone from the window, though it keeps its last text.
     var control: Control {
         switch state {
         case .reading: .stop
-        case .idle: pageSelection == .text ? .read : .unavailable
+        case .idle: pageSelection == .text && book?.openScene != nil ? .read : .unavailable
         }
     }
 
@@ -56,6 +58,7 @@ final class ReadAloud: NSObject {
         stop()
         NotificationCenter.default.removeObserver(self)
         self.page = page
+        self.book = book
         let center = NotificationCenter.default
         center.addObserver(
             self, selector: #selector(selectionDidChange), name: NSTextView.didChangeSelectionNotification,

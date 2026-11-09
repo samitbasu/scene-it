@@ -187,27 +187,6 @@ final class ManuscriptTextView: SceneTextView {
         pageRect.fill()
         NSGraphicsContext.restoreGraphicsState()
         drawSelectionBands(in: rect)
-        drawSpokenSentence(in: rect)
-    }
-
-    // MARK: Read aloud (PLAN §10.3)
-
-    /// The sentence being read aloud, as ranges of the text: drawn over the selection, and never
-    /// in the text storage.
-    var spoken: [NSRange] = [] {
-        didSet {
-            if spoken != oldValue { setNeedsDisplay(visibleRect) }
-        }
-    }
-
-    /// The system's own colour for what Find shows: a default awaiting the owner's pick (#39).
-    static let spokenSentenceColor = NSColor.findHighlightColor
-
-    private func drawSpokenSentence(in rect: NSRect) {
-        let bands = bands(of: spoken.compactMap(textRange(of:))).filter { $0.intersects(rect) }
-        guard !bands.isEmpty else { return }
-        Self.spokenSentenceColor.setFill()
-        for band in bands { band.fill() }
     }
 
     // MARK: Keys

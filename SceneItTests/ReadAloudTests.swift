@@ -179,6 +179,96 @@ struct ReadAloudTests {
             #expect(page.page.spoken == [page.range(of: "Dawn came late.")])
         }
     }
+
+    /// A highlighted word inside the selection shows the selection's colour (ADR 0034), but inside
+    /// the sentence being read it shows the sentence's, so the sentence reads as one band.
+    @Test func theSentenceIsOneBandOverHighlightedWords() async throws {
+        let lit = scene(
+            "Lit", [[Run("Mara watched the "), Run("harbor", highlight: .green), Run(" lights. Dawn came.")]])
+        try await withPage([lit]) { page in
+            page.focusPage(at: 0)
+            let harbor = page.range(of: "harbor")
+            try page.startReading("Mara watched the harbor lights. Dawn")
+            #expect(
+                page.renderedBackgrounds(in: harbor) == [harbor: page.page.selectionColor],
+                "precondition: the selection's colour over the highlight")
+
+            let speech = try page.speech
+            let utterance = try #require(speech.requests.last?.text) as NSString
+            speech.report(.willSpeak(utterance.range(of: "harbor")))
+            let sentence = page.range(of: "Mara watched the harbor lights.")
+            #expect(page.renderedBackgrounds(in: sentence) == [sentence: SceneTextView.spokenSentenceColor])
+
+            speech.report(.ended)
+            #expect(page.renderedBackgrounds(in: sentence) == [harbor: page.page.selectionColor])
+        }
+    }
+
+    /// When the window goes (the book closes, or is read again), so does the reading.
+    @Test func theWindowGoingStopsTheReading() async throws {
+        try await withPage([ferry]) { page in
+            page.focusPage(at: 0)
+            try page.startReading("The tide was already turning.")
+            page.window.contentViewController = nil
+            await eventually { page.readAloud.state == .idle }
+            #expect(try page.speech.stops == 1)
+        }
+    }
+
+    /// A new window's page takes over: the old page's reading stops and its selection no longer
+    /// counts.
+    @Test func attachingAnotherPageStopsTheReading() async throws {
+        try await withPage([ferry]) { page in
+            page.focusPage(at: 0)
+            try page.startReading("The tide was already turning.")
+            let next = ManuscriptTextView.page(editability: { .readOnly })
+            page.readAloud.attach(next, of: page.book)
+            #expect(page.readAloud.state == .idle)
+            #expect(page.page.spoken.isEmpty)
+            #expect(page.readAloud.control == .unavailable, "the new page has nothing selected")
+            #expect(try page.speech.stops == 1)
+        }
+    }
+}
+
+extension PageHarness {
+    /// The page's rendering-attribute background colours within `range`, by the ranges they cover,
+    /// touching runs of one colour joined.
+    func renderedBackgrounds(in range: NSRange) -> [NSRange: NSColor] {
+        guard let layout = page.textLayoutManager, let content = layout.textContentManager else { return [:] }
+        let start = content.documentRange.location
+        var runs: [(range: NSRange, color: NSColor)] = []
+        layout.enumerateRenderingAttributes(from: start, reverse: false) { _, attributes, textRange in
+            let offsets = NSRange(
+                location: content.offset(from: start, to: textRange.location),
+                length: content.offset(from: textRange.location, to: textRange.endLocation))
+            if let color = attributes[.backgroundColor] as? NSColor, let inside = offsets.intersection(range),
+                inside.length > 0
+            {
+                runs.append((inside, color))
+            }
+            return true
+        }
+        var joined: [(range: NSRange, color: NSColor)] = []
+        for run in runs.sorted(by: { $0.range.location < $1.range.location }) {
+            if let last = joined.last, last.color == run.color, NSMaxRange(last.range) == run.range.location {
+                joined[joined.count - 1].range.length += run.range.length
+            } else {
+                joined.append(run)
+            }
+        }
+        return Dictionary(uniqueKeysWithValues: joined.map { ($0.range, $0.color) })
+    }
+}
+
+/// Cmd+Shift+R as a keyboard delivers it ("R" ignoring modifiers), once SwiftUI has caught up
+/// with the button's state, which it does on a later turn.
+@MainActor
+private func pressReadAloud(in page: PageHarness) async throws {
+    await afterTheMainQueue()
+    page.window.contentView?.layoutSubtreeIfNeeded()
+    await afterTheMainQueue()
+    try press(.readAloud, in: page.window)
 }
 
 extension OneAtATime {
@@ -190,39 +280,65 @@ extension OneAtATime {
             try await withPage([ferry], in: KeyWindow.self) { page in
                 page.focusPage(at: 0)
                 try page.select("The tide was already turning.")
-                await eventually { page.readAloud.control == .read }
-                // SwiftUI enables the button on a later turn.
-                await afterTheMainQueue()
-                page.window.contentView?.layoutSubtreeIfNeeded()
-                await afterTheMainQueue()
-                try press(.readAloud, in: page.window)
+                try await pressReadAloud(in: page)
                 #expect(page.readAloud.control == .stop)
                 #expect(try page.speech.requests.map(\.text) == ["The tide was already turning."])
-                try press(.readAloud, in: page.window)
+                try await pressReadAloud(in: page)
                 #expect(page.readAloud.control == .read)
                 #expect(page.pageMirrorsModel, "the key typed nothing")
 
                 page.modes.mode = .scenes
-                await afterTheMainQueue()
-                page.window.contentView?.layoutSubtreeIfNeeded()
-                await afterTheMainQueue()
-                try press(.readAloud, in: page.window)
+                try await pressReadAloud(in: page)
                 #expect(page.readAloud.control == .read, "under a sheet, the key reads nothing")
                 #expect(try page.speech.requests.count == 1)
             }
         }
 
-        /// The button's shortcut is its own: no menu item has it.
+        /// After the open scene is deleted no scene is open, though the page keeps the deleted
+        /// scene's text and selection: ▶ is dimmed and the key reads nothing.
+        @Test func withNoSceneOpenTheKeyReadsNothing() async throws {
+            let cut = scene("The brother", [[Run("He never wrote back. Nobody asked why.")]])
+            let prompts = AnsweringPrompts([DeleteChoice.delete])
+            let books = BookController(role: .testHost, prompts: prompts)
+            try await withPage([ferry], boneyard: [cut], books: books, in: KeyWindow.self) { page in
+                page.book.select(cut.id)
+                await eventually { page.storage.string.hasPrefix("He never") }
+                page.focusPage(at: 0)
+                try page.select("Nobody asked why.")
+                try await pressReadAloud(in: page)
+                try #require(page.readAloud.control == .stop, "precondition: the key reads the open scene")
+                page.readAloud.stop()
+
+                page.modes.mode = .scenes
+                let modes = page.modes
+                let mode = Binding(get: { modes.mode }, set: { modes.mode = $0 })
+                let actions = ScenesActions(
+                    book: page.book, store: page.store, preferences: page.preferences, model: page.scenes,
+                    tags: TagActions(book: page.book, page: page.page, search: page.search, mode: mode),
+                    mode: mode)
+                await actions.deletePermanently(cut.id)
+                try #require(page.book.openScene == nil, "precondition: no scene is open")
+                page.modes.mode = .page
+                #expect(page.page.selectedRange().length > 0, "the page keeps its last selection")
+                #expect(page.readAloud.control == .unavailable)
+                try await pressReadAloud(in: page)
+                #expect(try page.speech.requests.count == 1, "the key read nothing")
+            }
+        }
+
+        /// The button's shortcut is its own: no menu item has it, spelled either way.
         @Test func noMenuItemHasCommandShiftR() {
             @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {
                 (menu?.items ?? []).flatMap { [$0] + items($0.submenu) }
             }
-            let modifiers: NSEvent.ModifierFlags = [.command, .option, .shift, .control]
             let all = items(NSApp.mainMenu)
             #expect(!all.isEmpty, "precondition: the app's menus are installed")
-            let sharing = all.filter {
-                $0.keyEquivalent.lowercased() == "r"
-                    && $0.keyEquivalentModifierMask.intersection(modifiers) == [.command, .shift]
+            let sharing = all.filter { item in
+                var modifiers = item.keyEquivalentModifierMask.intersection([
+                    .command, .option, .shift, .control,
+                ])
+                if item.keyEquivalent == "R" { modifiers.insert(.shift) }
+                return item.keyEquivalent.lowercased() == "r" && modifiers == [.command, .shift]
             }
             #expect(sharing.map(\.title) == [])
         }

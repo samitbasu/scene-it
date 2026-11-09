@@ -574,7 +574,7 @@ private struct Kept: Equatable {
 }
 
 /// Answers each question with the next of `answers`, keeping the titles asked.
-private final class AnsweringPrompts: StorePrompts {
+final class AnsweringPrompts: StorePrompts {
     private var answers: [any Hashable & Sendable]
     private(set) var titles: [String] = []
     /// Runs as each question is asked, before it's answered.

@@ -72,8 +72,8 @@ class SceneTextView: KeyboardTextView {
 
     /// Where the selection's bands are drawn, in this view's coordinates.
     private(set) var selectionBands: [NSRect] = []
-    /// Where the selection colour overrides a highlight, and in which colour.
-    private var highlightOverride: (ranges: [NSRange], color: NSColor) = ([], .clear)
+    /// The backgrounds last set as rendering attributes.
+    private var renderedBackgrounds = RenderedBackgrounds()
     /// Where the last refresh or colour change asked for display, for tests of what's redrawn.
     private(set) var invalidatedBands: [NSRect] = []
     private var windowObservers: [NSObjectProtocol] = []
@@ -179,7 +179,7 @@ class SceneTextView: KeyboardTextView {
         return layout.textSelections.flatMap(\.textRanges).compactMap { $0.intersection(viewport) }
     }
 
-    func bands(of ranges: [NSTextRange]) -> [NSRect] {
+    private func bands(of ranges: [NSTextRange]) -> [NSRect] {
         guard let layout = textLayoutManager else { return [] }
         let origin = textContainerOrigin
         return SelectionBands.bands(of: ranges, in: layout).map { $0.offsetBy(dx: origin.x, dy: origin.y) }
@@ -187,8 +187,9 @@ class SceneTextView: KeyboardTextView {
 
     /// A highlight is a background colour drawn over the bands, so where the selection covers one
     /// a rendering attribute draws the selection's colour in its place (the owner's pick, ADR 0034).
-    /// They're set by character offsets, which an edit or a new scene can't leave pointing at the
-    /// wrong text, and every one goes before new ones are set: no other code sets this attribute.
+    /// The sentence being read aloud is set last, over both, so it shows as one band. They're set
+    /// by character offsets, which an edit or a new scene can't leave pointing at the wrong text,
+    /// and every one goes before new ones are set: no other code sets this attribute.
     private func overrideHighlights(in ranges: [NSTextRange]) {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
             let storage = textStorage
@@ -203,17 +204,41 @@ class SceneTextView: KeyboardTextView {
                 if value != nil { highlighted.append(run) }
             }
         }
-        let color = selectionColor
-        guard highlightOverride.ranges != highlighted || highlightOverride.color != color else { return }
+        let backgrounds = RenderedBackgrounds(selected: highlighted, color: selectionColor, spoken: spoken)
+        guard backgrounds != renderedBackgrounds else { return }
         layout.removeRenderingAttribute(.backgroundColor, for: layout.documentRange)
         for range in highlighted.compactMap(textRange(of:)) {
-            layout.addRenderingAttribute(.backgroundColor, value: color, for: range)
+            layout.addRenderingAttribute(.backgroundColor, value: backgrounds.color, for: range)
         }
-        highlightOverride = (highlighted, color)
+        for range in spoken.compactMap(textRange(of:)) {
+            layout.addRenderingAttribute(.backgroundColor, value: Self.spokenSentenceColor, for: range)
+        }
+        renderedBackgrounds = backgrounds
     }
 
+    /// The rendering attributes' backgrounds: the selection's colour over the highlights it covers,
+    /// and the sentence being read aloud.
+    private struct RenderedBackgrounds: Equatable {
+        var selected: [NSRange] = []
+        var color = NSColor.clear
+        var spoken: [NSRange] = []
+    }
+
+    // MARK: Read aloud (PLAN §10.3)
+
+    /// The sentence being read aloud, as ranges of the text: drawn over the selection and the
+    /// highlights, and never in the text storage.
+    var spoken: [NSRange] = [] {
+        didSet {
+            if spoken != oldValue { overrideHighlights(in: visibleSelection()) }
+        }
+    }
+
+    /// The system's own colour for what Find shows: a default awaiting the owner's pick (#39).
+    static let spokenSentenceColor = NSColor.findHighlightColor
+
     /// The text range of `offsets`, a range of the storage's UTF-16 offsets.
-    func textRange(of offsets: NSRange) -> NSTextRange? {
+    private func textRange(of offsets: NSRange) -> NSTextRange? {
         guard let content = textLayoutManager?.textContentManager,
             let from = content.location(content.documentRange.location, offsetBy: offsets.location),
             let to = content.location(from, offsetBy: offsets.length)
@@ -226,7 +251,7 @@ class SceneTextView: KeyboardTextView {
     override func didChangeText() {
         editor?.restyleEditedParagraphs()
         super.didChangeText()
-        highlightOverride = ([], .clear)
+        renderedBackgrounds = RenderedBackgrounds()
         refreshSelectionBands()
     }
 

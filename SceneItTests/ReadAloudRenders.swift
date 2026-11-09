@@ -50,7 +50,7 @@ extension WindowRenders {
                 try select(.twoParagraphs, in: window)
                 readAloud.press()
                 let utterance = try #require(speech.requests.last?.text) as NSString
-                speech.report(.willSpeak(utterance.range(of: "deckhand")))
+                speech.report(.willSpeak(utterance.range(of: "bench")))
             }
             #expect(readAloud.control == .stop, "precondition: ■")
             try Self.writeReadAloud(reading, name: "read-aloud-3-reading", to: output)

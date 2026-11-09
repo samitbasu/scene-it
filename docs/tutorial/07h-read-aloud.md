@@ -119,27 +119,35 @@ with `enumerateSubstrings(options: .bySentences)`, and is a pure core type, so i
 ## 6. Display-only drawing
 
 The highlight must never reach the document: the text storage mirrors the model, and anything put
-in it would be saved. The page already draws its selection as bands behind the text (ADR 0034), so
-the spoken sentence is one more band, drawn in `drawBackground` after the selection's:
+in it would be saved. TextKit 2 has a display-only layer for exactly this, *rendering attributes*:
+`NSTextLayoutManager.addRenderingAttribute(_:value:for:)` colours a range as it's drawn without
+touching the storage. The page already uses one, `.backgroundColor`, to paint the selection's colour
+over highlighted words the selection covers (ADR 0034). Two owners of one attribute would erase each
+other's ranges, so the spoken sentence joins that same code, set last so it wins:
 
 ```swift
-    var spoken: [NSRange] = [] {
-        didSet {
-            if spoken != oldValue { setNeedsDisplay(visibleRect) }
+        for range in highlighted.compactMap(textRange(of:)) {
+            layout.addRenderingAttribute(.backgroundColor, value: backgrounds.color, for: range)
         }
-    }
+        for range in spoken.compactMap(textRange(of:)) {
+            layout.addRenderingAttribute(.backgroundColor, value: Self.spokenSentenceColor, for: range)
+        }
 ```
 
-TextKit 2 also offers *rendering attributes* (`addRenderingAttribute`), which are display-only, but
-the page already owns `.backgroundColor` there for highlights under the selection, and two owners
-of one attribute would erase each other. A test checks that the storage is byte-for-byte the same
-after a sentence is highlighted.
+A first version drew the sentence as a band in `drawBackground`, under the text like the selection.
+It broke up wherever the sentence held a highlighted word: TextKit draws rendering attributes with
+the text, above anything the view's background draws. Tests check that the storage is the same after
+a sentence is highlighted, and that the sentence is one colour across a highlighted word.
 
 ## 7. A shortcut on a button
 
 Every other shortcut in Scene It is a menu item's. ▶'s is the button's own
 (`.keyboardShortcut(.readAloud)`): PLAN §6.2 gives the shortcut to the bar's button, which stays in
 focus mode, and SwiftUI disables it with the button, so under a sheet Cmd+Shift+R does nothing.
-The hosted test presses it as `NSApplication` would deliver it, offering the event to the window's
-`performKeyEquivalent` first. Its event carries `r` as `charactersIgnoringModifiers`: built with
-`R` there, SwiftUI didn't match it to the button's `"r"` with Shift.
+
+The key is written `"R"` with Shift. `charactersIgnoringModifiers` is documented to ignore every
+modifier except Shift, so a real Cmd+Shift+R can arrive spelled `"R"`. Tried in
+the hosted test, a shortcut written `"r"` matched only an event spelled `"r"`; written `"R"`, it
+matched both spellings. The test presses the key as `NSApplication.sendEvent` hands it on, offering
+it to the window's `performKeyEquivalent` first; calling `NSApp.sendEvent` itself reaches nothing
+in the test host, whose windows are never really key.

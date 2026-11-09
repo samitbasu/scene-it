@@ -7,6 +7,8 @@ public struct SpokenText: Equatable, Sendable {
     /// The selected ranges' text, in order, joined by line breaks.
     public let utterance: String
     private let pieces: [Piece]
+    /// The utterance's sentences in order, each with the source ranges it highlights.
+    private let sentences: [Sentence]
 
     /// One selected range, and where its text starts in the utterance.
     private struct Piece: Equatable, Sendable {
@@ -14,6 +16,12 @@ public struct SpokenText: Equatable, Sendable {
         let start: Int
 
         var spoken: NSRange { NSRange(location: start, length: source.length) }
+    }
+
+    private struct Sentence: Equatable, Sendable {
+        /// Its range of the utterance, with the spaces after it.
+        let spoken: NSRange
+        let highlighted: [NSRange]
     }
 
     private static let joiner = "\n"
@@ -32,28 +40,29 @@ public struct SpokenText: Equatable, Sendable {
         }
         self.utterance = utterance
         self.pieces = pieces
+        let string = utterance as NSString
+        var spans: [NSRange] = []
+        string.enumerateSubstrings(
+            in: NSRange(location: 0, length: string.length), options: [.bySentences, .substringNotRequired]
+        ) { _, range, _, _ in
+            spans.append(range)
+        }
+        sentences = spans.map {
+            Sentence(
+                spoken: $0,
+                highlighted: Self.source(of: Self.trimmingTrailingWhitespace($0, in: string), in: pieces))
+        }
     }
 
     /// The text to highlight while the synthesizer speaks `spoken`, a range of the utterance
     /// (usually a word): the whole sentence holding it, without its trailing spaces, as ranges
     /// of the source text. A sentence the selection cuts is highlighted only as far as it's read.
     public func sourceRanges(ofSentenceAround spoken: NSRange) -> [NSRange] {
-        source(of: sentence(around: spoken))
-    }
-
-    private func sentence(around spoken: NSRange) -> NSRange {
-        let string = utterance as NSString
-        let all = NSRange(location: 0, length: string.length)
-        var found: NSRange?
-        string.enumerateSubstrings(in: all, options: [.bySentences, .substringNotRequired]) {
-            _, range, _, stop in
-            if range.location <= spoken.location, spoken.location < NSMaxRange(range) {
-                found = range
-                stop.pointee = true
-            }
+        let holding = sentences.first {
+            $0.spoken.location <= spoken.location && spoken.location < NSMaxRange($0.spoken)
         }
-        guard let sentence = found else { return spoken.clamped(toLength: string.length) }
-        return Self.trimmingTrailingWhitespace(sentence, in: string)
+        return holding?.highlighted
+            ?? Self.source(of: spoken.clamped(toLength: (utterance as NSString).length), in: pieces)
     }
 
     private static func trimmingTrailingWhitespace(_ range: NSRange, in string: NSString) -> NSRange {
@@ -69,7 +78,7 @@ public struct SpokenText: Equatable, Sendable {
 
     /// `spoken`'s parts that came from the source, as source ranges; the joiners between pieces
     /// came from nowhere.
-    func source(of spoken: NSRange) -> [NSRange] {
+    private static func source(of spoken: NSRange, in pieces: [Piece]) -> [NSRange] {
         pieces.compactMap { piece in
             guard let overlap = piece.spoken.intersection(spoken), overlap.length > 0 else { return nil }
             return NSRange(

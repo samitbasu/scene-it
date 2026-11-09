@@ -64,8 +64,9 @@ struct ReadAloudButton: View {
 }
 
 extension KeyboardShortcut {
-    /// PLAN §11.
-    static let readAloud = KeyboardShortcut("r", modifiers: [.command, .shift])
+    /// PLAN §11. Written "R": SwiftUI then matches the key whether the event spells it "R" or
+    /// "r" ignoring modifiers, where "r" matches only "r".
+    static let readAloud = KeyboardShortcut("R", modifiers: [.command, .shift])
 }
 
 /// A button that performs `command` and shows its state for its editor's selection.

@@ -65,7 +65,7 @@ enum TestKey: Equatable {
         case .tab: "\t"
         case .shiftTab: "\u{19}"
         case .delete: "\u{7f}"
-        case .readAloud: "r"
+        case .readAloud: "R"
         case .arrow(let step), .optionArrow(let step): String(Character(UnicodeScalar(Self.arrowKey(step))!))
         }
     }
