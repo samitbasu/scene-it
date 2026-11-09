@@ -32,7 +32,7 @@ public struct PackageLayout: Hashable, Sendable {
     public var lock: URL { file(".lock", in: root) }
 
     public func backup(_ slot: BackupSlot) -> URL {
-        file(slot.fileName, in: root)
+        saved.backup(slot)
     }
 
     public func filedCopy(_ number: FiledCopyNumber) -> URL {
@@ -57,10 +57,15 @@ public struct PackageLayout: Hashable, Sendable {
         file("index.md.original-\(Self.stamp(date, attempt)).md", in: archive)
     }
 
+    /// `book.md` saved with the safe-save rules, its side files beside it in the package.
+    public var saved: SavedFileLayout {
+        SavedFileLayout(file: book, sideFolder: root, sideName: Self.bookFileName)
+    }
+
     /// Where a version of `book.md` that another program wrote during a save is kept:
     /// `book.md.conflict-<UTC time>`, then `-2`, `-3`, … for later attempts in the same second.
     public func conflict(at date: Date, attempt: Int) -> URL {
-        file("\(Self.bookFileName).conflict-\(Self.stamp(date, attempt))", in: root)
+        saved.conflict(at: date, attempt: attempt)
     }
 
     /// Where Make Editable keeps the bytes of a book that was repaired as it opened (ADR 0024):
@@ -68,7 +73,7 @@ public struct PackageLayout: Hashable, Sendable {
     /// the same second. Nothing rotates, prunes or sweeps it: it's not a `BackupSlot`, a
     /// `SnapshotName` or a temporary file's name.
     public func original(at date: Date, attempt: Int) -> URL {
-        file("\(Self.bookFileName).original-\(Self.stamp(date, attempt)).md", in: root)
+        saved.original(at: date, attempt: attempt)
     }
 
     /// Whether `fileName` is a name `original(at:attempt:)` writes.
@@ -100,7 +105,7 @@ public struct PackageLayout: Hashable, Sendable {
     }
 
     private static func stamp(_ date: Date, _ attempt: Int) -> String {
-        UTCStamp.string(for: date) + (attempt > 1 ? "-\(attempt)" : "")
+        SavedFileLayout.stamp(date, attempt)
     }
 
     private func file(_ name: String, in directory: URL) -> URL {

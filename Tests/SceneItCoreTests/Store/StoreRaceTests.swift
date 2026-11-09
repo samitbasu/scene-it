@@ -217,7 +217,7 @@ struct StoreRaceTests {
             let readOnly = try #require(store.current, "a book is still open")
             #expect(readOnly !== book)
             #expect(!readOnly.isEditable)
-            #expect(readOnly.layout.root.canonicalPath == url.canonicalPath)
+            #expect(readOnly.document.url.canonicalPath == url.canonicalPath)
             #expect(prompts.notices.map(\.title) == ["Scene It couldn't open “Novel”."], "told once")
             let copy = folder.appending(path: copyName)
             #expect(store.recentBooks.map(\.canonicalPath) == [url.canonicalPath, copy.canonicalPath])
@@ -334,7 +334,7 @@ struct StoreRaceTests {
 
             #expect(prompts.labels.first == ["Open My Version"])
             let opened = try #require(store.current)
-            #expect(opened.layout.root.canonicalPath == folder.appending(path: copyName).canonicalPath)
+            #expect(opened.document.url.canonicalPath == folder.appending(path: copyName).canonicalPath)
             #expect(opened.book == mine)
             #expect(opened.isEditable)
             #expect(prompts.notices.map(\.title) == ["Scene It opened your version."])
@@ -414,7 +414,7 @@ struct StoreRaceTests {
             let store = makeStore(in: folder, prompts: prompts)
 
             await store.open(urls)
-            #expect(store.current?.layout.root.canonicalPath == urls[0].canonicalPath)
+            #expect(store.current?.document.url.canonicalPath == urls[0].canonicalPath)
             #expect(store.recentBooks.map(\.canonicalPath) == urls.map(\.canonicalPath))
             #expect(
                 prompts.notices == [

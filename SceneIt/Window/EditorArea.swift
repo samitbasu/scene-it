@@ -92,7 +92,7 @@ struct SceneTitleField: View {
             TitleTextField(
                 book: book, scene: scene, title: book.book.scene(scene)?.title.text ?? "", focus: focus
             )
-            .disabled(!book.isEditable)
+            .disabled(!book.accepts(.manuscript))
             Spacer(minLength: WindowMetrics.pageMargin)
         }
     }
@@ -144,6 +144,10 @@ private struct TitleTextField: NSViewRepresentable {
             if !enabled, field.currentEditor() != nil { field.window?.makeFirstResponder(nil) }
             field.isEnabled = enabled
             field.isEditable = enabled
+            // Read-only, it reads as the title it is rather than as a field (mockup 13).
+            field.isBezeled = enabled
+            field.drawsBackground = enabled
+            field.textColor = enabled ? .controlTextColor : .labelColor
         }
         // A read-only book's title can't take the focus, so its selection is dropped.
         if let range = focus.titleSelection.take(showing: scene), enabled {

@@ -46,7 +46,7 @@ public enum StoreWording {
             WriterAlert(title: QuitWording.changedOnDiskTitle, message: message, buttons: buttons)
         }
         switch error {
-        case .externallyModified(.changed):
+        case .externallyModified(.changed), .externallyModified(.changedAndKept):
             return alert(
                 "Another program, such as a sync service or Scene It on another Mac, saved a different "
                     + "version of this book while you were working. Scene It stopped saving so neither "

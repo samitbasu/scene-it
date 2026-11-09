@@ -302,6 +302,69 @@ class SceneTextView: KeyboardTextView {
         super.doCommand(by: selector)
     }
 
+    // MARK: A review's page (ADR 0042)
+
+    /// The text of a `.commentsOnly` view can't change, so its menu offers nothing that would
+    /// change it or its styles: no Cut or Paste, and no Font, Substitutions, Transformations or
+    /// Layout Orientation.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard let menu, editability() == .commentsOnly else { return menu }
+        for item in menu.items where Self.changesText(item) {
+            menu.removeItem(item)
+        }
+        Self.tidySeparators(of: menu)
+        return menu
+    }
+
+    private static let textChangingActions: Set<Selector> = [
+        #selector(cut(_:)), #selector(paste(_:)), #selector(pasteAsPlainText(_:)),
+        #selector(pasteAsRichText(_:)),
+        #selector(delete(_:)), #selector(NSFontManager.orderFrontFontPanel(_:)),
+        #selector(NSFontManager.addFontTrait(_:)), #selector(underline(_:)),
+        #selector(orderFrontSubstitutionsPanel(_:)), #selector(uppercaseWord(_:)),
+        #selector(changeLayoutOrientation(_:)),
+    ]
+
+    private static func changesText(_ item: NSMenuItem) -> Bool {
+        if let action = item.action, textChangingActions.contains(action) { return true }
+        return item.submenu?.items.contains(where: changesText) ?? false
+    }
+
+    private static func tidySeparators(of menu: NSMenu) {
+        var previousIsSeparator = true
+        for item in menu.items {
+            if item.isSeparatorItem, previousIsSeparator {
+                menu.removeItem(item)
+            } else {
+                previousIsSeparator = item.isSeparatorItem
+            }
+        }
+        if let last = menu.items.last, last.isSeparatorItem { menu.removeItem(last) }
+    }
+
+    /// Find has no Replace on a `.commentsOnly` view.
+    override func performTextFinderAction(_ sender: Any?) {
+        guard !refusesReplace(sender) else { return }
+        super.performTextFinderAction(sender)
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(performTextFinderAction(_:)), refusesReplace(item) { return false }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    private static let replaceActions: Set<NSTextFinder.Action> = [
+        .showReplaceInterface, .replace, .replaceAll, .replaceAndFind, .replaceAllInSelection,
+    ]
+
+    private func refusesReplace(_ sender: Any?) -> Bool {
+        guard editability() == .commentsOnly, let tag = (sender as? NSValidatedUserInterfaceItem)?.tag,
+            let action = NSTextFinder.Action(rawValue: tag)
+        else { return false }
+        return Self.replaceActions.contains(action)
+    }
+
     // MARK: The pasteboard (decision 0017)
 
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {

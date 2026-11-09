@@ -101,7 +101,7 @@ final class SceneTextEditor: NSObject {
         } else if text != shown {
             load(scene, text, caret: view.selectedRange().location)
         }
-        let editable = editability == .editable
+        let editable = editability != .readOnly
         if view.isEditable != editable {
             view.isEditable = editable
             if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
@@ -204,7 +204,16 @@ final class SceneTextEditor: NSObject {
     private func push(_ change: BodyChange, to scene: SceneID) {
         let comments = addedComments
         addedComments = []
-        guard let accepted = book.apply(change, to: scene, in: part, adding: comments) else { return }
+        guard let accepted = book.apply(change, to: scene, in: part, adding: comments) else {
+            // A backstop: the view's veto should have refused what the model won't take. The
+            // model, the source of truth, wins, and the history that recorded the edit goes.
+            Log.editor.error(
+                "the model refused an edit the view took; reloading the editor from the model",
+                ["part": .symbol(part.logName)])
+            sync = .awaitingReload
+            DispatchQueue.main.async { [weak self] in self?.reload(scene, clearingUndo: .yes) }
+            return
+        }
         shown = modelText(of: scene) ?? []
         if accepted != change.paragraphs {
             // The model dropped comment ids it has no comment for; the view must too.
@@ -330,11 +339,13 @@ final class SceneTextEditor: NSObject {
     /// of it as of any edit, with `comments` added to the scene; one undoable change of the
     /// view's. Returns whether the view took it.
     private func rewrite(
-        _ ranges: [NSRange], adding comments: [Comment] = [],
+        _ ranges: [NSRange], adding comments: [Comment] = [], as kind: Rewrite = .formatting,
         by change: ([NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]
     ) -> Bool {
         guard let view = textView, let storage = view.textStorage else { return false }
         view.breakUndoCoalescing()
+        if kind == .comments { view.commentChange = .underWay }
+        defer { view.commentChange = .none }
         guard view.shouldChangeText(inRanges: ranges.map(NSValue.init(range:)), replacementStrings: nil)
         else { return false }
         var runs: [(NSRange, [NSAttributedString.Key: Any])] = []
@@ -350,6 +361,12 @@ final class SceneTextEditor: NSObject {
         addedComments = []
         view.didChangeText()
         return true
+    }
+
+    private enum Rewrite {
+        case formatting
+        /// Only comment ids change, which a review's page takes (ADR 0042).
+        case comments
     }
 
     // MARK: Comments (PLAN §8.1), on the page only (ADR 0035)
@@ -403,7 +420,10 @@ final class SceneTextEditor: NSObject {
                 $0.removeComments(Set(added.map(\.id)), from: scene)
             }
         }
-        guard rewrite(ranges, adding: added, by: { CommentEdit.add(id).applied(to: $0, in: role) }) else {
+        guard
+            rewrite(
+                ranges, adding: added, as: .comments, by: { CommentEdit.add(id).applied(to: $0, in: role) })
+        else {
             return false
         }
         undo.setActionName(name)
@@ -425,12 +445,16 @@ final class SceneTextEditor: NSObject {
         undo.beginUndoGrouping()
         defer { undo.endUndoGrouping() }
         let ranges = commenting.storage.ranges(commentedBy: id)
-        guard ranges.isEmpty || rewrite(ranges, by: { CommentEdit.remove(id).applied(to: $0, in: role) })
+        guard
+            ranges.isEmpty
+                || rewrite(ranges, as: .comments, by: { CommentEdit.remove(id).applied(to: $0, in: role) })
         else {
             return false
         }
         guard book.dismiss(id, in: commenting.scene) else {
-            if !ranges.isEmpty { _ = rewrite(ranges, by: { CommentEdit.add(id).applied(to: $0, in: role) }) }
+            if !ranges.isEmpty {
+                _ = rewrite(ranges, as: .comments, by: { CommentEdit.add(id).applied(to: $0, in: role) })
+            }
             return false
         }
         undo.setActionName(CommentWording.dismissUndoName)
@@ -501,7 +525,7 @@ final class SceneTextEditor: NSObject {
     /// The selection's formats, while the text can be formatted.
     private var formattingSelection: SelectionFormatting? {
         guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here,
-            view.isEditable
+            view.editability() == .editable
         else { return nil }
         let ranges = view.selectedRanges.map(\.rangeValue)
         return ranges.contains(where: { $0.length > 0 })
@@ -532,7 +556,7 @@ final class SceneTextEditor: NSObject {
     }
 
     func paste(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
-        guard let scene, let view = textView, view.isEditable else { return false }
+        guard let scene, let view = textView, view.editability() == .editable else { return false }
         if type == .pageClip {
             guard let data = pasteboard.data(forType: type), let clip = PageClip(data: data),
                 let pasted = book.resolve(clip, into: scene), !pasted.lines.isEmpty
@@ -603,9 +627,14 @@ final class SceneTextEditor: NSObject {
 }
 
 extension Editability {
-    /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
-    init(_ book: AppOpenBook, in environment: EnvironmentValues) {
-        self = book.isEditable && environment.isEnabled ? .editable : .readOnly
+    /// As the book takes `edit`, unless SwiftUI disabled the view, as under a sheet.
+    init(_ book: AppOpenBook, for edit: EditKind, in environment: EnvironmentValues) {
+        self = environment.isEnabled ? Editability(book, for: edit) : .readOnly
+    }
+
+    /// The page's, unless SwiftUI disabled it.
+    static func page(_ book: AppOpenBook, in environment: EnvironmentValues) -> Editability {
+        environment.isEnabled ? page(book) : .readOnly
     }
 }
 
