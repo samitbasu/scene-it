@@ -10,7 +10,7 @@ private func id(_ raw: String) -> SceneID {
 /// what each drop changes.
 @Suite struct SceneDropTests {
     @Test func aCardOverAnotherShowsTheSlotBeforeItWhichStaysAsThePointerMovesOntoTheSlot() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         drop.begin(.card(id("a")))
         #expect(drop.slot == nil && !drop.isOverTray)
         drop.enter(.card(id("c")))
@@ -24,7 +24,7 @@ private func id(_ raw: String) -> SceneID {
     }
 
     @Test func theSlotGoesWhenThePointerLeavesTheGrid() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         drop.begin(.tile(id("x")))
         drop.enter(.end)
         #expect(drop.slot == .end)
@@ -33,7 +33,7 @@ private func id(_ raw: String) -> SceneID {
     }
 
     @Test func aCardOverTheTrayLightsItAndIsCutThere() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         drop.begin(.card(id("a")))
         drop.enter(.card(id("b")))
         drop.exit(.card(id("b")))
@@ -47,7 +47,7 @@ private func id(_ raw: String) -> SceneID {
 
     /// The order AppKit reports a move between zones in doesn't matter.
     @Test func enteringBeforeLeavingKeepsTheNewZone() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         drop.begin(.card(id("a")))
         drop.enter(.card(id("b")))
         drop.enter(.tray)
@@ -56,7 +56,7 @@ private func id(_ raw: String) -> SceneID {
     }
 
     @Test func aTileIsRestoredInTheGridAndTheTrayRefusesIt() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         drop.begin(.tile(id("x")))
         #expect(!drop.accepts(.tray))
         drop.enter(.tray)
@@ -71,8 +71,35 @@ private func id(_ raw: String) -> SceneID {
         #expect(drop.drop(on: .end) == .restore(id("x"), to: .end))
     }
 
+    /// A card's slot just before itself, or just before the card after it, would change nothing,
+    /// so it doesn't show; a tile's always does.
+    @Test func noSlotShowsWhereACardWouldStayWhereItIs() {
+        let scenes = ["a", "b", "c"].map {
+            BookScene(
+                id: id($0), modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle($0))
+        }
+        let book = Book(title: "Novel", scenes: scenes, boneyard: [])
+        var drop = SceneDropState.idle
+        drop.begin(.card(id("b")))
+        #expect(drop.drag?.scene == id("b"))
+        for (zone, shown) in [
+            (DropZone.card(id("b")), nil), (.card(id("c")), nil), (.card(id("a")), StorySlot.before(id("a"))),
+            (.end, .end),
+        ] {
+            drop.enter(zone)
+            #expect(drop.slot(in: book) == shown)
+            drop.exit(zone)
+        }
+        drop.begin(.card(id("c")))
+        drop.enter(.end)
+        #expect(drop.slot == .end && drop.slot(in: book) == nil, "the last card at the end")
+        drop.begin(.tile(id("x")))
+        drop.enter(.card(id("a")))
+        #expect(drop.slot(in: book) == .before(id("a")))
+    }
+
     @Test func nothingIsAcceptedWithoutADragAndADroppedSlotNeedsASlot() {
-        var drop = SceneDropState()
+        var drop = SceneDropState.idle
         #expect(!drop.accepts(.card(id("a"))))
         #expect(drop.drop(on: .card(id("a"))) == nil)
         drop.begin(.card(id("a")))
@@ -80,7 +107,7 @@ private func id(_ raw: String) -> SceneID {
         drop.begin(.card(id("a")))
         drop.enter(.end)
         drop.end()
-        #expect(drop == SceneDropState())
+        #expect(drop == .idle)
     }
 
     // MARK: The arrow keys

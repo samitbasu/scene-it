@@ -22,12 +22,15 @@ final class ScenesSheetModel {
     var field: CardField?
     /// The card the arrow keys, Delete and Return act on (PLAN §7.2).
     var focused: SceneID?
-    var drop = SceneDropState()
+    var drop = SceneDropState.idle
     /// The size of the grid's cards, laid out: how many go across, for the up and down arrows.
     @ObservationIgnored var gridSize = CGSize.zero
     @ObservationIgnored let ticker: MinuteTicker
     /// The sheet's own focus, which takes the keys when no field has them.
     @ObservationIgnored let keyFocus = UndoFocusAnchor()
+    /// Watches for the mouse button's release while a drag is under way, since a drag dropped
+    /// nowhere tells no drop zone it ended.
+    @ObservationIgnored private var dragEndMonitor: Any?
 
     /// The scene whose title is being typed on its card.
     var titling: SceneID? {
@@ -41,6 +44,10 @@ final class ScenesSheetModel {
 
     init(ticker: MinuteTicker = MinuteTicker(clock: ContinuousClock())) {
         self.ticker = ticker
+    }
+
+    isolated deinit {
+        stopWatchingTheDrag()
     }
 
     /// A card of the grid: a story scene and its place in the whole story, from 1.
@@ -62,6 +69,7 @@ final class ScenesSheetModel {
     /// taken the field away, the sheet takes them, unless something else did meanwhile. Taking
     /// them at once leaves the field in the window.
     func returnKeys(from view: NSView?) {
+        focused = nil
         view?.window?.makeFirstResponder(nil)
         DispatchQueue.main.async { [keyFocus] in
             guard let window = keyFocus.view?.window, window.firstResponder === window else { return }
@@ -78,11 +86,50 @@ final class ScenesSheetModel {
 
     /// Esc in the sheet: closes a card's field first, keeping a title typed there (the field
     /// accepts it as it goes), and gives the sheet the keys again; the next Esc closes the sheet.
-    func closeCardField() -> EscapeOutcome {
+    func closeCardField() -> KeyOutcome {
         guard field != nil else { return .passedOn }
         field = nil
         returnKeys(from: keyFocus.view)
         return .handled
+    }
+
+    /// The sheet's own focus gained or lost the keys. Losing them (to the filter, a card's field,
+    /// anything) drops the card focus, so the keys never act on a card the writer has stopped
+    /// looking at.
+    func sheetKeys(_ change: FocusChange) {
+        if change == .lost { focused = nil }
+    }
+
+    /// Forgets a card field or focus whose scene has left the story (cut, or its add undone).
+    func keepToTheStory(of book: Book) {
+        let story = Set(book.scenes.map(\.id))
+        if let scene = titling ?? tagging, !story.contains(scene) { field = nil }
+        if let focused, !story.contains(focused) { self.focused = nil }
+    }
+
+    func beginDrag(_ drag: SceneDrag) {
+        drop.begin(drag)
+        stopWatchingTheDrag()
+        dragEndMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .leftMouseDown]) {
+            [weak self] event in
+            MainActor.assumeIsolated { self?.dragMayHaveEnded(drag) }
+            return event
+        }
+    }
+
+    /// The mouse button went up or down after `drag` began: a drop has happened by now, or never
+    /// will. On the next turn, after any drop, a drag still under way is over.
+    func dragMayHaveEnded(_ drag: SceneDrag) {
+        stopWatchingTheDrag()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.drop.drag == drag else { return }
+            self.drop.end()
+        }
+    }
+
+    private func stopWatchingTheDrag() {
+        if let dragEndMonitor { NSEvent.removeMonitor(dragEndMonitor) }
+        dragEndMonitor = nil
     }
 
     func close() {
@@ -90,6 +137,7 @@ final class ScenesSheetModel {
         field = nil
         focused = nil
         drop.end()
+        stopWatchingTheDrag()
     }
 }
 
@@ -127,6 +175,7 @@ struct ScenesActions {
             case .atEnd: nil
             }
         guard let added = book.addScene(after: after) else { return nil }
+        model.focused = nil
         model.field = .titling(added)
         return added
     }
@@ -139,6 +188,7 @@ struct ScenesActions {
     /// A card's + tag chip: opens the field on that card, closing any other.
     func startTagging(_ scene: SceneID) {
         guard book.isEditable else { return }
+        model.focused = nil
         model.field = .tagging(scene)
     }
 
@@ -160,22 +210,22 @@ struct ScenesActions {
     }
 
     /// The tile's Delete Permanently…: asks, then hides the scene in the book's Deleted section
-    /// (ADR 0031). If it was open, no scene is.
+    /// (ADR 0031). If it was open, no scene is. If the book closed or was read again while the
+    /// writer was asked, nothing is deleted, and the writer is told.
     func deletePermanently(_ scene: SceneID) async {
         guard book.isEditable, let shown = book.book.boneyard.first(where: { $0.id == scene }) else { return }
         guard await store.ask(BoneyardWording.confirmDelete(shown)) == .delete else { return }
-        book.deleteFromBoneyard(scene)
+        guard store.current === book, book.deleteFromBoneyard(scene) else {
+            await store.tell(BoneyardWording.notDeleted(shown))
+            return
+        }
     }
 
     /// A card or tile starts to be dragged: what the drag carries, which only this app reads.
     func beginDrag(_ drag: SceneDrag) -> NSItemProvider {
-        model.drop.begin(drag)
-        let id =
-            switch drag {
-            case .card(let scene), .tile(let scene): scene
-            }
+        model.beginDrag(drag)
         let provider = NSItemProvider()
-        let data = Data(id.rawValue.utf8)
+        let data = Data(drag.scene.rawValue.utf8)
         provider.registerDataRepresentation(
             forTypeIdentifier: UTType.sceneDrag.identifier, visibility: .ownProcess
         ) {
@@ -253,6 +303,8 @@ enum CardKey: Equatable {
     /// Return or Enter: the focused card's scene opens.
     case open
 
+    /// Arrows repeat while held; Delete and Return act once per press, so holding Delete can't
+    /// cut card after card.
     init?(_ event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let step: GridStep? =
@@ -270,6 +322,7 @@ enum CardKey: Equatable {
         case (nil, .carriageReturn?, []), (nil, .enter?, []): self = .open
         default: return nil
         }
+        if event.isARepeat, self == .cut || self == .open { return nil }
     }
 }
 

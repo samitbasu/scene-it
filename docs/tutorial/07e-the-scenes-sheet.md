@@ -220,7 +220,13 @@ uses the older pair:
 `SceneDropState` (core, pure, tested) turns those enter and exit events into what the sheet draws:
 the slot shows before the card the pointer entered, or at the end over the + New scene tile, and it
 stays while the pointer is over any zone of the grid, including the slot itself. That matters
-because inserting the slot pushes the card it stands before out from under the pointer.
+because inserting the slot pushes the card it stands before out from under the pointer. It's an
+enum, `.idle` or `.dragging(drag, inside:, lastSlot:)`, so there's no "inside" set without a drag.
+`slot(in:)` hides a "Move here" that would leave the card where it is.
+
+A drag dropped nowhere tells no drop zone that it ended, and `onDrag` has no end callback. So
+`beginDrag` installs a local event monitor (`NSEvent.addLocalMonitorForEvents`) for the mouse
+button; when it fires, the drag still recorded on the next turn, after any drop, is over.
 
 The drop zones and drag sources are attached only while the book takes edits. A modifier that's
 added or removed changes the view's identity (`_ConditionalContent`), so it's decided by
@@ -234,9 +240,11 @@ ADR 0036 (no drag and drop of *text*) is about the editors; it doesn't reach the
 The sheet's `UndoFocusView` (07) already holds the focus while the sheet is open, so it takes the
 keys too: its `keyHandler` gets each key before AppKit's key bindings, and `CardKey(event)` reads it
 as `.focus(step)`, `.move(step)` (with Option), `.cut` (Delete) or `.open` (Return). A key that does
-nothing (an arrow at the end of the grid) is passed on, and AppKit beeps. When a card's title or
+nothing (an arrow at the end of the grid) is passed on, and AppKit beeps. Arrows repeat while held;
+Delete and Return ignore `event.isARepeat`, so holding Delete cuts one card. When a card's title or
 + tag field closes, the sheet takes the keys back on the next turn, once SwiftUI has removed the
-field.
+field. The card focus goes whenever the sheet's view loses the keys (its `focusChanged`), so Delete
+can never act on a card the writer stopped looking at.
 
 ### Deleting for good
 

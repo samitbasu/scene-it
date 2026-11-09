@@ -188,6 +188,27 @@ struct SceneChangeTests {
         }
     }
 
+    /// An Errors-tab Fix can change a scene's id between a move and its undo; the undo still
+    /// finds the scene.
+    @Test func undoFindsAMovedSceneWhoseIDAFixChanged() async throws {
+        let text = Self.text.replacingOccurrences(
+            of: "- [line] kept since an earlier session\n",
+            with: "- [line] kept since an earlier session\n- [metadata] id: renamed\n")
+        try await withBook(text) { _, book, _ in
+            let renamed = SceneID(rawValue: "renamed")
+            #expect(book.change(.move(Self.letter, to: .end)))
+            let ref = try #require(
+                book.book.errorGroups.first { $0.owner == .scene(Self.letter) }?.refs.last)
+            #expect(book.repairError(ref, as: "id: renamed") == .repaired)
+            try #require(book.book.scenes.last?.id == renamed, "precondition: the Fix changed the id")
+
+            book.structureUndo.undo()
+            #expect(book.book.scenes.map(\.id) == [Self.ferry, renamed, Self.market])
+            book.structureUndo.redo()
+            #expect(book.book.scenes.map(\.id) == [Self.ferry, Self.market, renamed])
+        }
+    }
+
     @Test func aReadOnlyBookRefusesEveryChange() async throws {
         try await withTemporaryFolder { folder in
             let damaged = Self.text.replacingOccurrences(of: "id: ferry", with: "id: ferry boat")

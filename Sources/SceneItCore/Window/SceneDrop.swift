@@ -2,6 +2,12 @@
 public enum SceneDrag: Hashable, Sendable {
     case card(SceneID)
     case tile(SceneID)
+
+    public var scene: SceneID {
+        switch self {
+        case .card(let scene), .tile(let scene): scene
+        }
+    }
 }
 
 /// Where a drag in the Scenes sheet can be dropped.
@@ -21,16 +27,16 @@ public enum DropZone: Hashable, Sendable {
 /// the last card or the end tile put it while the pointer is over any grid zone, the slot
 /// included, so it doesn't vanish as it pushes the card it stands before out from under the
 /// pointer.
-public struct SceneDropState: Hashable, Sendable {
-    public private(set) var drag: SceneDrag?
-    private var inside: Set<DropZone> = []
-    private var lastSlot: StorySlot?
+public enum SceneDropState: Hashable, Sendable {
+    case idle
+    case dragging(SceneDrag, inside: Set<DropZone>, lastSlot: StorySlot?)
 
-    public init() {}
+    public var drag: SceneDrag? {
+        if case .dragging(let drag, _, _) = self { drag } else { nil }
+    }
 
     public mutating func begin(_ drag: SceneDrag) {
-        self = SceneDropState()
-        self.drag = drag
+        self = .dragging(drag, inside: [], lastSlot: nil)
     }
 
     /// Whether a drop on `zone` would do something: a card goes anywhere, a tile only into the
@@ -43,28 +49,41 @@ public struct SceneDropState: Hashable, Sendable {
     }
 
     public mutating func enter(_ zone: DropZone) {
-        guard accepts(zone) else { return }
+        guard accepts(zone), case .dragging(let drag, var inside, let lastSlot) = self else { return }
         inside.insert(zone)
-        if let slot = Self.slot(of: zone) { lastSlot = slot }
+        self = .dragging(drag, inside: inside, lastSlot: Self.slot(of: zone) ?? lastSlot)
     }
 
     public mutating func exit(_ zone: DropZone) {
+        guard case .dragging(let drag, var inside, let lastSlot) = self else { return }
         inside.remove(zone)
+        self = .dragging(drag, inside: inside, lastSlot: lastSlot)
     }
 
-    /// Where the slot shows, while the pointer is over the grid.
+    /// Where the slot is, while the pointer is over the grid.
     public var slot: StorySlot? {
-        inside.contains { $0 != .tray } ? lastSlot : nil
+        guard case .dragging(_, let inside, let lastSlot) = self, inside.contains(where: { $0 != .tray })
+        else { return nil }
+        return lastSlot
+    }
+
+    /// Where the slot shows in `book`: `slot`, unless dropping the card there would leave it
+    /// where it is.
+    public func slot(in book: Book) -> StorySlot? {
+        guard let slot else { return nil }
+        guard case .card(let scene)? = drag else { return slot }
+        let here = book.visiblePlace(of: scene).map { ScenePlace(part: $0.part, index: $0.index) }
+        return book.destination(of: .move(scene, to: slot)) == here ? nil : slot
     }
 
     public var isOverTray: Bool {
-        inside.contains(.tray)
+        if case .dragging(_, let inside, _) = self { inside.contains(.tray) } else { false }
     }
 
     /// The drop on `zone`: what it changes, if anything. The drag is over either way.
     public mutating func drop(on zone: DropZone) -> SceneChange? {
-        defer { self = SceneDropState() }
-        guard accepts(zone), let drag else { return nil }
+        defer { self = .idle }
+        guard accepts(zone), case .dragging(let drag, _, let lastSlot) = self else { return nil }
         let slot = Self.slot(of: zone) ?? lastSlot
         switch (drag, zone) {
         case (.card(let scene), .tray): return .cut(scene)
@@ -75,7 +94,7 @@ public struct SceneDropState: Hashable, Sendable {
 
     /// Ends a drag that wasn't dropped here.
     public mutating func end() {
-        self = SceneDropState()
+        self = .idle
     }
 
     private static func slot(of zone: DropZone) -> StorySlot? {

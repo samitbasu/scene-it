@@ -170,6 +170,11 @@ public final class BookStore<C: Clock<Duration>> {
         await prompts.ask(alert)
     }
 
+    /// Tells the writer, the way the store tells its own news.
+    public func tell(_ notice: Notice) async {
+        await prompts.tell(notice)
+    }
+
     /// Creates a book from the start state; refused while a book is open (ADR 0038).
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {

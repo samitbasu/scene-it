@@ -9,12 +9,12 @@ import Testing
 /// A key as the window gets it from `NSApplication.sendEvent`: offered first as a key
 /// equivalent, then, if nothing takes it, sent to the window for its first responder.
 @MainActor
-func press(_ key: TestKey, in window: NSWindow) throws {
+func press(_ key: TestKey, in window: NSWindow, _ press: KeyPress = .first) throws {
     let event = try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: key.characters,
-            charactersIgnoringModifiers: key.characters, isARepeat: false, keyCode: key.keyCode))
+            charactersIgnoringModifiers: key.characters, isARepeat: press == .repeated, keyCode: key.keyCode))
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
@@ -41,6 +41,11 @@ private func type(_ text: String, in window: NSWindow) throws {
                 charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: 0))
         window.sendEvent(event)
     }
+}
+
+/// A key's first press, or the repeat the key sends while it's held.
+enum KeyPress {
+    case first, repeated
 }
 
 enum TestKey: Equatable {

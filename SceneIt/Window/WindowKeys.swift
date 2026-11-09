@@ -64,7 +64,7 @@ final class WindowKeys {
 
     /// Closes what Esc closes now, or says there's nothing, so the focused view's own Esc applies.
     @discardableResult
-    func escape(from entrance: EscapeEntrance) -> EscapeOutcome {
+    func escape(from entrance: EscapeEntrance) -> KeyOutcome {
         act(on: EscapeLayer.escape(in: escapeContext), from: entrance, restoring: nil)
     }
 
@@ -72,7 +72,7 @@ final class WindowKeys {
     /// decided now, and closed on the next turn, only if it's still what Esc would close. Moving
     /// the focus while the field handles its key (as closing the find bar does) loses what was
     /// typed in it.
-    func escapeAfterThisKey(from entrance: EscapeEntrance) -> EscapeOutcome {
+    func escapeAfterThisKey(from entrance: EscapeEntrance) -> KeyOutcome {
         let decided = EscapeLayer.escape(in: escapeContext)
         if decided == .passOn { return .passedOn }
         let focus = page.currentFocus
@@ -92,7 +92,7 @@ final class WindowKeys {
     private func act(
         on result: EscapeResult, from entrance: EscapeEntrance, restoring focus: PageFocus.Focus?
     )
-        -> EscapeOutcome
+        -> KeyOutcome
     {
         #if DEBUG
             lastEscape = (entrance, result)
@@ -140,7 +140,8 @@ final class WindowKeys {
     }
 }
 
-enum EscapeOutcome {
+/// Whether a view took a key: Esc, or a key the Scenes sheet's cards take.
+enum KeyOutcome {
     case handled, passedOn
 }
 
@@ -165,7 +166,7 @@ enum WindowPopover: Hashable {
 /// it first (a field on a Scenes sheet card), if anything.
 struct EscapeKey: View {
     let keys: WindowKeys?
-    var inner: () -> EscapeOutcome = { .passedOn }
+    var inner: () -> KeyOutcome = { .passedOn }
 
     var body: some View {
         Button("") {

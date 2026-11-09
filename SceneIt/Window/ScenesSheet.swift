@@ -41,8 +41,10 @@ struct ScenesSheet: View {
         .background(
             UndoFocusHolder(
                 role: .sheet, anchor: model.keyFocus,
-                keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn })
+                keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
+                focusChanged: { model.sheetKeys($0) })
         )
+        .onChange(of: book.book.scenes.map(\.id)) { model.keepToTheStory(of: book.book) }
         .background(EscapeKey(keys: keys, inner: { model.closeCardField() }))
         .task { await model.ticker.run() }
     }
@@ -108,7 +110,7 @@ private struct ScenesGrid: View {
 
     var body: some View {
         let shown = model.cards(of: book.book)
-        let entries = GridEntry.entries(shown, drop: model.drop)
+        let entries = GridEntry.entries(shown, drag: model.drop.drag, slot: model.drop.slot(in: book.book))
         VStack(alignment: .leading, spacing: WindowMetrics.Scenes.gap) {
             if book.book.scenes.isEmpty {
                 message(
@@ -144,12 +146,12 @@ private struct ScenesGrid: View {
     }
 
     private var columns: [GridItem] {
-        let width =
-            switch view {
-            case .cards: WindowMetrics.Scenes.cardWidth
-            case .lightTable: WindowMetrics.Scenes.tileWidth
-            }
-        return [GridItem(.adaptive(minimum: width), spacing: WindowMetrics.Scenes.gap, alignment: .top)]
+        [
+            GridItem(
+                .adaptive(minimum: WindowMetrics.Scenes.minimumCardWidth(view)),
+                spacing: WindowMetrics.Scenes.gap,
+                alignment: .top)
+        ]
     }
 
     @ViewBuilder private func card(_ scene: BookScene, number: Int) -> some View {
@@ -199,9 +201,9 @@ private enum GridEntry: Identifiable {
     }
 
     /// The cards, with the slot before the card the drag is over, or after the last.
-    static func entries(_ cards: [ScenesSheetModel.Card], drop: SceneDropState) -> [GridEntry] {
+    static func entries(_ cards: [ScenesSheetModel.Card], drag: SceneDrag?, slot: StorySlot?) -> [GridEntry] {
         var entries = cards.map(GridEntry.card)
-        guard let drag = drop.drag, let slot = drop.slot else { return entries }
+        guard let drag, let slot else { return entries }
         let index: Int? =
             switch slot {
             case .end: entries.endIndex
@@ -248,12 +250,14 @@ extension WindowMetrics {
         /// How many columns the grid's adaptive layout makes across `size`, as `LazyVGrid` counts
         /// them.
         static func columns(fitting size: CGSize, _ view: ScenesView) -> Int {
-            let minimum =
-                switch view {
-                case .cards: cardWidth
-                case .lightTable: tileWidth
-                }
-            return max(1, Int(((size.width + gap) / (minimum + gap)).rounded(.down)))
+            max(1, Int(((size.width + gap) / (minimumCardWidth(view) + gap)).rounded(.down)))
+        }
+
+        static func minimumCardWidth(_ view: ScenesView) -> CGFloat {
+            switch view {
+            case .cards: cardWidth
+            case .lightTable: tileWidth
+            }
         }
         static let excerptSize: CGFloat = 15
         static let titleSize: CGFloat = 14

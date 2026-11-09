@@ -39,7 +39,7 @@ struct BoneyardTests {
             actions.enter(.slot)
             #expect(harness.scenes.drop.slot == .before(story[0]), "and stays as the pointer moves onto it")
             #expect(actions.drop(on: .slot))
-            #expect(harness.scenes.drop == SceneDropState(), "the drag is over")
+            #expect(harness.scenes.drop == .idle, "the drag is over")
             #expect(harness.book.book.scenes.map(\.id) == [story[2], story[0], story[1]])
             #expect(harness.modes.mode == .scenes)
 
@@ -170,6 +170,32 @@ struct BoneyardTests {
             try await harness.expectUndoMenu(undo: BoneyardWording.deleteUndoName, redo: nil)
             try harness.undo.undo()
             #expect(harness.book.book.boneyard.map(\.id) == [brother.id])
+            await eventually { harness.book.status == .saved }
+            let undone = String(
+                decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
+            #expect(undone.contains("# Boneyard\n\n## The brother\n"), "back in the Boneyard in the file")
+            #expect(!undone.contains("# Deleted"))
+        }
+    }
+
+    /// The book closes while the writer is asked: nothing is deleted, and the writer is told.
+    @Test func aDeleteAskedAsTheBookClosesTellsTheWriterAndDeletesNothing() async throws {
+        let prompts = AnsweringPrompts([DeleteChoice.delete])
+        try await withScenesSheet(
+            boneyard: [brother], books: BookController(role: .testHost, prompts: prompts)
+        ) {
+            harness, actions in
+            let store = harness.store
+            prompts.beforeAnswering = { _ = await store.closeBook() }
+            await actions.deletePermanently(brother.id)
+            #expect(
+                prompts.titles == [
+                    BoneyardWording.confirmDelete(brother).title, BoneyardWording.notDeleted(brother).title,
+                ])
+            #expect(harness.book.book.boneyard.map(\.id) == [brother.id])
+            let saved = String(
+                decoding: try Data(contentsOf: harness.url.appending(path: "book.md")), as: UTF8.self)
+            #expect(!saved.contains("# Deleted"))
         }
     }
 
@@ -179,15 +205,18 @@ struct BoneyardTests {
     @Test func theKeysFocusMoveCutAndOpenCards() async throws {
         try await withScenesSheet { harness, actions in
             let story = harness.book.book.scenes.map(\.id)
+            harness.book.select(story[1])
             await eventually { harness.window.firstResponder is UndoFocusView }
             try #require(
                 harness.window.firstResponder is UndoFocusView, "precondition: the sheet has the keys")
             let structure = harness.book.structureUndo
             try asSeparateEvents(structure) {
                 try press(.arrow(.right), in: harness.window)
-                #expect(harness.scenes.focused == story[0], "the open scene's card")
-                try press(.arrow(.right), in: harness.window)
-                #expect(harness.scenes.focused == story[1])
+                #expect(harness.scenes.focused == story[1], "the open scene's card, not the first")
+                try press(.arrow(.left), in: harness.window)
+                #expect(harness.scenes.focused == story[0])
+                try press(.arrow(.right), in: harness.window, .repeated)
+                #expect(harness.scenes.focused == story[1], "arrows repeat")
                 try press(.arrow(.down), in: harness.window)
                 #expect(harness.scenes.focused == story[1], "one row: nothing below")
 
@@ -203,6 +232,8 @@ struct BoneyardTests {
                 structure.undo()
                 #expect(harness.book.book.scenes.map(\.id) == [story[1], story[0], story[2]])
 
+                try press(.delete, in: harness.window, .repeated)
+                #expect(harness.book.book.boneyard.isEmpty, "a held Delete cuts nothing more")
                 try anEvent(structure) { try press(.delete, in: harness.window) }
                 #expect(harness.book.book.scenes.map(\.id) == [story[0], story[2]])
                 #expect(harness.book.book.boneyard.map(\.id) == [story[1]])
@@ -242,6 +273,117 @@ struct BoneyardTests {
             }
             #expect(harness.window.firstResponder is UndoFocusView)
             #expect(harness.modes.mode == .scenes)
+        }
+    }
+
+    /// The card focus goes as soon as anything else takes the keys, so Delete or Return can't act
+    /// on a card the writer has stopped looking at; and while a field has the keys, they edit its
+    /// text and change nothing else.
+    @Test func whileAFieldHasTheKeysTheyEditItAndNoCardIsFocused() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            await eventually { harness.window.firstResponder is UndoFocusView }
+            @MainActor func focusACard() throws {
+                try press(.arrow(.right), in: harness.window)
+                try #require(harness.scenes.focused != nil, "precondition: a card has the focus")
+            }
+            @MainActor func pressEverything() throws {
+                for key: TestKey in [.delete, .return, .arrow(.left), .arrow(.right), .optionArrow(.left)] {
+                    try press(key, in: harness.window)
+                }
+            }
+
+            // The filter.
+            try focusACard()
+            let filter = try #require(harness.filterField)
+            #expect(harness.window.makeFirstResponder(filter))
+            #expect(harness.scenes.focused == nil)
+            let editor = try #require(filter.currentEditor() as? NSTextView)
+            editor.insertText("ar", replacementRange: editor.selectedRange())
+            let before = harness.book.book
+            try pressEverything()
+            #expect(harness.book.book == before)
+            #expect(harness.modes.mode == .scenes)
+            await eventually { harness.scenes.filter == "a" }
+            #expect(harness.scenes.filter == "a", "Delete took a letter of the filter")
+            harness.scenes.returnKeys(from: filter)
+            await eventually { harness.window.firstResponder is UndoFocusView }
+
+            // A card's + tag field.
+            try focusACard()
+            actions.startTagging(story[1])
+            #expect(harness.scenes.focused == nil, "opening a field drops the card focus")
+            await eventually { harness.window.firstResponder is NSTextView }
+            try press(.delete, in: harness.window)
+            try press(.arrow(.left), in: harness.window)
+            #expect(harness.book.book == before)
+            try press(.escape, in: harness.window)
+            await eventually { harness.window.firstResponder is UndoFocusView }
+            #expect(harness.scenes.focused == nil, "the hand-back focuses no card")
+            try press(.delete, in: harness.window)
+            #expect(harness.book.book == before, "so Delete cuts nothing")
+
+            // A new card's title field.
+            try focusACard()
+            let added = try #require(actions.add(.atEnd))
+            #expect(harness.scenes.focused == nil)
+            await eventually { harness.window.firstResponder is NSTextView }
+            let title = try #require(harness.window.firstResponder as? NSTextView)
+            title.insertText("Fog", replacementRange: title.selectedRange())
+            try press(.delete, in: harness.window)
+            try press(.arrow(.left), in: harness.window)
+            try press(.optionArrow(.left), in: harness.window)
+            #expect(harness.book.book.scene(added)?.title == "Fo", "Delete edits the title")
+            #expect(harness.book.book.scenes.map(\.id) == story + [added], "and moves nothing")
+            #expect(harness.book.book.boneyard.isEmpty)
+        }
+    }
+
+    /// A drag dropped nowhere tells no drop zone; the mouse button's release ends it, so the card
+    /// doesn't stay faded.
+    @Test func aDragDroppedNowhereEndsWhenTheMouseButtonGoesUp() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            _ = actions.beginDrag(.card(story[0]))
+            actions.enter(.card(story[1]))
+            actions.exit(.card(story[1]))
+            #expect(harness.scenes.drop.drag == .card(story[0]), "precondition: the drag is under way")
+            let up = try #require(
+                NSEvent.mouseEvent(
+                    with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: harness.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: 0))
+            NSApp.sendEvent(up)
+            await eventually { harness.scenes.drop == .idle }
+            #expect(harness.scenes.drop == .idle)
+            #expect(harness.book.book.scenes.map(\.id) == story)
+        }
+    }
+
+    /// A card whose field is open leaves the story (dragged to the tray): its field goes too.
+    @Test func aCardsFieldGoesWhenItsSceneLeavesTheStory() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            actions.startTagging(story[1])
+            _ = actions.beginDrag(.card(story[1]))
+            actions.enter(.tray)
+            #expect(actions.drop(on: .tray))
+            await eventually { harness.scenes.field == nil }
+            #expect(harness.scenes.field == nil)
+        }
+    }
+
+    /// No "Move here" where the drop would leave the card where it is.
+    @Test func noSlotWhereADropWouldChangeNothing() async throws {
+        try await withScenesSheet { harness, actions in
+            let story = harness.book.book.scenes.map(\.id)
+            _ = actions.beginDrag(.card(story[0]))
+            actions.enter(.card(story[1]))
+            #expect(harness.scenes.drop.slot(in: harness.book.book) == nil, "just after itself")
+            actions.exit(.card(story[1]))
+            actions.enter(.card(story[2]))
+            #expect(harness.scenes.drop.slot(in: harness.book.book) == .before(story[2]))
+            harness.scenes.drop.end()
         }
     }
 
@@ -286,6 +428,8 @@ private struct Kept: Equatable {
 private final class AnsweringPrompts: StorePrompts {
     private var answers: [any Hashable & Sendable]
     private(set) var titles: [String] = []
+    /// Runs as each question is asked, before it's answered.
+    var beforeAnswering: (() async -> Void)?
 
     init(_ answers: [any Hashable & Sendable]) {
         self.answers = answers
@@ -293,6 +437,7 @@ private final class AnsweringPrompts: StorePrompts {
 
     func ask<Choice>(_ alert: WriterAlert<Choice>) async -> Choice {
         titles.append(alert.title)
+        await beforeAnswering?()
         guard !answers.isEmpty, let answer = answers.removeFirst() as? Choice else { return alert.choices[0] }
         return answer
     }
