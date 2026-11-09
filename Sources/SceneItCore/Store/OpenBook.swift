@@ -111,7 +111,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         switch review.access {
         case .editing(let file):
             access = .writable(
-                AutosaveDriver(clock: clock, saver: self), .review(ReviewWriter(file)), .accepted)
+                AutosaveDriver(clock: clock, saver: self), .review(ReviewWriter(file, review.context)),
+                .accepted)
         case .readOnly(let reason):
             access = .readOnly(reason)
         }
@@ -256,8 +257,18 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Whether `new` is `old` with only its comments changed: the same text in the same styles,
     /// colors and highlights. A review's text takes only such changes (ADR 0042).
-    private static func changesOnlyComments(from old: [Paragraph], to new: [Paragraph]) -> Bool {
-        old.map { $0.uncommented.withMaximalRuns } == new.map { $0.uncommented.withMaximalRuns }
+    /// Text is compared code unit for code unit: `String ==` would call canonically equivalent
+    /// spellings the same.
+    static func changesOnlyComments(from old: [Paragraph], to new: [Paragraph]) -> Bool {
+        let before = old.map { $0.uncommented.withMaximalRuns.runs }
+        let after = new.map { $0.uncommented.withMaximalRuns.runs }
+        return before.count == after.count
+            && zip(before, after).allSatisfy { first, second in
+                first.count == second.count
+                    && zip(first, second).allSatisfy { run, other in
+                        run.hasSameFormat(as: other) && run.text.utf8.elementsEqual(other.text.utf8)
+                    }
+            }
     }
 
     /// The comment ids `part` of `scene` may carry: the scene's, on the page, and none in the
@@ -842,6 +853,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
     }
 
+    /// Whether a review's scene keeps the copy's text through an Errors-tab change: a fixed
+    /// comment entry may put a comment on it, nothing more (ADR 0042). A book's may change.
+    private func keepsTheCopysText(from old: BookPart?, to new: BookPart) -> Bool {
+        guard case .review = document, case .scene(let before)? = old, case .scene(let after) = new else {
+            return true
+        }
+        return before.id == after.id && before.title == after.title && before.tags == after.tags
+            && Self.changesOnlyComments(from: before.body, to: after.body)
+    }
+
     /// Whether Fix applies to `ref`'s entry. A review's file has no place for a book's front
     /// matter or scene metadata, so there only a comment can be fixed (ADR 0042).
     public func canRepair(_ ref: ErrorRef) -> Bool {
@@ -895,7 +916,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         inverse: @escaping (OpenBook) -> Void
     ) {
         let old = book.part(owner)
-        guard let driver = driver(for: .errors), old != part, book.replace(owner, with: part) else {
+        guard let driver = driver(for: .errors), old != part, keepsTheCopysText(from: old, to: part),
+            book.replace(owner, with: part)
+        else {
             return
         }
         if case .scene(let scene) = part {
@@ -926,8 +949,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         let snapshot = book
         do {
-            let result = try await writer.save(
-                snapshot, of: document, onExternalChange: request.onExternalChange)
+            let result = try await writer.save(snapshot, onExternalChange: request.onExternalChange)
             let backups: SavedBackups? =
                 switch result {
                 case .unchanged: lastSave?.backups

@@ -167,7 +167,7 @@ The saver's job (chapter 03a §4) is to snapshot the book before its first suspe
         }
         let snapshot = book
         do {
-            let result = try await writer.save(snapshot, of: document, onExternalChange: request.onExternalChange)
+            let result = try await writer.save(snapshot, onExternalChange: request.onExternalChange)
 ```
 
 (The writer is a `DocumentWriter`: the `BookWriter` above, or for a review its `ReviewWriter`,

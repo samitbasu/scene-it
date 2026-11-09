@@ -28,6 +28,9 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
     /// Another program wrote different contents, the version `theirs`. If that happened while
     /// this save was replacing `book.md`, its version was put back.
     case changed(theirs: ContentDigest)
+    /// As `changed`, and the version `theirs` was kept, under `keptAs` beside the file, before
+    /// anything could replace it (a review's file, ADR 0042).
+    case changedAndKept(theirs: ContentDigest, keptAs: String)
     case removed
     /// A directory, link or other non-file now stands where `book.md` was. Never overwritten.
     case notAFile
@@ -40,6 +43,8 @@ public enum ExternalChange: Hashable, Sendable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .changed: "\(PackageLayout.bookFileName) was changed by another program"
+        case .changedAndKept(_, let name):
+            "the file was changed by another program; its version is in \(name)"
         case .removed: "\(PackageLayout.bookFileName) was removed by another program"
         case .notAFile: "\(PackageLayout.bookFileName) was replaced by something that isn't a file"
         case .keptAsConflict(let fileName):

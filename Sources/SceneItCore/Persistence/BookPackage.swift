@@ -153,7 +153,9 @@ public final class BookPackage: Sendable {
             if parsed.isNewerThanSupported, let format = parsed.declaredFormat { return .newerFormat(format) }
             guard parsed.wasRepaired else { return nil }
             return .repairedOnOpen(
-                Repair(of: .book(layout), book: parsed.book, newEntries: parsed.newEntries, original: data))
+                .book(
+                    BookRepair(file: layout, book: parsed.book, newEntries: parsed.newEntries, original: data)
+                ))
         }
     }
 
@@ -166,10 +168,10 @@ public final class BookPackage: Sendable {
     /// The bytes are the ones the open parsed, never a second read of `book.md`, so what's
     /// kept is exactly what the writer was shown repaired, in the package it came from.
     public static func keepOriginal(
-        of repair: Repair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
+        of repair: BookRepair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
     ) throws(FileSystemError) -> KeptOriginal {
         let kept = try GuardedWrite.keepOriginal(
-            repair.original, of: repair.saved, now: now, fileSystem: fileSystem)
+            repair.original, of: repair.file.saved, now: now, fileSystem: fileSystem)
         Log.store.info(
             "kept the original of a book repaired as it opened",
             ["bytes": .bytes(Int64(repair.original.count))])
@@ -195,9 +197,7 @@ public final class BookPackage: Sendable {
         opener: Opener
     ) -> MadeEditable {
         let repair = kept.repair
-        guard case .book(let layout) = repair.file else {
-            preconditionFailure("a review's kept original is made editable by ReviewFile")
-        }
+        let layout = repair.file
         switch HeldLock.take(layout.lock, fileSystem, policy, opener) {
         case .held(let lock):
             Log.store.info("made a repaired book editable")
@@ -452,47 +452,56 @@ public enum ReadOnlyReason: Hashable, Sendable {
     }
 }
 
-/// A book or review a parse repaired as it opened (ADR 0024): where it is, what it shows, the
-/// entries the parse made, and the bytes it read. Only an open makes one, so the four always
-/// belong together, and `keepOriginal` keeps the bytes beside the file they came from.
-public struct Repair: Hashable, Sendable {
-    public let file: RepairedFile
+/// A file a parse repaired as it opened (ADR 0024): where it is, what it shows, the entries the
+/// parse made, and the bytes it read. Only an open makes one, so the four always belong together,
+/// and Make Editable keeps the bytes beside the file they came from.
+public struct RepairOf<File: Hashable & Sendable>: Hashable, Sendable {
+    public let file: File
     public let book: Book
     /// The error entries the parse made, in the Errors tab's order (`ParsedBook.newEntries`).
     public let newEntries: [ErrorEntry]
     /// Exactly the bytes that were parsed: what Make Editable keeps.
     let original: Data
+}
 
-    init(of file: RepairedFile, book: Book, newEntries: [ErrorEntry], original: Data) {
-        self.file = file
-        self.book = book
-        self.newEntries = newEntries
-        self.original = original
+public typealias BookRepair = RepairOf<PackageLayout>
+/// A review file's repair (ADR 0042), which keeps its originals in the review's own folder.
+public typealias ReviewRepair = RepairOf<ReviewPlace>
+
+/// A book's or a review's repair: each kind is kept and made editable by its own code, which
+/// takes only its own kind.
+public enum Repair: Hashable, Sendable {
+    case book(BookRepair)
+    case review(ReviewRepair)
+
+    public var book: Book {
+        switch self {
+        case .book(let repair): repair.book
+        case .review(let repair): repair.book
+        }
     }
 
-    var saved: SavedFileLayout {
-        switch file {
-        case .book(let layout): layout.saved
-        case .review(let saved): saved
+    public var newEntries: [ErrorEntry] {
+        switch self {
+        case .book(let repair): repair.newEntries
+        case .review(let repair): repair.newEntries
         }
     }
 }
 
-/// Which kind of file a repair is of, and where it is.
-public enum RepairedFile: Hashable, Sendable {
-    case book(PackageLayout)
-    /// A review file (ADR 0042), which keeps its originals in its own folder.
-    case review(SavedFileLayout)
+/// A repaired file whose original bytes are safely kept (ADR 0024). Only Make Editable's first
+/// step makes one, and its second consumes it: it can't be copied, so one kept original makes at
+/// most one editable file.
+public struct KeptOriginalOf<File: Hashable & Sendable>: ~Copyable, Sendable {
+    /// The `<name>.original-<UTC time>.md` holding the original.
+    public let url: URL
+    let repair: RepairOf<File>
 }
 
-/// A repaired book whose original bytes are safely in its package (ADR 0024). Only
-/// `BookPackage.keepOriginal` makes one, and `BookPackage.edit` consumes it: it can't be
-/// copied, so one kept original makes at most one editable package.
-public struct KeptOriginal: ~Copyable, Sendable {
-    /// The `book.md.original-<UTC time>.md` holding the original.
-    public let url: URL
-    let repair: Repair
-}
+/// A book's kept original, in its package.
+public typealias KeptOriginal = KeptOriginalOf<PackageLayout>
+/// A review's kept original, in the review's folder.
+public typealias KeptReviewOriginal = KeptOriginalOf<ReviewPlace>
 
 /// What `BookPackage.edit` did with a kept original.
 public enum MadeEditable: ~Copyable, Sendable {

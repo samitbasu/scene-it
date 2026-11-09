@@ -26,25 +26,34 @@ parallel "open review" type would have forked every one of them.
    the view does. A page edit that changes only comment ids (a new comment, a dismissal, their
    undo) counts as `.annotations`. A review's scenes keep the copy's `modified`.
    In the app, the page's `Editability` gains `.commentsOnly`: the view stays selectable and
-   commentable, and refuses any change that would alter its characters, with a beep; formatting and
-   paste are off. The title field and the Tags tab are read-only; File a Copy… and Export as
-   SceneIt… don't apply. The Errors tab deletes any entry, but fixes only `[comments]` entries: a
-   review file has no place for a book's front matter or metadata.
+   commentable, and takes only the editor's own change of comments (and its undo and redo); any
+   other change, of characters or of attributes (the system Font menu, the color panel), is refused
+   with a beep. Formatting, paste, the context menu's Cut, Paste, Font, Substitutions and
+   Transformations, and Find's Replace are off. Should the model still refuse an edit the view took,
+   the page reloads from the model and drops its history. The title field reads as a label and the
+   Tags tab is read-only; File a Copy… and Export as SceneIt… don't apply. The Errors tab deletes any entry, but fixes only `[comments]` entries: a
+   review file has no place for a book's front matter or metadata, and no Errors-tab change may
+   alter a scene's text. Repairs, kept originals and Make Editable's two steps are typed per kind
+   (`BookRepair`/`ReviewRepair`, `KeptOriginal`/`KeptReviewOriginal`), so a review's can't reach a
+   book's code or the other way round.
 3. **One safe-save path for both files.** `BookPackage`'s verify → rotate → atomic write (with ADR
    0018's external-change detection and ADR 0019's backup policy) moved, unchanged, into
    `GuardedWrite`, parameterized by a `SavedFileLayout` (the file, and where its side files go). The
    editing lock (`flock` plus the network `LockRecord`) moved into `HeldLock`. `BookPackage` and the
-   new `ReviewFile` both use them; `BookPackage`'s behaviour and tests are unchanged.
+   new `ReviewFile` both use them; `BookPackage`'s behaviour and tests are unchanged, except that a
+   lock taken on a path that then fails (a create that can't finish, a book that turns out read-only
+   under the lock) now takes its `LockRecord` back out of `.lock` as it's dropped, as a lock released
+   normally always did.
 4. **Where a review's files go** (review format §9 Q9): only `<name>.review.md` sits beside the copy.
-   Its rotated backups (`review.md.bak1…3`), another program's version kept during a save
-   (`review.md.conflict-<time>`), Make Editable's kept originals (`review.md.original-<time>.md`) and
-   its lock (`.lock`) are in `~/Library/Application Support/Scene It/Reviews/<review id>/`. A review
-   has no tiered snapshots: the rotation is its backup. The folder is injected (`ReviewsFolder`), so
-   the test host and tests use temporary folders.
+   Its rotated backups (`review.md.bak1…3`), a version another program writes in the instant of a
+   save's swap (`review.md.conflict-<time>`), Make Editable's kept originals
+   (`review.md.original-<time>.md`) and its lock (`.lock`) are in
+   `~/Library/Application Support/Scene It/Reviews/<review id>/`. A review has no tiered snapshots:
+   the rotation is its backup. The folder is injected (`ReviewsFolder`), so the test host and tests
+   use temporary folders.
 5. **The review file is created at the first save that has something to keep** (review format
    §4.1 step 4), under the first free name of `<copy>.review.md`, `<copy>-2.review.md`, …, never
-   replacing anything. The review id is made when the review is opened, so its lock can be taken
-   then; an unused one leaves only an empty folder in Application Support.
+   replacing anything. The review id is made when the review is opened.
 6. **The copy is never written.** Nothing holds a writable handle on it; a save verifies the review
    against the copy as it was read, and a review whose text has drifted from the copy reads back
    differently and is refused.
@@ -52,9 +61,21 @@ parallel "open review" type would have forked every one of them.
    `.repairedOnOpen` (its `Repair` names a `.review` file), taking no lock; Make Editable keeps the
    original in the review's folder, then locks and edits. A review in a newer review format opens
    read-only for good (`.newerReviewFormat`).
-8. **Changed on disk (ADR 0018).** A review can't be kept as a second copy the way a book is, so its
-   alert has one way on, Keep My Version, which keeps the other version as `bak1` in the review's
-   folder.
+8. **Changed on disk (ADR 0018), the coordinator's decision.** When a save finds the review file
+   changed by another program, that version's bytes are kept at once beside the review file, under a
+   name nothing rotates or replaces, `<name>.review.conflict-<UTC time>.md`, and the alert names it.
+   A review can't be kept as a second book, so the alert has one way on, Keep My Version, which saves
+   the reviewer's version (the other also goes to `bak1` in the review's folder).
+9. **The lock, the coordinator's decision.** A review's lock is a `flock` on a file in Application
+   Support, so the reader's folder holds only the review file. A review with a file locks
+   `Reviews/<review id>/.lock`. A new review, which has no file yet, locks
+   `Reviews/Copies/<export id>.lock`, keyed by its copy, so two new reviews of one copy on this Mac
+   can't both be edited; at its first save it takes its own lock before its file appears, then lets
+   the copy's go. Application Support is local, so there's no lock record and no Open Anyway.
+   **Trade-off for the owner to review:** this lock protects only within one user account on one
+   Mac. A review file in a shared or synced folder opened by another user, or on another Mac, isn't
+   locked out; ADR 0018's change detection (decision 8) is what keeps both versions then. A lock
+   beside the copy would cover those cases at the price of a second file in the reader's folder.
 
 ## Not in this change
 - Reviews aren't in Recent Books; Review Book… opens them again.

@@ -31,7 +31,14 @@ class KeyboardTextView: NSTextView {
     /// Close Book or Open Other Version) before SwiftUI next updates the view, and a keystroke
     /// in between would show and then vanish, so the view refuses it, with a beep.
     let editability: () -> Editability
+    /// The editor's own change of comments on the text, the one change a `.commentsOnly` view
+    /// takes (`SceneTextEditor.rewrite`).
+    var commentChange = CommentChange.none
     private let content: NSTextContentStorage
+
+    enum CommentChange {
+        case none, underWay
+    }
 
     /// A TextKit 2 view whose container tracks its width. (`init(usingTextLayoutManager:)` can't
     /// be used: it calls `init(frame:textContainer:)` on the view, which a Swift subclass with
@@ -67,14 +74,20 @@ class KeyboardTextView: NSTextView {
         return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
     }
 
-    /// Whether a change leaves the characters as they are: one of attributes alone, as adding
-    /// or removing a comment is, or as undoing one replays it.
+    /// Whether a change is the editor's change of comments, or the undo or redo of one, and
+    /// leaves the characters as they are. Anything else that changes only attributes (the
+    /// system's Font menu, say) changes the copy's text and styles, and is refused.
     private func keepsText(_ ranges: [NSRange], _ replacements: [String]?) -> Bool {
+        let undo = undoManager
+        guard commentChange == .underWay || undo?.isUndoing == true || undo?.isRedoing == true else {
+            return false
+        }
         guard let replacements else { return true }
         let string = self.string as NSString
         return ranges.count == replacements.count
             && zip(ranges, replacements).allSatisfy { range, replacement in
-                range.upperBound <= string.length && string.substring(with: range) == replacement
+                range.upperBound <= string.length
+                    && string.substring(with: range).utf16.elementsEqual(replacement.utf16)
             }
     }
 

@@ -329,26 +329,31 @@ public final class BookStore<C: Clock<Duration>> {
         guard let book = current, case .readOnly(.repairedOnOpen(let repair)) = book.status else {
             return .notRepaired
         }
-        let kept: KeptOriginal
         do throws(FileSystemError) {
-            kept = try await Self.keepOriginal(of: repair, fileSystem)
+            switch (repair, book.document) {
+            case (.book(let repair), .book):
+                return await edit(
+                    book, keeping: try await Self.keepOriginal(of: repair, fileSystem), onLockRecord: .respect
+                )
+            case (.review(let repair), .review(let context)):
+                return await editReview(
+                    book, context, keeping: try await Self.keepOriginal(of: repair, fileSystem))
+            case (.book, .review), (.review, .book):
+                return .notRepaired
+            }
         } catch {
             await prompts.tell(ReadOnlyWording.makeEditableFailed(error, of: book.document.kind))
             return .failed(error)
         }
-        if case .review(let context) = book.document {
-            return await editReview(book, context, keeping: kept)
-        }
-        return await edit(book, keeping: kept, onLockRecord: .respect)
     }
 
     private func editReview(
-        _ book: OpenBook<C>, _ context: ReviewContext, keeping kept: consuming KeptOriginal
+        _ book: OpenBook<C>, _ context: ReviewContext, keeping kept: consuming KeptReviewOriginal
     ) async -> MakeEditableOutcome {
         let made = await Self.editReview(kept, context, fileSystem)
         switch consume made {
         case .editing(let file):
-            let writer = ReviewWriter(file)
+            let writer = ReviewWriter(file, context)
             guard book === current else {
                 await writer.release()
                 return .notRepaired
@@ -738,17 +743,21 @@ public final class BookStore<C: Clock<Duration>> {
 
     @concurrent
     private nonisolated static func keepOriginal(
-        of repair: Repair, _ fileSystem: any FileSystem
+        of repair: BookRepair, _ fileSystem: any FileSystem
     ) async throws(FileSystemError) -> KeptOriginal {
-        switch repair.file {
-        case .book: try BookPackage.keepOriginal(of: repair, fileSystem: fileSystem)
-        case .review: try ReviewFile.keepOriginal(of: repair, fileSystem: fileSystem)
-        }
+        try BookPackage.keepOriginal(of: repair, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func keepOriginal(
+        of repair: ReviewRepair, _ fileSystem: any FileSystem
+    ) async throws(FileSystemError) -> KeptReviewOriginal {
+        try ReviewFile.keepOriginal(of: repair, fileSystem: fileSystem)
     }
 
     @concurrent
     private nonisolated static func editReview(
-        _ kept: consuming KeptOriginal, _ context: ReviewContext, _ fileSystem: any FileSystem
+        _ kept: consuming KeptReviewOriginal, _ context: ReviewContext, _ fileSystem: any FileSystem
     ) async -> ReviewFile.MadeEditable {
         ReviewFile.edit(kept, context, fileSystem: fileSystem)
     }

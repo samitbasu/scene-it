@@ -177,22 +177,26 @@ enum Editability {
 ```
 
 The view stays `isEditable`, so the selection, the caret and the comment commands work, and its veto
-point, `shouldChangeText(inRanges:replacementStrings:)`, lets a change through only if it keeps the
-characters:
+point, `shouldChangeText(inRanges:replacementStrings:)`, lets a change through only if it's the
+editor's own change of comments (or the undo or redo of one) and keeps the characters:
 
 ```swift
-    /// Whether a change leaves the characters as they are: one of attributes alone, as adding
-    /// or removing a comment is, or as undoing one replays it.
     private func keepsText(_ ranges: [NSRange], _ replacements: [String]?) -> Bool {
+        let undo = undoManager
+        guard commentChange == .underWay || undo?.isUndoing == true || undo?.isRedoing == true else {
+            return false
+        }
         guard let replacements else { return true }
 ```
 
-The editor's comment edits ask with `nil` replacement strings, which is how a change of attributes
-alone is asked about. Undo replays the change through the same veto, and whichever form it takes,
-`nil` or the very same characters, passes; the hosted test undoes and redoes a new comment on a
-review's page to prove it. Formatting is also attribute-only, so the editor turns it off separately (the
-formatting bar asks for `.editable`), and the model's gate (section 2) refuses it anyway: a review
-saves only what passes both.
+"Keeps the characters" alone isn't enough: an `NSTextView` offers changes of attributes by itself
+(the context menu's Font ▸ Underline, the color panel, Kern), and those ask the veto with `nil`
+replacement strings just as a comment does. So the editor marks its own comment change
+(`commentChange`, set around `SceneTextEditor.rewrite`), and only that passes. The context menu
+drops the items that would change the text, and Find loses Replace. Behind it all, the model's gate
+(section 2) refuses anything but a comment; if it ever refuses an edit the view took, the page
+reloads from the model. The hosted test sends `underline:` and `changeColor:` to a review's page and
+checks the page still mirrors the model, then comments the paragraph.
 
 ## 6. Where to read next
 

@@ -28,9 +28,9 @@ import Testing
         }
     }
 
-    private func repaired(_ url: URL, _ fileSystem: any FileSystem = LocalFileSystem()) throws -> Repair {
+    private func repaired(_ url: URL, _ fileSystem: any FileSystem = LocalFileSystem()) throws -> BookRepair {
         let opened = try BookPackage.open(at: url, defaults: fixedDefaults, fileSystem: fileSystem)
-        guard case .readOnly(_, .repairedOnOpen(let repair)) = opened else {
+        guard case .readOnly(_, .repairedOnOpen(.book(let repair))) = opened else {
             Issue.record("expected repairedOnOpen, got \(String(describing: opened.readOnlyReason))")
             throw CancellationError()
         }
@@ -40,7 +40,7 @@ import Testing
     /// keepOriginal → edit → save, driven to completion while ignoring every error.
     private func makeEditableAndSave(_ url: URL, _ fileSystem: any FileSystem) {
         guard
-            case .readOnly(_, .repairedOnOpen(let repair))? = try? BookPackage.open(
+            case .readOnly(_, .repairedOnOpen(.book(let repair)))? = try? BookPackage.open(
                 at: url, defaults: fixedDefaults, fileSystem: fileSystem),
             let kept = try? BookPackage.keepOriginal(of: repair, now: Self.keptAt, fileSystem: fileSystem),
             let editable = BookPackage.edit(kept, fileSystem: fileSystem).editable()
@@ -150,7 +150,7 @@ import Testing
             let bytes = [damaged(try draft(1)), damaged(try draft(2))]
             let urls = try zip(bytes, folders).map { try package(holding: $0, in: $1) }
             let repairA = try repaired(urls[0])
-            #expect(repairA.file == .book(urls[0].layout))
+            #expect(repairA.file == urls[0].layout)
             let kept = try BookPackage.keepOriginal(of: repairA, now: Self.keptAt)
             #expect(kept.url.deletingLastPathComponent().standardizedFileURL == urls[0].standardizedFileURL)
             #expect(try Data(contentsOf: kept.url) == bytes[0])
@@ -250,7 +250,7 @@ import Testing
             try withTemporaryDirectory { directory in
                 let url = try package(holding: data, in: directory)
                 let opened = try BookPackage.open(at: url, defaults: fixedDefaults)
-                guard case .readOnly(_, .repairedOnOpen(let repair)) = opened else { return }
+                guard case .readOnly(_, .repairedOnOpen(.book(let repair))) = opened else { return }
                 exercised += 1
                 do {
                     let editable = try #require(

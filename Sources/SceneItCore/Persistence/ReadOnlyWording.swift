@@ -26,7 +26,7 @@ public enum ReadOnlyWording {
         case .lockUnavailable(let error):
             "Scene It can't make changes to this \(noun): it couldn't mark the \(noun) as in use "
                 + "(\(error.cause))."
-        case .repairedOnOpen(let repair) where repair.isOfAReview:
+        case .repairedOnOpen(.review(let repair)):
             "Part of this review's file couldn't be read as it was written, so Scene It repaired it "
                 + "while opening it (\(repairs(repair.newEntries.count))). Nothing on disk has changed. "
                 + "Each repair is noted in the review, so you can check what changed before you edit."
@@ -82,6 +82,11 @@ public enum ReadOnlyWording {
         let keep = WriterAlert<ReadOnlyChoice>.Button(choice: .keepReadOnly, label: keepReadOnly)
         switch reason {
         case .openOnAnotherMac(let record), .openInAnotherProcess(let record):
+            // A review's lock is in Application Support, on this Mac: nothing to open anyway.
+            guard kind == .book else {
+                return WriterAlert(
+                    title: readOnlyTitle, message: readOnlyMessage(.openElsewhere, of: kind), buttons: [keep])
+            }
             return WriterAlert(
                 title: readOnlyTitle, message: readOnlyMessage(reason, of: kind) + "\n\n" + openAnywayWarning,
                 buttons: [keep, .init(choice: .openAnyway(record), label: openAnyway)])
@@ -101,7 +106,7 @@ public enum ReadOnlyWording {
     /// buttons, under a title that asks rather than reports.
     public static func confirmMakeEditable(_ repair: Repair) -> WriterAlert<ReadOnlyChoice> {
         let opened = alert(for: .repairedOnOpen(repair))
-        let title = repair.isOfAReview ? "Make This Review Editable?" : makeEditableTitle
+        let title = if case .review = repair { "Make This Review Editable?" } else { makeEditableTitle }
         return WriterAlert(title: title, message: opened.message, buttons: opened.buttons)
     }
 
@@ -133,11 +138,5 @@ public enum DocumentKind: Hashable, Sendable {
         case .book: "book"
         case .review: "review"
         }
-    }
-}
-
-extension Repair {
-    var isOfAReview: Bool {
-        if case .review = file { true } else { false }
     }
 }

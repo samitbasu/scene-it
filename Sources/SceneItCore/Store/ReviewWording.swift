@@ -76,6 +76,11 @@ public enum ReviewWording {
             "\(keepLabel) saves your version and keeps the other one as a backup in Scene It's folder "
             + "for this review."
         switch error {
+        case .externallyModified(.changedAndKept(_, let name)):
+            return alert(
+                "Another program saved a different version of this review while you were working. Scene It "
+                    + "stopped saving, and kept that version beside your review as “\(name)”, so it isn't lost."
+                    + "\n\n\(keepLabel) saves your version in the review file.", keep)
         case .externallyModified(.changed):
             return alert(
                 "Another program saved a different version of this review while you were working. Scene It "

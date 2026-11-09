@@ -2,8 +2,8 @@ import Foundation
 import Synchronization
 
 /// Where reviews keep everything but the review file itself (review format §9 Q9): each
-/// review's rotated backups, kept originals and lock, in `<root>/<review id>/`. Only the review
-/// file sits beside the copy.
+/// review's rotated backups, kept originals and lock, in `<root>/<review id>/`, and the locks of
+/// new reviews, keyed by their copy, in `<root>/Copies/`. Only the review file sits beside the copy.
 public struct ReviewsFolder: Hashable, Sendable {
     public let root: URL
 
@@ -19,9 +19,19 @@ public struct ReviewsFolder: Hashable, Sendable {
         root.appending(path: id.rawValue, directoryHint: .isDirectory)
     }
 
-    /// Locked while the review is open for editing (ADR 0020, 0041).
+    /// Locked while the review is open for editing (ADR 0020, 0042).
     func lock(for id: ReviewID) -> URL {
         folder(for: id).appending(path: ".lock", directoryHint: .notDirectory)
+    }
+
+    private var copies: URL {
+        root.appending(path: "Copies", directoryHint: .isDirectory)
+    }
+
+    /// Locked by a new review of the copy `export` until it has a file of its own, so two new
+    /// reviews of one copy can't both be edited (ADR 0042).
+    func lock(forNewReviewOf export: ExportID) -> URL {
+        copies.appending(path: "\(export).lock", directoryHint: .notDirectory)
     }
 
     /// The review file `file`, its side files in the review's folder.
@@ -31,13 +41,32 @@ public struct ReviewsFolder: Hashable, Sendable {
 
     /// Creates the review's folder, and the root above it, if they're missing.
     func makeFolder(for id: ReviewID, _ fileSystem: any FileSystem) throws(FileSystemError) {
-        for folder in [root, folder(for: id)] {
+        try make([root, folder(for: id)], fileSystem)
+    }
+
+    func makeCopiesFolder(_ fileSystem: any FileSystem) throws(FileSystemError) {
+        try make([root, copies], fileSystem)
+    }
+
+    private func make(_ folders: [URL], _ fileSystem: any FileSystem) throws(FileSystemError) {
+        for folder in folders {
             do {
                 try fileSystem.createDirectory(at: folder)
             } catch  where error.cause == .alreadyExists {
                 guard case .directory? = try fileSystem.item(at: folder) else { throw error }
             }
         }
+    }
+}
+
+/// Where a review file is, and the folder its side files go in.
+public struct ReviewPlace: Hashable, Sendable {
+    public let file: URL
+    public let id: ReviewID
+    public let reviews: ReviewsFolder
+
+    var saved: SavedFileLayout {
+        reviews.saved(file, id: id)
     }
 }
 
@@ -100,30 +129,40 @@ public final class ReviewFile: Sendable {
     private let id: ReviewID
     private let reviews: ReviewsFolder
     private let fileSystem: any FileSystem
+    private let opener: Opener
     private let state: Mutex<State>
-    private let lock: HeldLock
 
+    /// Each state holds the lock that keeps other writers out: a new review's is its copy's, and
+    /// a written one's is its own.
     private enum State {
         /// No review file yet; the first save creates one.
-        case unwritten
-        /// The review file, and the digest of what was last read from or written to it.
-        case written(URL, ContentDigest)
+        case unwritten(copyLock: HeldLock)
+        case written(Written)
     }
 
-    private init(_ context: ReviewContext, state: State, lock: HeldLock, fileSystem: any FileSystem) {
+    private struct Written {
+        let file: URL
+        /// The digest of what was last read from or written to the file.
+        var lastSeen: ContentDigest
+        let lock: HeldLock
+        /// Versions another program wrote, kept beside the review file, by their digest.
+        var kept: [ContentDigest: String] = [:]
+    }
+
+    private init(_ context: ReviewContext, state: State, fileSystem: any FileSystem, opener: Opener) {
         copyFile = context.copyFile
         copy = context.copy
         id = context.id
         reviews = context.reviews
         self.state = Mutex(state)
-        self.lock = lock
         self.fileSystem = fileSystem
+        self.opener = opener
     }
 
     /// The review file, once there is one.
     public var file: URL? {
         state.withLock { state in
-            if case .written(let url, _) = state { url } else { nil }
+            if case .written(let written) = state { written.file } else { nil }
         }
     }
 
@@ -169,7 +208,7 @@ public final class ReviewFile: Sendable {
         } else {
             throw .notAReviewCopy(url)
         }
-        let loaded = load(
+        let loaded = try load(
             review, copyFile: copyFile, copy: copy, reviews: reviews, freshID: freshID, fileSystem, opener)
         if case .new(let other) = review { return loaded.telling(other) }
         return loaded
@@ -185,7 +224,7 @@ public final class ReviewFile: Sendable {
     private static func load(
         _ found: Found, copyFile: URL, copy: ReceivedCopy, reviews: ReviewsFolder, freshID: () -> ReviewID,
         _ fileSystem: any FileSystem, _ opener: Opener
-    ) -> LoadedReview {
+    ) throws(ReviewOpenError) -> LoadedReview {
         switch found {
         case .new:
             let id = freshID()
@@ -193,9 +232,11 @@ public final class ReviewFile: Sendable {
                 copyFile: copyFile, copy: copy, id: id, reviews: reviews, reviewedCopy: copy.export, notes: []
             )
             let access: LoadedReview.Access
-            switch lockReview(id, reviews, fileSystem, .respect, opener) {
+            switch lockNewReview(of: copy.export, reviews, fileSystem, opener) {
             case .held(let lock):
-                access = .editing(ReviewFile(context, state: .unwritten, lock: lock, fileSystem: fileSystem))
+                access = .editing(
+                    ReviewFile(
+                        context, state: .unwritten(copyLock: lock), fileSystem: fileSystem, opener: opener))
             case .readOnly(let reason):
                 access = .readOnly(reason)
             }
@@ -209,7 +250,7 @@ public final class ReviewFile: Sendable {
                 return read.loaded(context, .readOnly(reason))
             }
             var lock: HeldLock?
-            switch lockReview(read.review.id, reviews, fileSystem, .respect, opener) {
+            switch lockReview(read.review.id, reviews, fileSystem, opener) {
             case .held(let held): lock = held
             case .readOnly(let reason): return read.loaded(context, .readOnly(reason))
             }
@@ -217,17 +258,20 @@ public final class ReviewFile: Sendable {
                 Log.store.info("a review file changed while it was being locked; reading it again")
                 // Released first: the review is opened again as if for the first time.
                 lock = nil
-                guard let again = try? readFile(file, fileSystem) else {
-                    return read.loaded(
-                        context, .readOnly(.lockUnavailable(FileSystemError(.read, file, .io))))
+                let again: Data
+                do {
+                    again = try readFile(file, fileSystem)
+                } catch {
+                    throw .reviewUnreadable(error)
                 }
-                return load(
+                return try load(
                     .existing(file, again), copyFile: copyFile, copy: copy, reviews: reviews,
                     freshID: freshID,
                     fileSystem, opener)
             }
             let reviewFile = ReviewFile(
-                context, state: .written(file, ContentDigest(data)), lock: held, fileSystem: fileSystem)
+                context, state: .written(Written(file: file, lastSeen: ContentDigest(data), lock: held)),
+                fileSystem: fileSystem, opener: opener)
             Log.store.info("opened a review", ["bytes": .bytes(Int64(data.count))])
             return read.loaded(context, .editing(reviewFile))
         }
@@ -264,9 +308,10 @@ public final class ReviewFile: Sendable {
             }
             guard parsed.wasRepaired else { return nil }
             return .repairedOnOpen(
-                Repair(
-                    of: .review(reviews.saved(file, id: review.id)), book: review.book,
-                    newEntries: parsed.newEntries, original: data))
+                .review(
+                    ReviewRepair(
+                        file: ReviewPlace(file: file, id: review.id, reviews: reviews), book: review.book,
+                        newEntries: parsed.newEntries, original: data)))
         }
 
         func loaded(_ context: ReviewContext, _ access: LoadedReview.Access) -> LoadedReview {
@@ -277,16 +322,28 @@ public final class ReviewFile: Sendable {
         }
     }
 
+    /// The review's own lock. Application Support is on this Mac, so a lock record never blocks
+    /// it and there's nothing to open anyway.
     private static func lockReview(
-        _ id: ReviewID, _ reviews: ReviewsFolder, _ fileSystem: any FileSystem, _ policy: LockRecordPolicy,
-        _ opener: Opener
+        _ id: ReviewID, _ reviews: ReviewsFolder, _ fileSystem: any FileSystem, _ opener: Opener
     ) -> HeldLock.Attempt {
         do {
             try reviews.makeFolder(for: id, fileSystem)
         } catch {
             return .readOnly(.lockUnavailable(error))
         }
-        return HeldLock.take(reviews.lock(for: id), fileSystem, policy, opener)
+        return HeldLock.take(reviews.lock(for: id), fileSystem, .respect, opener)
+    }
+
+    private static func lockNewReview(
+        of export: ExportID, _ reviews: ReviewsFolder, _ fileSystem: any FileSystem, _ opener: Opener
+    ) -> HeldLock.Attempt {
+        do {
+            try reviews.makeCopiesFolder(fileSystem)
+        } catch {
+            return .readOnly(.lockUnavailable(error))
+        }
+        return HeldLock.take(reviews.lock(forNewReviewOf: export), fileSystem, .respect, opener)
     }
 
     static func readFile(_ url: URL, _ fileSystem: any FileSystem) throws(FileSystemError) -> Data {
@@ -298,47 +355,39 @@ public final class ReviewFile: Sendable {
 
     /// Make Editable's first step for a review: keeps the bytes it was read from in its folder.
     public static func keepOriginal(
-        of repair: Repair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
-    ) throws(FileSystemError) -> KeptOriginal {
-        let folder = repair.saved.sideFolder
-        try ReviewsFolder(root: folder.deletingLastPathComponent()).makeFolder(
-            for: ReviewID(rawValue: folder.lastPathComponent), fileSystem)
+        of repair: ReviewRepair, now: Date = .now, fileSystem: any FileSystem = LocalFileSystem()
+    ) throws(FileSystemError) -> KeptReviewOriginal {
+        try repair.file.reviews.makeFolder(for: repair.file.id, fileSystem)
         let kept = try GuardedWrite.keepOriginal(
-            repair.original, of: repair.saved, now: now, fileSystem: fileSystem)
+            repair.original, of: repair.file.saved, now: now, fileSystem: fileSystem)
         Log.store.info(
             "kept the original of a review repaired as it opened",
             ["bytes": .bytes(Int64(repair.original.count))])
-        return KeptOriginal(url: kept, repair: repair)
+        return KeptReviewOriginal(url: kept, repair: repair)
     }
 
     /// What `edit` did with a kept original.
     public enum MadeEditable: ~Copyable, Sendable {
         case editing(ReviewFile)
         /// The lock couldn't be had; the kept original comes back for another try.
-        case readOnly(KeptOriginal, ReadOnlyReason)
+        case readOnly(KeptReviewOriginal, ReadOnlyReason)
     }
 
     /// Make Editable's second step: locks the review for editing. The file isn't read again: the
     /// review is the one shown read-only, and the kept original is what it last read, so a save
     /// finds any change since and stops (ADR 0018).
     public static func edit(
-        _ kept: consuming KeptOriginal, _ context: ReviewContext,
-        onLockRecord policy: LockRecordPolicy = .respect,
+        _ kept: consuming KeptReviewOriginal, _ context: ReviewContext,
         fileSystem: any FileSystem = LocalFileSystem()
     ) -> MadeEditable {
-        edit(kept, context, onLockRecord: policy, fileSystem: fileSystem, opener: .current)
-    }
-
-    static func edit(
-        _ kept: consuming KeptOriginal, _ context: ReviewContext, onLockRecord policy: LockRecordPolicy,
-        fileSystem: any FileSystem, opener: Opener
-    ) -> MadeEditable {
         let repair = kept.repair
-        switch lockReview(context.id, context.reviews, fileSystem, policy, opener) {
+        switch lockReview(repair.file.id, repair.file.reviews, fileSystem, .current) {
         case .held(let lock):
             Log.store.info("made a repaired review editable")
-            let state = State.written(repair.saved.file, ContentDigest(repair.original))
-            return .editing(ReviewFile(context, state: state, lock: lock, fileSystem: fileSystem))
+            let written = Written(
+                file: repair.file.file, lastSeen: ContentDigest(repair.original), lock: lock)
+            return .editing(
+                ReviewFile(context, state: .written(written), fileSystem: fileSystem, opener: .current))
         case .readOnly(let reason):
             return .readOnly(kept, reason)
         }
@@ -365,14 +414,28 @@ public final class ReviewFile: Sendable {
             switch state {
             case .unwritten:
                 guard !review.isEmpty else { return .unchanged }
+                // The review's own lock is taken before its file exists, so whoever finds the
+                // file finds it locked; the copy's lock goes once it's no longer needed.
+                let lock: HeldLock
+                switch Self.lockReview(id, reviews, fileSystem, opener) {
+                case .held(let held): lock = held
+                case .readOnly(let reason): throw .fileSystem(Self.lockFailure(reason, reviews.lock(for: id)))
+                }
                 let file = try create(data)
-                state = .written(file, ContentDigest(data))
+                state = .written(Written(file: file, lastSeen: ContentDigest(data), lock: lock))
                 Log.store.info("created a review file", ["bytes": .bytes(Int64(data.count))])
                 return .saved(Self.backups(.intact))
-            case .written(let file, var lastSeen):
-                defer { state = .written(file, lastSeen) }
-                let write = GuardedWrite(layout: reviews.saved(file, id: id), fileSystem: fileSystem)
-                switch try write.save(data, policy, &lastSeen) {
+            case .written(var written):
+                defer { state = .written(written) }
+                let write = GuardedWrite(layout: reviews.saved(written.file, id: id), fileSystem: fileSystem)
+                let outcome: GuardedWriteOutcome
+                do throws(SaveError) {
+                    outcome = try write.save(data, policy, &written.lastSeen)
+                } catch {
+                    guard case .externallyModified(.changed(let theirs)) = error else { throw error }
+                    throw .externallyModified(keep(theirs, beside: &written))
+                }
+                switch outcome {
                 case .unchanged:
                     return .unchanged
                 case .written(let status):
@@ -381,6 +444,44 @@ public final class ReviewFile: Sendable {
                 }
             }
         }
+    }
+
+    private static func lockFailure(_ reason: ReadOnlyReason, _ lock: URL) -> FileSystemError {
+        if case .lockUnavailable(let error) = reason { return error }
+        return FileSystemError(.lock, lock, .alreadyExists)
+    }
+
+    /// Another program's version `theirs`, kept beside the review file under a name nothing
+    /// rotates or replaces, `<name>.review.conflict-<UTC time>.md`, before any save may replace
+    /// it (ADR 0042). Kept once per version; if it can't be kept, the change is reported as it was.
+    private func keep(_ theirs: ContentDigest, beside written: inout Written) -> ExternalChange {
+        if let name = written.kept[theirs] { return .changedAndKept(theirs: theirs, keptAs: name) }
+        guard let data = try? fileSystem.read(written.file), ContentDigest(data) == theirs else {
+            return .changed(theirs: theirs)
+        }
+        let now = Date.now
+        let file = written.file
+        let name = { (attempt: Int) in Self.conflict(of: file, at: now, attempt: attempt) }
+        do {
+            let temporary = try fileSystem.writeTemporary(data, for: name(1), permissionsFrom: written.file)
+            guard let kept = try fileSystem.publishUnderFreeName(temporary, name) else {
+                fileSystem.discard(temporary.url)
+                return .changed(theirs: theirs)
+            }
+            written.kept[theirs] = kept.lastPathComponent
+            Log.store.info("kept another program's version of a review beside it")
+            return .changedAndKept(theirs: theirs, keptAs: kept.lastPathComponent)
+        } catch {
+            Log.store.error("couldn't keep another program's version of a review", error.logMetadata)
+            return .changed(theirs: theirs)
+        }
+    }
+
+    /// `X.review.conflict-<UTC time>.md` beside `X.review.md`, then `-2`, `-3`, … before `.md`.
+    static func conflict(of file: URL, at date: Date, attempt: Int) -> URL {
+        let base = file.deletingPathExtension().lastPathComponent
+        return file.deletingLastPathComponent().appending(
+            path: "\(base).conflict-\(SavedFileLayout.stamp(date, attempt)).md", directoryHint: .notDirectory)
     }
 
     /// A review has no tiered snapshots: only the rotation (ADR 0042).
@@ -443,18 +544,26 @@ struct ReviewFinder {
         let candidates = files().filter { Self.isReviewFile($0.lastPathComponent) }
         var matches: [(url: URL, data: Data, modified: Date)] = []
         var namedHasNoCopy = false
-        var namedExists = false
+        var namedIsAReview = false
         for url in candidates {
-            guard case .file(let metadata, _)? = try? fileSystem.item(at: url),
-                let data = try? fileSystem.read(url)
-            else { continue }
-            let bound = ReviewFormat.boundCopy(in: data)
             let isNamed = url.lastPathComponent == named.lastPathComponent
-            if isNamed {
-                namedExists = true
+            let read: (FileMetadata, Data)
+            do throws(FileSystemError) {
+                guard case .file(let metadata, _)? = try fileSystem.item(at: url) else { continue }
+                read = (metadata, try fileSystem.read(url))
+            } catch {
+                // The review named for this copy may be its review: never guess past it.
+                if isNamed { throw .reviewUnreadable(error) }
+                continue
+            }
+            let bound = ReviewFormat.boundCopy(in: read.1)
+            // A copy saved under a review's name is a copy, not a review with its copy line lost.
+            let isACopy = ReceivedCopy(ReviewCopyFormat.parse(read.1, opened: opened)) != nil
+            if isNamed, !isACopy {
+                namedIsAReview = true
                 namedHasNoCopy = bound == nil
             }
-            if bound == copy.export { matches.append((url, data, metadata.modified)) }
+            if bound == copy.export { matches.append((url, read.1, read.0.modified)) }
         }
         if let preferred = matches.first(where: { $0.url.lastPathComponent == named.lastPathComponent })
             ?? matches.max(by: { $0.modified < $1.modified })
@@ -468,7 +577,7 @@ struct ReviewFinder {
                 throw .reviewUnreadable(error)
             }
         }
-        return .new(otherReview: namedExists ? named : nil)
+        return .new(otherReview: namedIsAReview ? named : nil)
     }
 
     /// Review format §4.4: the copy beside a review file whose export id is the review's `copy`,

@@ -1,22 +1,28 @@
 import Foundation
 import Synchronization
 
-/// A review's file, with its lock (ADR 0042): as `BookWriter`, its mutex serializes the
-/// review's saves and release, and everything it does runs off the main actor.
+/// A review's file, with its lock, and what the review is besides its book (ADR 0042): as
+/// `BookWriter`, its mutex serializes the review's saves and release, and everything it does runs
+/// off the main actor.
 final class ReviewWriter: Sendable {
     private let file: Mutex<ReviewFile?>
+    private let context: ReviewContext
 
-    init(_ file: ReviewFile) {
+    init(_ file: ReviewFile, _ context: ReviewContext) {
         self.file = Mutex(file)
+        self.context = context
     }
 
+    /// Saves the review whose book is `book`.
     @concurrent
-    func save(_ review: Review, onExternalChange policy: ExternalChangePolicy) async throws(SaveError)
+    func save(_ book: Book, onExternalChange policy: ExternalChangePolicy) async throws(SaveError)
         -> WriteResult
     {
         try file.withLock { (file) throws(SaveError) -> WriteResult in
-            guard let file else { throw .fileSystem(FileSystemError(.write, URL(filePath: "/"), .notFound)) }
-            return try file.save(review, onExternalChange: policy)
+            guard let file else {
+                throw .fileSystem(FileSystemError(.write, context.copyFile, .notFound))
+            }
+            return try file.save(context.review(of: book), onExternalChange: policy)
         }
     }
 
@@ -46,18 +52,13 @@ enum DocumentWriter: Sendable {
     case book(BookWriter)
     case review(ReviewWriter)
 
-    /// Saves `book`, which for a review is the review of `document`'s copy.
     @concurrent
-    func save(_ book: Book, of document: OpenDocument, onExternalChange policy: ExternalChangePolicy)
-        async throws(SaveError) -> WriteResult
+    func save(_ book: Book, onExternalChange policy: ExternalChangePolicy) async throws(SaveError)
+        -> WriteResult
     {
-        switch (self, document) {
-        case (.book(let writer), _):
-            return try await writer.save(book, onExternalChange: policy)
-        case (.review(let writer), .review(let context)):
-            return try await writer.save(context.review(of: book), onExternalChange: policy)
-        case (.review, .book):
-            preconditionFailure("a review's writer saves only a review")
+        switch self {
+        case .book(let writer): try await writer.save(book, onExternalChange: policy)
+        case .review(let writer): try await writer.save(book, onExternalChange: policy)
         }
     }
 

@@ -24,13 +24,13 @@ struct ReviewFileTests {
             reviews = ReviewsFolder(root: root.appending(path: "Reviews", directoryHint: .isDirectory))
         }
 
+        /// Opens as the app does, with a fresh ULID for a new review.
         func open(_ url: URL? = nil) throws -> LoadedReview {
-            var count = 0
-            return try ReviewFile.open(
+            try ReviewFile.open(
                 url ?? copy, reviews: reviews, opened: ReviewFileTests.opened,
                 freshID: {
-                    count += 1
-                    return ReviewID(rawValue: "review-\(count)")
+                    var ids = IDGenerator.system
+                    return ids.reviewID()
                 }, fileSystem: LocalFileSystem(), opener: .current)
         }
 
@@ -78,20 +78,23 @@ struct ReviewFileTests {
             #expect(file.file?.lastPathComponent == "Tide.review.md")
             #expect(try fixture.text("Tide.review.md").contains("### Notes\nLovely."))
             #expect(
-                try fixture.text("Tide.review.md").contains("copy: 01JDB2C7Q9X4M8T6V3N5R1K0PZ\nid: review-1"))
+                try fixture.text("Tide.review.md").contains(
+                    "copy: 01JDB2C7Q9X4M8T6V3N5R1K0PZ\nid: \(loaded.context.id)\n"))
         }
     }
 
     @Test func reopeningTheCopyResumesItsReview() throws {
         try withTemporaryDirectory { root in
             let fixture = try Fixture(root)
+            let first: ReviewID
             do {
                 let loaded = try fixture.open()
+                first = loaded.context.id
                 _ = try Self.editable(loaded).save(Self.noted(loaded))
             }
             let again = try fixture.open()
             _ = try Self.editable(again)
-            #expect(again.context.id == ReviewID(rawValue: "review-1"))
+            #expect(again.context.id == first)
             #expect(again.book.scenes[0].notes == [[Run("Lovely.")]])
         }
     }
@@ -141,17 +144,109 @@ struct ReviewFileTests {
         }
     }
 
-    @Test func aSecondReviewOfOneCopyIsLockedApartFromTheFirst() throws {
+    /// Two openers of one copy with no review yet each make a new review with an id of its own;
+    /// the copy's lock lets only one edit. Once that one has a file, its own lock does.
+    @Test func twoNewReviewsOfOneCopyLockEachOtherUntilTheFirstHasAFile() throws {
         try withTemporaryDirectory { root in
             let fixture = try Fixture(root)
             let first = try fixture.open()
             let second = try fixture.open()
-            #expect(first.context.id == second.context.id, "precondition: the fixture's ids repeat")
-            _ = try Self.editable(first)
+            #expect(first.context.id != second.context.id, "precondition: fresh ids, as the app makes")
+            let file = try Self.editable(first)
             guard case .readOnly(.openElsewhere) = second.access else {
-                Issue.record("one review id, one writer")
+                Issue.record("a second new review of the copy is read-only, got \(second.access)")
                 return
             }
+            _ = try file.save(Self.noted(first))
+            let third = try fixture.open()
+            #expect(third.context.id == first.context.id, "found by its file")
+            guard case .readOnly(.openElsewhere) = third.access else {
+                Issue.record("the written review is still locked, got \(third.access)")
+                return
+            }
+            let copies = fixture.reviews.root.appending(path: "Copies")
+            guard
+                case .acquired = LocalFileSystem().lock(
+                    copies.appending(path: "01JDB2C7Q9X4M8T6V3N5R1K0PZ.lock"))
+            else {
+                Issue.record("the copy's lock goes once the review has its file")
+                return
+            }
+            withExtendedLifetime(file) {}
+        }
+    }
+
+    /// ADR 0042: another program's version is kept beside the review file, under a name nothing
+    /// rotates, before Keep My Version can save over it.
+    @Test func anotherProgramsVersionIsKeptBesideTheReviewBeforeItsReplaced() throws {
+        try withTemporaryDirectory { root in
+            let fixture = try Fixture(root)
+            let loaded = try fixture.open()
+            let file = try Self.editable(loaded)
+            _ = try file.save(Self.noted(loaded, "Mine."))
+            let theirs = Data((try fixture.text("Tide.review.md") + "\n### Notes\nTheirs.\n").utf8)
+            try theirs.write(to: fixture.folder.appending(path: "Tide.review.md"))
+            var kept: String?
+            var digest: ContentDigest?
+            do throws(SaveError) {
+                _ = try file.save(Self.noted(loaded, "Mine again."))
+                Issue.record("expected the save to stop")
+            } catch {
+                guard case .externallyModified(.changedAndKept(let theirsDigest, let name)) = error else {
+                    Issue.record("expected changedAndKept, got \(error)")
+                    return
+                }
+                kept = name
+                digest = theirsDigest
+            }
+            let name = try #require(kept)
+            #expect(name.hasPrefix("Tide.review.conflict-") && name.hasSuffix(".md"))
+            #expect(try Data(contentsOf: fixture.folder.appending(path: name)) == theirs)
+            #expect(
+                throws: SaveError.externallyModified(
+                    .changedAndKept(theirs: try #require(digest), keptAs: name))
+            ) {
+                try file.save(Self.noted(loaded, "Mine again."))
+            }
+            #expect(fixture.listing.count == 3, "kept once")
+            guard
+                case .saved = try file.save(
+                    Self.noted(loaded, "Mine again."),
+                    onExternalChange: .overwriteKeepingTheirsAsBackup(theirs: try #require(digest)))
+            else {
+                Issue.record("Keep My Version saves")
+                return
+            }
+            #expect(try fixture.text("Tide.review.md").contains("Mine again."))
+            #expect(try Data(contentsOf: fixture.folder.appending(path: name)) == theirs, "never replaced")
+        }
+    }
+
+    @Test func aCopySavedUnderTheReviewsNameIsntTakenForTheReview() throws {
+        try withTemporaryDirectory { root in
+            let fixture = try Fixture(root)
+            try Data(ReviewFormatTests.tide.utf8).write(to: fixture.folder.appending(path: "Tide.review.md"))
+            let loaded = try fixture.open()
+            #expect(loaded.otherReview == nil)
+            #expect(loaded.book.scenes.allSatisfy { $0.notes.isEmpty && $0.errors.isEmpty })
+            _ = try Self.editable(loaded).save(Self.noted(loaded))
+            #expect(fixture.listing == ["Tide-2.review.md", "Tide.md", "Tide.review.md"])
+        }
+    }
+
+    @Test func anUnreadableReviewNamedForTheCopyIsToldNotPassedOver() throws {
+        try withTemporaryDirectory { root in
+            let fixture = try Fixture(root)
+            let review = fixture.folder.appending(path: "Tide.review.md")
+            try Data(ReviewFormatTests.fm.utf8).write(to: review)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o000], ofItemAtPath: review.path(percentEncoded: false))
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o644], ofItemAtPath: review.path(percentEncoded: false))
+            }
+            #expect(throws: ReviewOpenError.self) { try fixture.open() }
+            #expect(fixture.listing == ["Tide.md", "Tide.review.md"])
         }
     }
 
@@ -163,7 +258,7 @@ struct ReviewFileTests {
             let reviewFile = fixture.folder.appending(path: "Tide.review.md")
             try Data(damaged.utf8).write(to: reviewFile)
             let loaded = try fixture.open()
-            guard case .readOnly(.repairedOnOpen(let repair)) = loaded.access else {
+            guard case .readOnly(.repairedOnOpen(.review(let repair))) = loaded.access else {
                 Issue.record("expected a repaired, read-only review, got \(loaded.access)")
                 return
             }
