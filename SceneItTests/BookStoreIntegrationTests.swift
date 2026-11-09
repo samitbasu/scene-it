@@ -121,7 +121,7 @@ struct BookStoreIntegrationTests {
             try #require(delegate.responds(to: #selector(NSApplicationDelegate.application(_:open:))))
             delegate.application?(NSApp, open: [url])
             let store = BookController.shared.store
-            await eventually { store.current?.layout.root.canonicalPath == url.canonicalPath }
+            await eventually { store.current?.document.url.canonicalPath == url.canonicalPath }
             #expect(store.current?.isEditable == true)
             #expect(await store.closeBook() == .left)
             expectNoQuestions()
@@ -141,7 +141,7 @@ struct BookStoreIntegrationTests {
             delegate.application?(NSApp, open: urls)
             let store = BookController.shared.store
             await eventually { headless.titles.count == 1 }
-            #expect(store.current?.layout.root.canonicalPath == urls[0].canonicalPath)
+            #expect(store.current?.document.url.canonicalPath == urls[0].canonicalPath)
             #expect(headless.takeTitles() == ["Scene It opens one book at a time."])
             #expect(store.recentBooks.prefix(2).map(\.canonicalPath) == urls.map(\.canonicalPath))
             #expect(await store.closeBook() == .left)

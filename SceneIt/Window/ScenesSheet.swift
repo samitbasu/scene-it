@@ -15,7 +15,7 @@ struct ScenesSheet: View {
     @Environment(\.self) private var environment
 
     var body: some View {
-        let editability = Editability(book, in: environment)
+        let editability = Editability(book, for: .manuscript, in: environment)
         VStack(spacing: 0) {
             ScenesHeader(book: book, preferences: preferences, model: model, actions: actions, mode: $mode)
             Divider()
@@ -69,7 +69,7 @@ private struct ScenesHeader: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
             Button(ScenesWording.newScene) { actions.add(.afterOpenScene) }
-                .disabled(Editability(book, in: environment) == .readOnly)
+                .disabled(Editability(book, for: .manuscript, in: environment) == .readOnly)
                 .help(ScenesWording.newSceneHelp)
             Picker(ScenesWording.viewLabel, selection: view) {
                 ForEach(ScenesView.allCases, id: \.self) { view in

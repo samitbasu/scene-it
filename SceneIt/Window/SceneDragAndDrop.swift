@@ -36,7 +36,7 @@ extension View {
     func sceneDragSource(_ drag: SceneDrag, actions: ScenesActions, editability: Editability) -> some View {
         switch editability {
         case .editable: onDrag { actions.beginDrag(drag) }
-        case .readOnly: self
+        case .commentsOnly, .readOnly: self
         }
     }
 
@@ -45,7 +45,7 @@ extension View {
     func sceneDropZone(_ zone: DropZone, actions: ScenesActions, editability: Editability) -> some View {
         switch editability {
         case .editable: onDrop(of: [.sceneDrag], delegate: SceneDropDelegate(zone: zone, actions: actions))
-        case .readOnly: self
+        case .commentsOnly, .readOnly: self
         }
     }
 }

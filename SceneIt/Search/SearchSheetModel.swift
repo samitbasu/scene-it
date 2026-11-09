@@ -217,7 +217,7 @@ struct SearchOpener {
         switch hit.target(in: scene) {
         case .title(let range):
             // A read-only book's title field can't take the focus.
-            if book.isEditable { focus.titleSelection.set(NSRange(range), in: scene.id) }
+            if book.accepts(.manuscript) { focus.titleSelection.set(NSRange(range), in: scene.id) }
         case .text(.body, let range):
             editors.page.editor.reveal(NSRange(range), in: scene.id)
         case .text(.notes, let range):

@@ -52,6 +52,7 @@ struct BookWindow: View {
     var body: some View {
         VStack(spacing: 0) {
             ReadOnlyBanner(book: book, store: store, preferences: preferences)
+            ReviewBanner(book: book)
             HStack(spacing: 0) {
                 if chrome.shows(.rail) {
                     IconRail(book: book, mode: $mode)

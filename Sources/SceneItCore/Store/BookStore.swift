@@ -37,9 +37,10 @@ public final class BookStore<C: Clock<Duration>> {
         if case .open(let book) = session { book } else { nil }
     }
 
-    /// The book File a Copy can start on: open for editing, and not being closed.
+    /// The book File a Copy can start on: a book, not a review, open for editing, and not
+    /// being closed.
     public var fileableBook: OpenBook<C>? {
-        openBook.flatMap { $0.isEditable ? $0 : nil }
+        openBook.flatMap { $0.isEditable && $0.document.kind == .book ? $0 : nil }
     }
 
     /// Make Editable… applies: the open book, not being closed, was repaired as it opened.
@@ -61,6 +62,7 @@ public final class BookStore<C: Clock<Duration>> {
     @ObservationIgnored private let clock: C
     @ObservationIgnored private let fileSystem: any FileSystem
     @ObservationIgnored private let mirror: BackupMirror
+    @ObservationIgnored private let reviews: ReviewsFolder
     @ObservationIgnored private let memory: any BookMemory
     @ObservationIgnored private let prompts: any StorePrompts
     @ObservationIgnored private let parseDefaults: ParseDefaults
@@ -72,14 +74,17 @@ public final class BookStore<C: Clock<Duration>> {
         case running(waiting: [CheckedContinuation<Void, Never>])
     }
 
+    /// `reviews` is where reviews keep their backups, kept originals and locks (review format §9 Q9).
     public init(
         clock: C, fileSystem: any FileSystem = LocalFileSystem(), mirror: BackupMirror,
+        reviews: ReviewsFolder,
         memory: any BookMemory, prompts: any StorePrompts, parseDefaults: ParseDefaults = .system
     ) {
         self.clock = clock
         self.parseDefaults = parseDefaults
         self.fileSystem = fileSystem
         self.mirror = mirror
+        self.reviews = reviews
         self.memory = memory
         self.prompts = prompts
         recentBooks = Self.urls(memory.recentBookPaths)
@@ -91,6 +96,8 @@ public final class BookStore<C: Clock<Duration>> {
         /// It's this process's book already.
         case alreadyOpen
         case failed(LoadError)
+        /// Review Book… couldn't open the file; the writer was told.
+        case reviewFailed(ReviewOpenError)
         /// Another book is open (ADR 0038); the writer was told.
         case refused
     }
@@ -128,7 +135,7 @@ public final class BookStore<C: Clock<Duration>> {
             let isOpen: Bool =
                 switch outcome {
                 case .opened, .openedReadOnly, .alreadyOpen: true
-                case .failed, .refused: false
+                case .failed, .reviewFailed, .refused: false
                 }
             for book in others.reversed() { remember(book) }
             if isOpen { remember(first) }
@@ -145,11 +152,11 @@ public final class BookStore<C: Clock<Duration>> {
         case .choosing:
             return nil
         case .open(let book), .closing(let book):
-            let own = book.layout.root.canonicalPath
+            let own = book.document.url.canonicalPath
             let others = books.filter { $0.canonicalPath != own }
             guard !others.isEmpty else { return .alreadyOpen }
             Log.store.info("refused other books while one is open", ["count": .count(others.count)])
-            await prompts.tell(OneBookWording.refusal(of: others, whileOpen: book.layout.root))
+            await prompts.tell(OneBookWording.refusal(of: others, whileOpen: book.document.url))
             return .refused
         }
     }
@@ -175,13 +182,47 @@ public final class BookStore<C: Clock<Duration>> {
         await prompts.tell(notice)
     }
 
+    /// Review Book… (ADR 0029, 0041): opens the review copy or review file at `url` from the start
+    /// state, with the review that belongs to it, or a new one. The copy is never written. A
+    /// review that opens read-only is told, as a book is.
+    @discardableResult
+    public func openReview(_ url: URL) async -> OpenOutcome {
+        await exclusively {
+            if let refusal = await refusal(of: [url]) { return refusal }
+            let loaded: LoadedReview
+            do throws(ReviewOpenError) {
+                loaded = try await Self.loadReview(url, reviews, parseDefaults.openedNow(), fileSystem)
+            } catch {
+                await prompts.tell(ReviewWording.openFailed(error))
+                return .reviewFailed(error)
+            }
+            precondition(isChoosing, "one book at a time, chosen from the start state (ADR 0038)")
+            let book = OpenBook(loaded, clock: clock, store: self)
+            session = .open(book)
+            if let other = loaded.otherReview {
+                await prompts.tell(ReviewWording.otherReviewKept(other))
+            }
+            guard case .readOnly(let reason) = loaded.access else { return .opened }
+            switch await prompts.ask(ReadOnlyWording.alert(for: reason, of: .review)) {
+            case .keepReadOnly, .openAnyway:
+                return .openedReadOnly(reason)
+            case .makeEditable:
+                switch await makeEditableExclusively() {
+                case .editable: return .opened
+                case .readOnly(let reason): return .openedReadOnly(reason)
+                case .failed, .notRepaired, .keptReadOnly: return .openedReadOnly(reason)
+                }
+            }
+        }
+    }
+
     /// Creates a book from the start state; refused while a book is open (ADR 0038).
     @discardableResult
     public func create(at url: URL) async -> CreateOutcome {
         await exclusively {
             if let book = current {
                 Log.store.info("refused to create a book while one is open")
-                await prompts.tell(OneBookWording.createRefusal(of: url, whileOpen: book.layout.root))
+                await prompts.tell(OneBookWording.createRefusal(of: url, whileOpen: book.document.url))
                 return .refused
             }
             let loaded: LoadedBook
@@ -210,7 +251,7 @@ public final class BookStore<C: Clock<Duration>> {
         var url: URL {
             switch self {
             case .chosen(let url), .myVersion(let url, _): url
-            case .again(let book): book.layout.root
+            case .again(let book): book.document.url
             }
         }
 
@@ -298,14 +339,44 @@ public final class BookStore<C: Clock<Duration>> {
         guard let book = current, case .readOnly(.repairedOnOpen(let repair)) = book.status else {
             return .notRepaired
         }
-        let kept: KeptOriginal
         do throws(FileSystemError) {
-            kept = try await Self.keepOriginal(of: repair, fileSystem)
+            switch (repair, book.document) {
+            case (.book(let repair), .book):
+                return await edit(
+                    book, keeping: try await Self.keepOriginal(of: repair, fileSystem), onLockRecord: .respect
+                )
+            case (.review(let repair), .review(let context)):
+                return await editReview(
+                    book, context, keeping: try await Self.keepOriginal(of: repair, fileSystem))
+            case (.book, .review), (.review, .book):
+                return .notRepaired
+            }
         } catch {
-            await prompts.tell(ReadOnlyWording.makeEditableFailed(error))
+            await prompts.tell(ReadOnlyWording.makeEditableFailed(error, of: book.document.kind))
             return .failed(error)
         }
-        return await edit(book, keeping: kept, onLockRecord: .respect)
+    }
+
+    private func editReview(
+        _ book: OpenBook<C>, _ context: ReviewContext, keeping kept: consuming KeptReviewOriginal
+    ) async -> MakeEditableOutcome {
+        let made = await Self.editReview(kept, context, fileSystem)
+        switch consume made {
+        case .editing(let file):
+            let writer = ReviewWriter(file, context)
+            guard book === current else {
+                await writer.release()
+                return .notRepaired
+            }
+            book.becomeEditable(.review(writer), clock: clock)
+            return .editable
+        case .readOnly(_, let reason):
+            await prompts.tell(
+                Notice(
+                    title: ReadOnlyWording.readOnlyTitle,
+                    message: ReadOnlyWording.readOnlyMessage(reason, of: .review)))
+            return .readOnly(reason)
+        }
     }
 
     private func edit(
@@ -319,7 +390,7 @@ public final class BookStore<C: Clock<Duration>> {
                 await writer.release()
                 return .notRepaired
             }
-            book.becomeEditable(writer, clock: clock)
+            book.becomeEditable(.book(writer), clock: clock)
             await book.reconcileArchive(with: writer)
             await tellRecords(book.takeRecordsToTell(.kept), in: book)
             return .editable
@@ -343,7 +414,7 @@ public final class BookStore<C: Clock<Duration>> {
             loaded.opened, identity: loaded.identity, archive: loaded.archive, pending: target.pending,
             clock: clock, mirror: mirror,
             store: self)
-        let replaced: BookWriter?
+        let replaced: DocumentWriter?
         switch target {
         case .chosen:
             precondition(isChoosing, "one book at a time, chosen from the start state (ADR 0038)")
@@ -388,14 +459,14 @@ public final class BookStore<C: Clock<Duration>> {
         exported: Timestamp
     ) async -> ExportResult {
         await exclusively {
-            guard book === current else {
+            guard book === current, case .book(let layout) = book.document else {
                 await prompts.tell(ExportWording.bookClosed)
                 return .unavailable
             }
             let copy = ReviewCopy(projecting: book.book, chosen: chosen, export: export, exported: exported)
             do throws(ExportFailure) {
                 try await Self.write(
-                    copy, to: destination, outside: book.layout, identifiedAs: book.packageIdentity,
+                    copy, to: destination, outside: layout, identifiedAs: book.packageIdentity,
                     fileSystem)
                 return .exported
             } catch {
@@ -440,8 +511,14 @@ public final class BookStore<C: Clock<Duration>> {
     func askAboutExternalChange(in book: OpenBook<C>) async {
         await exclusively {
             guard book === current, case .paused(let paused) = book.autosave?.state else { return }
+            guard case .book(let layout) = book.document else {
+                switch await prompts.ask(ReviewWording.externalChangeAlert(paused.error)) {
+                case .keepMyVersion, .openOtherVersion: book.keepMyVersion()
+                }
+                return
+            }
             let name = StoreWording.myEditsFileName(
-                title: book.book.title, original: book.layout.root, attempt: 1)
+                title: book.book.title, original: layout.root, attempt: 1)
             let alert = StoreWording.externalChangeAlert(paused.error, myEditsName: name)
             switch await prompts.ask(alert) {
             case .keepMyVersion:
@@ -464,7 +541,8 @@ public final class BookStore<C: Clock<Duration>> {
     /// Typing continues while the copy is written, so the copy is saved again until it holds
     /// exactly the open book, and the book is closed in the same main-actor turn as that check.
     private func openOtherVersion(of book: OpenBook<C>, after error: SaveError) async {
-        let original = book.layout.root
+        guard case .book(let layout) = book.document else { return }
+        let original = layout.root
         let title = book.book.title
         let copy: BookWriter
         do throws(CreateError) {
@@ -496,7 +574,7 @@ public final class BookStore<C: Clock<Duration>> {
         let copyURL = copy.layout.root
         remember(copyURL)
         await copy.release()
-        if let writer { await book.recordPending(writer) }
+        if let writer = writer?.book { await book.recordPending(writer) }
         await writer?.release()
         let reopened: OpenOutcome
         let replacement: Target
@@ -558,7 +636,7 @@ public final class BookStore<C: Clock<Duration>> {
         case (.discarding, .quit):
             writer?.releaseUnlessSaving()
         case (.saved, _):
-            if let writer { await book.recordPending(writer) }
+            if let writer = writer?.book { await book.recordPending(writer) }
             await writer?.release()
         }
         // Told as lost even if a stuck save later records them; a false alarm is the safe direction.
@@ -592,10 +670,11 @@ public final class BookStore<C: Clock<Duration>> {
 
     /// Tells the writer of `records`, which `book`'s index won't hold.
     private func tellRecords(_ records: UnrecordedCopies, in book: OpenBook<C>) async {
-        let archive = Archive(layout: book.layout, fileSystem: fileSystem)
+        guard case .book(let layout) = book.document else { return }
+        let archive = Archive(layout: layout, fileSystem: fileSystem)
         guard
             let notice = ArchiveWording.unrecorded(
-                records, listedOn: archive.modifiedDay, in: book.layout.root)
+                records, listedOn: archive.modifiedDay, in: layout.root)
         else { return }
         await prompts.tell(notice)
     }
@@ -674,9 +753,36 @@ public final class BookStore<C: Clock<Duration>> {
 
     @concurrent
     private nonisolated static func keepOriginal(
-        of repair: Repair, _ fileSystem: any FileSystem
+        of repair: BookRepair, _ fileSystem: any FileSystem
     ) async throws(FileSystemError) -> KeptOriginal {
         try BookPackage.keepOriginal(of: repair, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func keepOriginal(
+        of repair: ReviewRepair, _ fileSystem: any FileSystem
+    ) async throws(FileSystemError) -> KeptReviewOriginal {
+        try ReviewFile.keepOriginal(of: repair, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func editReview(
+        _ kept: consuming KeptReviewOriginal, _ context: ReviewContext, _ fileSystem: any FileSystem
+    ) async -> ReviewFile.MadeEditable {
+        ReviewFile.edit(kept, context, fileSystem: fileSystem)
+    }
+
+    @concurrent
+    private nonisolated static func loadReview(
+        _ url: URL, _ reviews: ReviewsFolder, _ opened: Timestamp, _ fileSystem: any FileSystem
+    ) async throws(ReviewOpenError) -> LoadedReview {
+        try ReviewFile.open(
+            url, reviews: reviews, opened: opened, freshID: freshReviewID, fileSystem: fileSystem)
+    }
+
+    private nonisolated static func freshReviewID() -> ReviewID {
+        var ids = IDGenerator.system
+        return ids.reviewID()
     }
 
     @concurrent

@@ -134,6 +134,11 @@ public enum ErrorsWording {
                 title: "Saved by a newer Scene It",
                 detail: "book format \(format) · read only",
                 offersMakeEditable: false)
+        case .newerReviewFormat(let format):
+            Banner(
+                title: "Saved by a newer Scene It",
+                detail: "review format \(format) · read only",
+                offersMakeEditable: false)
         case .openElsewhere, .openOnAnotherMac, .openInAnotherProcess, .lockUnavailable:
             nil
         }

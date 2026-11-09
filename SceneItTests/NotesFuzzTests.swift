@@ -212,7 +212,7 @@ struct EditorLifetimeTests {
             store.saveNow()
             await eventually { store.current !== first && store.current != nil }
             let second = try #require(store.current)
-            #expect(second.layout.root.canonicalPath == url.canonicalPath, "precondition: at the same root")
+            #expect(second.document.url.canonicalPath == url.canonicalPath, "precondition: at the same root")
             #expect(second.isEditable, "precondition: editable")
             await eventually { page().map { $0.editor?.book === second && $0.string == "Theirs." } == true }
             let after = try #require(page())

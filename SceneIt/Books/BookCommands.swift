@@ -2,8 +2,8 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// File → New Book…, Open Book…, Close Book, Save, Make Editable…, File a Copy… and Export as
-/// SceneIt…, in place of SwiftUI's New Window, Close and Save. New and Open are offered only on
+/// File → New Book…, Open Book…, Review Book…, Close Book, Save, Make Editable…, File a Copy… and Export as
+/// SceneIt…, in place of SwiftUI's New Window, Close and Save. New, Open and Review are offered only on
 /// the start screen, and Close Book returns there (ADR 0038); from any window but the main one,
 /// ⌘W closes that window.
 struct BookCommands: Commands {
@@ -19,6 +19,8 @@ struct BookCommands: Commands {
                 .disabled(!choosing)
             Button(StoreWording.openBookMenuItem) { Task { await books.openBook() } }
                 .keyboardShortcut("o")
+                .disabled(!choosing)
+            Button(ReviewWording.menuItem) { Task { await books.reviewBook() } }
                 .disabled(!choosing)
         }
         CommandGroup(replacing: .saveItem) {

@@ -212,7 +212,7 @@ struct ScenesActions {
 
     /// A card's + tag chip: opens the field on that card, closing any other.
     func startTagging(_ scene: SceneID) {
-        guard book.isEditable else { return }
+        guard book.accepts(.manuscript) else { return }
         model.focused = nil
         model.field = .tagging(scene)
     }
@@ -238,7 +238,8 @@ struct ScenesActions {
     /// (ADR 0031). If it was open, no scene is. If the book closed or was read again while the
     /// writer was asked, nothing is deleted, and the writer is told.
     func deletePermanently(_ scene: SceneID) async {
-        guard book.isEditable, let shown = book.book.boneyard.first(where: { $0.id == scene }) else { return }
+        guard book.accepts(.manuscript), let shown = book.book.boneyard.first(where: { $0.id == scene })
+        else { return }
         guard await store.ask(BoneyardWording.confirmDelete(shown)) == .delete else { return }
         guard store.current === book else {
             await store.tell(BoneyardWording.notDeleted(shown, .bookClosed))
@@ -265,7 +266,7 @@ struct ScenesActions {
     }
 
     func accepts(_ zone: DropZone) -> Bool {
-        book.isEditable && model.drop.accepts(zone)
+        book.accepts(.manuscript) && model.drop.accepts(zone)
     }
 
     func enter(_ zone: DropZone) {
@@ -279,7 +280,7 @@ struct ScenesActions {
     /// The drop on `zone`: the move, cut or restore it makes, if any.
     @discardableResult
     func drop(on zone: DropZone) -> Bool {
-        guard book.isEditable, let change = model.drop.drop(on: zone) else {
+        guard book.accepts(.manuscript), let change = model.drop.drop(on: zone) else {
             model.drop.end()
             return false
         }
