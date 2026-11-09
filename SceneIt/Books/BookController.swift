@@ -46,6 +46,8 @@ final class BookController {
     /// The open book's page, for the Format menu and the control bar.
     let formatting: EditorFormatting
     let mirror: BackupMirror
+    /// Where reviews keep their backups, kept originals and locks (review format §9 Q9).
+    let reviews: ReviewsFolder
     /// Where Export as SceneIt… writes: the save panel in the app; in the test host and previews
     /// nowhere, unless a test names a file.
     var exportDestination: ExportDestination
@@ -66,14 +68,15 @@ final class BookController {
         self.role = role
         let standard: any StorePrompts
         let storage: any PreferenceStorage
-        (memory, mirror, standard, storage, recorded) = Self.surroundings(for: role)
+        (memory, mirror, reviews, standard, storage, recorded) = Self.surroundings(for: role)
         recorded?.terminate = recordedTerminate
         requests = AppRequests(carryOut: recorded.map { recorder in recorder.record } ?? AppRequests.appKit)
         preferences = AppPreferences(storage)
         formatting = EditorFormatting(preferences: preferences)
         self.prompts = prompts ?? standard
         exportDestination = role == .app ? .savePanel : .nowhere
-        store = BookStore(clock: ContinuousClock(), mirror: mirror, memory: memory, prompts: self.prompts)
+        store = BookStore(
+            clock: ContinuousClock(), mirror: mirror, reviews: reviews, memory: memory, prompts: self.prompts)
         recorded?.storeIsBusy = { [store] in store.isBusy }
     }
 
@@ -81,12 +84,13 @@ final class BookController {
     /// previews get throwaway ones that never touch the writer's files, never put up a modal
     /// alert nobody can answer, and never quit the process they run in.
     private static func surroundings(for role: ProcessRole) -> (
-        any BookMemory, BackupMirror, any StorePrompts, any PreferenceStorage, RecordedRequests?
+        any BookMemory, BackupMirror, ReviewsFolder, any StorePrompts, any PreferenceStorage,
+        RecordedRequests?
     ) {
         switch role {
         case .app:
             (
-                DefaultsBookMemory(.standard), .standard, AlertPrompts(),
+                DefaultsBookMemory(.standard), .standard, .standard, AlertPrompts(),
                 DefaultsPreferenceStorage(.standard), nil
             )
         case .testHost, .preview:
@@ -94,6 +98,8 @@ final class BookController {
                 TransientBookMemory(),
                 BackupMirror(
                     root: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Mirror")),
+                ReviewsFolder(
+                    root: FileManager.default.temporaryDirectory.appending(path: "Scene It Test Reviews")),
                 HeadlessPrompts(),
                 TransientPreferenceStorage(),
                 RecordedRequests()
@@ -263,6 +269,20 @@ final class BookController {
             guard panel.runModal() == .OK, let url = panel.url else { return }
             guard case .failed(.alreadyExists) = await store.create(at: url) else { return }
         }
+    }
+
+    /// Review Book… (ADR 0029): a review copy, or its review file, chosen in an open panel.
+    func reviewBook() async {
+        guard store.isChoosing else { return }
+        let panel = NSOpenPanel()
+        panel.title = ReviewWording.panelTitle
+        panel.prompt = ReviewWording.panelPrompt
+        panel.message = ReviewWording.panelMessage
+        panel.allowedContentTypes = [.reviewCopy]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        await store.openReview(url)
     }
 
     func openBook() async {

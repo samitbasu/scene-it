@@ -163,6 +163,11 @@ public struct ParseDefaults: Sendable {
     public static let system = ParseDefaults(
         opened: { Timestamp(.now, in: .current) }, ids: { IDGenerator.system })
 
+    /// The time a review is opened, for a scene of its copy with no `modified`.
+    func openedNow() -> Timestamp {
+        opened()
+    }
+
     func parse(_ data: Data) -> ParsedBook {
         var ids = ids()
         return BookFormat.parse(data, opened: opened(), ids: &ids)

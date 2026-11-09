@@ -105,7 +105,7 @@ struct ScenesActions {
 
     /// A card's + tag chip: opens the field on that card, closing any other.
     func startTagging(_ scene: SceneID) {
-        guard book.isEditable else { return }
+        guard book.accepts(.manuscript) else { return }
         model.field = .tagging(scene)
     }
 

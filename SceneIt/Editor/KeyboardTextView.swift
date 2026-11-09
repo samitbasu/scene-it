@@ -3,11 +3,21 @@ import SceneItCore
 
 /// Whether a text view's text takes changes.
 enum Editability {
-    case editable, readOnly
+    case editable
+    /// The text can't change, but comments on it can: a review's page (ADR 0042).
+    case commentsOnly
+    case readOnly
 
-    /// As `book` takes edits: a detached (closed) book doesn't.
-    init(_ book: AppOpenBook?) {
-        self = book?.isEditable == true ? .editable : .readOnly
+    /// As `book` takes `edit`: a detached (closed) book takes none.
+    init(_ book: AppOpenBook?, for edit: EditKind) {
+        self = book?.accepts(edit) == true ? .editable : .readOnly
+    }
+
+    /// The page's: its text is the manuscript, which a review takes only comments on.
+    static func page(_ book: AppOpenBook?) -> Editability {
+        guard let book else { return .readOnly }
+        if book.accepts(.manuscript) { return .editable }
+        return book.accepts(.annotations) ? .commentsOnly : .readOnly
     }
 }
 
@@ -45,11 +55,27 @@ class KeyboardTextView: NSTextView {
 
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool
     {
-        guard editability() == .editable else {
+        switch editability() {
+        case .editable:
+            break
+        case .commentsOnly where keepsText(affectedRanges.map(\.rangeValue), replacementStrings):
+            break
+        case .commentsOnly, .readOnly:
             NSSound.beep()
             return false
         }
         return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
+
+    /// Whether a change leaves the characters as they are: one of attributes alone, as adding
+    /// or removing a comment is, or as undoing one replays it.
+    private func keepsText(_ ranges: [NSRange], _ replacements: [String]?) -> Bool {
+        guard let replacements else { return true }
+        let string = self.string as NSString
+        return ranges.count == replacements.count
+            && zip(ranges, replacements).allSatisfy { range, replacement in
+                range.upperBound <= string.length && string.substring(with: range) == replacement
+            }
     }
 
     override var inputContext: NSTextInputContext? {

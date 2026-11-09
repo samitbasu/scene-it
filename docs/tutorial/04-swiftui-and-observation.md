@@ -97,16 +97,19 @@ the `Book` directly. The store forbids that: `book` is `public private(set)`, an
 goes through a method that also tells autosave, **in the same main-actor turn**:
 
 ```swift
-        guard let driver = editingDriver, let (list, index) = place(of: id) else { return }
+        guard let driver = driver(for: kind), let (list, index) = place(of: id) else { return }
         var scene = book[keyPath: list][index]
         change(&scene)
         guard scene != book[keyPath: list][index] else { return }
-        scene.modified = Timestamp(.now, in: .current)
         let bodyChanged = scene.body != book[keyPath: list][index].body
         book[keyPath: list][index] = scene
-        if bodyChanged { wordCounts.recount(scene) }
+        stamp(list, index)
+        if bodyChanged { wordCounts.recount(book[keyPath: list][index]) }
         driver.send(.edited)
 ```
+
+(`driver(for: kind)` is the gate chapter 07f describes: it's the driver only while the book
+takes this kind of edit. `stamp` sets the scene's `modified`.)
 
 An edit that changes nothing is not an edit, so a text field re-setting the same value
 doesn't schedule a save. A read-only book has no driver, so `edit` returns at its first
@@ -160,12 +163,15 @@ The saver's job (chapter 03a §4) is to snapshot the book before its first suspe
     public func save(_ request: SaveRequest) async throws(SaveError) {
         // Unreachable in practice: closing a book drops its driver, the only caller.
         guard case .writable(_, let writer, _) = access else {
-            throw .fileSystem(FileSystemError(.write, layout.book, .notFound))
+            throw .fileSystem(FileSystemError(.write, document.url, .notFound))
         }
         let snapshot = book
         do {
-            let result = try await writer.save(snapshot, onExternalChange: request.onExternalChange)
+            let result = try await writer.save(snapshot, of: document, onExternalChange: request.onExternalChange)
 ```
+
+(The writer is a `DocumentWriter`: the `BookWriter` above, or for a review its `ReviewWriter`,
+chapter 07f.)
 
 `let snapshot = book` copies a value type (chapter 00 §2), so typing that lands while the save
 is off the main actor changes `self.book`, not the snapshot being written. That edit arrives at

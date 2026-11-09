@@ -19,6 +19,7 @@ Everything lives in [`Sources/SceneItCore/Persistence/`](../../Sources/SceneItCo
 | File | What it holds |
 | --- | --- |
 | [`BookPackage.swift`](../../Sources/SceneItCore/Persistence/BookPackage.swift) | create, open and save; the save pipeline |
+| [`GuardedWrite.swift`](../../Sources/SceneItCore/Persistence/GuardedWrite.swift) | the write itself (§3–§7) and the editing lock, shared since #80 by books and reviews (ADR 0042); `SavedFileLayout` |
 | [`PackageLayout.swift`](../../Sources/SceneItCore/Persistence/PackageLayout.swift) | where each file lives in a `.sceneit` package; `BackupSlot` |
 | [`FileSystem.swift`](../../Sources/SceneItCore/Persistence/FileSystem.swift) | the file-system protocol (the testing seam), `FileItem`, `FileSystemError` |
 | [`LocalFileSystem.swift`](../../Sources/SceneItCore/Persistence/LocalFileSystem.swift) | the real implementation: POSIX calls, `F_FULLFSYNC`, `renamex_np` |
@@ -104,13 +105,13 @@ a string.
 There's no `From`, so every boundary converts by hand. When the calls in a `do`
 block throw one type, the `catch` infers it. A `throw` statement of another type inside
 the block makes the inferred type fall back to `any Error`, and the fix is to state it:
-`do throws(SaveError) {`, as `replaceBook` (§4) does. Where a single call has to be
+`do throws(SaveError) {`, as `replaceFile` (§4) does. Where a single call has to be
 wrapped inline, a small generic helper does it. Its closure needs the explicit
 `() throws(FileSystemError) in`, because (chapter 00 §6) closures don't infer typed
 throws:
 
 ```swift
-private func wrapping<T, E: Error>(
+func wrapping<T, E: Error>(
     _ wrap: (FileSystemError) -> E, _ body: () throws(FileSystemError) -> T
 ) throws(E) -> T {
 ```
@@ -135,16 +136,24 @@ It plays the role of Rust's `.map_err(LoadProblem::Unreadable)?`.
             throw .encoding(error)
         }
         return try lastSeen.withLock { (lastSeen) throws(SaveError) -> SaveOutcome in
-            let current = try readCurrent(lastSeen, policy)
-            if current?.data == data {
-                Log.store.debug("book unchanged; nothing saved")
-                return .unchanged
-            }
-            let backups = try replaceBook(with: data, current: current, &lastSeen)
-            lastSeen = ContentDigest(data)
-            Log.store.info("saved the book", ["bytes": .bytes(Int64(data.count))])
-            return .saved(backups, PublishedBook(data: data))
+            try save(data, policy, &lastSeen)
         }
+    }
+```
+
+The steps after verification are `GuardedWrite`'s, which a review's file shares (ADR 0042,
+chapter 07f). It works on a `SavedFileLayout`, the file and where its backups go; a book's is
+`book.md` and the package:
+
+```swift
+    func save(_ data: Data, _ policy: ExternalChangePolicy, _ lastSeen: inout ContentDigest)
+        throws(SaveError) -> GuardedWriteOutcome
+    {
+        let current = try readCurrent(lastSeen, policy)
+        if current?.data == data { return .unchanged }
+        let backups = try replaceFile(with: data, current: current, &lastSeen)
+        lastSeen = ContentDigest(data)
+        return .written(backups)
     }
 ```
 
@@ -191,7 +200,7 @@ is bad, and when they fail nothing visible has changed yet. **Phase 2 only renam
 `book.md` is never moved, just replaced in one step by its new version.
 
 ```swift
-    private func replaceBook(
+    private func replaceFile(
         with data: Data, current: Current?, _ lastSeen: inout ContentDigest
     ) throws(SaveError) -> BackupStatus {
         var unpublished: [URL] = []
@@ -202,14 +211,14 @@ is bad, and when they fail nothing visible has changed yet. **Phase 2 only renam
                 if bak1 != .holdsCurrent {
                     let file = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
                         try fileSystem.writeTemporary(
-                            current.data, for: layout.backup(.bak1), permissionsFrom: layout.book)
+                            current.data, for: layout.backup(.bak1), permissionsFrom: layout.file)
                     }
                     unpublished.append(file.url)
                     backup = (file, bak1)
                 }
             }
             let replacement = try wrapping(SaveError.fileSystem) { () throws(FileSystemError) in
-                try fileSystem.writeTemporary(data, for: layout.book, permissionsFrom: layout.book)
+                try fileSystem.writeTemporary(data, for: layout.file, permissionsFrom: layout.file)
             }
             unpublished.append(replacement.url)
             var status = BackupStatus.intact
@@ -229,7 +238,7 @@ is bad, and when they fail nothing visible has changed yet. **Phase 2 only renam
             return status
         } catch {
             unpublished.forEach(fileSystem.discard)
-            Log.store.error("couldn't save the book")
+            Log.store.error("couldn't save a file")
             throw error
         }
     }
@@ -598,14 +607,14 @@ anyone noticing. So the final step is a compare-and-swap:
     ) throws(SaveError) {
         guard let expected else {
             do {
-                return try fileSystem.publish(replacement, as: layout.book)
+                return try fileSystem.publish(replacement, as: layout.file)
             } catch {
                 fileSystem.discard(replacement.url)
                 throw error.cause == .alreadyExists ? changedDuringSave() : .fileSystem(error)
             }
         }
         do {
-            try fileSystem.exchange(replacement, with: layout.book)
+            try fileSystem.exchange(replacement, with: layout.file)
         } catch  where error.cause == .unsupported {
             return try replaceWithoutExchange(replacement, expecting: expected)
         } catch {
@@ -617,7 +626,7 @@ anyone noticing. So the final step is a compare-and-swap:
             return
         }
         do {
-            try fileSystem.exchange(replacement, with: layout.book)
+            try fileSystem.exchange(replacement, with: layout.file)
         } catch {
             throw keepAsConflict(replacement, published: data, &lastSeen)
         }

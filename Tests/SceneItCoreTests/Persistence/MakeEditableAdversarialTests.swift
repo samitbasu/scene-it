@@ -150,7 +150,7 @@ import Testing
             let bytes = [damaged(try draft(1)), damaged(try draft(2))]
             let urls = try zip(bytes, folders).map { try package(holding: $0, in: $1) }
             let repairA = try repaired(urls[0])
-            #expect(repairA.layout == urls[0].layout)
+            #expect(repairA.file == .book(urls[0].layout))
             let kept = try BookPackage.keepOriginal(of: repairA, now: Self.keptAt)
             #expect(kept.url.deletingLastPathComponent().standardizedFileURL == urls[0].standardizedFileURL)
             #expect(try Data(contentsOf: kept.url) == bytes[0])

@@ -101,7 +101,7 @@ final class SceneTextEditor: NSObject {
         } else if text != shown {
             load(scene, text, caret: view.selectedRange().location)
         }
-        let editable = editability == .editable
+        let editable = editability != .readOnly
         if view.isEditable != editable {
             view.isEditable = editable
             if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
@@ -501,7 +501,7 @@ final class SceneTextEditor: NSObject {
     /// The selection's formats, while the text can be formatted.
     private var formattingSelection: SelectionFormatting? {
         guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here,
-            view.isEditable
+            view.editability() == .editable
         else { return nil }
         let ranges = view.selectedRanges.map(\.rangeValue)
         return ranges.contains(where: { $0.length > 0 })
@@ -532,7 +532,7 @@ final class SceneTextEditor: NSObject {
     }
 
     func paste(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
-        guard let scene, let view = textView, view.isEditable else { return false }
+        guard let scene, let view = textView, view.editability() == .editable else { return false }
         if type == .pageClip {
             guard let data = pasteboard.data(forType: type), let clip = PageClip(data: data),
                 let pasted = book.resolve(clip, into: scene), !pasted.lines.isEmpty
@@ -603,9 +603,14 @@ final class SceneTextEditor: NSObject {
 }
 
 extension Editability {
-    /// Editable in an editable book, unless SwiftUI disabled the view, as under a sheet.
-    init(_ book: AppOpenBook, in environment: EnvironmentValues) {
-        self = book.isEditable && environment.isEnabled ? .editable : .readOnly
+    /// As the book takes `edit`, unless SwiftUI disabled the view, as under a sheet.
+    init(_ book: AppOpenBook, for edit: EditKind, in environment: EnvironmentValues) {
+        self = environment.isEnabled ? Editability(book, for: edit) : .readOnly
+    }
+
+    /// The page's, unless SwiftUI disabled it.
+    static func page(_ book: AppOpenBook, in environment: EnvironmentValues) -> Editability {
+        environment.isEnabled ? page(book) : .readOnly
     }
 }
 

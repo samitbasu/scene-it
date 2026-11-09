@@ -92,7 +92,7 @@ struct SceneTitleField: View {
             TitleTextField(
                 book: book, scene: scene, title: book.book.scene(scene)?.title.text ?? "", focus: focus
             )
-            .disabled(!book.isEditable)
+            .disabled(!book.accepts(.manuscript))
             Spacer(minLength: WindowMetrics.pageMargin)
         }
     }

@@ -343,6 +343,14 @@ and the look candidates the owner hasn't picked between, as `candidate-tag-alway
 `candidate-messages-plain-no-matches` and `candidate-messages-plain-empty`. To render only these, add
 `-only-testing:SceneItTests/WindowRenders/scenesSheet\(\)`.
 
+`reviewRenders` renders Review Book… (#80, `ReviewRenders.swift`) into a `review/` subfolder, at 1× and 2×:
+the window over a review copy with a comment, with the shipped banner (`review-a-banner`) and two
+alternatives laid over it (`review-b-tinted`, `review-c-plain`), each beside `13-read-only-filed-copy.png`;
+and the start screen with Review Book… as a third button (`start-a-third-button`, shipped) or on a line of
+its own (`start-b-own-line`). To render only these, add
+`-only-testing:SceneItTests/WindowRenders/reviewRenders\(\)`. `reviewBookMenuRenders`, in
+`BookStoreIntegrationTests`, draws the File menu on the start screen (`menu-review-book-start-screen`).
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

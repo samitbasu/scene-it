@@ -60,6 +60,7 @@ func makeStore(
 ) -> TestStore {
     BookStore(
         clock: clock, fileSystem: fileSystem, mirror: BackupMirror(root: folder.appending(path: "Mirror")),
+        reviews: ReviewsFolder(root: folder.appending(path: "Reviews")),
         memory: memory, prompts: prompts, parseDefaults: parseDefaults)
 }
 
