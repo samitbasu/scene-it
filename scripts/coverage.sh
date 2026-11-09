@@ -47,7 +47,7 @@ skips=()
 for suite in "${timing_suites[@]}"; do
     skips+=(--skip "$suite")
 done
-run swift-test swift test --enable-code-coverage "${skips[@]}"
+run swift-test scripts/fresh-build.sh .build swift test --enable-code-coverage "${skips[@]}"
 
 codecov_dir=$(dirname "$(swift test --show-codecov-path)")
 # The bundle is SceneItCorePackageTests.xctest with the native build system, SceneItCoreTests.xctest with swiftbuild.

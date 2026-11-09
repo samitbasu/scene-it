@@ -13,27 +13,20 @@ readonly log_dir=build/check
 readonly result_bundle="$log_dir/SceneIt.xcresult"
 readonly products_before=" $(built_here "$every_build_folder" | tr '\n' ' ') "
 
-# stop_everything <status>: kills what the gate started, as a timeout does, and exits. The
-# steps run in the background, where Ctrl-C doesn't reach them, so without this they would
-# outlive the gate and keep writing to build/.
+# stop_everything <signal>: kills what the gate started, as a timeout does, then dies of the
+# signal, so a calling loop sees the interrupt. It leaves both builds unrecorded, so the next
+# gate builds from clean. The steps run in the background, where Ctrl-C doesn't reach them, so
+# without this they would outlive the gate and keep writing to build/.
 stop_everything() {
-    trap '' INT TERM
-    local pass process alive
-    for pass in 1 2 3 4 5; do
-        alive=()
-        for process in $(doomed $$ "$every_build_folder" "$products_before"); do
-            if [[ $process != "$$" ]] && kill -0 "$process" 2>/dev/null; then
-                alive+=("$process")
-            fi
-        done
-        ((${#alive[@]} > 0)) || break
-        kill -9 "${alive[@]}" 2>/dev/null || true
-        sleep 0.1
-    done
-    exit "$1"
+    trap '' INT TERM HUP
+    kill_doomed $$ "$every_build_folder" "$products_before"
+    trap - "$1"
+    kill -"$1" $$
 }
-trap 'stop_everything 130' INT
-trap 'stop_everything 143' TERM
+trap 'stop_everything INT' INT
+trap 'stop_everything TERM' TERM
+trap 'stop_everything HUP' HUP
+trap unlock_builds EXIT
 
 rm -rf "$result_bundle"
 mkdir -p "$log_dir"
@@ -72,10 +65,13 @@ run() {
 }
 
 run guard-tests 5 scripts/test-guards.sh
+run lib-tests 5 scripts/test-lib.sh
 for guard in "${source_guards[@]}"; do
     run "${guard%%:*}" 5 "${guard#*:}" "${swift_paths[@]}"
 done
 run lint 5 lint_swift
+
+prepare_builds refuse build/DerivedData .build || exit 1
 
 # SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
 time_limited swift-test 15 '\.build' swift test &
@@ -89,7 +85,16 @@ time_limited xcodebuild 45 build xcodebuild \
     test &
 xcodebuild=$!
 
+# finish <step> <pid> <folder>: waits for a build step, records its build unless it ran out of
+# time, and reports it if it failed.
+finish() {
+    local step=$1 pid=$2 folder=$3 status=0
+    wait "$pid" || status=$?
+    ((status == timed_out)) || record_build "$folder"
+    ((status == 0)) || { report_failure "$step"; return 1; }
+}
+
 status=0
-wait "$swift_test" || { report_failure swift-test; status=1; }
-wait "$xcodebuild" || { report_failure xcodebuild; status=1; }
+finish swift-test "$swift_test" .build || status=1
+finish xcodebuild "$xcodebuild" build/DerivedData || status=1
 exit "$status"
