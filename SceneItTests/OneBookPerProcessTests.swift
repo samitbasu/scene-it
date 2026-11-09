@@ -912,7 +912,7 @@ extension OneAtATime.BookStoreIntegrationTests {
             await books.openForwarded([url])
 
             #expect(books.takeRequests() == [.init(request: .bringForward(nil), storeWasBusy: false)])
-            #expect(books.store.current?.layout.root.canonicalPath == url.canonicalPath)
+            #expect(books.store.current?.document.url.canonicalPath == url.canonicalPath)
             #expect(await books.store.closeBook() == .left)
         }
     }

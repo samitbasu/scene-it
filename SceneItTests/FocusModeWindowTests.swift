@@ -10,12 +10,12 @@ import Testing
 /// equivalent, then, if nothing takes it, sent to the window for its first responder. Only tests
 /// in `OneAtATime` press keys: a key equivalent can reach another window's sheet (#165).
 @MainActor
-func press(_ key: TestKey, in window: NSWindow) throws {
+func press(_ key: TestKey, in window: NSWindow, _ press: KeyPress = .first) throws {
     let event = try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: key.characters,
-            charactersIgnoringModifiers: key.characters, isARepeat: false, keyCode: key.keyCode))
+            charactersIgnoringModifiers: key.characters, isARepeat: press == .repeated, keyCode: key.keyCode))
     if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
@@ -44,8 +44,17 @@ private func type(_ text: String, in window: NSWindow) throws {
     }
 }
 
-enum TestKey {
+/// A key's first press, or the repeat the key sends while it's held.
+enum KeyPress {
+    case first, repeated
+}
+
+enum TestKey: Equatable {
     case escape, tab, shiftTab, `return`
+    /// Delete, the key that deletes backward.
+    case delete
+    case arrow(GridStep)
+    case optionArrow(GridStep)
 
     var characters: String {
         switch self {
@@ -53,6 +62,8 @@ enum TestKey {
         case .return: "\r"
         case .tab: "\t"
         case .shiftTab: "\u{19}"
+        case .delete: "\u{7f}"
+        case .arrow(let step), .optionArrow(let step): String(Character(UnicodeScalar(Self.arrowKey(step))!))
         }
     }
 
@@ -61,11 +72,33 @@ enum TestKey {
         case .escape: 53
         case .tab, .shiftTab: 48
         case .return: 36
+        case .delete: 51
+        case .arrow(let step), .optionArrow(let step):
+            switch step {
+            case .left: 123
+            case .right: 124
+            case .down: 125
+            case .up: 126
+            }
         }
     }
 
     var modifiers: NSEvent.ModifierFlags {
-        self == .shiftTab ? [.shift] : []
+        switch self {
+        case .shiftTab: [.shift]
+        case .arrow: [.function, .numericPad]
+        case .optionArrow: [.function, .numericPad, .option]
+        case .escape, .tab, .return, .delete: []
+        }
+    }
+
+    private static func arrowKey(_ step: GridStep) -> Int {
+        switch step {
+        case .left: NSLeftArrowFunctionKey
+        case .right: NSRightArrowFunctionKey
+        case .up: NSUpArrowFunctionKey
+        case .down: NSDownArrowFunctionKey
+        }
     }
 }
 

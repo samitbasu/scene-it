@@ -34,3 +34,36 @@ struct ReadOnlyBanner: View {
         }
     }
 }
+
+/// The strip across a review's window (ADR 0042), in the read-only banner's look: what's being
+/// reviewed, and that only comments and notes change. A review the read-only banner explains
+/// (repaired while opening, say) shows that one instead.
+struct ReviewBanner: View {
+    let book: AppOpenBook
+
+    var body: some View {
+        if case .review = book.document, !showsReadOnlyBanner {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "text.bubble")
+                        .foregroundStyle(.secondary)
+                    Text(ReviewWording.bannerTitle(book.book.title)).fontWeight(.semibold)
+                    Text(ReviewWording.bannerDetail).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .frame(height: WindowMetrics.bannerHeight)
+                .background(WindowMetrics.bannerColor)
+                Divider()
+            }
+        }
+    }
+
+    private var showsReadOnlyBanner: Bool {
+        if case .readOnly(let reason) = book.status {
+            ErrorsWording.banner(for: reason) != nil
+        } else {
+            false
+        }
+    }
+}

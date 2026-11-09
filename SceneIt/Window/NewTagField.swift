@@ -29,7 +29,7 @@ struct NewTagField: NSViewRepresentable {
         coordinator.actions = (add, leave, ended)
         let editor = AdmittingTextView.fieldEditor(
             admitting: CharacterPolicy.admittedLine,
-            editability: { [weak book] in Editability(book) })
+            editability: { [weak book] in Editability(book, for: .manuscript) })
         editor.history = coordinator.history
         let field = AdmittingTextField(string: "", editor: editor, lineBreakMode: .byClipping)
         field.font = .systemFont(ofSize: WindowMetrics.Tags.chipPointSize)

@@ -406,7 +406,7 @@ struct FileACopyTests {
             let reopened = try #require(store.current)
             let copy = folder.appending(path: "Novel (my edits).sceneit")
             #expect(
-                reopened.layout.root.canonicalPath == copy.canonicalPath, "precondition: my version opened")
+                reopened.document.url.canonicalPath == copy.canonicalPath, "precondition: my version opened")
             #expect(reopened.filingDraft == Self.typedDraft(), "the dialog is still up, as typed")
             #expect(!prompts.titles.contains(Self.quitTitle) && !prompts.titles.contains(Self.closeTitle))
         }
@@ -605,7 +605,7 @@ struct FileACopyTests {
             let reopened = try #require(store.current)
             let mine = folder.appending(path: "Novel (my edits).sceneit")
             #expect(
-                reopened.layout.root.canonicalPath == mine.canonicalPath, "precondition: my version opened")
+                reopened.document.url.canonicalPath == mine.canonicalPath, "precondition: my version opened")
             let copy = try #require(try Self.indexOnDisk(url).copies.first)
             #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
             #expect(old.pendingRecords.isEmpty)

@@ -23,7 +23,7 @@ final class ExportFlow {
     /// Export as SceneIt… can begin: the book is open and not being closed, it has story scenes,
     /// and the chooser isn't up already. A read-only book can be exported: nothing in it changes.
     func canBegin(in store: AppBookStore) -> Bool {
-        store.openBook === book && choice == nil && !book.book.scenes.isEmpty
+        store.openBook === book && book.document.kind == .book && choice == nil && !book.book.scenes.isEmpty
     }
 
     func begin() {
@@ -47,7 +47,7 @@ final class ExportFlow {
     func confirm(in store: AppBookStore) async -> ExportResult? {
         guard let choice, choice.canExport else { return nil }
         self.choice = nil
-        let name = ExportWording.defaultFileName(title: book.book.title, package: book.layout.root)
+        let name = ExportWording.defaultFileName(title: book.book.title, package: book.document.url)
         guard let url = await destination().choose(name) else { return nil }
         var ids = IDGenerator.system
         return await store.exportReviewCopy(

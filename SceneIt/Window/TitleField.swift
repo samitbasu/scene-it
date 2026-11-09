@@ -8,7 +8,7 @@ extension AdmittingTextField {
     static func sceneTitle(_ title: String, in book: AppOpenBook) -> AdmittingTextField {
         let editor = AdmittingTextView.fieldEditor(
             admitting: { SceneTitle(pasted: $0).text },
-            editability: { [weak book] in Editability(book) })
+            editability: { [weak book] in Editability(book, for: .manuscript) })
         editor.isContinuousSpellCheckingEnabled = true
         let field = AdmittingTextField(string: title, editor: editor, lineBreakMode: .byTruncatingTail)
         field.bezelStyle = .roundedBezel

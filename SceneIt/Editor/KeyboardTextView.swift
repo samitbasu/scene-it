@@ -3,11 +3,21 @@ import SceneItCore
 
 /// Whether a text view's text takes changes.
 enum Editability {
-    case editable, readOnly
+    case editable
+    /// The text can't change, but comments on it can: a review's page (ADR 0042).
+    case commentsOnly
+    case readOnly
 
-    /// As `book` takes edits: a detached (closed) book doesn't.
-    init(_ book: AppOpenBook?) {
-        self = book?.isEditable == true ? .editable : .readOnly
+    /// As `book` takes `edit`: a detached (closed) book takes none.
+    init(_ book: AppOpenBook?, for edit: EditKind) {
+        self = book?.accepts(edit) == true ? .editable : .readOnly
+    }
+
+    /// The page's: its text is the manuscript, which a review takes only comments on.
+    static func page(_ book: AppOpenBook?) -> Editability {
+        guard let book else { return .readOnly }
+        if book.accepts(.manuscript) { return .editable }
+        return book.accepts(.annotations) ? .commentsOnly : .readOnly
     }
 }
 
@@ -21,7 +31,14 @@ class KeyboardTextView: NSTextView {
     /// Close Book or Open Other Version) before SwiftUI next updates the view, and a keystroke
     /// in between would show and then vanish, so the view refuses it, with a beep.
     let editability: () -> Editability
+    /// The editor's own change of comments on the text, the one change a `.commentsOnly` view
+    /// takes (`SceneTextEditor.rewrite`).
+    var commentChange = CommentChange.none
     private let content: NSTextContentStorage
+
+    enum CommentChange {
+        case none, underWay
+    }
 
     /// A TextKit 2 view whose container tracks its width. (`init(usingTextLayoutManager:)` can't
     /// be used: it calls `init(frame:textContainer:)` on the view, which a Swift subclass with
@@ -45,11 +62,33 @@ class KeyboardTextView: NSTextView {
 
     override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool
     {
-        guard editability() == .editable else {
+        switch editability() {
+        case .editable:
+            break
+        case .commentsOnly where keepsText(affectedRanges.map(\.rangeValue), replacementStrings):
+            break
+        case .commentsOnly, .readOnly:
             NSSound.beep()
             return false
         }
         return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
+
+    /// Whether a change is the editor's change of comments, or the undo or redo of one, and
+    /// leaves the characters as they are. Anything else that changes only attributes (the
+    /// system's Font menu, say) changes the copy's text and styles, and is refused.
+    private func keepsText(_ ranges: [NSRange], _ replacements: [String]?) -> Bool {
+        let undo = undoManager
+        guard commentChange == .underWay || undo?.isUndoing == true || undo?.isRedoing == true else {
+            return false
+        }
+        guard let replacements else { return true }
+        let string = self.string as NSString
+        return ranges.count == replacements.count
+            && zip(ranges, replacements).allSatisfy { range, replacement in
+                range.upperBound <= string.length
+                    && string.substring(with: range).utf16.elementsEqual(replacement.utf16)
+            }
     }
 
     override var inputContext: NSTextInputContext? {

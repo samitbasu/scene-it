@@ -5,12 +5,16 @@ import Observation
 /// driver and the writer that saves it. Views read it; every change goes through its methods,
 /// which tell autosave in the same main-actor turn.
 ///
+/// A review is open as a book too (ADR 0042): the copy's text, which nothing changes, with the
+/// reviewer's comments and notes, saved to the review's file. What the writer may change is
+/// `accepts(_:)`.
+///
 /// It is the driver's `AutosaveSaver`. The driver holds it weakly, so once the store lets go
 /// of a book, its driver stops scheduling saves.
 @MainActor
 @Observable
 public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
-    public let layout: PackageLayout
+    public let document: OpenDocument
     /// This opening of the book, never shared with another: reopening the same package (Open
     /// Anyway, say) makes a new `OpenBook` at the same `layout`, which the window mustn't take
     /// for the old one.
@@ -38,7 +42,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// numbers turned out to hold other files (another program wrote them): forgotten, for the
     /// store to tell the writer. A number can appear twice.
     @ObservationIgnored private var overwrittenRecords: UnrecordedCopies = []
-    /// Changes to the book's scenes: added, moved, cut, restored (PLAN §8.6).
+    /// Changes to the book's scenes: added, moved, cut, restored, deleted (PLAN §8.6).
     @ObservationIgnored public let structureUndo = UndoManager()
     /// The Errors tab's Delete and Fix (book format §5.4).
     @ObservationIgnored public let errorsUndo = UndoManager()
@@ -53,7 +57,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @ObservationIgnored private var ids = IDGenerator<SystemRandomNumberGenerator>.system
 
     private enum Access {
-        case writable(AutosaveDriver<C>, BookWriter, Edits)
+        case writable(AutosaveDriver<C>, DocumentWriter, Edits)
         case readOnly(ReadOnlyReason)
         case closed
     }
@@ -80,16 +84,38 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         access = .closed
         switch opened {
         case .editing(let editable):
-            layout = editable.package.layout
+            document = .book(editable.package.layout)
             access = .writable(
-                AutosaveDriver(clock: clock, saver: self), BookWriter(editable.package, mirror: mirror),
+                AutosaveDriver(clock: clock, saver: self),
+                .book(BookWriter(editable.package, mirror: mirror)),
                 .accepted)
         case .readOnly(let readOnly, let reason):
-            layout = readOnly.layout
+            document = .book(readOnly.layout)
             access = .readOnly(reason)
         }
         pendingRecords = pending
         settlePending(against: archive.indexToWrite, isEditable && archive.isSaved ? .saved : .notSaved)
+        openScene = book.scenes.first?.id
+    }
+
+    /// A review, as Review Book… opened it (ADR 0042). It has no archive.
+    init(_ review: LoadedReview, clock: C, store: BookStore<C>) {
+        self.store = store
+        packageIdentity = nil
+        book = review.book
+        archive = ArchiveIndex()
+        archiveNotices = []
+        wordCounts = SceneWordCounts(review.book)
+        document = .review(review.context)
+        access = .closed
+        switch review.access {
+        case .editing(let file):
+            access = .writable(
+                AutosaveDriver(clock: clock, saver: self), .review(ReviewWriter(file, review.context)),
+                .accepted)
+        case .readOnly(let reason):
+            access = .readOnly(reason)
+        }
         openScene = book.scenes.first?.id
     }
 
@@ -120,9 +146,30 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         if case .writable(let driver, _, .accepted) = access { driver } else { nil }
     }
 
+    /// Whether the writer can make `edit` now: the book takes edits, and a review takes any but
+    /// changes to the copy's text (ADR 0042).
+    public func accepts(_ edit: EditKind) -> Bool {
+        driver(for: edit) != nil
+    }
+
+    /// The driver, while `edit` is accepted.
+    private func driver(for edit: EditKind) -> AutosaveDriver<C>? {
+        guard let driver = editingDriver else { return nil }
+        switch (document, edit) {
+        case (.review, .manuscript): return nil
+        case (.book, _), (.review, .annotations), (.review, .errors): return driver
+        }
+    }
+
+    /// Gives the scene at `index` of `list` the time it was changed. A review's scenes keep the copy's.
+    private func stamp(_ list: WritableKeyPath<Book, [BookScene]>, _ index: Int) {
+        guard case .book = document else { return }
+        book[keyPath: list][index].modified = Timestamp(.now, in: .current)
+    }
+
     /// ADR 0024's Make Editable, once the original is kept: the repaired book is unsaved, so
     /// autosave writes it, replacing the damaged file.
-    func becomeEditable(_ writer: BookWriter, clock: C) {
+    func becomeEditable(_ writer: DocumentWriter, clock: C) {
         guard case .readOnly = access else { return }
         let driver = AutosaveDriver(clock: clock, saver: self)
         access = .writable(driver, writer, .accepted)
@@ -141,7 +188,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     // MARK: Edits
 
     public func setTitle(of scene: SceneID, to title: SceneTitle) {
-        edit(scene) { $0.title = title }
+        edit(scene, .manuscript) { $0.title = title }
     }
 
     /// Replaces the whole body, as something other than the page's own editing: the page's
@@ -157,7 +204,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     private func replace(_ part: TextPart, of scene: SceneID, with paragraphs: [Paragraph]) {
         var stored: [Paragraph]?
-        edit(scene) { scene in
+        edit(scene, part.editKind) { scene in
             scene[keyPath: part.paragraphs] = paragraphs
             stored = scene[keyPath: part.paragraphs]
         }
@@ -178,7 +225,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public func apply(
         _ change: BodyChange, to scene: SceneID, in part: TextPart = .body, adding comments: [Comment] = []
     ) -> [Paragraph]? {
-        guard let driver = editingDriver, let place = place(of: scene) else { return nil }
+        guard editingDriver != nil, let place = place(of: scene) else { return nil }
         var edited = book[keyPath: place.list][place.index]
         let added =
             part == .body
@@ -193,15 +240,35 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             return nil
         }
         guard !added.isEmpty || Array(replaced) != accepted.paragraphs else { return accepted.paragraphs }
+        let kind =
+            part == .body && Self.changesOnlyComments(from: Array(replaced), to: accepted.paragraphs)
+            ? EditKind.annotations : part.editKind
+        guard let driver = driver(for: kind) else { return nil }
         edited[keyPath: text] = paragraphs
-        edited.modified = Timestamp(.now, in: .current)
         book[keyPath: place.list][place.index] = edited
+        stamp(place.list, place.index)
         if part == .body {
             wordCounts.adjust(
                 scene, removing: WordCount(Array(replaced)), adding: WordCount(accepted.paragraphs))
         }
         driver.send(.edited)
         return accepted.paragraphs
+    }
+
+    /// Whether `new` is `old` with only its comments changed: the same text in the same styles,
+    /// colors and highlights. A review's text takes only such changes (ADR 0042).
+    /// Text is compared code unit for code unit: `String ==` would call canonically equivalent
+    /// spellings the same.
+    static func changesOnlyComments(from old: [Paragraph], to new: [Paragraph]) -> Bool {
+        let before = old.map { $0.uncommented.withMaximalRuns.runs }
+        let after = new.map { $0.uncommented.withMaximalRuns.runs }
+        return before.count == after.count
+            && zip(before, after).allSatisfy { first, second in
+                first.count == second.count
+                    && zip(first, second).allSatisfy { run, other in
+                        run.hasSameFormat(as: other) && run.text.utf8.elementsEqual(other.text.utf8)
+                    }
+            }
     }
 
     /// The comment ids `part` of `scene` may carry: the scene's, on the page, and none in the
@@ -224,7 +291,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// has; `nil` if the book is read-only or has no such scene. It isn't in the scene yet:
     /// the page's edit that covers its text adds it (`apply(_:to:in:adding:)`).
     public func newComment(in scene: SceneID, colored color: PaletteColor) -> Comment? {
-        guard editingDriver != nil, let existing = book.scene(scene) else { return nil }
+        guard accepts(.annotations), let existing = book.scene(scene) else { return nil }
         var id = ids.commentID()
         while existing.comments.contains(where: { $0.id == id }) { id = ids.commentID() }
         return Comment(id: id, color: color, text: "", created: Timestamp(.now, in: .current))
@@ -277,7 +344,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     @discardableResult
     public func removeComments(_ ids: Set<CommentID>, from scene: SceneID, named name: String? = nil) -> Bool
     {
-        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        guard let driver = driver(for: .annotations), let place = place(of: scene) else { return false }
         let current = book[keyPath: place.list][place.index]
         let removed = current.comments.enumerated().filter {
             ids.contains($1.id) && current.isDetached($1.id)
@@ -286,7 +353,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         for (offset, _) in removed.reversed() {
             book[keyPath: place.list][place.index].comments.remove(at: offset)
         }
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        stamp(place.list, place.index)
         registerPageUndo(in: scene, named: name) {
             $0.restoreComments(removed.map { ($0.offset, $0.element) }, to: scene, named: name)
         }
@@ -298,7 +365,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     private func restoreComments(
         _ comments: [(index: Int, comment: Comment)], to scene: SceneID, named name: String?
     ) {
-        guard let driver = editingDriver, let place = place(of: scene) else { return }
+        guard let driver = driver(for: .annotations), let place = place(of: scene) else { return }
         var list = book[keyPath: place.list][place.index].comments
         let restored = comments.filter { entry in !list.contains { $0.id == entry.comment.id } }
         if restored.count != comments.count {
@@ -309,7 +376,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         }
         for (index, comment) in restored { list.insert(comment, at: min(index, list.count)) }
         book[keyPath: place.list][place.index].comments = list
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        stamp(place.list, place.index)
         registerPageUndo(in: scene, named: name) {
             $0.removeComments(Set(restored.map(\.comment.id)), from: scene, named: name)
         }
@@ -324,7 +391,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         _ id: CommentID, in scene: SceneID, named name: String?, to new: CommentField,
         from original: CommentField? = nil
     ) -> Bool {
-        guard let driver = editingDriver, let place = place(of: scene),
+        guard let driver = driver(for: .annotations), let place = place(of: scene),
             let index = book[keyPath: place.list][place.index].comments.firstIndex(where: { $0.id == id })
         else { return false }
         let current = book[keyPath: place.list][place.index].comments[index]
@@ -333,7 +400,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         changed[new] = new
         if changed != current {
             book[keyPath: place.list][place.index].comments[index] = changed
-            book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+            stamp(place.list, place.index)
             driver.send(.edited)
         }
         if let name, old != changed[new] {
@@ -405,7 +472,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     private func takeTags(_ tags: [(index: Int, tag: String)], from scene: SceneID, named name: String)
         -> Bool
     {
-        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        guard let driver = driver(for: .manuscript), let place = place(of: scene) else { return false }
         var list = book[keyPath: place.list][place.index].tags
         let removed = tags.sorted { $0.index > $1.index }.filter {
             list.indices.contains($0.index) && list[$0.index] == $0.tag
@@ -420,7 +487,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard !removed.isEmpty else { return false }
         for (index, _) in removed { list.remove(at: index) }
         book[keyPath: place.list][place.index].tags = list
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        stamp(place.list, place.index)
         let restore = Array(removed.reversed())
         registerPageUndo(in: scene, named: name) { _ = $0.putTags(restore, in: scene, named: name) }
         driver.send(.edited)
@@ -430,7 +497,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// Inserts the recorded (index, spelling) pairs, from the lowest index up, each at its index
     /// or the end. Registers taking away what it put.
     private func putTags(_ tags: [(index: Int, tag: String)], in scene: SceneID, named name: String) -> Bool {
-        guard let driver = editingDriver, let place = place(of: scene), !tags.isEmpty else { return false }
+        guard let driver = driver(for: .manuscript), let place = place(of: scene), !tags.isEmpty else {
+            return false
+        }
         var list = book[keyPath: place.list][place.index].tags
         var put: [(index: Int, tag: String)] = []
         for (index, tag) in tags.sorted(by: { $0.index < $1.index }) {
@@ -439,7 +508,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             put.append((at, tag))
         }
         book[keyPath: place.list][place.index].tags = list
-        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        stamp(place.list, place.index)
         registerPageUndo(in: scene, named: name) { _ = $0.takeTags(put, from: scene, named: name) }
         driver.send(.edited)
         return true
@@ -485,7 +554,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// that was open, if it still can.
     @discardableResult
     public func addScene(after scene: SceneID?) -> SceneID? {
-        guard editingDriver != nil else { return nil }
+        guard accepts(.manuscript) else { return nil }
         let new = BookScene(id: ids.sceneID(), modified: Timestamp(.now, in: .current), title: "")
         let index = scene.flatMap { id in book.scenes.firstIndex { $0.id == id } }.map { $0 + 1 }
         let target = StructureTarget()
@@ -508,7 +577,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     private func put(
         _ target: StructureTarget, _ from: Unadded, at index: Int, returningTo previous: SceneID?
     ) -> Bool {
-        guard let driver = editingDriver, let id = structureTargets[target] else { return false }
+        guard let driver = driver(for: .manuscript), let id = structureTargets[target] else { return false }
         switch from {
         case .held(let held):
             book.scenes.insert(held, at: min(index, book.scenes.count))
@@ -528,12 +597,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// open. A scene holding anything the writer wrote but a title goes to the Deleted section
     /// rather than away (ADR 0041). Registers putting it back.
     private func takeOut(_ target: StructureTarget, returningTo previous: SceneID?) {
-        guard editingDriver != nil, let id = structureTargets[target],
+        guard accepts(.manuscript), let id = structureTargets[target],
             book.scenes.contains(where: { $0.id == id })
         else { return }
         if openScene == id { select(book.scene(previous)?.id) }
         // Leaving the scene may have saved what was typed into it, so look it up again.
-        guard let driver = editingDriver, let index = book.scenes.firstIndex(where: { $0.id == id }) else {
+        guard let driver = driver(for: .manuscript),
+            let index = book.scenes.firstIndex(where: { $0.id == id })
+        else {
             return
         }
         let unadded: Unadded
@@ -550,6 +621,28 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         driver.send(.edited)
     }
 
+    /// Moves, cuts or restores a scene (PLAN §7.2, §7.3), keeping everything it holds. One change
+    /// on `structureUndo`, named for what it did. `false`, changing nothing, if the book is
+    /// read-only, the change doesn't apply to where the scene is, or it would leave the scene
+    /// where it is. The open scene stays open, wherever it goes.
+    @discardableResult
+    public func change(_ change: SceneChange) -> Bool {
+        guard accepts(.manuscript), let place = book.destination(of: change) else { return false }
+        let target = StructureTarget()
+        structureTargets[target] = change.scene
+        return relocate(target, to: place, named: ScenesWording.undoName(of: change))
+    }
+
+    private func relocate(_ target: StructureTarget, to place: ScenePlace, named name: String) -> Bool {
+        guard let driver = driver(for: .manuscript), let scene = structureTargets[target],
+            let from = book.relocate(scene, to: place)
+        else { return false }
+        structureUndo.registerUndo(withTarget: self) { _ = $0.relocate(target, to: from, named: name) }
+        structureUndo.setActionName(name)
+        driver.send(.edited)
+        return true
+    }
+
     /// Deletes a Boneyard scene as far as the writer can tell (ADR 0031): it moves to the
     /// book's Deleted section, which the app never shows, and stays in the file with its
     /// id, notes and comments. One change on `structureUndo`. `false`, changing nothing, if
@@ -562,12 +655,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     private func delete(_ target: StructureTarget) -> Bool {
-        guard editingDriver != nil, let scene = structureTargets[target],
+        guard accepts(.manuscript), let scene = structureTargets[target],
             book.boneyard.contains(where: { $0.id == scene })
         else { return false }
         if openScene == scene { select(nil) }
         // Leaving the scene may have saved what was typed into it, so look it up again.
-        guard let driver = editingDriver, let index = book.delete(scene, from: .boneyard) else {
+        guard let driver = driver(for: .manuscript), let index = book.delete(scene, from: .boneyard) else {
             return false
         }
         structureUndo.registerUndo(withTarget: self) { $0.undelete(target, toBoneyardAt: index) }
@@ -577,7 +670,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     }
 
     private func undelete(_ target: StructureTarget, toBoneyardAt index: Int) {
-        guard let driver = editingDriver, let scene = structureTargets[target],
+        guard let driver = driver(for: .manuscript), let scene = structureTargets[target],
             book.undelete(scene, to: .boneyard, at: index)
         else { return }
         structureUndo.registerUndo(withTarget: self) { _ = $0.delete(target) }
@@ -601,15 +694,15 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         book.visiblePlace(of: id).map { ($0.part.scenes, $0.index) }
     }
 
-    private func edit(_ id: SceneID, _ change: (inout BookScene) -> Void) {
-        guard let driver = editingDriver, let (list, index) = place(of: id) else { return }
+    private func edit(_ id: SceneID, _ kind: EditKind, _ change: (inout BookScene) -> Void) {
+        guard let driver = driver(for: kind), let (list, index) = place(of: id) else { return }
         var scene = book[keyPath: list][index]
         change(&scene)
         guard scene != book[keyPath: list][index] else { return }
-        scene.modified = Timestamp(.now, in: .current)
         let bodyChanged = scene.body != book[keyPath: list][index].body
         book[keyPath: list][index] = scene
-        if bodyChanged { wordCounts.recount(scene) }
+        stamp(list, index)
+        if bodyChanged { wordCounts.recount(book[keyPath: list][index]) }
         driver.send(.edited)
     }
 
@@ -617,7 +710,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Saves every edit so far, then files a copy of the book. Only while it's editable.
     func fileCopy(as record: FilingRecord) async -> FilingResult {
-        guard let driver = editingDriver, case .writable(_, let writer, _) = access else {
+        guard let driver = editingDriver, case .writable(_, .book(let writer), _) = access else {
             return .unavailable
         }
         let verdict: QuitVerdict
@@ -750,7 +843,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     @discardableResult
     public func deleteError(_ ref: ErrorRef) -> Bool {
-        guard editingDriver != nil, book.holds(ref), let part = book.part(ref.owner) else { return false }
+        guard accepts(.errors), book.holds(ref), let part = book.part(ref.owner) else { return false }
         var errors = part.errors
         errors.remove(at: ref.index)
         commit(ref.owner, part.with(errors: errors), named: ErrorsWording.deleteUndoName) {
@@ -761,7 +854,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     @discardableResult
     public func repairError(_ ref: ErrorRef, as payload: String) -> EntryEdit {
-        guard editingDriver != nil, let old = book.part(ref.owner),
+        guard accepts(.errors), canRepair(ref), let old = book.part(ref.owner),
             let repair = BookFormat.repair(ref, as: payload, in: book)
         else {
             return .refused
@@ -779,6 +872,26 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
                 $0.unedit(ErrorRef(owner: ref.owner, index: ref.index, entry: edited), back: ref.entry)
             }
             return .kept(reason)
+        }
+    }
+
+    /// Whether a review's scene keeps the copy's text through an Errors-tab change: a fixed
+    /// comment entry may put a comment on it, nothing more (ADR 0042). A book's may change.
+    private func keepsTheCopysText(from old: BookPart?, to new: BookPart) -> Bool {
+        guard case .review = document, case .scene(let before)? = old, case .scene(let after) = new else {
+            return true
+        }
+        return before.id == after.id && before.title == after.title && before.tags == after.tags
+            && Self.changesOnlyComments(from: before.body, to: after.body)
+    }
+
+    /// Whether Fix applies to `ref`'s entry. A review's file has no place for a book's front
+    /// matter or scene metadata, so there only a comment can be fixed (ADR 0042).
+    public func canRepair(_ ref: ErrorRef) -> Bool {
+        guard ref.entry.tag.isRepairable else { return false }
+        switch document {
+        case .book: return true
+        case .review: return ref.entry.tag == .comments
         }
     }
 
@@ -825,7 +938,9 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         inverse: @escaping (OpenBook) -> Void
     ) {
         let old = book.part(owner)
-        guard let driver = editingDriver, old != part, book.replace(owner, with: part) else {
+        guard let driver = driver(for: .errors), old != part, keepsTheCopysText(from: old, to: part),
+            book.replace(owner, with: part)
+        else {
             return
         }
         if case .scene(let scene) = part {
@@ -852,7 +967,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     public func save(_ request: SaveRequest) async throws(SaveError) {
         // Unreachable in practice: closing a book drops its driver, the only caller.
         guard case .writable(_, let writer, _) = access else {
-            throw .fileSystem(FileSystemError(.write, layout.book, .notFound))
+            throw .fileSystem(FileSystemError(.write, document.url, .notFound))
         }
         let snapshot = book
         do {
@@ -865,7 +980,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             let now = Date.now
             lastSave = (now, backups)
             store?.bookSaved(at: now)
-            await recordPending(writer)
+            if let writer = writer.book { await recordPending(writer) }
             if !overwrittenRecords.isEmpty, !isDetached { store?.tellRecords(of: self) }
         } catch {
             Log.store.error("a save failed", ["error": .error(LoggedError(error))])
@@ -939,7 +1054,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 
     /// Closes the book at once, synchronously: from here on it refuses every edit, and its
     /// driver is dropped. The caller releases the returned writer (`BookStore.release`).
-    func detach() -> BookWriter? {
+    func detach() -> DocumentWriter? {
         defer { access = .closed }
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
     }
@@ -954,6 +1069,46 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
 /// Names the scene of one structure change for its undo and redo, whatever its id becomes.
 private struct StructureTarget: Hashable {
     let id = UUID()
+}
+
+/// What an edit changes, for what the open book lets the writer change (`OpenBook.accepts`).
+public enum EditKind: Hashable, Sendable {
+    /// The text and styles of the page, the scenes' titles and tags, and the scenes themselves.
+    case manuscript
+    /// Comments and notes.
+    case annotations
+    /// The Errors tab's entries.
+    case errors
+}
+
+extension TextPart {
+    var editKind: EditKind {
+        switch self {
+        case .body: .manuscript
+        case .notes: .annotations
+        }
+    }
+}
+
+/// What the open book is, and where (ADR 0042).
+public enum OpenDocument: Hashable, Sendable {
+    case book(PackageLayout)
+    case review(ReviewContext)
+
+    public var kind: DocumentKind {
+        switch self {
+        case .book: .book
+        case .review: .review
+        }
+    }
+
+    /// What the writer chose to open: the package, or the review copy.
+    public var url: URL {
+        switch self {
+        case .book(let layout): layout.root
+        case .review(let context): context.copyFile
+        }
+    }
 }
 
 extension OpenBook {

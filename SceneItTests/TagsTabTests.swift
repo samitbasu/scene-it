@@ -265,15 +265,6 @@ extension PageHarness {
         try asSeparateEvents(undo) { try anEvent(undo, body) }
     }
 
-    /// The window's Undo and Redo (the toolbar's and the Edit menu's) read "Undo `undo`" and
-    /// "Redo `redo`", or are off where `nil`.
-    fileprivate func expectUndoMenu(undo: String?, redo: String?) async throws {
-        let router = try self.undo
-        let wanted = UndoState(undo: undo.map { "Undo \($0)" }, redo: redo.map { "Redo \($0)" })
-        await eventually { router.state == wanted }
-        #expect(router.state == wanted)
-    }
-
     /// The Search sheet is open on `text`, ticked to search tags alone, in the whole book; its
     /// search finds the tags of exactly `scenes`.
     fileprivate func expectSearching(for text: String, finding scenes: [SceneID]) async throws {

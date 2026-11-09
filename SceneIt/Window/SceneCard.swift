@@ -10,6 +10,9 @@ struct SceneCardContent {
     let isOpen: IsOpen
     /// Whether the card shows the title field of a scene just added.
     let titling: Titling
+    /// Whether the keys act on this card.
+    let focus: KeyFocus
+    let dragging: Dragging
 
     enum IsOpen {
         case open, notOpen
@@ -17,6 +20,10 @@ struct SceneCardContent {
 
     enum Titling {
         case typing, done
+    }
+
+    enum KeyFocus {
+        case focused, unfocused
     }
 }
 
@@ -30,7 +37,7 @@ struct SceneCard: View {
     let editability: Editability
 
     var body: some View {
-        CardShell(content: content, view: .cards, actions: actions) { _ in
+        CardShell(content: content, view: .cards, actions: actions, editability: editability) { _ in
             VStack(alignment: .leading, spacing: 6) {
                 CardHeading(content: content, actions: actions, lines: .one)
                 HStack {
@@ -62,7 +69,8 @@ struct LightTableCard: View {
     let editability: Editability
 
     var body: some View {
-        CardShell(content: content, view: .lightTable, actions: actions) { hovering in
+        CardShell(content: content, view: .lightTable, actions: actions, editability: editability) {
+            hovering in
             VStack(alignment: .leading, spacing: 6) {
                 CardHeading(content: content, actions: actions, lines: .two)
                 CardTags(
@@ -82,12 +90,14 @@ enum Hovering {
     case hovering, away
 }
 
-/// A card's frame: white, outlined (in the accent color while its scene is open), filling its
-/// grid cell. A click anywhere the card's own controls don't take opens the scene.
+/// A card's frame: white, outlined (in the accent color while its scene is open), with the focus
+/// ring while the keys act on it, filling its grid cell. A click anywhere the card's own controls
+/// don't take opens the scene; a drag moves it. Faded while it's being dragged.
 private struct CardShell<Content: View>: View {
     let content: SceneCardContent
     let view: ScenesView
     let actions: ScenesActions
+    let editability: Editability
     @ViewBuilder let inside: (Hovering) -> Content
     @State private var hovering = Hovering.away
 
@@ -98,10 +108,20 @@ private struct CardShell<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(content.isOpen == .open ? WindowMetrics.Scenes.openFill : Color.white, in: shape)
             .overlay(shape.strokeBorder(border, lineWidth: borderWidth))
+            .overlay {
+                if content.focus == .focused {
+                    shape.inset(by: -WindowMetrics.Scenes.focusRing)
+                        .stroke(
+                            Color(nsColor: .keyboardFocusIndicatorColor),
+                            lineWidth: WindowMetrics.Scenes.focusRing)
+                }
+            }
             .contentShape(shape)
+            .opacity(content.dragging == .dragged ? WindowMetrics.Scenes.draggedOpacity : 1)
             .onTapGesture { actions.open(content.scene.id) }
             .onHover { hovering = $0 ? .hovering : .away }
             .help(ScenesWording.openHelp)
+            .sceneDragSource(.card(content.scene.id), actions: actions, editability: editability)
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { actions.open(content.scene.id) }
@@ -133,7 +153,7 @@ private enum TitleLines {
 }
 
 /// The number in its circle, the title (or the title field, on a scene just added) and the drag
-/// handle, which only shows where dragging will be (#29).
+/// handle.
 private struct CardHeading: View {
     let content: SceneCardContent
     let actions: ScenesActions
@@ -161,8 +181,8 @@ private struct CardHeading: View {
     }
 }
 
-/// The mockup's ⋮⋮ at a card's top right: two columns of three dots.
-private struct DragGrip: View {
+/// The mockup's ⋮⋮ on a card or a Boneyard tile: two columns of three dots.
+struct DragGrip: View {
     var body: some View {
         let grip = WindowMetrics.Scenes.Grip.self
         Grid(horizontalSpacing: grip.gap, verticalSpacing: grip.gap) {
@@ -216,7 +236,7 @@ private struct CardTags: View {
         case (.alwaysField, _), (.chipOpensField, .open):
             NewTagField(
                 book: actions.book, add: { actions.tags.add($0, to: scene.id) },
-                leave: { $0.window?.makeFirstResponder(nil) },
+                leave: { actions.model.returnKeys(from: $0) },
                 opening: entry == .open ? .focused : .unfocused,
                 ended: { actions.stopTagging(scene.id) }
             )
@@ -312,9 +332,14 @@ private struct CardTitleField: NSViewRepresentable {
     final class Coordinator: TitleFieldCoordinator {
         var actions: ScenesActions?
 
+        /// Return accepts the title and gives the sheet the keys again.
         override func command(_ selector: Selector, in textView: NSTextView) -> Bool {
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            textView.window?.makeFirstResponder(nil)
+            if let actions {
+                actions.model.returnKeys(from: textView)
+            } else {
+                textView.window?.makeFirstResponder(nil)
+            }
             return true
         }
 

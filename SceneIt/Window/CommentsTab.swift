@@ -88,7 +88,7 @@ struct CommentsTab: View {
                         .accessibilityLabel(CommentWording.clearSearch)
                     }
                 }
-            if book.isEditable {
+            if book.accepts(.annotations) {
                 Button {
                     Self.addComment(through: formatting)
                 } label: {
@@ -236,7 +236,7 @@ private struct CommentCard: View {
     }
 
     var body: some View {
-        let editability = Editability(book, in: environment)
+        let editability = Editability(book, for: .annotations, in: environment)
         HStack(spacing: 0) {
             Rectangle().fill(color).frame(width: WindowMetrics.Comments.barWidth)
             VStack(alignment: .leading, spacing: 4) {
@@ -314,7 +314,7 @@ private struct CommentTextEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> CommentTextView {
         let view = CommentTextView(
             admitting: CharacterPolicy.admittedInput,
-            editability: { [weak book = self.book] in Editability(book) })
+            editability: { [weak book = self.book] in Editability(book, for: .annotations) })
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false
@@ -344,7 +344,7 @@ private struct CommentTextEditor: NSViewRepresentable {
         view.comment = comment
         view.keys = keys
         view.history = coordinator.history
-        let editable = Editability(book, in: context.environment) == .editable
+        let editable = Editability(book, for: .annotations, in: context.environment) == .editable
         // As the title field does: a book that stops taking edits ends the edit under way, and
         // the card shows the model's text.
         if !editable, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }

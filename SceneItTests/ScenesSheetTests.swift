@@ -330,15 +330,18 @@ private func viewMenuItem(_ title: String) -> NSMenuItem? {
     return menuItem(titled: title, in: NSApp.mainMenu)
 }
 
-/// The ferry (open, tagged `Mara`), the arrival and the letter in the window, the Scenes sheet
-/// open, with the `ScenesActions` the sheet's buttons call.
-private func withScenesSheet(
-    lock: TestBookLock = .ours, model: ScenesSheetModel = ScenesSheetModel(),
+/// The ferry (open, tagged `Mara`), the arrival and the letter in the window, with `boneyard` cut,
+/// the Scenes sheet open, with the `ScenesActions` the sheet's buttons call.
+func withScenesSheet(
+    boneyard: [BookScene] = [], lock: TestBookLock = .ours, model: ScenesSheetModel = ScenesSheetModel(),
+    books: BookController = BookController(role: .testHost),
     _ body: (PageHarness, ScenesActions) async throws -> Void
 ) async throws {
     var tagged = ferry
     tagged.tags = ["Mara"]
-    try await withPage([tagged, arrival, letter], lock: lock, scenesSheet: model) {
+    try await withPage(
+        [tagged, arrival, letter], boneyard: boneyard, lock: lock, books: books, scenesSheet: model
+    ) {
         harness in
         try #require(harness.book.openScene == ferry.id, "precondition: the ferry is open")
         harness.modes.mode = .scenes
@@ -347,7 +350,7 @@ private func withScenesSheet(
         let modes = harness.modes
         let mode = Binding(get: { modes.mode }, set: { modes.mode = $0 })
         let actions = ScenesActions(
-            book: harness.book, preferences: harness.preferences, model: harness.scenes,
+            book: harness.book, store: harness.store, preferences: harness.preferences, model: harness.scenes,
             tags: TagActions(book: harness.book, page: harness.page, search: harness.search, mode: mode),
             mode: mode)
         try await body(harness, actions)
@@ -359,7 +362,7 @@ extension PageHarness {
         book.book.scene(scene)?.tags ?? []
     }
 
-    fileprivate var filterField: NSTextField? {
+    var filterField: NSTextField? {
         subviewTree(of: window.contentView).compactMap { $0 as? NSTextField }.first {
             $0.placeholderString == ScenesWording.filterPlaceholder
         }
@@ -407,7 +410,9 @@ extension PageHarness {
         try asSeparateEvents(undo) { try anEvent(undo, body) }
     }
 
-    fileprivate func expectUndoMenu(undo: String?, redo: String?) async throws {
+    /// The window's Undo and Redo (the toolbar's and the Edit menu's) read "Undo `undo`" and
+    /// "Redo `redo`", or are off where `nil`.
+    func expectUndoMenu(undo: String?, redo: String?) async throws {
         let router = try self.undo
         let wanted = UndoState(undo: undo.map { "Undo \($0)" }, redo: redo.map { "Redo \($0)" })
         await eventually { router.state == wanted }

@@ -128,7 +128,7 @@ private struct ErrorRow: View {
             if fix == nil {
                 HStack(spacing: 14) {
                     Button(ErrorsWording.copy) { EntryClipboard.copy(ref.entry) }
-                    if ref.entry.tag.isRepairable {
+                    if book.canRepair(ref) {
                         Button(ErrorsWording.fix) { fix = ErrorsTab.Fix(draft: ref.entry.payload) }
                             .disabled(!book.isEditable)
                     }
