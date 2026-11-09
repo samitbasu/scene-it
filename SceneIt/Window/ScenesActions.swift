@@ -108,8 +108,23 @@ final class ScenesSheetModel {
         if change == .lost { focused = nil }
     }
 
-    /// Forgets a card field or focus whose scene has left the story (cut, or its add undone). The
-    /// cards and tiles may have moved under the pointer, so the last click is forgotten too.
+    /// What the sheet shows of `book` that, changing, can take a card from the story or move cards
+    /// and tiles under the pointer. The story and the Boneyard are kept apart: a cut of the last
+    /// card, or a restore of the first tile, leaves the two joined unchanged.
+    struct Arrangement: Equatable {
+        let story: [SceneID]
+        let boneyard: [SceneID]
+        let tags: [[String]]
+
+        init(_ book: Book) {
+            story = book.scenes.map(\.id)
+            boneyard = book.boneyard.map(\.id)
+            tags = book.scenes.map(\.tags)
+        }
+    }
+
+    /// The `Arrangement` changed. Forgets a card field or focus whose scene has left the story (cut,
+    /// or its add undone), and the last click, since the cards and tiles may have moved.
     func keepToTheStory(of book: Book) {
         clicked = nil
         let story = Set(book.scenes.map(\.id))

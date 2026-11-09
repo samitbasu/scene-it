@@ -26,8 +26,8 @@ The Finder's convention:
    tile that took the last single click (`ScenesSheetModel.clicked`, one `SceneDrag?`). A click on a
    control inside a card or tile (a tile's ↩, a chip's ×, + tag) never reaches it, so it isn't a
    first click; if that click moved another item under the pointer (↩ restoring tile A slides tile B
-   along), the second click on B counts as a first click and opens nothing. A key the cards take, and
-   any change to the order of the story or the Boneyard, forget the click.
+   along), the second click on B counts as a first click and opens nothing. A key the cards take, any
+   change to the order of the story or the Boneyard, and a change to a card's tags forget the click.
 6. The card's own controls (the title field, + tag, the tag chips) take their clicks as before, and a
    drag still moves, cuts or restores.
 7. The accessibility default action and the tile's context menu Open still open the scene. A

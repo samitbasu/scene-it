@@ -282,6 +282,21 @@ extension OneAtATime {
             }
         }
 
+        /// A change to a card's tags (a chip's ×) can move the cards under the pointer, so it forgets
+        /// the last click: the double click's second click opens nothing.
+        @Test func aTagChangeForgetsTheLastClick() async throws {
+            try await withScenesSheet { harness, actions in
+                actions.click(.single, on: .card(arrival.id))
+                try #require(harness.scenes.clicked == .card(arrival.id), "precondition: the card is clicked")
+                #expect(actions.tags.remove("Mara", from: ferry.id))
+                await eventually { harness.scenes.clicked == nil }
+                #expect(harness.scenes.clicked == nil)
+                actions.click(.double, on: .card(arrival.id))
+                #expect(harness.book.openScene == ferry.id, "nothing opens")
+                #expect(harness.modes.mode == .scenes)
+            }
+        }
+
         /// The click count is the system's, from the event the tap ends with.
         @Test func theEventsClickCountSaysSingleOrDouble() throws {
             @MainActor func click(_ count: Int) throws -> SceneClick {

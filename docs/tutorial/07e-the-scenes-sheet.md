@@ -267,7 +267,9 @@ mouse-button events.
 keeps the item the last single click landed on, `clicked: SceneDrag?`, and a double click opens
 only that item; anything else counts as a first click. So a click on a tile's ↩, which never
 reaches the tile's own gesture, can't make the tile that slides under the pointer open on the
-second click. A key, or any change in the order of the story or the Boneyard, forgets the click.
+second click. A key, or any change in the sheet's `Arrangement` (the story's order, the Boneyard's order,
+the cards' tags), forgets the click. The two orders are compared apart: cutting the last card or
+restoring the first tile leaves them the same joined end to end.
 A click doesn't scroll (the card is under the pointer); the sheet's `onChange(of: model.focused)`
 scrolls only when the focus didn't come from a click. A tile has no single-click selection,
 because the card focus belongs to the story grid. The tile behaviour, the tooltips and the

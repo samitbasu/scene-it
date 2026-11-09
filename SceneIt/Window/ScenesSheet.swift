@@ -46,9 +46,7 @@ struct ScenesSheet: View {
                 keyHandler: { event in CardKey(event).map(actions.handle) ?? .passedOn },
                 focusChanged: { model.sheetKeys($0) })
         )
-        .onChange(of: book.book.scenes.map(\.id) + book.book.boneyard.map(\.id)) {
-            model.keepToTheStory(of: book.book)
-        }
+        .onChange(of: ScenesSheetModel.Arrangement(book.book)) { model.keepToTheStory(of: book.book) }
         .background(EscapeKey(keys: keys, inner: { model.closeCardField() }))
         .task { await model.ticker.run() }
     }
