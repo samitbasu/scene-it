@@ -3,13 +3,15 @@ import SwiftUI
 
 /// The right panel (PLAN §4.4): one tab per `RightPanelTab`, collapsible to a thin strip. Its
 /// open state and tab are app preferences (ADR 0022), so changing them never edits the book.
-/// The Tags tab's contents arrive with #20.
 struct RightPanel: View {
     let book: AppOpenBook
     let preferences: AppPreferences
     let formatting: EditorFormatting
     let editors: SceneEditors
     @Environment(\.windowKeys) private var keys
+    /// The window's Search sheet and mode, for the Tags tab's ⌕.
+    let search: SearchSheetModel
+    @Binding var mode: WindowMode
 
     var body: some View {
         let errorCount = book.book.errorCount
@@ -51,7 +53,11 @@ struct RightPanel: View {
                 case .errors: ErrorsTab(book: book)
                 case .notes: NotesTab(book: book, formatting: formatting, editors: editors)
                 case .comments: CommentsTab(book: book, formatting: formatting, editors: editors)
-                case .tags: Spacer()
+                case .tags:
+                    TagsTab(
+                        book: book,
+                        actions: TagActions(
+                            book: book, page: editors.page.textView, search: search, mode: $mode))
                 }
             }
             .frame(width: WindowMetrics.panelWidth)

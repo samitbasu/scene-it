@@ -321,6 +321,12 @@ can't be captured, so the ⋯ menu is the card's real menu, at its real size and
 state are the menu's own; the chrome, row heights and insets approximate macOS 26's. To render
 only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 
+`tagsTab` renders the Tags tab (#20, `TagsTabRenders.swift`) into a `tags/` subfolder as
+`final-tags-<state>`: `mockup` (mockup 06's tags), `typing`, `no-tags-on-scene`, `long-tag`,
+`many-tags`, `many-tags-end` (the list scrolled to its end) and `read-only`, at 1× and 2×, beside
+`06-tags-tab.png`, with a `-panel@2x.png` close-up. To render only these, add
+`-only-testing:SceneItTests/WindowRenders/tagsTab\(\)`.
+
 `oneBookPerProcessRenders` (ADR 0038, `OneBookRenders.swift`) renders into a `close-to-start/` subfolder, at
 1× and 2×: the File menu with a book open (`file-menu-book-open`) and on the start screen
 (`file-menu-start-screen`), each a `MenuStandIn` drawing of the real File menu under a stand-in menu bar; the

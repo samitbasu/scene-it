@@ -84,4 +84,15 @@ public enum TextPart: Hashable, Comparable, Sendable, CaseIterable {
         case .notes: \.notes
         }
     }
+
+    /// Whether two versions of a scene agree in everything this part's undo history edits: its
+    /// text, and for the page also the scene's comments and tags (PLAN §8.6). A change made
+    /// outside the history to anything it edits (an Errors-tab fix) must clear it, or an undo
+    /// would act on a scene its step no longer describes.
+    func historyAgrees(_ scene: BookScene, _ other: BookScene) -> Bool {
+        switch self {
+        case .body: scene.body == other.body && scene.comments == other.comments && scene.tags == other.tags
+        case .notes: scene.notes == other.notes
+        }
+    }
 }

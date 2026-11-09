@@ -278,7 +278,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             book[keyPath: place.list][place.index].comments.remove(at: offset)
         }
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
+        registerPageUndo(in: scene, named: name) {
             $0.restoreComments(removed.map { ($0.offset, $0.element) }, to: scene, named: name)
         }
         driver.send(.edited)
@@ -292,10 +292,16 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         guard let driver = editingDriver, let place = place(of: scene) else { return }
         var list = book[keyPath: place.list][place.index].comments
         let restored = comments.filter { entry in !list.contains { $0.id == entry.comment.id } }
+        if restored.count != comments.count {
+            // A backstop the page history's invariant (ADR 0040) should make unreachable.
+            Log.store.error(
+                "a comment undo found comments it restores already in the scene; skipping them",
+                ["comments": .count(comments.count), "restored": .count(restored.count)])
+        }
         for (index, comment) in restored { list.insert(comment, at: min(index, list.count)) }
         book[keyPath: place.list][place.index].comments = list
         book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
-        registerCommentUndo(in: scene, named: name) {
+        registerPageUndo(in: scene, named: name) {
             $0.removeComments(Set(restored.map(\.comment.id)), from: scene, named: name)
         }
         driver.send(.edited)
@@ -322,14 +328,14 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
             driver.send(.edited)
         }
         if let name, old != changed[new] {
-            registerCommentUndo(in: scene, named: name) {
+            registerPageUndo(in: scene, named: name) {
                 _ = $0.change(id, in: scene, named: name, to: old)
             }
         }
         return true
     }
 
-    private func registerCommentUndo(
+    private func registerPageUndo(
         in scene: SceneID, named name: String?, _ inverse: @escaping (OpenBook) -> Void
     ) {
         let undo = pageUndo(for: scene)
@@ -337,6 +343,97 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         // An undo or redo keeps the name of the step it takes back: an inverse run later in it
         // would rename a dismiss that committed an edit first "Edit Comment".
         if let name, !undo.isUndoing, !undo.isRedoing { undo.setActionName(name) }
+    }
+
+    // MARK: Tags (PLAN §8.3), on the page's undo like comments (the owner, #20)
+
+    /// The tags of the scenes the writer can see, most-used first.
+    public var tags: BookTags {
+        BookTags(book)
+    }
+
+    /// The + tag field's Return: adds the tag the writer typed (`BookTags.spelling(of:)`) at the
+    /// end of `scene`'s tags, as one change on its page's undo. `false`, changing nothing, if the
+    /// book is read-only, there's no such scene, `typed` is no tag or the scene already has it
+    /// in any case.
+    @discardableResult
+    public func addTag(_ typed: String, to scene: SceneID) -> Bool {
+        guard let tag = tags.spelling(of: typed) else { return false }
+        return add(tag, to: scene)
+    }
+
+    /// Takes `tag` off `scene` in every case it has it in, as one change on its page's undo,
+    /// which puts each back where it was. `false`, changing nothing, if the book is read-only,
+    /// there's no such scene or it hasn't the tag.
+    @discardableResult
+    public func removeTag(_ tag: String, from scene: SceneID) -> Bool {
+        guard let current = book.scene(scene) else { return false }
+        let variants = current.tags.enumerated().filter { SceneTag.key($0.element) == SceneTag.key(tag) }
+        guard !variants.isEmpty else { return false }
+        return takeTags(
+            variants.map { ($0.offset, $0.element) }, from: scene, named: TagWording.removeUndoName)
+    }
+
+    /// A row of the book's tags clicked: `tag`, exactly as the book spells it, is removed from
+    /// `scene` if it has it in any case, and added if not.
+    @discardableResult
+    public func toggleTag(_ tag: String, on scene: SceneID) -> Bool {
+        guard let current = book.scene(scene) else { return false }
+        return SceneTag.contains(current.tags, tag) ? removeTag(tag, from: scene) : add(tag, to: scene)
+    }
+
+    private func add(_ tag: String, to scene: SceneID) -> Bool {
+        guard let current = book.scene(scene), !SceneTag.contains(current.tags, tag) else { return false }
+        return putTags([(current.tags.count, tag)], in: scene, named: TagWording.addUndoName)
+    }
+
+    // Each primitive registers the other with exactly the pairs it changed. Nothing changes a
+    // scene's tags outside its page undo without clearing that history (`commit`), so an inverse
+    // always finds the tags as its edit left them.
+
+    /// Removes the recorded (index, spelling) pairs, from the highest index down. Registers
+    /// putting back what it removed, if it removed anything.
+    private func takeTags(_ tags: [(index: Int, tag: String)], from scene: SceneID, named name: String)
+        -> Bool
+    {
+        guard let driver = editingDriver, let place = place(of: scene) else { return false }
+        var list = book[keyPath: place.list][place.index].tags
+        let removed = tags.sorted { $0.index > $1.index }.filter {
+            list.indices.contains($0.index) && list[$0.index] == $0.tag
+        }
+        if removed.count != tags.count {
+            // A backstop the invariant above should make unreachable: only the pairs still where
+            // their step left them are taken.
+            Log.store.error(
+                "a tag undo found the scene's tags changed under it; taking only what still matches",
+                ["recorded": .count(tags.count), "matched": .count(removed.count)])
+        }
+        guard !removed.isEmpty else { return false }
+        for (index, _) in removed { list.remove(at: index) }
+        book[keyPath: place.list][place.index].tags = list
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        let restore = Array(removed.reversed())
+        registerPageUndo(in: scene, named: name) { _ = $0.putTags(restore, in: scene, named: name) }
+        driver.send(.edited)
+        return true
+    }
+
+    /// Inserts the recorded (index, spelling) pairs, from the lowest index up, each at its index
+    /// or the end. Registers taking away what it put.
+    private func putTags(_ tags: [(index: Int, tag: String)], in scene: SceneID, named name: String) -> Bool {
+        guard let driver = editingDriver, let place = place(of: scene), !tags.isEmpty else { return false }
+        var list = book[keyPath: place.list][place.index].tags
+        var put: [(index: Int, tag: String)] = []
+        for (index, tag) in tags.sorted(by: { $0.index < $1.index }) {
+            let at = min(index, list.count)
+            list.insert(tag, at: at)
+            put.append((at, tag))
+        }
+        book[keyPath: place.list][place.index].tags = list
+        book[keyPath: place.list][place.index].modified = Timestamp(.now, in: .current)
+        registerPageUndo(in: scene, named: name) { _ = $0.takeTags(put, from: scene, named: name) }
+        driver.send(.edited)
+        return true
     }
 
     /// The undo history of `scene`'s page or notes (PLAN §8.6), each its own, kept while the
@@ -610,8 +707,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         if case .scene(let scene) = part {
             wordCounts.recount(scene)
             if case .scene(let before) = old {
-                for part in TextPart.allCases
-                where before[keyPath: part.paragraphs] != scene[keyPath: part.paragraphs] {
+                for part in TextPart.allCases where !part.historyAgrees(before, scene) {
                     textUndoManagers[part]?[before.id]?.removeAllActions()
                 }
             }

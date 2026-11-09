@@ -61,8 +61,9 @@ struct BookWindow: View {
                         if chrome.shows(.rightPanel) {
                             Divider()
                             RightPanel(
-                                book: book, preferences: preferences, formatting: formatting, editors: editors
-                            )
+                                book: book, preferences: preferences, formatting: formatting,
+                                editors: editors,
+                                search: search, mode: $mode)
                         }
                     }
                     .overlay { FocusModeHint(chrome: chrome) }
