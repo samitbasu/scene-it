@@ -70,12 +70,17 @@ enum BookParser {
 enum ParseMode {
     case book, reviewCopy
 
-    var frontMatterKeys: Set<String> {
+    var frontMatterKeys: Set<FrontMatterKey> {
         switch self {
-        case .book: ["title", "format"]
-        case .reviewCopy: ["title", "format", "export", "exported"]
+        case .book: [.title, .format]
+        case .reviewCopy: Set(FrontMatterKey.allCases)
         }
     }
+}
+
+/// A key the front matter can have in some mode.
+enum FrontMatterKey: String, CaseIterable {
+    case title, format, export, exported
 }
 
 /// The two keys only a review copy has (review format §2.1), as the parser read them.
@@ -121,7 +126,7 @@ private final class Reader {
 
     private var bookEntries: [Positioned] = []
     private var bookChanged: [CharacterChange] = []
-    private var frontMatterKeys: Set<String> = []
+    private var frontMatterKeys: Set<FrontMatterKey> = []
     private var title: String?
     private var format: Int?
     private let mode: ParseMode
@@ -162,7 +167,7 @@ private final class Reader {
         guard let (key, value) = Lexical.keyValue(line) else {
             return bookEntry(.frontMatter, line, number, .frontMatter(.notAField))
         }
-        guard mode.frontMatterKeys.contains(key) else {
+        guard let key = FrontMatterKey(rawValue: key), mode.frontMatterKeys.contains(key) else {
             return bookEntry(.frontMatter, line, number, .frontMatter(.unknownKey))
         }
         guard frontMatterKeys.insert(key).inserted else {
@@ -170,20 +175,20 @@ private final class Reader {
         }
         let unescaped = Lexical.fieldUnescaped(value)
         switch key {
-        case "title":
+        case .title:
             title = Lexical.string(unescaped)
-        case "format":
+        case .format:
             guard let format = Lexical.formatNumber(unescaped) else {
                 return bookEntry(.frontMatter, line, number, .frontMatter(.badFormat))
             }
             self.format = format
-        case "export":
+        case .export:
             let id = Lexical.string(value)
             guard Lexical.isValidID(id.utf8) else {
                 return bookEntry(.frontMatter, line, number, .frontMatter(.badID))
             }
             reviewCopy.export = ExportID(rawValue: id)
-        default:
+        case .exported:
             guard let exported = Timestamp(Lexical.string(value)) else {
                 return bookEntry(.frontMatter, line, number, .frontMatter(.badDate))
             }

@@ -176,7 +176,8 @@ struct ExportReviewCopyTests {
 
     @Test func aBookNoLongerOpenExportsNothing() async throws {
         try await withTemporaryFolder { folder in
-            let store = makeStore(in: folder)
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
             try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             let scenes = try Self.prepare(book)
@@ -188,6 +189,73 @@ struct ExportReviewCopyTests {
 
             #expect(result == .unavailable)
             #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+            #expect(prompts.notices == [ExportWording.bookClosed], "the writer is told nothing was written")
+            #expect(
+                ExportWording.bookClosed.message
+                    == "The book closed before it could be exported. Nothing was written.")
+        }
+    }
+
+    @Test func aFolderLinkedIntoTheBookIsRefused() async throws {
+        try await withTemporaryFolder { folder in
+            let prompts = ScriptedPrompts()
+            let store = makeStore(in: folder, prompts: prompts)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let scenes = try Self.prepare(try #require(store.current))
+            let link = folder.appending(path: "Shortcut")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
+            let destination = link.appending(path: "Novel.md")
+            #expect(
+                ReviewCopyWriter.reaches(url, from: destination, LocalFileSystem()),
+                "file identity alone sees through the link")
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: url.appending(path: "Novel.md").path(percentEncoded: false)))
+        }
+    }
+
+    /// A second name for the package that its path doesn't give away (a firmlink, say), played by
+    /// a folder whose identity is the package's.
+    @Test func aFolderThatIsTheBookByIdentityIsRefused() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            let url = try await createBook("Novel", in: folder, store: store)
+            let scenes = try Self.prepare(try #require(store.current))
+            let elsewhere = folder.appending(path: "Elsewhere", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: false)
+            let destination = elsewhere.appending(path: "Novel.md")
+            try #require(!ReviewCopyWriter.isInside(destination, url), "precondition: the paths differ")
+            fileSystem.override(
+                identityOf: elsewhere.resolvingSymlinksInPath(), with: try fileSystem.identity(of: url))
+
+            #expect(try await export(store, Set(scenes), to: destination) == .failed(.insideTheBook))
+            #expect(!FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)))
+        }
+    }
+
+    @Test func aNewFileThatCantBePublishedLeavesNothingBehind() async throws {
+        try await withTemporaryFolder { folder in
+            let fileSystem = FaultInjectingFileSystem(root: folder)
+            let store = makeStore(in: folder, fileSystem: fileSystem)
+            try await createBook("Novel", in: folder, store: store)
+            let scenes = try Self.prepare(try #require(store.current))
+            let destination = folder.appending(path: "Novel.md")
+            fileSystem.inject(.fail(.publish("Novel.md"), cause: .permissionDenied))
+
+            let result = try await export(store, Set(scenes), to: destination)
+
+            guard case .failed(.fileSystem(let error)) = result else {
+                Issue.record("expected a file-system failure, got \(result)")
+                return
+            }
+            #expect(error.cause == .permissionDenied)
+            #expect(
+                try FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))
+                    .sorted()
+                    == ["Mirror", "Novel.sceneit"], "no copy and no temporary file")
         }
     }
 

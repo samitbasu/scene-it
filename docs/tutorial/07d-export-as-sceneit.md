@@ -71,7 +71,8 @@ review-copy mode, and refuse unless the parse has no error entries, is the same 
 scenes), and serializes to the same bytes. `ReviewCopyWriter.write` then follows the book's own
 pipeline from chapter 03: `writeTemporary` (durable under a hidden name), then `publish` for a new
 name or `move` over an existing file. Before any of it, it refuses a destination inside the open
-book's package, comparing canonical paths (`.`, `..` and links resolved, case ignored), and refuses
+book's package, comparing canonical paths (`.`, `..` and links resolved, case ignored) and file
+identities (`FileSystem.identity`, the volume and file number) of the folders above it, and refuses
 anything at the destination that isn't a plain file the writer can write. The store runs it through
 `exclusively` and a `@concurrent` hop (chapter 04), and tells the writer through `StorePrompts` when
 nothing was written.
@@ -120,13 +121,18 @@ A computed `Binding` is a getter and setter pair; SwiftUI calls the setter if it
 sheet itself. File a Copy guards its draft against that; a choice of scenes holds nothing worth
 guarding, so here dismissal just cancels. Esc goes through the window's one Esc order (chapter 07c):
 `EscapeContext.dialog` is now a `DialogStage` (`open` or `busy`), which either dialog can report.
+Both dialogs share one frame, `WindowDialog(icon:title:explanation:content:)` in
+[`SceneIt/Window/WindowDialog.swift`](../../SceneIt/Window/WindowDialog.swift), and one modifier,
+`.windowDialogKeys(keys)`, that hands their Esc to the window's keys: a generic view taking a
+`@ViewBuilder` closure, much as a Rust function takes `impl FnOnce() -> impl View`.
 
 The menu item finds the window's flow through `@FocusedValue(\.exportFlow)`, which the window
 publishes with `.focusedSceneValue`. SwiftUI only offers the *key* window's values to menus. The
 test host never makes its window key (that would pull it in front of whatever the owner is using),
 so the hosted tests check that the item is in the File menu and then call `ExportFlow.begin()`,
 exactly what the item runs, and follow the real path from there: the window's sheet, the chooser,
-Export…, the store, the writer and the file.
+Export…, the store, the writer and the file. Esc and Return reach the sheet as key events sent to
+it in-process (`press(_:in:)`), the way the window would get them from `NSApplication`.
 
 ## 6. Shift-click in a checkbox
 
@@ -135,10 +141,18 @@ click are AppKit's to tell, and `NSEvent.modifierFlags` reads them at the moment
 setter runs, which is inside the click's event handling:
 
 ```swift
-Binding(
-    get: { choice.isTicked(scene) },
-    set: { _ in flow.click(scene, NSEvent.modifierFlags.contains(.shift) ? .extendingRange : .single) })
+static func ticked(
+    _ scene: SceneID, in flow: ExportFlow, _ choice: ExportChoice,
+    modifiers: @escaping () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
+) -> Binding<Bool> {
+    Binding(
+        get: { choice.isTicked(scene) },
+        set: { _ in flow.click(scene, ChoiceClick(modifiers())) })
+}
 ```
+
+The keyboard's state is a default argument, so a test can set the binding as a Shift-click would
+without holding Shift down: a seam the size of one closure.
 
 What a click does is a pure function in the core (`ExportChoice.click`): a plain click toggles one
 scene and remembers it; a Shift-click sets every scene from the remembered one to this one to

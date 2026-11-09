@@ -44,8 +44,14 @@ public enum ExportWording {
 
     /// What the writer is told when nothing was written; nothing at the destination changed.
     public static func notice(for failure: ExportFailure) -> Notice {
-        Notice(title: couldntExport, message: reason(failure) + " Nothing was written.")
+        Notice(title: couldntExport, message: reason(failure) + nothingWritten)
     }
+
+    /// The book closed, or was read again, before the export's turn came.
+    public static let bookClosed = Notice(
+        title: couldntExport, message: "The book closed before it could be exported." + nothingWritten)
+
+    private static let nothingWritten = " Nothing was written."
 
     private static func reason(_ failure: ExportFailure) -> String {
         switch failure {

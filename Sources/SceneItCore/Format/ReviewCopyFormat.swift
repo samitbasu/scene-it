@@ -63,10 +63,7 @@ public enum ReviewCopyFormat {
     public static func verifiedSerialization(of copy: ReviewCopy) throws(VerificationFailure) -> Data {
         let bytes = serialize(copy)
         let reread = parse(bytes, opened: BookFormat.rereadTime)
-        guard reread.parsed.newEntries.isEmpty, reread.parsed.book.errorEntries == copy.book.errorEntries
-        else {
-            throw .newEntries(reread.parsed.newEntries)
-        }
+        guard reread.parsed.newEntries.isEmpty else { throw .newEntries(reread.parsed.newEntries) }
         guard reread.recognition == .reviewCopy(copy.export, exported: copy.exported),
             reread.parsed.book == copy.book
         else { throw .changed }

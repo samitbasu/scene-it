@@ -94,18 +94,10 @@ struct ExportChooserDialog: View {
     let confirm: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "square.and.arrow.up.fill")
-                    .font(.system(size: 30)).foregroundStyle(.tint)
-                    .frame(width: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(ExportWording.dialogTitle).font(.headline)
-                    Text(ExportWording.dialogExplanation)
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        WindowDialog(
+            icon: "square.and.arrow.up.fill", title: ExportWording.dialogTitle,
+            explanation: ExportWording.dialogExplanation
+        ) {
             if let choice = flow.choice {
                 ExportSceneList(flow: flow, choice: choice)
                     .frame(height: 240)
@@ -131,8 +123,6 @@ struct ExportChooserDialog: View {
                 }
             }
         }
-        .padding(20)
-        .frame(width: 440)
     }
 }
 
@@ -146,7 +136,7 @@ struct ExportSceneList: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(choice.rows) { row in
-                    Toggle(ExportWording.row(row), isOn: ticked(row.id))
+                    Toggle(ExportWording.row(row), isOn: Self.ticked(row.id, in: flow, choice))
                         .toggleStyle(.checkbox)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -157,10 +147,21 @@ struct ExportSceneList: View {
         }
     }
 
-    private func ticked(_ scene: SceneID) -> Binding<Bool> {
+    /// A scene's checkbox. `modifiers` are the keys held as it's clicked: the click is still being
+    /// handled when the binding is set, so the keyboard's state now is the click's.
+    static func ticked(
+        _ scene: SceneID, in flow: ExportFlow, _ choice: ExportChoice,
+        modifiers: @escaping () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
+    ) -> Binding<Bool> {
         Binding(
             get: { choice.isTicked(scene) },
-            set: { _ in flow.click(scene, NSEvent.modifierFlags.contains(.shift) ? .extendingRange : .single)
-            })
+            set: { _ in flow.click(scene, ChoiceClick(modifiers())) })
+    }
+}
+
+extension ChoiceClick {
+    /// The kind of click the modifier keys held make it: Shift extends the run.
+    init(_ modifiers: NSEvent.ModifierFlags) {
+        self = modifiers.contains(.shift) ? .extendingRange : .single
     }
 }

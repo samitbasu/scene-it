@@ -80,14 +80,28 @@ private struct OpenBookWindow: View {
     let preferences: AppPreferences
     let formatting: EditorFormatting
     let mainChrome: MainWindowChrome
-    let exportDestination: () -> ExportDestination
     @State private var mode = WindowMode.page
     @State private var chrome = WindowChrome()
+    @State private var filing: FilingFlow
+    @State private var export: ExportFlow
+
+    init(
+        book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
+        mainChrome: MainWindowChrome, exportDestination: @escaping () -> ExportDestination
+    ) {
+        self.book = book
+        self.store = store
+        self.preferences = preferences
+        self.formatting = formatting
+        self.mainChrome = mainChrome
+        _filing = State(initialValue: FilingFlow(book: book))
+        _export = State(initialValue: ExportFlow(book: book, destination: exportDestination))
+    }
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            export: ExportFlow(book: book, destination: exportDestination), chrome: chrome
+            filing: filing, export: export, chrome: chrome
         )
         .onAppear { mainChrome.show(chrome) }
         .onDisappear { mainChrome.gone(chrome) }

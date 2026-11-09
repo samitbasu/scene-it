@@ -377,7 +377,10 @@ public final class BookStore<C: Clock<Duration>> {
         exported: Timestamp
     ) async -> ExportResult {
         await exclusively {
-            guard book === current else { return .unavailable }
+            guard book === current else {
+                await prompts.tell(ExportWording.bookClosed)
+                return .unavailable
+            }
             let copy = ReviewCopy(projecting: book.book, chosen: chosen, export: export, exported: exported)
             do throws(ExportFailure) {
                 try await Self.write(copy, to: destination, outside: book.layout, fileSystem)

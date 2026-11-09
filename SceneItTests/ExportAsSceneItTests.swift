@@ -64,7 +64,8 @@ extension BookStoreIntegrationTests {
         keys(in: window)?.export
     }
 
-    @Test func exportAsSceneItFromTheFileMenuWritesTheChosenStoryScenes() async throws {
+    /// Shift-click through the checkboxes' own binding, and Return for Export…, as the sheet gets it.
+    @Test func theChooserWritesTheTickedStoryScenesWhenReturnPressesExport() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             try #require(books.store.isChoosing, "precondition: the start screen")
@@ -85,11 +86,26 @@ extension BookStoreIntegrationTests {
             #expect(choice.rows.map(\.id.rawValue) == ["s1", "s2", "s3"], "story scenes only: no Boneyard")
             #expect(choice.allTicked)
             #expect(!flow.canBegin(in: books.store), "not again while it's up")
-            flow.click(SceneID(rawValue: "s3"), .single)
+            let sheet = try #require(window.attachedSheet)
+            @MainActor func click(_ id: String, _ modifiers: NSEvent.ModifierFlags) {
+                let current = flow.choice?.isTicked(SceneID(rawValue: id)) ?? false
+                ExportSceneList.ticked(SceneID(rawValue: id), in: flow, choice, modifiers: { modifiers })
+                    .wrappedValue = !current
+            }
+            click("s1", [])
+            click("s2", [])
+            #expect(
+                flow.choice?.ticked == [SceneID(rawValue: "s3")], "precondition: two plain clicks untick two")
+            click("s1", [.shift])
+            #expect(
+                flow.choice?.ticked.count == 3, "Shift-click ticks the run from scene 2 back to scene 1")
+            click("s3", [])
 
-            let result = await flow.confirm(in: books.store)
+            try press(.return, in: sheet)
 
-            #expect(result == .exported)
+            await eventually {
+                FileManager.default.fileExists(atPath: destination.path(percentEncoded: false))
+            }
             await eventually { window.attachedSheet == nil }
             #expect(window.attachedSheet == nil, "the chooser closed")
             let parsed = ReviewCopyFormat.parse(
@@ -128,8 +144,12 @@ extension BookStoreIntegrationTests {
             flow.begin()
             await eventually { window.attachedSheet != nil }
             #expect(keys.escapeContext.dialog == .open)
-            #expect(keys.escape(from: .keyEquivalent) == .handled)
+            let sheet = try #require(window.attachedSheet)
+            await eventually { sheet.hasEscapeFallback }
+            try #require(sheet.hasEscapeFallback, "precondition: the chooser's Esc fallback is in place")
+            try press(.escape, in: sheet)
             #expect(flow.choice == nil, "Esc closed the chooser")
+            #expect(keys.lastEscape?.result == .close(.dialog), "through the resolver")
             await eventually { window.attachedSheet == nil }
 
             flow.begin()

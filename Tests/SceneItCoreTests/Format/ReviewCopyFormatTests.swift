@@ -313,6 +313,27 @@ struct ReviewCopyFormatTests {
         )
     }
 
+    @Test func s2_4_aDuplicateIDGetsItsPosition() {
+        let parsed = Self.parseCopy(Self.tide.replacingOccurrences(of: "id: s2", with: "id: s1"))
+        #expect(parsed.parsed.book.scenes.map(\.id.rawValue) == ["s1", "scene-2"])
+        #expect(
+            parsed.parsed.newEntries == [
+                ErrorEntry(
+                    .notice,
+                    "This scene's id s1 was already used by an earlier scene, so it was given scene-2.")
+            ])
+    }
+
+    @Test func s2_4_aBadIDIsAnEntryAndTheSceneGetsItsPosition() {
+        let parsed = Self.parseCopy(Self.tide.replacingOccurrences(of: "id: s2", with: "id: not valid!"))
+        #expect(parsed.parsed.book.scenes.map(\.id.rawValue) == ["s1", "scene-2"])
+        #expect(
+            parsed.parsed.newEntries == [
+                ErrorEntry(.metadata, "id: not valid!"),
+                ErrorEntry(.notice, "This scene had no id, so it was given scene-2."),
+            ])
+    }
+
     @Test func positionalIDsAreTheSameAtEveryOpen() {
         let text = Self.tide.replacingOccurrences(of: "id: s2\n", with: "").replacingOccurrences(
             of: "id: s1\n", with: "")

@@ -8,7 +8,9 @@ public enum ReviewCopyWriter {
     public static func write(
         _ copy: ReviewCopy, to destination: URL, outside book: PackageLayout, fileSystem: any FileSystem
     ) throws(ExportFailure) {
-        guard !isInside(destination, book.root) else { throw .insideTheBook }
+        guard !isInside(destination, book.root), !reaches(book.root, from: destination, fileSystem) else {
+            throw .insideTheBook
+        }
         let bytes: Data
         do {
             bytes = try ReviewCopyFormat.verifiedSerialization(of: copy)
@@ -48,6 +50,20 @@ public enum ReviewCopyWriter {
         let parent = url.deletingLastPathComponent().canonicalPath.lowercased()
         let path = (parent == "/" ? "" : parent) + "/" + url.lastPathComponent.lowercased()
         return path == root || path.hasPrefix(root + "/")
+    }
+
+    /// Whether `url`, or a folder above it that exists, is `folder` by file identity, so a second
+    /// name for the package that paths don't reveal (a firmlink, another spelling) is caught too.
+    /// Links in the folders above are resolved first.
+    static func reaches(_ folder: URL, from url: URL, _ fileSystem: any FileSystem) -> Bool {
+        guard let target = try? fileSystem.identity(of: folder) else { return false }
+        var current = url.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+        var candidates = [url]
+        while current.path(percentEncoded: false) != "/" {
+            candidates.append(current)
+            current = current.deletingLastPathComponent()
+        }
+        return candidates.contains { (try? fileSystem.identity(of: $0)) == target }
     }
 }
 

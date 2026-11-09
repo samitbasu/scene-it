@@ -127,18 +127,14 @@ struct BookWindow: View {
                 draft: filing.draftBinding, stage: filing.stage, cancel: { filing.cancel() },
                 confirm: { Task { await filing.confirm(in: store) } }
             )
-            .background(EscapeKey(keys: keys))
-            .background(WindowEscapeFallback(keys: keys, commands: .keyAndCancelOperation))
+            .windowDialogKeys(keys)
             .interactiveDismissDisabled()
             .environment(undo)
-            .environment(\.windowKeys, keys)
             .focusedSceneValue(\.undoRouter, undo)
         }
         .sheet(isPresented: chooser) {
             ExportChooserDialog(flow: export) { Task { await export.confirm(in: store) } }
-                .background(EscapeKey(keys: keys))
-                .background(WindowEscapeFallback(keys: keys, commands: .keyAndCancelOperation))
-                .environment(\.windowKeys, keys)
+                .windowDialogKeys(keys)
         }
     }
 

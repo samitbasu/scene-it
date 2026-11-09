@@ -9,7 +9,7 @@ import Testing
 /// A key as the window gets it from `NSApplication.sendEvent`: offered first as a key
 /// equivalent, then, if nothing takes it, sent to the window for its first responder.
 @MainActor
-private func press(_ key: TestKey, in window: NSWindow) throws {
+func press(_ key: TestKey, in window: NSWindow) throws {
     let event = try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
@@ -43,12 +43,13 @@ private func type(_ text: String, in window: NSWindow) throws {
     }
 }
 
-private enum TestKey {
-    case escape, tab, shiftTab
+enum TestKey {
+    case escape, tab, shiftTab, `return`
 
     var characters: String {
         switch self {
         case .escape: "\u{1b}"
+        case .return: "\r"
         case .tab: "\t"
         case .shiftTab: "\u{19}"
         }
@@ -58,6 +59,7 @@ private enum TestKey {
         switch self {
         case .escape: 53
         case .tab, .shiftTab: 48
+        case .return: 36
         }
     }
 
