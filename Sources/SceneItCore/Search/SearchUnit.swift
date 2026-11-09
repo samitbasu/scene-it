@@ -32,31 +32,80 @@ public enum SearchField: Hashable, Sendable {
     case tags
 }
 
-/// The smallest thing search ranks: one paragraph of a title, body or notes, one comment, or a
-/// scene's tag set.
+/// The scene a unit's text is part of, as its version holds it.
+public struct SearchedScene: Hashable, Sendable {
+    public let id: SceneID
+    public let title: String
+    public let placement: ScenePlacement
+
+    public init(id: SceneID, title: String, placement: ScenePlacement) {
+        self.id = id
+        self.title = title
+        self.placement = placement
+    }
+}
+
+/// What a unit's text is.
+public enum SearchSource: Hashable, Sendable {
+    case scene(SearchedScene, SearchField)
+    /// A filed copy's own tags, from the archive's index (PLAN §9.2), joined by
+    /// `SearchUnit.tagSeparator`.
+    case copyTags
+}
+
+/// The smallest thing search ranks: one paragraph of a title, body or notes, one comment, a
+/// scene's tag set, or a filed copy's.
 public struct SearchUnit: Hashable, Sendable {
     public let version: SearchVersion
-    public let scene: SceneID
-    public let sceneTitle: String
-    public let placement: ScenePlacement
-    public let field: SearchField
+    public let source: SearchSource
     /// Admitted (`CharacterPolicy`), as model text is, so it is printable ASCII.
     public let text: String
+
+    public init(version: SearchVersion, source: SearchSource, text: String) {
+        self.version = version
+        self.source = source
+        self.text = CharacterPolicy.admitted(text)
+    }
 
     public init(
         version: SearchVersion, scene: SceneID, sceneTitle: String, placement: ScenePlacement,
         field: SearchField, text: String
     ) {
-        self.version = version
-        self.scene = scene
-        self.sceneTitle = sceneTitle
-        self.placement = placement
-        self.field = field
-        self.text = CharacterPolicy.admitted(text)
+        self.init(
+            version: version,
+            source: .scene(SearchedScene(id: scene, title: sceneTitle, placement: placement), field),
+            text: text)
+    }
+
+    /// `nil` for a filed copy's own tags.
+    public var scene: SearchedScene? {
+        if case .scene(let scene, _) = source { scene } else { nil }
+    }
+
+    /// `nil` for a filed copy's own tags.
+    public var field: SearchField? {
+        if case .scene(_, let field) = source { field } else { nil }
+    }
+
+    /// A scene's tags or a filed copy's, which only Search tags searches.
+    public var isTagSet: Bool {
+        switch source {
+        case .scene(_, let field): field == .tags
+        case .copyTags: true
+        }
     }
 
     /// A line break ends a sentence, so a phrase can't run from one tag into the next.
     public static let tagSeparator = "\n"
+
+    /// `copy`'s own tags as one unit; `nil` if it has none.
+    public static func tags(of copy: FiledCopy) -> SearchUnit? {
+        copy.tags.isEmpty
+            ? nil
+            : SearchUnit(
+                version: .filed(copy.number), source: .copyTags,
+                text: copy.tags.joined(separator: tagSeparator))
+    }
 
     /// Every non-empty unit of `book`, in book order: the story's scenes, then the Boneyard's;
     /// in each, the title, the body, the notes, the comments, then the tags. A filed copy's

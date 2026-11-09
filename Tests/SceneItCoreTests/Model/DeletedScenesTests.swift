@@ -64,7 +64,7 @@ import Testing
 
     @Test func searchNeverFindsADeletedScene() async throws {
         var book = try book()
-        #expect(SearchUnit.units(of: book, version: .working).allSatisfy { $0.scene != Self.dream })
+        #expect(SearchUnit.units(of: book, version: .working).allSatisfy { $0.scene?.id != Self.dream })
         let none = try await finalUpdate(SearchUnit.units(of: book, version: .working), "zebra", .searchTags)
         #expect(none.scenes.isEmpty)
 

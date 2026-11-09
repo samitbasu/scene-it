@@ -38,6 +38,12 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// File a Copy's dialog while it's up (PLAN §7.1): what the writer has typed there, which
     /// leaving the book asks about first.
     public var filingDraft: FilingDraft?
+    /// The File Cabinet search's indexes of the book's filed copies (PLAN §9.2), which go with
+    /// the book; `nil` for a filed copy or a review, which have no File Cabinet.
+    @ObservationIgnored public let filedCopyIndexes: FiledCopyIndexes?
+    /// A search result in this filed copy, which the window showing the copy selects as it
+    /// opens (PLAN §9.1).
+    @ObservationIgnored public private(set) var searchArrival: SearchHit?
     /// Pending records whose copies the index turned out to give other sections, or whose
     /// numbers turned out to hold other files (another program wrote them): forgotten, for the
     /// store to tell the writer. A number can appear twice.
@@ -82,6 +88,8 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
         archiveNotices = archive.notices
         wordCounts = SceneWordCounts(opened.book)
         access = .closed
+        filedCopyIndexes = FiledCopyIndexes(
+            layout: opened.layout, fileSystem: store.fileSystem, defaults: store.parseDefaults)
         switch opened {
         case .editing(let editable):
             document = .book(editable.package.layout)
@@ -101,8 +109,13 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// A filed copy, opened read-only from the File Cabinet (PLAN §7.5), at `scene` if it has it.
     /// It's given no writer, and nothing can give it one (`becomeEditable` takes only a book
     /// repaired as it opened), so no edit is accepted and nothing is ever saved to the copy.
-    init(_ copy: Book, filed context: FiledCopyContext, at scene: SceneID?, store: BookStore<C>) {
+    init(
+        _ copy: Book, filed context: FiledCopyContext, at scene: SceneID?, arriving hit: SearchHit?,
+        store: BookStore<C>
+    ) {
         self.store = store
+        filedCopyIndexes = nil
+        searchArrival = hit
         packageIdentity = nil
         book = copy
         archive = ArchiveIndex()
@@ -116,6 +129,7 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// A review, as Review Book… opened it (ADR 0042). It has no archive.
     init(_ review: LoadedReview, clock: C, store: BookStore<C>) {
         self.store = store
+        filedCopyIndexes = nil
         packageIdentity = nil
         book = review.book
         archive = ArchiveIndex()
@@ -1128,7 +1142,20 @@ public final class OpenBook<C: Clock<Duration>>: AutosaveSaver {
     /// driver is dropped. The caller releases the returned writer (`BookStore.release`).
     func detach() -> DocumentWriter? {
         defer { access = .closed }
+        filedCopyIndexes?.drop()
         if case .writable(_, let writer, _) = access { return writer } else { return nil }
+    }
+
+    /// The search result this filed copy opened at, for its window to select; `nil` once taken.
+    public func takeSearchArrival() -> SearchHit? {
+        defer { searchArrival = nil }
+        return searchArrival
+    }
+
+    /// The version a search result in this document belongs to: a filed copy's own, or the
+    /// working book's.
+    public var searchVersion: SearchVersion {
+        if case .filedCopy(let context) = document { .filed(context.number) } else { .working }
     }
 
     /// Once the book is detached, the store has told its records as lost or carried them to the

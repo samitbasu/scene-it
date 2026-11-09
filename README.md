@@ -400,6 +400,11 @@ state (`search-prompt`, `search-exact`, `search-exact-expanded`, `search-near`,
 `search-near-end`, `search-near-all`, `search-no-results`, `search-no-words`,
 `search-this-scene`, `search-long`) at 1× and 2× and beside `10-search-whole-book.png`. To
 render only these, add `-only-testing:SceneItTests/WindowRenders/searchSheet\(\)`.
+`searchCabinet` renders the File Cabinet scope (#34) into the same subfolder, over mockup 12's five
+copies and beside `11-search-file-cabinet-range.png`: `search-cabinet-prompt`, `search-cabinet-all`,
+`search-cabinet-range`, `search-cabinet-one-copy`, `search-cabinet-tags` (the copies' own tags) and
+`search-cabinet-unreadable` (a copy whose file is gone); add
+`-only-testing:SceneItTests/WindowRenders/searchCabinet\(\)`.
 
 `readAloud` renders read aloud (#39, `ReadAloudRenders.swift`): `read-aloud-1-no-selection` (▶
 dimmed), `read-aloud-2-selection` (▶) and `read-aloud-3-reading` (■, the sentence being read

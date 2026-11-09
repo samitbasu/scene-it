@@ -124,6 +124,14 @@ final class SceneTextEditor: NSObject {
     /// next shows `scene`: a search result being opened (PLAN §9.1).
     func reveal(_ range: NSRange, in scene: SceneID) {
         pendingReveal.set(range, in: scene)
+        // A window that shows the scene already may not update again: a filed copy's, opening at a
+        // search result in it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let view = textView, self.scene == scene,
+                let range = pendingReveal.take(showing: scene)
+            else { return }
+            select(range, in: view)
+        }
     }
 
     private func select(_ range: NSRange, in view: SceneTextView) {

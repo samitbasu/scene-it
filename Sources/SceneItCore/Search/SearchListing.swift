@@ -1,4 +1,4 @@
-/// The Search sheet's scopes (PLAN §9.1); File Cabinet arrives with #34.
+/// The Search sheet's scopes (PLAN §9.1).
 ///
 /// The sheet narrows the units it gives the engine (owner, #31), so a scope's exact and near
 /// matches are its own: a scene with only near matches still shows them under This scene
@@ -8,11 +8,15 @@ public enum SearchScope: Hashable, Sendable, CaseIterable {
     case thisScene
     /// Every scene, the Boneyard's too.
     case wholeBook
+    /// The filed copies a `CabinetChoice` picks, and with Search tags their own tags.
+    case fileCabinet
 
+    /// The working book's units this scope searches: none in the File Cabinet.
     public func units(of all: [SearchUnit], openScene: SceneID?) -> [SearchUnit] {
         switch self {
         case .wholeBook: all
-        case .thisScene: openScene.map { scene in all.filter { $0.scene == scene } } ?? []
+        case .thisScene: openScene.map { scene in all.filter { $0.scene?.id == scene } } ?? []
+        case .fileCabinet: []
         }
     }
 }
@@ -51,6 +55,8 @@ public struct SearchListing: Hashable, Sendable {
     public let sceneCount: Int
     /// Every hit the update holds, listed or not.
     public let hitCount: Int
+    /// What the File Cabinet's summary counts of every hit, listed or not.
+    public let cabinetCounts: CabinetCounts
 
     public init(_ update: SearchUpdate, nearMatches limit: NearMatchLimit) {
         let capped = update.quality == .near && limit == .best
@@ -59,6 +65,7 @@ public struct SearchListing: Hashable, Sendable {
         progress = update.progress
         sceneCount = update.scenes.count
         hitCount = update.hitCount
+        cabinetCounts = CabinetCounts(update.scenes)
     }
 
     /// The scenes the near-match limit left out: "Show all N" while there are any.
@@ -76,7 +83,8 @@ public enum SearchTarget: Hashable, Sendable {
     case text(TextPart, Range<Int>)
     case comment(CommentID)
     case tags
-    /// The scene, with nothing selected: the hit's text is no longer what the book holds.
+    /// The scene, with nothing selected: the hit's text is no longer what the book holds, or the
+    /// hit is a filed copy's own tags.
     case scene
 }
 
@@ -89,7 +97,8 @@ extension SearchHit {
     /// Where opening the hit goes in `scene`, as the book holds it now. A hit whose text the
     /// book no longer holds there selects nothing, since its offsets would land on other words.
     public func target(in scene: BookScene) -> SearchTarget {
-        switch unit.field {
+        guard let field = unit.field else { return .scene }
+        return switch field {
         case .title:
             scene.title.text == unit.text ? .title(firstMatch) : .scene
         case .body(let paragraph):

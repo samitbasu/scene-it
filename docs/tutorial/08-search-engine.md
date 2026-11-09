@@ -372,6 +372,15 @@ style of the format's `PerformanceTests`, so that it can't flake. One of its cas
 paragraph of 100,000 words whose only window holding both keywords is the whole paragraph: a
 window search that rescanned its window as it shrank would be quadratic there.
 
+The File Cabinet's own benchmark, `CabinetSearchPerformanceTests` in
+[`CabinetSearchTests.swift`](../../Tests/SceneItCoreTests/Search/CabinetSearchTests.swift),
+searches 50 copies as the sheet does, one index per copy ranked together. In the gate it uses small
+copies. Run it at full size with
+`SCENEIT_CABINET_BENCHMARK_WORDS=120000 swift test -c release --filter CabinetSearchPerformance`.
+On the development machine, indexing all 50 copies takes about 0.8 s, and a query takes 90 to
+380 ms, with first results after about 60 ms. The indexes hold about 190 MB: the text, plus
+16 bytes per word for its token and interned form.
+
 ## 10. The sheet: one task per query
 
 The Search sheet ([`SearchSheetModel.swift`](../../SceneIt/Search/SearchSheetModel.swift),
@@ -417,3 +426,64 @@ The tests inject the index (`SearchSheetModel(book:indexing:)`) with one that ho
 search's last update until it's cancelled, so "a new query cancels the old search" is checked
 without any timing: see `aNewQueryCancelsTheSearchInProgress` in
 [`SearchSheetTests.swift`](../../SceneItTests/SearchSheetTests.swift).
+
+## 11. The File Cabinet scope (#34)
+
+The third scope searches the book's filed copies (PLAN §9.1–9.2). Four ideas carry it.
+
+**An enum says what a unit is.** A filed copy's own tags (from `Archive/index.md`) are a unit with
+no scene. Rather than give `SearchUnit` an optional scene *and* a field that could disagree, the
+unit holds one `SearchSource`:
+
+```swift
+public enum SearchSource: Hashable, Sendable {
+    case scene(SearchedScene, SearchField)
+    case copyTags
+}
+```
+
+It's a Rust enum with data, and `unit.scene` and `unit.field` are computed `Option`s over it.
+"A copy's tags with a paragraph number" can't be written down.
+
+**A cache of tasks, not of values.** `FiledCopyIndexes`, in
+[`CabinetSearch.swift`](../../Sources/SceneItCore/Search/CabinetSearch.swift), keeps one
+`Task<FiledCopyIndex, Never>` per copy. Each task reads the copy's file, parses it and indexes
+its units in a `@concurrent` function, so it runs off the main actor (ADR 0011). A second search
+that asks for the same copy awaits the same task, much like a `futures::Shared` future in Rust.
+Once a task finishes, only its `KeywordSearch` is kept: the copy's parsed `Book` is dropped. The
+cache belongs to the `OpenBook`, and `detach()` empties it when the book closes. That's the
+`Drop` of this design, made explicit because a SwiftUI view can hold the book a little longer.
+Filing a copy reads that copy at once, but only once a File Cabinet search has run.
+
+**Several indexes ranked as one.** Each copy has its own index, so a copy filed later is indexed
+alone. `CombinedKeywordSearch` gives a `SearchRun` all of them. Rarity counts how many units
+contain each keyword, and every index compiles a query to the same keywords, so the counts add up
+across indexes and the ranking matches one big index (`severalIndexesRankAsOne` checks this). Ties
+keep the order of the indexes: the copies' own tags first, then the copies, newest first.
+
+**The date range is the File Cabinet's own.** `FiledDates` is the pure "either end open" filter
+that `CabinetFilter` uses. The Search sheet reuses both the filter and the date-field view
+(`FiledDatesField`), so the two sheets can't drift apart.
+
+### A trap: `didSet` on an `@Observable` property
+
+The sheet forgets a picked copy when the range leaves it out:
+
+```swift
+var cabinet = CabinetChoice() {
+    didSet {
+        let fitted = cabinet.fitted(to: book.archive)
+        if fitted != cabinet {
+            cabinet = fitted
+        } else if cabinet != oldValue {
+            search()
+        }
+    }
+}
+```
+
+On a plain stored property, assigning inside `didSet` doesn't call `didSet` again. `@Observable`
+turns the property into a computed one over hidden storage, so here it does. The first version
+assigned unconditionally, recursed until the stack ran out, and crashed a test. The guard makes
+the second pass see a fitted value and stop. In Rust terms, the macro rewrote a field into a
+getter and a setter, and the setter runs your hook.

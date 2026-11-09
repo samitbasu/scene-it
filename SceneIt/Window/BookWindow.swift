@@ -137,7 +137,10 @@ struct BookWindow: View {
             // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
             chrome.keys = keys
             search.opener = SearchOpener(
-                book: book, preferences: preferences, editors: editors, focus: pageFocus, mode: $mode)
+                book: book, store: store, preferences: preferences, editors: editors, focus: pageFocus,
+                mode: $mode)
+            // A filed copy opened from a search result shows the result.
+            if let hit = book.takeSearchArrival() { search.open(hit) }
         }
         .toolbar {
             WindowToolbar(book: book, store: store, preferences: preferences, undo: undo, filing: filing)
