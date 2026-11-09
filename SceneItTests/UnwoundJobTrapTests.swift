@@ -5,10 +5,10 @@ import Testing
 
 /// The context a block sees when the main run loop runs it, outside any job.
 @MainActor
-private func contextOnTheRunLoop() async -> UnwoundTaskTrap.TaskContext {
-    await withCheckedContinuation { (done: CheckedContinuation<UnwoundTaskTrap.TaskContext, Never>) in
+private func contextOnTheRunLoop() async -> UnwoundJobTrap.JobContext {
+    await withCheckedContinuation { (done: CheckedContinuation<UnwoundJobTrap.JobContext, Never>) in
         RunLoop.main.perform {
-            done.resume(returning: UnwoundTaskTrap.context)
+            done.resume(returning: UnwoundJobTrap.context)
         }
     }
 }
@@ -16,10 +16,10 @@ private func contextOnTheRunLoop() async -> UnwoundTaskTrap.TaskContext {
 /// Runs the main run loop from inside the caller's job, as `NSAlert.runModal()` does, until a
 /// block it runs has seen the context.
 @MainActor
-private func contextInANestedRunLoop() -> UnwoundTaskTrap.TaskContext? {
-    var seen: UnwoundTaskTrap.TaskContext?
+private func contextInANestedRunLoop() -> UnwoundJobTrap.JobContext? {
+    var seen: UnwoundJobTrap.JobContext?
     CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-        MainActor.assumeIsolated { seen = UnwoundTaskTrap.context }
+        MainActor.assumeIsolated { seen = UnwoundJobTrap.context }
     }
     CFRunLoopWakeUp(CFRunLoopGetMain())
     let clock = ContinuousClock()
@@ -32,8 +32,8 @@ private func contextInANestedRunLoop() -> UnwoundTaskTrap.TaskContext? {
 
 /// What an isolated deinit run as a job sees.
 private struct DeinitJobSight: Sendable {
-    let task: UnwoundTaskTrap.JobRecord
-    let context: UnwoundTaskTrap.TaskContext
+    let taskRecord: UnwoundJobTrap.JobRecord
+    let context: UnwoundJobTrap.JobContext
 }
 
 /// Its last reference goes away off the main thread, so its isolated deinit runs as a main-actor
@@ -46,8 +46,8 @@ private final class DeinitJobProbe {
     }
 
     isolated deinit {
-        let task: UnwoundTaskTrap.JobRecord = withUnsafeCurrentTask { $0 == nil ? .clear : .set }
-        seen.resume(returning: DeinitJobSight(task: task, context: UnwoundTaskTrap.context))
+        let task: UnwoundJobTrap.JobRecord = withUnsafeCurrentTask { $0 == nil ? .clear : .set }
+        seen.resume(returning: DeinitJobSight(taskRecord: task, context: UnwoundJobTrap.context))
     }
 }
 
@@ -56,36 +56,46 @@ private final class DeinitJobProbe {
 /// is sound.
 @MainActor
 @Suite(.serialized)
-struct UnwoundTaskTrapTests {
+struct UnwoundJobTrapTests {
     private let runner: Range<UInt> = 0x1000..<0x2000
+
+    @Test func aClearRecordOutsideAnyJobIsUsable() {
+        #expect(UnwoundJobTrap.Calibration(identityOutsideAnyJob: 0) == .usable)
+    }
+
+    /// A runtime that names the main executor outside any job would make every run-loop entry
+    /// look like an unwind, so the trap stops reading the record.
+    @Test func aSetRecordOutsideAnyJobIsUnusable() {
+        #expect(UnwoundJobTrap.Calibration(identityOutsideAnyJob: 0x1_0000_4000) == .unusable)
+    }
 
     @Test func noRecordIsNone() {
         let stack: [UInt] = [0x1800]
-        #expect(UnwoundTaskTrap.TaskContext(record: .clear, returnAddresses: stack, runner: runner) == .none)
+        #expect(UnwoundJobTrap.JobContext(record: .clear, returnAddresses: stack, runner: runner) == .none)
     }
 
     @Test func aRecordWithTheRunnerOnTheStackIsAJob() {
         let stack: [UInt] = [0x9000, 0x1800, 0x500]
-        #expect(UnwoundTaskTrap.TaskContext(record: .set, returnAddresses: stack, runner: runner) == .job)
+        #expect(UnwoundJobTrap.JobContext(record: .set, returnAddresses: stack, runner: runner) == .job)
     }
 
     @Test func aRecordWithoutTheRunnerOnTheStackWasUnwound() {
         let stack: [UInt] = [0x9000, 0x2000, 0xFFF, 0x500]
         #expect(
-            UnwoundTaskTrap.TaskContext(record: .set, returnAddresses: stack, runner: runner) == .unwound,
+            UnwoundJobTrap.JobContext(record: .set, returnAddresses: stack, runner: runner) == .unwound,
             "the runner's range is half-open")
     }
 
     @Test func theAppArmsTheTrapOnTheMainRunLoop() throws {
-        let observer = try #require(UnwoundTaskTrap.observer, "installed as the app launches")
+        let observer = try #require(UnwoundJobTrap.observer, "installed as the app launches")
         #expect(CFRunLoopContainsObserver(CFRunLoopGetMain(), observer, .commonModes))
         #expect(CFRunLoopObserverIsValid(observer))
-        #expect(UnwoundTaskTrap.runner?.isEmpty == false, "it knows the job runner's code")
-        #expect(UnwoundTaskTrap.currentExecutorIdentity != nil, "it can read the executor record")
+        #expect(UnwoundJobTrap.runner?.isEmpty == false, "it knows the job runner's code")
+        #expect(UnwoundJobTrap.executorIdentity != nil, "it reads the executor record, calibrated as usable")
     }
 
     @Test func aJobIsAJob() async {
-        #expect(UnwoundTaskTrap.context == .job)
+        #expect(UnwoundJobTrap.context == .job)
     }
 
     /// The trap reads the executor record too, so an unwound deinit job is caught (#142).
@@ -93,7 +103,7 @@ struct UnwoundTaskTrapTests {
         let sight = await withCheckedContinuation { seen in
             Task.detached { _ = DeinitJobProbe(seen) }
         }
-        #expect(sight.task == .clear, "precondition: the deinit ran as a job without a task")
+        #expect(sight.taskRecord == .clear, "precondition: the deinit ran as a job without a task")
         #expect(sight.context == .job)
     }
 
@@ -104,7 +114,7 @@ struct UnwoundTaskTrapTests {
     /// As a modal alert run from a task does: the trap checks each time the inner loop is
     /// entered, where the task is current and its job is on the stack.
     @Test func aRunLoopInsideAJobIsNotAnUnwind() async throws {
-        try #require(UnwoundTaskTrap.observer != nil, "precondition: the trap is armed")
+        try #require(UnwoundJobTrap.observer != nil, "precondition: the trap is armed")
         #expect(contextInANestedRunLoop() == .job)
     }
 }

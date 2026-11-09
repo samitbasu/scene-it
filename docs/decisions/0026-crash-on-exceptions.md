@@ -23,7 +23,7 @@ raised, HIToolbox swallowed it, and about 100 ms later `UndoRouter`'s notificati
 `swift_task_isMainExecutor`, reading the dead frame the job runner had left as the thread's current executor. The router was
 just the first code to make an isolation check.
 
-So the app also arms `UnwoundTaskTrap` (`SceneIt/Diagnostics/UnwoundTaskTrap.swift`) as it launches: an observer of the main
+So the app also arms `UnwoundJobTrap` (`SceneIt/Diagnostics/UnwoundJobTrap.swift`) as it launches: an observer of the main
 run loop, in the common modes. If the thread says a task is current while no return address on the stack lies in
 `libswift_Concurrency`'s `__TEXT` (where the job runner is), the job was left without returning through the runner, and the
 trap stops the app with a fixed `fatalError` message. It does so at the next run-loop activity it observes, normally before
@@ -35,8 +35,9 @@ an exception the next thing to happen on the main thread is a run-loop entry. `.
 loop that swallows one and lets the loop carry on; the loop can't wait and wake again without passing it. The other
 activities would only repeat the check several times per turn.
 
-Cost: per observed activity, one thread-local read plus a retain and release of the current task (`withUnsafeCurrentTask`).
-Only while a task is current, which outside a job means a modal loop run from a task, does it also take a `backtrace` into a
+Cost: per observed activity, a read of the executor record (since #142) and, when that's clear, a thread-local read plus a
+retain and release of the current task (`withUnsafeCurrentTask`). Only while either record is set, which outside a job means
+a modal loop run from a job, does it also take a `backtrace` into a
 fixed stack buffer and compare each address against one integer range. The range is found once, from `swift_job_run`'s image
 header with `getsegmentdata`. If it can't be found, the trap logs a fault once, at install, and never fires.
 
@@ -51,6 +52,10 @@ Its limits:
 - A stack deeper than the buffer (512 frames) counts as a job.
 - An exception swallowed outside any task still carries on, as before, but leaves Swift concurrency intact.
 - An unwound task is leaked rather than freed. That is why reading the record, with its retain and release, is safe.
+- An unwound deinit job is caught only through the executor identity read from the dead frame (#142). If whatever has since
+  been written there happens to be zero, the record looks clear and the trap misses it, as it did before #142. Whether that
+  happens depends on the stack, so the miss is probabilistic; the next isolation check is then likely safe too, since it reads
+  the same zero.
 
 The trap is armed in the test host too. Tests that call an AppKit entry point known to raise outside its normal context (a
 drag operation, an undo group) do it from `RunLoop.main.perform` (`onTheRunLoop`), so an exception there doesn't unwind a
@@ -80,10 +85,21 @@ So the trap now also reads the executor record, through the runtime's exported `
 `dlsym` like `swift_job_run`. Swift reserves the name for `@_silgen_name`, and no Swift API reads the record without acting on
 it. The function returns the runtime's `SerialExecutorRef` (identity, then witness table) in the Swift calling convention; it's
 called through a C function type returning one word, which both conventions return in the same register. A non-null identity
-counts as a job, as a current task does. It's read first, and costs one more thread-local read per observed activity. With the change, the deinit experiment was trapped 1 ms after HIToolbox swallowed the
-exception. `anIsolatedDeinitJobIsAJob` checks that a deinit job without a task counts as a job, not as nothing.
+counts as a job, as a current task does. It's read first, and costs one more thread-local read per observed activity. With
+the change, the deinit experiment was trapped 1 ms after HIToolbox swallowed the exception. `anIsolatedDeinitJobIsAJob`
+checks that a deinit job without a task counts as a job, not as nothing.
 
 A third runtime behaviour, also observed rather than promised: outside any job the record is clear, so the identity is null.
+The runtime ships with the OS, and its `_swift_getActiveExecutor` already falls back to the main executor on the main thread;
+if a later `swift_task_getCurrentExecutor` did the same, every run-loop entry would look like an unwound job and the app would
+stop at launch. So the trap calibrates itself once: `install` schedules a block on the main run loop
+(`CFRunLoopPerformBlock`, outside any job) that reads the identity there. Only if it's null (`Calibration.usable`) does the
+trap start reading the record; otherwise it logs a fault, as it does when the symbol is missing, and goes on reading only the
+task record. Until the block runs, it reads only the task record too. `theAppArmsTheTrapOnTheMainRunLoop` checks that
+calibration found the record usable, and two pure tests check the decision.
+
+The trap was renamed from `UnwoundTaskTrap` to `UnwoundJobTrap` (and `TaskContext` to `JobContext`), since it now traps any
+unwound job; the earlier sections use the new names.
 
 Not changed: the deinits stay isolated. Making them `nonisolated` wouldn't remove the dead record; the next isolation check
 (a SwiftUI update, a notification closure, `MainActor.assumeIsolated`) would read it instead. An isolated deinit also keeps
