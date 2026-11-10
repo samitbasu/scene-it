@@ -40,18 +40,20 @@ struct HTMLPasteTests {
         #expect(RequestRecorder.urls == [], "no request was made")
     }
 
-    /// Every kind of reference a page can make: a style sheet, an imported one, a background, an
-    /// image over HTTPS, HTTP and by host name, a frame and a script, and one remote image.
+    /// Every kind of reference a page can make, each at the loopback server: a style sheet, an
+    /// imported one, a background, images over HTTPS and HTTP, by address and by host name, a
+    /// frame and a script.
     static func html(referencing port: UInt16) -> String {
         let https = "https://127.0.0.1:\(port)"
         let http = "http://localhost:\(port)"
+        let plain = "http://127.0.0.1:\(port)"
         return """
             <html><head>
             <link rel="stylesheet" href="\(https)/sheet.css">
             <style>@import url("\(http)/imported.css"); p { background: url("\(https)/bg.png") }</style>
             <script src="\(https)/script.js"></script>
             </head><body><p><b>Bold</b> and <i>italic</i>
-            <img src="\(https)/a.png"> <img src="\(http)/b.png"> <img src="https://example.com/c.png">
+            <img src="\(https)/a.png"> <img src="\(http)/b.png"> <img src="\(plain)/c.png">
             <iframe src="\(https)/frame.html"></iframe></p></body></html>
             """
     }
@@ -75,20 +77,20 @@ private nonisolated final class RequestRecorder: URLProtocol {
 }
 
 /// A TCP server on the loopback interface that counts the connections it accepts from any
-/// process, and answers each with 404.
+/// process, and answers each with 404. `stop()` returns once its thread has ended.
 private nonisolated final class LoopbackServer: Sendable {
     let port: UInt16
     private let socketFD: Int32
     private let accepted = Mutex(0)
+    private let stopping = Mutex(false)
+    private let ended = DispatchSemaphore(value: 0)
 
     var connections: Int { accepted.withLock { $0 } }
 
     init() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ServerError.socket }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var address = Self.loopback(port: 0)
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -107,10 +109,23 @@ private nonisolated final class LoopbackServer: Sendable {
         Thread.detachNewThread { [self] in serve(fd) }
     }
 
+    private static func loopback(port: UInt16) -> sockaddr_in {
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = port.bigEndian
+        return address
+    }
+
     private func serve(_ fd: Int32) {
+        defer { ended.signal() }
         while true {
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
+            if stopping.withLock({ $0 }) {
+                close(client)
+                return
+            }
             accepted.withLock { $0 += 1 }
             var request = [UInt8](repeating: 0, count: 1024)
             _ = read(client, &request, request.count)
@@ -120,27 +135,32 @@ private nonisolated final class LoopbackServer: Sendable {
         }
     }
 
-    /// Connects once and checks the server counted it, so a count of zero means something.
-    func expectReachable() throws {
+    /// Whether a connection to the server was made.
+    private func connectOnce() -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         defer { close(fd) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        address.sin_port = port.bigEndian
-        let connected = withUnsafePointer(to: &address) {
+        var address = Self.loopback(port: port)
+        return withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
-        }
-        try #require(connected == 0, "precondition: the server takes connections")
+        } == 0
+    }
+
+    /// Connects once and checks the server counted it, so a count of zero means something.
+    func expectReachable() throws {
+        try #require(connectOnce(), "precondition: the server takes connections")
         for _ in 0..<200 where connections == 0 { usleep(5000) }
         try #require(connections == 1, "precondition: the server counts connections")
         accepted.withLock { $0 = 0 }
     }
 
+    /// Wakes the thread blocked in `accept` with a connection of its own, then waits for it to end.
     func stop() {
-        shutdown(socketFD, SHUT_RDWR)
+        stopping.withLock { $0 = true }
+        if connectOnce() {
+            #expect(ended.wait(timeout: .now() + 10) == .success, "the server's thread ended")
+        }
         close(socketFD)
     }
 

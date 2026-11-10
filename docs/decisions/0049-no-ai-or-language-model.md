@@ -33,10 +33,14 @@ offered two language-model features inside it:
    `Data`/`String` read from a web address, and the app (unlike its tests) doesn't import WebKit.
    - **Pasted HTML fetches nothing.** Paste reads HTML through `NSAttributedString(html:)`, which is
      WebKit's importer, and pasted HTML can name images, style sheets, scripts and frames on a server.
-     On macOS 27 the importer fetches none of them: `HTMLPasteTests` pastes HTML naming each kind, at a
-     server on the Mac's loopback address and at a remote host, and checks that no connection reached
-     that server (from any process) and that the URL loading system was asked for nothing. The test runs
-     in the gate, so a macOS that starts fetching fails it.
+     On macOS 27 the importer fetches none of them: `HTMLPasteTests` pastes HTML naming each kind at a
+     server on the Mac's loopback address (by `127.0.0.1` and by `localhost`, over HTTP and HTTPS) and
+     checks that no connection reached it. The server counts connections from any process, so this
+     covers WebKit's own networking process too. The test also records every request the URL loading
+     system is asked for, but that sees only requests made inside Scene It's process, so it adds
+     nothing about WebKit's. What's proven is that these references, at this server, aren't fetched;
+     that the importer would treat a reference to another host the same way is an inference, not a
+     test. The test runs in the gate, so a macOS that starts fetching fails it.
    - Books are files on the Mac. The one thing that can leave the Mac is Help › Report a Problem's
      zip, which the writer emails themselves through Mail; it holds logs, crash reports and settings,
      and no text from any book (ADR 0006).
@@ -48,12 +52,16 @@ offered two language-model features inside it:
    them does nothing. Every other text view that takes the focus in any of the app's windows (SwiftUI's
    fields, the find bar's, an alert's) gets the same three settings as it takes the focus, before a key
    reaches it (`FocusedTextWatch`, which the app delegate starts at launch and which watches each window
-   from its first update), and SwiftUI's fields are told `.writingToolsBehavior(.disabled)`
+   from its first update; the window holds its watch, so it goes with the window however the window
+   goes away), and SwiftUI's fields are told `.writingToolsBehavior(.disabled)`
    (`languageModelsOff()`, at the root of the book window and of the dialog frame).
 4. **The menus offer no Writing Tools.** Scene It takes AppKit's Writing Tools submenu, and the
    separator before it, out of the main menu at launch, and again on the next turn of the run loop
    whenever an item is added to any menu. Only an item whose action is `showWritingTools:`, or a submenu
-   holding nothing but such items, is taken out, so no other menu can be.
+   holding nothing but such items, is taken out, so no other menu can be. Because the removal waits for
+   the next turn, a Writing Tools item that AppKit inserted only as a menu opened (it inserts it at
+   launch on macOS 27, so this wasn't seen) would show for that one opening. Every text view would
+   still decline it.
 5. **Spell checking and reading aloud come from macOS and run on the Mac.** Spelling and grammar
    underlines, corrections, completions and substitutions come from `NSSpellChecker`, the system's
    spelling service. Read aloud uses `AVSpeechSynthesizer`, and the Edit menu's Speech › Start Speaking
@@ -75,8 +83,8 @@ offered two language-model features inside it:
     chooser open, gives every field the focus, and checks that every text view and field editor has all
     three off; in each sheet it then changes the field's text from the model, so SwiftUI updates the
     field while it's edited, and checks again;
-  - checks a plain AppKit field in a window of its own, which only the app-wide watch covers;
-  - checks that the open and save panels show another process's view, with no text view of the app's;
+  - checks a plain AppKit field in a window of its own, which only the app-wide watch covers, and
+    that a window freed without being closed doesn't stop a new window at its address being watched;
   - checks that the main menu holds no Writing Tools item, that one added to the Edit menu is taken out
     again with its separator, and that every top-level menu and the Edit menu's other items are left;
     and that a menu holding a Writing Tools item among others is never taken for one.
@@ -91,16 +99,20 @@ offered two language-model features inside it:
   - `import WebKit` under `SceneIt/` and `Sources/` (the tests render previews with it).
 
   It checks the source, not what's linked, and like every guard it skips whole-line comments only (a
-  trailing comment naming one of these is a hit). `HTMLPasteTests.swift` is exempt: it uses
-  `URLRequest` to record requests.
+  trailing comment naming one of these is a hit). `HTMLPasteTests.swift` may use `URLRequest` and
+  `URLProtocol`, to record requests; nothing else is allowed there.
 
 **Outside Scene It's control:**
 - **Dictation.** The writer enables it for the whole Mac (System Settings › Keyboard); Apple's speech
   recognition, a model, turns speech into text before Scene It sees it. Scene It's editors have no
   input context (ADR 0028), so dictation may not reach them at all; what it does deliver is typed text.
 - **Downloading a voice** is done in System Settings, from Apple; it sends no text.
-- **The open and save panels.** macOS shows them from another process (the app holds only a remote
-  view of them), so their name and search fields are system UI that Scene It can't switch.
+- **The open and save panels.** macOS shows them from another process: in the audit, an `NSSavePanel`
+  or `NSOpenPanel` made in the test host held only a remote view (`NSRemoteView`) and no text view of
+  the app's. So their name and search fields are system UI that Scene It can't switch. This was
+  observed, not gated: making a panel waits on that other process, which made a test of it hang when
+  the Mac was busy. Should a panel ever come into the app's process, `FocusedTextWatch` would cover
+  its fields, as it does any window's.
 - **Text the writer hands to another app or service**: copying or sharing it, the Services menu, and
   the items macOS adds to a search field's context menu when text is selected (Look Up, Translate,
   Search With…, Share). Translate is Apple's translation, which may run on Apple's servers. The page's

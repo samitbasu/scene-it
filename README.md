@@ -113,11 +113,12 @@ at the same time and waits for both:
 6. **No-AI guard:** fails on an `import` of a machine-learning, language or AI framework
    (`CoreML`, `CreateML`, `NaturalLanguage`, `FoundationModels`, `Speech`, `Translation`, `Vision`,
    `VisionKit`, `ImagePlayground`, `SoundAnalysis`), of Siri's (`AppIntents`, `Intents`) or of a
-   networking one (`Network`, `CFNetwork`, `CloudKit`); on `URLSession`, `URLRequest`, `NWConnection`,
-   `NWListener`, `NWBrowser`, `NSURLConnection`, `CKContainer`, `CFStream…`, `CFSocket…` or
+   networking one (`Network`, `CFNetwork`, `CloudKit`); on `URLSession`, `URLRequest`, `URLProtocol`,
+   `NWConnection`, `NWListener`, `NWBrowser`, `NSURLConnection`, `CKContainer`, `CFStream…`, `CFSocket…` or
    `NSLinguisticTagger`; and on `Data(contentsOf:` or `String(contentsOf:` with a `URL(string: "<scheme>://`.
    `import WebKit` fails under `SceneIt/` and `Sources/` (the tests may render with it).
-   `SceneItTests/HTMLPasteTests.swift` is exempt: it records requests to prove there are none.
+   `SceneItTests/HTMLPasteTests.swift` may use `URLRequest` and `URLProtocol`, to record requests and prove
+   there are none; everything else is refused there too.
    Scene It's text never reaches a language model or the network (ADR 0049).
 
    Steps 2–6 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,

@@ -86,41 +86,43 @@ extension View {
 }
 
 /// Holds Writing Tools and word predictions off in each text view that takes the focus in any of
-/// the app's windows (its own, and the panels AppKit shows in its process: open, save, print),
-/// before a key reaches it. A field's editor belongs to whoever made the field (SwiftUI, the find
-/// bar, a panel), and only the focus says which one is at work. Each window is watched from its
-/// first update, which comes before the writer can type in it.
+/// the app's windows, before a key reaches it. A field's editor belongs to whoever made the field
+/// (SwiftUI, the find bar, an alert), and only the focus says which one is at work. Each window is
+/// watched from its first update, which comes before the writer can type in it, and the window
+/// holds its own watch, so the watch lives and dies with it however the window goes away.
 final class FocusedTextWatch {
-    private var watching: [ObjectIdentifier: NSKeyValueObservation] = [:]
-    private var notifications: [NSObjectProtocol] = []
+    private var updates: NSObjectProtocol?
 
     init() {
-        let center = NotificationCenter.default
-        notifications = [
-            center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main) {
-                [weak self] notification in
-                let window = notification.object as? NSWindow
-                MainActor.assumeIsolated { window.map { self?.watch($0) } }
-            },
-            center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
-                [weak self] notification in
-                let window = notification.object as? NSWindow
-                MainActor.assumeIsolated { window.map { self?.watching[ObjectIdentifier($0)] = nil } }
-            },
-        ]
+        updates = NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification, object: nil, queue: .main
+        ) { notification in
+            let window = notification.object as? NSWindow
+            MainActor.assumeIsolated { window.map(Self.startWatching) }
+        }
     }
 
     isolated deinit {
-        for observer in notifications { NotificationCenter.default.removeObserver(observer) }
+        updates.map(NotificationCenter.default.removeObserver)
     }
 
-    private func watch(_ window: NSWindow) {
-        let id = ObjectIdentifier(window)
-        guard watching[id] == nil else { return }
-        watching[id] = window.observe(\.firstResponder, options: [.initial, .new]) { window, _ in
+    static func watch(of window: NSWindow) -> NSKeyValueObservation? {
+        objc_getAssociatedObject(window, key) as? NSKeyValueObservation
+    }
+
+    static func isWatching(_ window: NSWindow) -> Bool {
+        watch(of: window) != nil
+    }
+
+    private static let key = UnsafeRawPointer(UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1))
+
+    private static func startWatching(_ window: NSWindow) {
+        guard !isWatching(window) else { return }
+        let watch = window.observe(\.firstResponder, options: [.initial, .new]) { window, _ in
             MainActor.assumeIsolated {
                 if let text = window.firstResponder as? NSTextView { LanguageModelsOff.keepOff(text) }
             }
         }
+        objc_setAssociatedObject(window, key, watch, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 }

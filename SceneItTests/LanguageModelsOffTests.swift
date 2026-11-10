@@ -169,17 +169,36 @@ struct LanguageModelsOffTests {
         #expect(LanguageModelsOff.areOff(in: editor))
     }
 
-    /// ADR 0049 lists the open and save panels as system UI: their fields live in another
-    /// process, out of Scene It's reach. If they ever come into the app's own windows, this
-    /// fails, and the app-wide watch (`aFieldInAnyWindowHasThemOff`) then covers them.
-    @Test func theOpenAndSavePanelsFieldsAreTheSystems() {
-        for panel in [NSSavePanel(), NSOpenPanel()] {
-            let views = subviewTree(of: panel.contentView)
-            #expect(
-                views.contains { NSStringFromClass(type(of: $0)).contains("Remote") },
-                "precondition: \(type(of: panel)) shows another process's view")
-            #expect(!views.contains { $0 is NSText || $0 is NSTextField }, "\(type(of: panel))")
+    /// A window freed without being closed (an alert after `runModal`, a sheet) takes its watch
+    /// with it: nothing is kept by the window's address, so a later window there (or anywhere) is
+    /// watched from its own first update. (A new window can't be made to land at a given address,
+    /// so the test checks that nothing outlives the window instead.)
+    @Test func aWindowFreedWithoutClosingTakesItsWatchWithIt() throws {
+        weak var gone: NSWindow?
+        weak var goneWatch: NSKeyValueObservation?
+        autoreleasepool {
+            let window = Self.unshownWindow()
+            #expect(!FocusedTextWatch.isWatching(window), "precondition: not watched before its first update")
+            window.update()
+            goneWatch = FocusedTextWatch.watch(of: window)
+            #expect(goneWatch != nil, "precondition: a window is watched once it updates")
+            gone = window
         }
+        try #require(gone == nil, "precondition: the window was freed without being closed")
+        #expect(goneWatch == nil, "its watch went with it")
+
+        let next = Self.unshownWindow()
+        #expect(!FocusedTextWatch.isWatching(next))
+        next.update()
+        #expect(FocusedTextWatch.isWatching(next), "a new window is watched from its first update")
+    }
+
+    private static func unshownWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 40), styleMask: [.titled], backing: .buffered,
+            defer: true)
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     /// Scene It's own editors hold both off whatever sets them.
