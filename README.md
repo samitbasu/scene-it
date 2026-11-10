@@ -40,6 +40,7 @@ Config/                    Info.plist and other build configuration
 scripts/                   the scripts below; lib.sh holds shared paths and log helpers, guards.sh the source guards
 Justfile                   optional shortcuts for the scripts (see Scripts)
 docs/                      decisions, workflow, tutorials
+design/icon/               the app icon's generator (writes SceneIt/AppIcon.icon)
 site/                      the download website: index.html, style.css, images/
 .github/workflows/         pages.yml, which deploys site/ to GitHub Pages
 build/                     all build output (git-ignored)
@@ -378,6 +379,28 @@ TEST_RUNNER_FORMAT_FUZZ_SEEDS=8 TEST_RUNNER_FORMAT_FUZZ_STEPS=300 xcodebuild -pr
 Seeds run 1 to N. **Output:** the test results, each failure naming its step. **Products:** none
 beyond the result bundle.
 
+### Regenerating the app icon
+
+Not a script in `scripts/`: [`design/icon/generate.swift`](design/icon/generate.swift) draws the
+app icon and writes it as an Icon Composer document (tutorial chapter 01, "The app icon"). The
+document is committed, so a build never runs the generator; run it after changing the art:
+
+```sh
+swift design/icon/generate.swift SceneIt/AppIcon.icon
+```
+
+**Output:** `SceneIt/AppIcon.icon/icon.json` and one SVG per layer in
+`SceneIt/AppIcon.icon/Assets/` (the old SVGs are removed first). **Products:** none beyond the
+document. To see the result as the system draws it, render it with Icon Composer's command-line
+tool, once per appearance (`--rendition` is `Default`, `Dark`, `TintedLight`, `TintedDark`,
+`ClearLight` or `ClearDark`):
+
+```sh
+"/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool" \
+    SceneIt/AppIcon.icon --export-image --output-file /tmp/icon-dark.png \
+    --platform macOS --rendition Dark --width 1024 --height 1024 --scale 1
+```
+
 ### Rendering the window for review
 
 Not a script: a hosted test, `SceneItTests/WindowRenders.swift`, that draws the main window
@@ -653,8 +676,10 @@ done
 ```
 
 The app is light-only (`AppDelegate` sets the Aqua appearance), so there are no dark screenshots; the page itself
-follows the reader's light or dark setting. `site/images/app-icon.png` is a stand-in (candidate 02, index cards)
-until the final icon lands; replace it with the shipped icon at 384 × 384 px.
+follows the reader's light or dark setting. `site/images/app-icon.png` is the app icon's `Default`
+rendition at 384 × 384 px, exported with `ictool` as in [Regenerating the app icon](#regenerating-the-app-icon)
+(`--output-file site/images/app-icon.png --rendition Default --width 384 --height 384`); re-export it when the icon
+changes.
 
 **Deployment.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) uploads `site/` with
 `actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages`, on every push to `main`
