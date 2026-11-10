@@ -119,7 +119,8 @@ struct FocusModeToolbar: NSViewRepresentable {
 /// While the window is key, though, an Esc the window itself gets as a key never goes down
 /// the chain: AppKit sends `cancelOperation:` to the key window instead, and SwiftUI's window
 /// answers it, doing nothing. So while the window is its own first responder, Esc is taken
-/// earlier, as a key equivalent.
+/// earlier, as a key equivalent, unless a sheet or a dialog is up: their `EscapeKey`, a key
+/// equivalent too, takes it then.
 ///
 /// In File a Copy's dialog it also takes `cancelOperation:`, the command a text field or text
 /// view makes of Esc, which goes up the chain unanswered there. Not in the main window: there
@@ -160,7 +161,7 @@ struct WindowEscapeFallback: NSViewRepresentable {
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             guard let window, window.firstResponder === window, let responder else { return false }
-            return responder.escape(event) == .handled
+            return responder.escape(event, offered: .asKeyEquivalent) == .handled
         }
     }
 
@@ -216,14 +217,23 @@ struct WindowEscapeFallback: NSViewRepresentable {
             self.window = nil
         }
 
-        func escape(_ event: NSEvent) -> KeyOutcome {
+        enum Offer {
+            case asKey, asKeyEquivalent
+        }
+
+        /// As a key equivalent, the Esc is left to a sheet's or a dialog's own `EscapeKey`, which
+        /// is offered it too, and may close something inside the layer first.
+        func escape(_ event: NSEvent, offered offer: Offer) -> KeyOutcome {
             let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
             guard event.keyCode == 53, plain, let keys else { return .passedOn }
+            if offer == .asKeyEquivalent, EscapeLayer.keyEquivalentTaker(in: keys.escapeContext) == .layer {
+                return .passedOn
+            }
             return keys.escape(from: .window)
         }
 
         override func keyDown(with event: NSEvent) {
-            if escape(event) == .handled { return }
+            if escape(event, offered: .asKey) == .handled { return }
             super.keyDown(with: event)
         }
     }

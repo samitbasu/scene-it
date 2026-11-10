@@ -127,6 +127,39 @@ extension OneAtATime {
             }
         }
 
+        /// With no view holding the focus, an Esc the window offers as a key equivalent has two
+        /// takers: the sheet's `EscapeKey` and the window's fallback. The fallback leaves it to the
+        /// sheet's, whichever AppKit offers it to first, so the sheet's own Esc applies as it would
+        /// with the focus in the sheet. (A card's field closes as it loses the focus, so none is
+        /// open here for the sheet's Esc to close first.)
+        @Test func escWithNoViewFocusedClosesTheSheetThroughItsOwnKey() async throws {
+            try await withScenesSheet { harness, actions in
+                _ = try #require(actions.add(.afterOpenScene))
+                _ = try await harness.titleEditor()
+                let keys = try harness.keys
+                let fallback = try #require(
+                    subviewTree(of: harness.window.contentView)
+                        .compactMap { $0 as? WindowEscapeFallback.EscapeView }.first,
+                    "precondition: the window's Esc fallback view")
+                #expect(harness.window.makeFirstResponder(nil))
+                try #require(
+                    harness.window.firstResponder === harness.window, "precondition: no view has the focus")
+                await eventually { harness.titleField == nil }
+                try #require(
+                    harness.scenes.titling == nil, "precondition: the card's field closed with the focus")
+                let escape = try keyDown(.escape, in: harness.window, .first)
+
+                #expect(!fallback.performKeyEquivalent(with: escape), "the fallback leaves Esc to the sheet")
+                #expect(harness.modes.mode == .scenes)
+                #expect(keys.lastEscape == nil)
+
+                #expect(harness.window.performKeyEquivalent(with: escape))
+                #expect(harness.modes.mode == .page, "Esc closes the sheet")
+                #expect(keys.lastEscape?.entrance == .keyEquivalent, "through the sheet's EscapeKey")
+                #expect(keys.lastEscape?.result == .close(.sheet))
+            }
+        }
+
         /// A title typed but not accepted with Return is kept when the sheet closes.
         @Test func closingTheSheetKeepsATitleBeingTyped() async throws {
             try await withScenesSheet { harness, actions in

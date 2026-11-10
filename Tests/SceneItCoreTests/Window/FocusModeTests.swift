@@ -81,6 +81,20 @@ import Testing
         #expect(closed == [.popover, .dialog, .sheet, .findBar, .focusMode])
         #expect(EscapeLayer.escape(in: state) == .passOn)
     }
+
+    /// A sheet or a dialog takes its own Esc key equivalent, even over what's under it; above
+    /// one, a palette leaves the key to the window, as do the find bar and focus mode.
+    @Test func theTopLayersEscKeyEquivalentTakesEscOnlyForASheetOrADialog() {
+        #expect(EscapeLayer.keyEquivalentTaker(in: context(dialog: .open)) == .layer)
+        #expect(EscapeLayer.keyEquivalentTaker(in: context(dialog: .busy)) == .layer, "even while it holds")
+        #expect(EscapeLayer.keyEquivalentTaker(in: context(mode: .scenes, focusMode: .on)) == .layer)
+        #expect(
+            EscapeLayer.keyEquivalentTaker(in: context(popover: .present, mode: .scenes)) == .window,
+            "the palette's is in its own window")
+        #expect(EscapeLayer.keyEquivalentTaker(in: context(findBar: .present)) == .window)
+        #expect(EscapeLayer.keyEquivalentTaker(in: context(focusMode: .on)) == .window)
+        #expect(EscapeLayer.keyEquivalentTaker(in: context()) == .window)
+    }
 }
 
 @Suite struct TabOrderTests {

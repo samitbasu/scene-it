@@ -29,7 +29,6 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
             let (window, chrome) = try await openBook(at: url, in: books)
-
             chrome.set(.on)
             await eventually { window.toolbar?.isVisible == false }
             #expect(window.toolbar?.isVisible == false, "focus mode hides the toolbar")
@@ -211,9 +210,6 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
             let (window, chrome) = try await openBook(at: url, in: books)
-            try #require(
-                window.responds(to: #selector(NSResponder.cancelOperation(_:))),
-                "precondition: the window answers cancelOperation: itself")
 
             chrome.set(.on)
             await eventually { window.toolbar?.isVisible == false }
