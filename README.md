@@ -829,17 +829,17 @@ could change one day; re-check them against *Managing a custom domain* if the si
 ### Cutting a release for the site
 
 ```sh
-scripts/release.sh                                   # dist/Scene It 0.1.1.dmg, notarized
-cp "dist/Scene It 0.1.1.dmg" dist/Scene-It.dmg       # the name the site links to
+scripts/release.sh                                   # dist/Scene It 0.1.2.dmg, notarized
+cp "dist/Scene It 0.1.2.dmg" dist/Scene-It.dmg       # the name the site links to
 shasum -a 256 dist/Scene-It.dmg | tee dist/Scene-It.dmg.sha256
-gh release create v0.1.1 dist/Scene-It.dmg dist/Scene-It.dmg.sha256 \
-    --title "Scene It 0.1.1" --notes "SHA-256: $(cut -d' ' -f1 dist/Scene-It.dmg.sha256)"
+gh release create v0.1.2 dist/Scene-It.dmg dist/Scene-It.dmg.sha256 \
+    --title "Scene It 0.1.2" --notes "SHA-256: $(cut -d' ' -f1 dist/Scene-It.dmg.sha256)"
 ```
 
-The asset's name comes from the file's name. `gh release create v0.1.1 "dist/Scene It 0.1.1.dmg#Scene-It.dmg"`
+The asset's name comes from the file's name. `gh release create v0.1.2 "dist/Scene It 0.1.2.dmg#Scene-It.dmg"`
 would **not** work: the text after `#` is only the asset's display label
 ([gh release create](https://cli.github.com/manual/gh_release_create)). GitHub would store the asset under the file's
-own name with its spaces rewritten as periods, `Scene.It.0.1.1.dmg` (it renames filenames with special or
+own name with its spaces rewritten as periods, `Scene.It.0.1.2.dmg` (it renames filenames with special or
 non-alphanumeric characters:
 [Upload a release asset](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset)), and the site's
 link would fail. Hence the copy to `Scene-It.dmg`. Publish the SHA-256 in the release notes and as the `.sha256`
@@ -848,7 +848,7 @@ asset, so a reader can check the download with `shasum -a 256 Scene-It.dmg`.
 **Release checklist for the site:**
 - [ ] The build is universal; before a wide release, smoke-test the DMG on an Intel Mac (open, write, save, quit,
       reopen), since the page promises "Apple silicon and Intel".
-- [ ] After `gh release create`, check the asset is named exactly `Scene-It.dmg` (`gh release view v0.1.1`) and that
+- [ ] After `gh release create`, check the asset is named exactly `Scene-It.dmg` (`gh release view v0.1.2`) and that
       `https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg` downloads it.
 - [ ] Update the "Version …" line on the page (`site/index.html`).
 
