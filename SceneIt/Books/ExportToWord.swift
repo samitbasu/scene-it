@@ -8,32 +8,29 @@ import SwiftUI
 @MainActor
 @Observable
 final class WordExportFlow {
-    let book: AppOpenBook
-    private let store: AppBookStore
-    private let overlays: WindowOverlays
+    private let gate: OutputGate
     private let destination: () -> WordDestination
 
-    init(
-        book: AppOpenBook, store: AppBookStore, overlays: WindowOverlays,
-        destination: @escaping () -> WordDestination
-    ) {
-        self.book = book
-        self.store = store
-        self.overlays = overlays
+    init(gate: OutputGate, destination: @escaping () -> WordDestination) {
+        self.gate = gate
         self.destination = destination
+    }
+
+    var book: AppOpenBook {
+        gate.book
     }
 
     var scene: BookScene? {
         book.book.scene(book.openScene)
     }
 
-    /// Whether Export to Word… can start: a scene is open, and nothing else is up in the window.
+    /// Whether Export to Word… can start: a scene is open, and the gate is open.
     var canBegin: Bool {
-        scene != nil && overlays.noneUp
+        scene != nil && gate.isOpen
     }
 
     /// The save panel asks where, and whether the comments go (ADR 0048), and the store writes the
-    /// document there. `nil` if it can't start or the panel was cancelled.
+    /// document there. `nil` if it can't start or the panel was canceled.
     @discardableResult
     func begin() async -> WordExportResult? {
         let options = WordExportOptions()
@@ -41,7 +38,7 @@ final class WordExportFlow {
             let url = await destination().choose(
                 WordExportWording.defaultFileName(scene: scene, of: book.document), options)
         else { return nil }
-        return await store.exportToWord(
+        return await gate.store.exportToWord(
             of: book, scene: scene.id, to: url, comments: options.comments.comments(by: .account))
     }
 }

@@ -135,8 +135,8 @@ extension OneAtATime.BookStoreIntegrationTests {
 
     /// File → Export to Word… and the toolbar's Export to Word go through the window's one
     /// `WordExportFlow`, so they export the scene the window shows and are enabled together:
-    /// never while a rail sheet, File a Copy's dialog or Export as SceneIt's chooser is up, as
-    /// Print… isn't.
+    /// never while a rail sheet, File a Copy's dialog, Export as SceneIt's chooser or the print
+    /// dialog is up, as Print… isn't.
     ///
     /// The toolbar's button is drawn by SwiftUI and shows no enabled state or action here (its
     /// hosting view has no controls or accessibility children in the test host), and it can't be
@@ -167,32 +167,47 @@ extension OneAtATime.BookStoreIntegrationTests {
                 keys.filing.book === book && keys.export.book === book, "precondition: the window's dialogs")
             defer { books.wordDestination = .nowhere }
 
-            @MainActor func expectAgreement(_ enabled: Bool, _ why: Testing.Comment) async {
-                await eventually { Self.exportToWordIsEnabled() == enabled }
-                #expect(Self.exportToWordIsEnabled() == enabled, why)
-                #expect(flow.canBegin == enabled, why)
+            @MainActor func expectAgreement(_ state: Availability, _ why: Testing.Comment) async {
+                await eventually { Self.exportToWordIsEnabled() == state.isEnabled }
+                #expect(Self.exportToWordIsEnabled() == state.isEnabled, why)
+                #expect(flow.canBegin == state.isEnabled, why)
             }
 
-            await expectAgreement(true, "the page shows")
+            await expectAgreement(.enabled, "the page shows")
             keys.mode.wrappedValue = .scenes
-            await expectAgreement(false, "the Scenes sheet covers the page")
+            await expectAgreement(.disabled, "the Scenes sheet covers the page")
             let refused = folder.appending(path: "Refused.docx")
             books.wordDestination = .fixed(refused)
             #expect(await flow.begin() == nil, "begin does nothing then")
             #expect(!FileManager.default.fileExists(atPath: refused.path(percentEncoded: false)))
             keys.mode.wrappedValue = .search
-            await expectAgreement(false, "the Search sheet covers the page")
+            await expectAgreement(.disabled, "the Search sheet covers the page")
+            keys.mode.wrappedValue = .fileCabinet
+            await expectAgreement(.disabled, "the File Cabinet sheet covers the page")
             keys.mode.wrappedValue = .page
-            await expectAgreement(true, "the page shows again")
+            await expectAgreement(.enabled, "the page shows again")
 
             keys.filing.begin()
-            await expectAgreement(false, "File a Copy's dialog is up")
+            await expectAgreement(.disabled, "File a Copy's dialog is up")
             keys.filing.cancel()
-            await expectAgreement(true, "the dialog went")
+            await expectAgreement(.enabled, "the dialog went")
             keys.export.begin()
-            await expectAgreement(false, "Export as SceneIt's chooser is up")
+            await expectAgreement(.disabled, "Export as SceneIt's chooser is up")
             keys.export.cancel()
-            await expectAgreement(true, "the chooser went")
+            await expectAgreement(.enabled, "the chooser went")
+
+            let recorded = RecordedPrints()
+            let present = PrintFlow.present
+            PrintFlow.present = { operation, window, flow in recorded.shown.append((operation, window, flow))
+            }
+            defer { PrintFlow.present = present }
+            let printing = try #require(books.mainWindowChrome.printing)
+            await eventually { printing.window === window }
+            printing.begin()
+            try #require(recorded.shown.count == 1, "precondition: the print dialog is up")
+            await expectAgreement(.disabled, "the print dialog is up")
+            printing.finished()
+            await expectAgreement(.enabled, "the print dialog went")
 
             let destination = folder.appending(path: "The ferry.docx")
             books.wordDestination = .fixed(destination)
@@ -207,9 +222,19 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(read.string.hasPrefix("The ferry\nThe ferry left at dawn."), "the window's open scene")
 
             #expect(await store.closeBook() == .left)
-            await eventually { books.mainWindowChrome.wordExport == nil }
+            await eventually {
+                books.mainWindowChrome.wordExport == nil && Self.exportToWordIsEnabled() == false
+            }
             #expect(Self.exportToWordIsEnabled() == false, "no scene to export on the start screen")
             expectNoQuestions()
+        }
+    }
+
+    enum Availability {
+        case enabled, disabled
+
+        var isEnabled: Bool {
+            self == .enabled
         }
     }
 }

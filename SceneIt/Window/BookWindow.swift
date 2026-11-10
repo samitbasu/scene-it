@@ -13,9 +13,7 @@ struct BookWindow: View {
     @Binding var mode: WindowMode
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
-    @State private var overlays: WindowOverlays
-    @State private var printing: PrintFlow
-    @State private var wordExport: WordExportFlow
+    @State private var outputs: WindowOutputs
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
@@ -25,18 +23,20 @@ struct BookWindow: View {
     @State private var chrome: WindowChrome
     @State private var keys: WindowKeys
     @State private var readAloud: ReadAloud
+    /// The main window's, which the window registers its chrome, mode and outputs with.
+    let mainChrome: MainWindowChrome?
     let newBookDestination: SaveDestination
 
-    /// `readAloud` is the app's; without one, the window reads aloud to a recorder. `printing` and
-    /// `wordExport`, if given, are made with `overlays`.
+    /// `readAloud` is the app's; without one, the window reads aloud to a recorder.
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
-        overlays: WindowOverlays? = nil, printing: PrintFlow? = nil, wordExport: WordExportFlow? = nil,
+        wordDestination: @escaping () -> WordDestination = { .nowhere },
         search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
-        chrome: WindowChrome? = nil, readAloud: ReadAloud? = nil,
+        chrome: WindowChrome? = nil, mainChrome: MainWindowChrome? = nil, readAloud: ReadAloud? = nil,
         newBookDestination: SaveDestination = .nowhere
     ) {
+        self.mainChrome = mainChrome
         self.newBookDestination = newBookDestination
         self.book = book
         self.store = store
@@ -47,12 +47,9 @@ struct BookWindow: View {
         _filing = State(initialValue: filing)
         let export = export ?? ExportFlow(book: book, destination: { .nowhere })
         _export = State(initialValue: export)
-        let overlays = overlays ?? WindowOverlays(filing: filing, export: export)
-        _overlays = State(initialValue: overlays)
-        _printing = State(initialValue: printing ?? PrintFlow(book: book, overlays: overlays))
-        _wordExport = State(
-            initialValue: wordExport
-                ?? WordExportFlow(book: book, store: store, overlays: overlays, destination: { .nowhere }))
+        _outputs = State(
+            initialValue: WindowOutputs(
+                book: book, store: store, filing: filing, export: export, wordDestination: wordDestination))
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _scenes = State(initialValue: scenes ?? ScenesSheetModel())
         _cabinet = State(initialValue: cabinet ?? FileCabinetModel())
@@ -126,7 +123,7 @@ struct BookWindow: View {
         .background(WindowEscapeFallback(keys: keys))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
-            overlays.mode = new
+            outputs.gate.mode = new
             if new.isSheet { readAloud.stop() }
             if mode == .search { search.refresh() } else { search.close() }
             if mode != .scenes { scenes.close() }
@@ -148,10 +145,12 @@ struct BookWindow: View {
         .onDisappear {
             readAloud.stop()
             search.close()
+            mainChrome?.gone(chrome)
         }
         .onAppear {
             // Set here, from the kept state: init runs again on every re-render with a WindowKeys nothing keeps.
             chrome.keys = keys
+            mainChrome?.show(chrome, mode: $mode, outputs: outputs)
             search.opener = SearchOpener(
                 book: book, store: store, preferences: preferences, editors: editors, focus: pageFocus,
                 mode: $mode)
@@ -161,13 +160,13 @@ struct BookWindow: View {
         .toolbar {
             WindowToolbar(
                 book: book, store: store, preferences: preferences, undo: undo, filing: filing,
-                printing: printing, wordExport: wordExport)
+                printing: outputs.printing, wordExport: outputs.wordExport)
         }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.filingFlow, filing)
         .focusedSceneValue(\.exportFlow, export)
         .background(
-            WindowReporter { [filing, printing] in
+            WindowReporter { [filing, printing = outputs.printing] in
                 filing.window = $0
                 printing.window = $0
             }

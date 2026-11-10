@@ -240,7 +240,8 @@ extension OneAtATime {
 
         /// Export to Word… while a copy shows exports the copy's scene, named for the copy, never
         /// the book hidden under it (PLAN §7.5): the main window's flow, which the File menu and the
-        /// toolbar both use, is the copy's.
+        /// toolbar both use, is the copy's. The book's own Print and Export to Word turn off as the
+        /// copy shows, before its window has gone, so the menu can't reach the hidden book.
         @Test func exportToWordWhileACopyShowsExportsTheCopy() async throws {
             try await withTemporaryFolder { folder in
                 let books = BookController(role: .testHost)
@@ -256,15 +257,24 @@ extension OneAtATime {
                     return
                 }
                 book.replaceBody(of: scene, with: [[Run("Rewritten since.")]])
+                let window = await hostOffscreen(
+                    MainWindow(books: books), size: WindowMetrics.defaultSize,
+                    until: { _ in books.mainWindowChrome.wordExport?.book === book })
+                defer { window.close() }
+                let bookOutputs = try #require(books.mainWindowChrome.outputs, "precondition: the book's")
+                try #require(
+                    bookOutputs.wordExport.canBegin && bookOutputs.printing.canBegin,
+                    "precondition: the book's flows are enabled")
+
                 #expect(await store.openFiledCopy(.first, of: book) == .opened)
                 let copy = try #require(store.shown)
                 try #require(copy !== book, "precondition: the copy shows")
-                let window = await hostOffscreen(
-                    MainWindow(books: books), size: WindowMetrics.defaultSize,
-                    until: { _ in books.mainWindowChrome.wordExport?.book === copy })
-                defer { window.close() }
+                #expect(!bookOutputs.wordExport.canBegin, "the hidden book's Export to Word is off at once")
+                #expect(!bookOutputs.printing.canBegin, "and its Print")
+                await eventually { books.mainWindowChrome.wordExport?.book === copy }
                 let flow = try #require(books.mainWindowChrome.wordExport)
                 #expect(flow.book === copy)
+                #expect(flow.canBegin)
                 let exported = try #require(flow.scene)
                 #expect(
                     WordExportWording.defaultFileName(scene: exported, of: copy.document)

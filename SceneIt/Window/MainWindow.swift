@@ -88,9 +88,7 @@ private struct OpenBookWindow: View {
     @State private var chrome = WindowChrome()
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
-    @State private var overlays: WindowOverlays
-    @State private var printing: PrintFlow
-    @State private var wordExport: WordExportFlow
+    let wordDestination: () -> WordDestination
     let newBookDestination: SaveDestination
 
     init(
@@ -111,23 +109,16 @@ private struct OpenBookWindow: View {
         _filing = State(initialValue: filing)
         let export = ExportFlow(book: book, destination: exportDestination)
         _export = State(initialValue: export)
-        let overlays = WindowOverlays(filing: filing, export: export)
-        _overlays = State(initialValue: overlays)
-        _printing = State(initialValue: PrintFlow(book: book, overlays: overlays))
-        _wordExport = State(
-            initialValue: WordExportFlow(
-                book: book, store: store, overlays: overlays, destination: wordDestination))
+        self.wordDestination = wordDestination
     }
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            filing: filing, export: export, overlays: overlays, printing: printing, wordExport: wordExport,
-            chrome: chrome, readAloud: readAloud,
+            filing: filing, export: export, wordDestination: wordDestination, chrome: chrome,
+            mainChrome: mainChrome, readAloud: readAloud,
             newBookDestination: newBookDestination
         )
-        .onAppear { mainChrome.show(chrome, mode: $mode, printing: printing, wordExport: wordExport) }
-        .onDisappear { mainChrome.gone(chrome) }
     }
 }
 
