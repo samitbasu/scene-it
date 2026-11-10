@@ -95,7 +95,7 @@ struct AddSceneTests {
             #expect(book.book.scene(added) == nil, "the writer no longer sees it")
             #expect(book.book.deleted == [written], "the file keeps it")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).deleted == [written])
 
             book.structureUndo.redo()
@@ -117,7 +117,7 @@ struct AddSceneTests {
             #expect(book.book.deleted.isEmpty)
             #expect(book.book.scenes.map(\.id) == scenes)
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.map(\.id) == scenes)
             #expect(try bookOnDisk(url).deleted.isEmpty)
             book.structureUndo.redo()

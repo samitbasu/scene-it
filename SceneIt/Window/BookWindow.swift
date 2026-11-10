@@ -107,6 +107,7 @@ struct BookWindow: View {
             }
         }
         .background(.background)
+        .languageModelsOff()
         .modifier(FilingToastOverlay(flow: filing))
         .background(UndoRouterWindow(router: undo))
         .environment(undo)

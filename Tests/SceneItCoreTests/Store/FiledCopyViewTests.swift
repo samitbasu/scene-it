@@ -76,7 +76,7 @@ struct FiledCopyViewTests {
         try await withFiledBook { store, book, url, scenes in
             let layout = PackageLayout(root: url)
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             let archive = try DirectorySnapshot(layout.archive)
             let filed = try FileFingerprint(layout.filedCopy(.first))
             try #require(filed.immutable, "precondition: the copy is locked")
@@ -132,7 +132,7 @@ struct FiledCopyViewTests {
             #expect(book.openScene == scenes.letter, "the scene that was open opens again")
             book.structureUndo.redo()
             #expect(book.book.scenes.map(\.id) == [scenes.ferry, scenes.letter, restored])
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.map(\.id) == [scenes.ferry, scenes.letter, restored])
         }
     }
