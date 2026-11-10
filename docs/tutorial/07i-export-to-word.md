@@ -63,7 +63,7 @@ static let firstLineIndent = Int(ParagraphRole.firstLineIndent * 20)
 
 Each run carries only its own formatting, and the schema fixes the order of a run's properties
 (bold, italic, strikethrough, color, shading), so `WordDocument.run` appends them in that order.
-Colors come straight from the palette's hex values, the same ones the page draws with. Uncoloured
+Colors come straight from the palette's hex values, the same ones the page draws with. Uncolored
 text gets no `w:color` at all, which Word reads as its automatic color: black on white, light when
 Word shows the document dark.
 
