@@ -459,7 +459,7 @@ the store. Doing that before #15 means designing the edit boundary with no edito
 
 ## 6. The spike
 
-In `/private/tmp/claude-501/rust-spike/` (throwaway, not in the repo). Toolchain: rustc/cargo
+In a throwaway scratch folder outside the repo. Toolchain: rustc/cargo
 1.98.0, Swift 6.4.2, Xcode 27.2, macOS 27 on arm64.
 
 **What it is:**

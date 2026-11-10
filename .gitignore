@@ -7,4 +7,4 @@ DerivedData/
 xcuserdata/
 *.xcarchive
 dist/
-.claude/worktrees/
+.claude/

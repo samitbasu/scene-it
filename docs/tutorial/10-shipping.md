@@ -339,8 +339,8 @@ right UUID. For the copy in Xcode's archives folder it does:
 
 ```
 $ mdfind "com_apple_xcode_dsym_uuids == 354CD52E-A24B-3926-A79B-9B6C9AD67715"
-/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
-/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive/dSYMs/Scene It.app.dSYM
+~/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
+~/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive/dSYMs/Scene It.app.dSYM
 ```
 
 The same query found nothing under a checkout's `build/release/`, so to use that copy, pass
@@ -390,9 +390,9 @@ the commit, since this branch isn't merged yet):
 
 ```
 $ scripts/release.sh --unnotarized
-/Users/samitbasu/…/clone/dist/Scene It 0.1.0-unnotarized.zip
-/Users/samitbasu/…/clone/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
-/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
+<clone>/dist/Scene It 0.1.0-unnotarized.zip
+<clone>/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
+~/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
 ```
 
 The notarized path hasn't run yet: it needs the `scene-it-notary` profile. When it has, the

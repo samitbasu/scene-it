@@ -12,6 +12,8 @@ external mirror, and immutable filed copies.
 | [`docs/dev/WORKFLOW.md`](docs/dev/WORKFLOW.md) | How work is picked up, built, reviewed and merged |
 | [`docs/tutorial/`](docs/tutorial/) | Walkthrough of the app for Rust programmers new to Swift and macOS |
 | [GitHub issues](https://github.com/samitbasu/scene-it/issues) | Work queue, milestones M0–M7 |
+| [`site/`](site/) | The download website (see [Website](#website)) |
+| [`LICENSE`](LICENSE) | MIT License |
 
 ## Requirements
 
@@ -38,6 +40,8 @@ Config/                    Info.plist and other build configuration
 scripts/                   the scripts below; lib.sh holds shared paths and log helpers, guards.sh the source guards
 Justfile                   optional shortcuts for the scripts (see Scripts)
 docs/                      decisions, workflow, tutorials
+site/                      the download website: index.html, style.css, images/
+.github/workflows/         pages.yml, which deploys site/ to GitHub Pages
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
 ```
@@ -320,8 +324,8 @@ Least covered files:
 …
 
 Skipped under coverage (timing-sensitive): ScalingTests PerformanceTests
-Core HTML: /Users/samitbasu/Devel/scene-it/build/coverage/core-html/index.html
-App result bundle: /Users/samitbasu/Devel/scene-it/build/coverage/app.xcresult
+Core HTML: <repo>/build/coverage/core-html/index.html
+App result bundle: <repo>/build/coverage/app.xcresult
 ```
 
 **Output on failure:** exit status 1 and `coverage.sh: <step> failed (full log:
@@ -519,6 +523,13 @@ Esc…" hint as focus mode begins), `focus-vs-normal.png` side by side, and `nor
 `focus-from-panel-collapsed`. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to
 render only these, use `-only-testing:SceneItTests/OneAtATime/BookStoreIntegrationTests/focusModeRenders\(\)`.
 
+`site` renders the website's screenshots (`SiteRenders.swift`) into a `site/` subfolder, at 2× only: `scenes`
+(the Scenes sheet and the Boneyard tray), `comments` (a commented page with a card selected), `cabinet` (Search's
+File Cabinet scope over five filed copies), `read-aloud` (two paragraphs being read) and `print` (the first page
+printed with comments). The book is the Scenes sheet's sample with a page-long ferry scene and nine comments. To
+render only these, add `-only-testing:SceneItTests/WindowRenders/site\(\)`; then see [Website](#website) for
+copying them into `site/images/`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile
@@ -587,9 +598,9 @@ reports it as *Unnotarized Developer ID* and blocks it once. A stopgap only.
 `build/release/`, and the archive copy. For example:
 
 ```
-/Users/samitbasu/Devel/scene-it/dist/Scene It 0.1.0-unnotarized.zip
-/Users/samitbasu/Devel/scene-it/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
-/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
+<repo>/dist/Scene It 0.1.0-unnotarized.zip
+<repo>/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
+~/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
 ```
 
 **Output on failure:** exit status 1 and, on stderr, `release.sh: <step> failed (full log:
@@ -617,6 +628,119 @@ login keychain, never in the repository.
 xcrun notarytool store-credentials scene-it-notary --apple-id <your Apple ID email> --team-id 8H6754RJ2W
 ```
 
+## Website
+
+**Status:** draft, not live. `site/` is one hand-written page (`index.html`, `style.css`, `images/`) with no
+build step, no JavaScript and nothing loaded from other servers. It will be served by GitHub Pages at
+**scene-it.net** once the repository is public and the steps below are done. To preview it, open
+`site/index.html` in a browser.
+
+**Download link.** The page's button points at
+`https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg`, which GitHub redirects to the
+asset of that name in the newest release
+([Linking to releases](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)).
+`release.sh` names its DMG `dist/Scene It <version>.dmg`, with spaces, so every release must upload a copy named
+`Scene-It.dmg`. The page's "Version 0.1.1" line is edited by hand at each release.
+
+**Screenshots.** Render them with the `site` test (see [Rendering the window for
+review](#rendering-the-window-for-review)), then copy them into `site/images/` as 256-colour PNGs, which keeps each
+under 200 KB (ImageMagick, `brew install imagemagick`):
+
+```sh
+for name in scenes comments cabinet read-aloud print; do
+    magick "/tmp/window-renders/site/$name@2x.png" -strip -dither None -colors 256 "PNG8:site/images/$name.png"
+done
+```
+
+The app is light-only (`AppDelegate` sets the Aqua appearance), so there are no dark screenshots; the page itself
+follows the reader's light or dark setting. `site/images/app-icon.png` is a stand-in (candidate 02, index cards)
+until the final icon lands; replace it with the shipped icon at 384 × 384 px.
+
+**Deployment.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) uploads `site/` with
+`actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages`, on every push to `main`
+that changes `site/`, or by hand (Actions → Pages → Run workflow). Until Pages is enabled it can't deploy: its
+runs, including the one after this lands on `main`, fail harmlessly at `configure-pages`.
+
+### Going live (once)
+
+The order matters: GitHub asks for the domain to be added to the repository *before* the DNS records point at
+it, and recommends verifying it first, so nobody else can claim it in between
+([Managing a custom domain](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site),
+[Verifying your custom domain](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/verifying-your-custom-domain-for-github-pages)).
+
+1. **Make the repository public**, then **enable Pages**: Settings → Pages → Build and deployment → Source:
+   **GitHub Actions**. Run the Pages workflow once (Actions → Pages → Run workflow); the site appears at
+   `https://samitbasu.github.io/scene-it/`.
+2. **Verify the domain** for your account (not the repository): profile picture → Settings → Pages → Add a
+   domain → `scene-it.net`. GitHub shows a TXT record, named `_github-pages-challenge-samitbasu.scene-it.net`,
+   with a value. Add it in Squarespace (step 4, type TXT, Name `_github-pages-challenge-samitbasu`), wait for it to
+   resolve (`dig TXT _github-pages-challenge-samitbasu.scene-it.net +short`), then click Verify. Leave the record
+   in place for good: removing it unverifies the domain.
+3. **Set the custom domain**: repository Settings → Pages → Custom domain → `scene-it.net` → Save. With a
+   GitHub Actions workflow this setting is what counts: GitHub ignores a `CNAME` file in that case
+   ([Troubleshooting custom domains](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/troubleshooting-custom-domains-and-github-pages)).
+   `site/CNAME` names the same domain as a record in the repository, and a branch source would read it if
+   the source were ever switched.
+4. **DNS at Squarespace Domains** (the registrar): Domains dashboard → `scene-it.net` → **DNS** in the side panel
+   ([Edit your domain's DNS records](https://support.squarespace.com/hc/en-us/articles/360002101888-Edit-your-domain-s-DNS-records)).
+   Every change asks for your password (and 2FA) again.
+   1. **Delete the Squarespace Defaults** that claim the same names: the four `A` records on `@`
+      (198.185.159.144, 198.185.159.145, 198.49.23.144, 198.49.23.145) and the `www` `CNAME` to
+      `ext-cust.squarespace.com`
+      ([the values](https://support.squarespace.com/hc/en-us/articles/360035485391-DNS-records-for-connecting-third-party-domains)).
+      Squarespace's docs don't say whether custom apex `A` records may sit beside its defaults, but if both were
+      kept, browsers would be sent to Squarespace's servers for some lookups, and a `www` `CNAME` can't share its
+      name with another record. Deleting the defaults disconnects the domain from any Squarespace site and
+      breaks Squarespace's PayPal Payment Links; nothing of ours uses either. Leave any email (`MX`, `TXT`)
+      records alone. (**Add preset → Squarespace defaults** puts them back.)
+   2. **Add custom records**
+      ([DNS records for web hosting](https://support.squarespace.com/hc/en-us/articles/31119879125645-DNS-records-for-web-hosting)),
+      with GitHub's current addresses (from *Managing a custom domain*, checked 2026-11-09):
+
+      | Type | Name | Data |
+      | --- | --- | --- |
+      | A | `@` | 185.199.108.153 |
+      | A | `@` | 185.199.109.153 |
+      | A | `@` | 185.199.110.153 |
+      | A | `@` | 185.199.111.153 |
+      | AAAA | `@` | 2606:50c0:8000::153 |
+      | AAAA | `@` | 2606:50c0:8001::153 |
+      | AAAA | `@` | 2606:50c0:8002::153 |
+      | AAAA | `@` | 2606:50c0:8003::153 |
+      | CNAME | `www` | `samitbasu.github.io` |
+
+      If Squarespace calls an IPv6 address invalid, enter it uncompressed, e.g.
+      `2606:50c0:8000:0000:0000:0000:0000:0153`. Squarespace can't put a `CNAME` on `@`, which is why the apex uses
+      `A`/`AAAA` records. Never add a wildcard (`*`) record: GitHub warns it invites domain takeovers.
+   3. Check: `dig scene-it.net +noall +answer -t A`, `dig scene-it.net +noall +answer -t AAAA` and
+      `dig www.scene-it.net +noall +answer` should show only GitHub's addresses. Squarespace's records have a 4-hour
+      TTL; changes can take up to 24–48 hours.
+5. **Turn on Enforce HTTPS** (Settings → Pages) once GitHub has issued the certificate; the box can take up to
+   24 hours to become available.
+
+**Apex or www?** Recommended: **`scene-it.net` (the apex) as the primary**, which is what `site/CNAME` names.
+It's the shorter address to say and print, and with both sets of records above GitHub redirects
+`www.scene-it.net` to it by itself. The cost is that the apex is pinned to GitHub's four IP addresses, which
+GitHub could change one day (re-check them when something breaks); a `www` primary would follow GitHub through
+its `CNAME` instead, and the apex would then redirect to `www`. Either works; changing later means editing the
+Custom domain field and `site/CNAME`.
+
+### Cutting a release for the site
+
+```sh
+scripts/release.sh                                   # dist/Scene It 0.1.1.dmg, notarized
+cp "dist/Scene It 0.1.1.dmg" dist/Scene-It.dmg       # the name the site links to
+shasum -a 256 dist/Scene-It.dmg | tee dist/Scene-It.dmg.sha256
+gh release create v0.1.1 dist/Scene-It.dmg dist/Scene-It.dmg.sha256 \
+    --title "Scene It 0.1.1" --notes "SHA-256: $(cut -d' ' -f1 dist/Scene-It.dmg.sha256)"
+```
+
+The file's own name becomes the asset's name. `gh release create v0.1.1 "dist/Scene It 0.1.1.dmg#Scene-It.dmg"`
+would **not** work: the text after `#` is only the asset's display label
+([gh release create](https://cli.github.com/manual/gh_release_create)), so the asset would keep the spaced name
+and the site's link would fail. Publish the SHA-256 in the release notes and as the `.sha256` asset, so a reader
+can check the download with `shasum -a 256 Scene-It.dmg`. Then update the version on the page.
+
 ## Reading a problem report
 
 Writers send reports from **Help → Report a Problem…** to the address in
@@ -641,3 +765,7 @@ Release builds need their dSYM to symbolicate (`atos`). `scripts/release.sh` kee
 `open SceneIt.xcodeproj`, choose the **SceneIt** scheme, then press Run. New Swift
 files placed under `SceneIt/` are picked up automatically, so you never need to edit
 the project file to add sources.
+
+## License
+
+Scene It is released under the [MIT License](LICENSE). Copyright (c) 2026 Samit Basu.

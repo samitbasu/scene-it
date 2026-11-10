@@ -135,7 +135,7 @@ about unreadable text).
 ## Hand-test checklist (one session)
 
 Everything has been reviewed independently and gated. These are the things agents can't test, because no test can synthesize real input.
-Use the trial app at `/private/tmp/claude-501/trials/pr180-bd2620c/Scene It.app` (built from a tree
+Use a local trial build of PR 180 (`Scene It.app`, built from a tree
 identical to main at 5ed80b6), with a throwaway book that has a few filed copies.
 
 1. **Scenes sheet (⌘1)**
