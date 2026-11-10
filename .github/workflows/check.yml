@@ -39,12 +39,13 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           swift --version
+          sysctl -n hw.ncpu hw.activecpu hw.memsize
 
       - name: scripts/check.sh
         run: scripts/check.sh
 
       - name: Upload the gate's logs and result bundle
-        if: failure() || cancelled()
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: check-${{ github.run_id }}-${{ github.run_attempt }}

@@ -84,7 +84,7 @@ fi
 prepare_builds refuse build/DerivedData .build || exit 1
 
 # SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
-time_limited swift-test 15 '\.build' swift test &
+time_limited swift-test 15 '\.build' env SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4 swift test &
 swift_test=$!
 time_limited xcodebuild 45 build xcodebuild \
     -project SceneIt.xcodeproj \
