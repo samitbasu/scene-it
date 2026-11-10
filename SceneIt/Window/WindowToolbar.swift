@@ -1,9 +1,12 @@
 import SceneItCore
 import SwiftUI
 
-/// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Print and Export to
-/// Word go through the window's own flows, as the File menu does. File a copy… is only for a book
-/// open for editing and not being closed (`FilingFlow.canBegin`).
+/// The window toolbar (PLAN §4.1, ADR 0052): the breadcrumb at the leading edge, then at the
+/// trailing edge Undo and Redo, the zoom menu, and Print, Export to Word and File a copy… as
+/// icons, each group in its own glass capsule. Undo and Redo go where `UndoRouter` says; Print
+/// and Export to Word go through the window's own flows, as the File menu does. File a copy… is
+/// hidden over a filed copy, and only for a book open for editing and not being closed
+/// (`FilingFlow.canBegin`).
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
     let store: AppBookStore
@@ -19,59 +22,45 @@ struct WindowToolbar: ToolbarContent {
                 .padding(.horizontal, 8)
         }
         .sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.flexible)
+        ToolbarItemGroup {
+            Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
+                .help(undo.state.undo ?? WindowWording.undo)
+                .disabled(undo.state.undo == nil || !book.isEditable)
+            Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
+                .help(undo.state.redo ?? WindowWording.redo)
+                .disabled(undo.state.redo == nil || !book.isEditable)
+        }
+        gap
         ToolbarItem {
-            ControlGroup {
-                Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
-                    .help(undo.state.undo ?? WindowWording.undo)
-                    .disabled(undo.state.undo == nil)
-                Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
-                    .help(undo.state.redo ?? WindowWording.redo)
-                    .disabled(undo.state.redo == nil)
+            ZoomMenu(preferences: preferences)
+        }
+        gap
+        ToolbarItemGroup {
+            Group {
+                Button(WindowWording.print, systemImage: "printer") { printing.begin() }
+                    .help(WindowWording.print)
+                    .disabled(!printing.canBegin)
+                Button(WindowWording.exportToWord, systemImage: "doc.text") {
+                    Task { await wordExport.begin() }
+                }
+                .help(WindowWording.exportToWord)
+                .disabled(!wordExport.canBegin)
+                if book.document.kind != .filedCopy {
+                    Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
+                        .help(WindowWording.fileACopy)
+                        .disabled(!filing.canBegin(in: store))
+                }
             }
-            .disabled(!book.isEditable)
-        }
-        ToolbarItem {
-            ControlGroup {
-                zoomButton(.zoomOut, systemImage: "minus")
-                Text(WindowWording.zoom(preferences.zoom))
-                    .monospacedDigit()
-                    .frame(minWidth: 44)
-                zoomButton(.zoomIn, systemImage: "plus")
-            }
-        }
-        ToolbarSpacer(.fixed)
-        ToolbarItem {
-            Button(WindowWording.print, systemImage: "printer") { printing.begin() }
-                .labelStyle(.titleAndIcon)
-                .disabled(!printing.canBegin)
-        }
-        ToolbarItem {
-            Button(WindowWording.exportToWord, systemImage: "doc.text") {
-                Task { await wordExport.begin() }
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(!wordExport.canBegin)
-        }
-        if book.document.kind != .filedCopy {
-            fileACopy
+            .labelStyle(.iconOnly)
         }
     }
 
-    /// Hidden over a filed copy (PLAN §4.1).
-    @ToolbarContentBuilder private var fileACopy: some ToolbarContent {
+    /// Adjacent items share one glass capsule until a spacer. One fixed spacer leaves the capsules
+    /// nearly touching, so the gap between groups is two.
+    @ToolbarContentBuilder private var gap: some ToolbarContent {
         ToolbarSpacer(.fixed)
-        ToolbarItem {
-            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.borderedProminent)
-                .disabled(!filing.canBegin(in: store))
-        }
-    }
-
-    private func zoomButton(_ step: ZoomStep, systemImage: String) -> some View {
-        Button(WindowWording.zoomStep(step), systemImage: systemImage) { preferences.zoom(step) }
-            .help(WindowWording.zoomStep(step))
-            .disabled(!preferences.canZoom(step))
+        ToolbarSpacer(.fixed)
     }
 }
 

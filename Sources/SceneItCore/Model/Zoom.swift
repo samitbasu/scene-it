@@ -21,12 +21,17 @@ extension Bounded where Bounds == ZoomBounds {
     /// The next step up; 300% stays 300%. A zoom between steps (a pinch, Fit Width) goes to
     /// the step above it.
     public var zoomedIn: Zoom {
-        Self.steps.first { $0.value > value + Self.tolerance } ?? Self(clamping: Bounds.range.upperBound)
+        Self.steps.first { $0 > self && !isAt($0) } ?? Self(clamping: Bounds.range.upperBound)
     }
 
     /// The next step down; 50% stays 50%.
     public var zoomedOut: Zoom {
-        Self.steps.last { $0.value < value - Self.tolerance } ?? Self(clamping: Bounds.range.lowerBound)
+        Self.steps.last { $0 < self && !isAt($0) } ?? Self(clamping: Bounds.range.lowerBound)
+    }
+
+    /// Whether this zoom counts as `step`: a pinch that ends near 150% is at 150%.
+    public func isAt(_ step: Zoom) -> Bool {
+        abs(value - step.value) <= Self.tolerance
     }
 
     public var canZoomIn: Bool { zoomedIn != self }

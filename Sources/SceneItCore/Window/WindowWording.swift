@@ -15,6 +15,7 @@ public enum WindowWording {
     public static let redo = "Redo"
     public static let zoomOut = "Zoom Out"
     public static let zoomIn = "Zoom In"
+    public static let zoomMenu = "Zoom"
 
     public static func zoomStep(_ step: ZoomStep) -> String {
         switch step {

@@ -64,13 +64,7 @@ struct WindowCommands: Commands {
     @ViewBuilder private var zoom: some View {
         let preferences = books.preferences
         let noBook = books.store.shown == nil
-        ForEach(ZoomStep.allCases, id: \.self) { step in
-            Button(WindowWording.zoomStep(step)) { preferences.zoom(step) }
-                .keyboardShortcut(Self.shortcut(for: step))
-                .disabled(noBook || !preferences.canZoom(step))
-        }
-        Button(WindowWording.actualSize) { preferences.setZoom(.standard) }
-            .keyboardShortcut("0")
+        ZoomStepButtons(preferences: preferences, keys: .bound)
             .disabled(noBook)
         Button(WindowWording.fitWidth) {
             if let desk = page?.desk { preferences.setZoom(desk.fitWidthZoom) }
@@ -93,13 +87,6 @@ struct WindowCommands: Commands {
         case .scenes: KeyboardShortcut("1")
         case .search: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .page, .fileCabinet: nil
-        }
-    }
-
-    private static func shortcut(for step: ZoomStep) -> KeyboardShortcut {
-        switch step {
-        case .zoomIn: KeyboardShortcut("=")
-        case .zoomOut: KeyboardShortcut("-")
         }
     }
 

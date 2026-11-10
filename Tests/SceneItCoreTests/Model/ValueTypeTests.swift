@@ -194,6 +194,13 @@ import Testing
         #expect(Zoom(clamping: 2.999).zoomedIn == Zoom(clamping: 3))
     }
 
+    @Test func aZoomWithinTheToleranceOfAStepIsAtThatStepOnly() {
+        let nearly = Zoom(clamping: 1.503)
+        #expect(Zoom.steps.filter(nearly.isAt) == [Zoom(clamping: 1.5)])
+        #expect(Zoom.steps.filter(Zoom(clamping: 1.37).isAt).isEmpty, "between steps")
+        #expect(Zoom.steps.filter(Zoom.standard.isAt) == [.standard])
+    }
+
     @Test func nanAndInfinityZoomFromTheirClampedValues() {
         #expect(Zoom(clamping: .nan).zoomedIn == Zoom(clamping: 1.1))
         #expect(Zoom(clamping: .infinity).zoomedOut == Zoom(clamping: 2.5))
