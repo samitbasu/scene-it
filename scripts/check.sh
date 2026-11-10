@@ -76,7 +76,7 @@ if [[ -f site/index.html ]]; then
 fi
 
 if docs=$(docs_only_change "$main_branch"); then
-    echo "check.sh: docs-only change since $main_branch: skipping build and tests"
+    echo "check.sh: docs-only change since ${main_branch#refs/remotes/}: skipping build and tests"
     sed 's/^/    /' <<<"$docs"
     exit 0
 fi

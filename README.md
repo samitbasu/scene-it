@@ -131,8 +131,10 @@ at the same time and waits for both:
    are not fatal.
 
 **Docs-only changes:** check.sh skips steps 7 and 8 when every path the checked-out commit
-changes is documentation. It compares `HEAD` with its merge-base with `origin/main`, which
-nothing overrides, and lists renamed files under both names. It then prints, on stdout, and exits 0:
+changes is documentation. It compares `HEAD` with its merge-base with
+`refs/remotes/origin/main`, which nothing overrides. The full name means a tag or local
+branch called `origin/main` can't stand in for it. It lists renamed files under both names. It then prints, on stdout,
+and exits 0:
 
 ```
 check.sh: docs-only change since origin/main: skipping build and tests
@@ -151,7 +153,8 @@ check.sh: docs-only change since origin/main: skipping build and tests
   Workflow files under `.github/workflows/` aren't documentation either: a change to the runner
   or Xcode must prove itself with a full run.
 - **The full gate runs** whenever any changed path isn't documentation, including any path the
-  list doesn't know and any name git quotes; when the working tree may differ from `HEAD`
+  list doesn't know and any name git quotes (it always quotes non-ASCII names here, whatever
+  `core.quotePath` says); when the working tree may differ from `HEAD`
   (a change or an untracked file, whatever `status.showUntrackedFiles` says, or a file marked
   `--assume-unchanged` or `--skip-worktree`); when there's no merge-base (no `origin/main`, or a shallow clone); and when nothing
   changed, as on `main` itself. Setting `CHECK_FULL=1` forces it. Nothing forces the docs-only
@@ -299,7 +302,9 @@ the files. It must run the full gate on the base itself, a mixed change, a code-
 unknown path, a rename from code into docs, a docs-only branch that merged code, a new
 directory `docs/Tutorial/`, an untracked or modified file, an untracked file hidden by
 `status.showUntrackedFiles=no`, a modified file marked `--assume-unchanged` or
-`--skip-worktree`, `CHECK_FULL=1`, and a base that doesn't exist. `check_html` must accept
+`--skip-worktree`, `CHECK_FULL=1`, a non-ASCII name under `core.quotePath=false`, a tag and a
+local branch named `origin/main` at an untested code commit (the short name is shadowed, as a
+precondition, and the full name isn't), and a base that doesn't exist. `check_html` must accept
 well-formed HTML with void and self-closed void elements, and reject a mismatched end tag
 (naming its line), an element left open and a self-closed `<div/>`. **Output:**
 nothing on success. On failure, one `✘` line per failed check, and exit status 1.

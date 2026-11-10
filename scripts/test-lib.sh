@@ -279,6 +279,32 @@ expect_scope full 'a docs-only branch that merged in code'
 on_branch case-folded eval 'mkdir -p docs/Tutorial; echo x >docs/Tutorial/a.md'
 [[ $(git diff --name-only base HEAD) == docs/Tutorial/a.md ]] || fail "precondition: git didn't record docs/Tutorial"
 expect_scope full 'a change to docs/tutorial spelled docs/Tutorial'
+
+# Git quotes a non-ASCII name whatever core.quotePath says, so it never reads as docs.
+git config core.quotePath false
+on_branch non-ascii eval 'echo x >docs/café.md'
+[[ $(git diff --name-only base HEAD) == docs/caf?* ]] \
+    || fail "precondition: core.quotePath=false didn't leave the name unquoted: $(git diff --name-only base HEAD)"
+expect_scope full 'a non-ASCII docs name with core.quotePath=false'
+git config --unset core.quotePath
+
+# A tag and a local branch named origin/main, at an untested code commit, take precedence over
+# the remote-tracking branch when the name is short. The gate's full name isn't fooled.
+git switch -q -c shadowed base
+echo 'let a = 4' >Sources/A.swift
+git commit -qam 'untested code'
+git tag origin/main
+git branch origin/main
+echo 'more' >>README.md
+git commit -qam 'docs on top'
+git update-ref refs/remotes/origin/main base
+docs_only_change origin/main >/dev/null 2>&1 || fail "precondition: the short name origin/main isn't shadowed"
+! docs_only_change "$main_branch" >/dev/null 2>&1 \
+    || fail "docs_only_change skipped the build past a tag and a branch named origin/main"
+on_branch docs-on-main eval 'echo more >>README.md'
+[[ $(docs_only_change "$main_branch" 2>/dev/null) == README.md ]] \
+    || fail "docs_only_change ran the full gate on a docs-only change against $main_branch"
+
 ! docs_only_change no-such-branch >/dev/null 2>&1 || fail "docs_only_change skipped the build with no merge-base"
 
 # --- check_html ------------------------------------------------------------------------------

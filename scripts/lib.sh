@@ -9,8 +9,9 @@ lint_swift() {
 }
 
 # The branch every change merges into. The gate compares the checked-out commit with its
-# merge-base on this branch (docs_only_change).
-readonly main_branch=origin/main
+# merge-base on this branch (docs_only_change). Spelled out in full, because a tag or local
+# branch named `origin/main` would take precedence over the short name.
+readonly main_branch=refs/remotes/origin/main
 
 # is_docs_path <path>: whether <path> is documentation that no build or test reads. Anything
 # else, including a path this doesn't know, needs the full gate. Some Markdown is test input:
@@ -48,7 +49,7 @@ docs_only_change() {
     [[ -z ${CHECK_FULL:-} ]] || return 1
     ! working_tree_may_differ || return 1
     merge_base=$(git merge-base "$1" HEAD 2>/dev/null) || return 1
-    changed=$(git diff --name-only --no-renames "$merge_base" HEAD) || return 1
+    changed=$(git -c core.quotePath=true diff --name-only --no-renames "$merge_base" HEAD) || return 1
     [[ -n $changed ]] || return 1
     while IFS= read -r path; do
         is_docs_path "$path" || return 1
