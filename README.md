@@ -249,7 +249,7 @@ that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`
 without it passing.
 
 **On GitHub Actions:** `.github/workflows/check.yml` runs `scripts/check.sh` unchanged on every
-pull request and every push to `main`, so the docs-only decision is the same one as locally;
+pull request and every push to `main` (and on demand: Actions → check → Run workflow), so the docs-only decision is the same one as locally;
 the workflow has no path filter of its own. It uses the `xcode-27` runner image (macOS 27 on
 Apple Silicon) with `DEVELOPER_DIR` set to Xcode 27.2, the version the project is built with.
 GitHub announced that image as generally available on 2026-10-15, but the runner-images table
