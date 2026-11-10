@@ -290,6 +290,10 @@ extension OneAtATime {
                 #expect(read.string.contains("As it was filed."), "the copy's text")
                 #expect(!read.string.contains("Rewritten since."))
                 store.closeFiledCopy()
+                #expect(!flow.canBegin, "the copy's Export to Word is off at once")
+                await eventually { books.mainWindowChrome.wordExport?.book === book }
+                let back = try #require(books.mainWindowChrome.wordExport)
+                #expect(back.book === book && back.canBegin, "the book's flow again")
                 #expect(await store.closeBook() == .left)
             }
         }

@@ -9,8 +9,6 @@ import SwiftUI
 @Observable
 final class PrintFlow: NSObject {
     private let gate: OutputGate
-    /// The window the dialog is a sheet of.
-    @ObservationIgnored weak var window: NSWindow?
 
     /// How the dialog is shown: as a sheet, except in tests, which record it instead.
     static var present: @MainActor (NSPrintOperation, NSWindow, PrintFlow) -> Void = {
@@ -29,13 +27,17 @@ final class PrintFlow: NSObject {
         gate.book
     }
 
+    var window: NSWindow? {
+        gate.window
+    }
+
     /// Whether Print… can start: the book has something to print, and the gate is open.
     var canBegin: Bool {
         ManuscriptPrinting.canPrint(book) && gate.isOpen
     }
 
     func begin() {
-        guard canBegin, let window, window.attachedSheet == nil else { return }
+        guard canBegin, !gate.windowHasSheet, let window else { return }
         gate.printDialog = .open
         Self.present(ManuscriptPrinting.operation(for: book), window, self)
     }

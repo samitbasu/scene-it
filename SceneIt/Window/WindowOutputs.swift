@@ -1,3 +1,4 @@
+import AppKit
 import SceneItCore
 import SwiftUI
 
@@ -33,6 +34,8 @@ final class OutputGate {
     /// What the window shows over the book, kept up to date by the window.
     var mode = WindowMode.page
     var printDialog = PrintDialog.closed
+    /// The window, which Print…'s dialog is a sheet of.
+    @ObservationIgnored weak var window: NSWindow?
 
     init(book: AppOpenBook, store: AppBookStore, filing: FilingFlow, export: ExportFlow) {
         self.book = book
@@ -46,6 +49,13 @@ final class OutputGate {
     var isOpen: Bool {
         store.shown === book && !mode.isSheet && printDialog == .closed && filing.draft == nil
             && export.choice == nil
+    }
+
+    /// A sheet `isOpen` can't see, such as a print dialog left up by the window's previous view
+    /// when the session changed under it. AppKit doesn't tell SwiftUI, so this is checked as an
+    /// output starts, not for enablement.
+    var windowHasSheet: Bool {
+        window?.attachedSheet != nil
     }
 }
 

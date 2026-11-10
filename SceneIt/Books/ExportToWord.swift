@@ -34,7 +34,7 @@ final class WordExportFlow {
     @discardableResult
     func begin() async -> WordExportResult? {
         let options = WordExportOptions()
-        guard canBegin, let scene,
+        guard canBegin, !gate.windowHasSheet, let scene,
             let url = await destination().choose(
                 WordExportWording.defaultFileName(scene: scene, of: book.document), options)
         else { return nil }

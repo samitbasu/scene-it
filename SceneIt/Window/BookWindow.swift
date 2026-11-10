@@ -166,9 +166,9 @@ struct BookWindow: View {
         .focusedSceneValue(\.filingFlow, filing)
         .focusedSceneValue(\.exportFlow, export)
         .background(
-            WindowReporter { [filing, printing = outputs.printing] in
+            WindowReporter { [filing, gate = outputs.gate] in
                 filing.window = $0
-                printing.window = $0
+                gate.window = $0
             }
         )
         .sheet(item: dialog) { _ in
