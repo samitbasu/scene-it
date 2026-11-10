@@ -62,7 +62,9 @@ func bookOnDisk(_ package: URL) throws -> Book {
 /// Runs `body` from the run loop, as an event's handling runs, so an Objective-C exception in
 /// AppKit doesn't unwind a Swift task. HIToolbox still swallows it, `done.resume()` never runs,
 /// and the test hangs on the continuation until its time limit, but Swift concurrency is left
-/// intact (ADR 0026).
+/// intact (ADR 0026). A block given to the run loop doesn't wake it: asleep, it would wait for
+/// whatever wakes it next, which on an idle machine (GitHub's runners) can be a fraction of a
+/// second.
 @MainActor
 func onTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -70,6 +72,7 @@ func onTheRunLoop(_ body: @escaping @MainActor () -> Void) async {
             MainActor.assumeIsolated(body)
             done.resume()
         }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }
 

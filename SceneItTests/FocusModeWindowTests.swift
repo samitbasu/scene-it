@@ -24,7 +24,7 @@ func sendToTheEscapeFallback(_ key: TestKey, in window: NSWindow) throws {
 }
 
 @MainActor
-private func keyDown(_ key: TestKey, in window: NSWindow, _ press: KeyPress) throws -> NSEvent {
+func keyDown(_ key: TestKey, in window: NSWindow, _ press: KeyPress) throws -> NSEvent {
     try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
@@ -196,6 +196,7 @@ extension OneAtATime {
                 let window = harness.window
                 await settle(harness)
                 let before = try harness.deskFrame
+                let size = window.frame.size
 
                 harness.chrome.set(.on)
                 await settle(harness)
@@ -209,6 +210,9 @@ extension OneAtATime {
 
                 harness.chrome.set(.off)
                 await settle(harness)
+                try #require(
+                    window.frame.size == size,
+                    "precondition: the window is its own size again, as the toolbar comes back")
                 #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
                 #expect(harness.preferences.rightPanel == panel)
             }
@@ -585,8 +589,9 @@ extension OneAtATime {
         /// An Esc that reaches the window itself, with no view holding the focus, still closes what
         /// Esc closes: a sheet, then focus mode. A shown sheet's `EscapeKey` takes an Esc pressed in
         /// the window first, so for the sheet the test hands the Esc to the fallback at the end of
-        /// the window's responder chain. Once the sheet's views have gone, Esc is pressed in the
-        /// window and reaches the fallback itself.
+        /// the window's responder chain. Once the sheet's views have gone, the window offers Esc
+        /// as a key equivalent, as AppKit does first, and the fallback takes it there: past that,
+        /// a key SwiftUI window answers the Esc itself (`WindowEscapeFallback`).
         @Test func escReachingTheWindowItselfStillCloses() async throws {
             try await withPage([ferry]) { harness in
                 harness.focusPage(at: 4)
@@ -609,7 +614,10 @@ extension OneAtATime {
                 #expect(harness.window.makeFirstResponder(nil))
                 try #require(
                     harness.window.firstResponder === harness.window, "precondition: no view has the focus")
-                try press(.escape, in: harness.window)
+                let escape = try keyDown(.escape, in: harness.window, .first)
+                #expect(
+                    harness.window.performKeyEquivalent(with: escape),
+                    "taken as a key equivalent, before AppKit sends the key window cancelOperation:")
                 #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
                 #expect(keys.lastEscape?.entrance == .window, "through the window to its fallback")
                 #expect(keys.lastEscape?.result == .close(.focusMode))
@@ -830,7 +838,9 @@ private func open(_ palette: WindowPopover, with keys: WindowKeys) async throws 
 }
 
 /// SwiftUI's layout of focus mode, done: the desk reaches the window's left edge in focus mode,
-/// and starts right of the rail out of it.
+/// and starts right of the rail out of it; and the window has stopped resizing. While the app is
+/// active, AppKit animates the window's resizing as the toolbar hides and shows, without waiting
+/// for it to end.
 @MainActor
 private func settle(_ harness: PageHarness) async {
     await eventually {
@@ -838,6 +848,13 @@ private func settle(_ harness: PageHarness) async {
         let reachesTheEdge = (try? harness.deskFrame.minX) == 0
         return reachesTheEdge == (harness.chrome.focusMode == .on)
     }
+    var last = harness.window.frame
+    for _ in 0..<50 {
+        try? await Task.sleep(for: .milliseconds(100))
+        if harness.window.frame == last { break }
+        last = harness.window.frame
+    }
+    harness.window.contentView?.layoutSubtreeIfNeeded()
 }
 
 @MainActor

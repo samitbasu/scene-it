@@ -29,7 +29,6 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(await books.store.create(at: url) == .created)
             try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
             let (window, chrome) = try await openBook(at: url, in: books)
-
             chrome.set(.on)
             await eventually { window.toolbar?.isVisible == false }
             #expect(window.toolbar?.isVisible == false, "focus mode hides the toolbar")
@@ -194,6 +193,31 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(reopened !== chrome, "a new window state for the book opened again")
             #expect(reopened.focusMode == .off, "a book opens out of focus mode")
             #expect(window.toolbar?.isVisible == true)
+
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    /// In the app's own window, an Esc with no view holding the focus leaves focus mode as a key
+    /// equivalent: past that, while the window is key, AppKit makes the key `cancelOperation:`,
+    /// which SwiftUI's window answers before the window's Esc fallback can.
+    @Test func escWithNoViewFocusedLeavesFocusModeInTheAppWindow() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let url = folder.appending(path: "Novel.sceneit", directoryHint: .isDirectory)
+            #expect(await books.store.create(at: url) == .created)
+            try #require(books.store.current?.addScene(after: nil) != nil, "a scene, so the page shows")
+            let (window, chrome) = try await openBook(at: url, in: books)
+
+            chrome.set(.on)
+            await eventually { window.toolbar?.isVisible == false }
+            #expect(window.makeFirstResponder(nil))
+            try #require(window.firstResponder === window, "precondition: no view has the focus")
+            #expect(window.performKeyEquivalent(with: try keyDown(.escape, in: window, .first)))
+            #expect(chrome.focusMode == .off, "Esc leaves focus mode")
+            await eventually { window.toolbar?.isVisible == true }
 
             #expect(await books.store.closeBook() == .left)
             expectNoQuestions()

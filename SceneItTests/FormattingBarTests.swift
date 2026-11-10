@@ -391,7 +391,12 @@ extension OneAtATime.BookStoreIntegrationTests {
 }
 
 extension OneAtATime.BookStoreIntegrationTests {
-    /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent.
+    /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent. AppKit
+    /// gives some of the items it adds to the Edit menu a hidden twin with the same action and
+    /// target, to answer a second shortcut (Start Dictation's, Emoji & Symbols'); where the
+    /// system's shortcut is the visible item's own, the twin repeats it. A twin like that is one
+    /// command, and not a clash: no key may do two things, or show on two items. SwiftUI's own
+    /// items show no action here, so two of them never count as one command.
     @Test func noTwoMenuItemsShareAKeyEquivalent() {
         @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {
             (menu?.items ?? []).flatMap { item -> [NSMenuItem] in
@@ -407,7 +412,13 @@ extension OneAtATime.BookStoreIntegrationTests {
         let byKey = Dictionary(grouping: withKeys) {
             "\($0.keyEquivalent) \($0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue)"
         }
-        let shared = byKey.filter { $0.value.count > 1 }.mapValues { $0.map(\.title) }
+        @MainActor func oneCommand(_ items: [NSMenuItem]) -> Bool {
+            guard let first = items.first, let action = first.action else { return false }
+            return items.allSatisfy { $0.action == action && $0.target === first.target }
+                && items.count(where: { !$0.isHidden }) <= 1
+        }
+        let shared = byKey.filter { $0.value.count > 1 && !oneCommand($0.value) }
+            .mapValues { $0.map(\.title) }
         #expect(shared.isEmpty, "\(shared)")
     }
 

@@ -66,6 +66,28 @@ public enum EscapeLayer: CaseIterable, Hashable, Sendable {
         case .popover, .sheet, .findBar, .focusMode: true
         }
     }
+
+    /// Who takes a plain Esc that the window offers as a key equivalent while no view in it has
+    /// the focus, with `context` up: the top layer's own Esc key equivalent, which shares the window
+    /// that hears the key and may first close something inside the layer, or else the window's.
+    public static func keyEquivalentTaker(in context: EscapeContext) -> EscapeKeyTaker {
+        escape(in: context).layer?.keyEquivalentTaker ?? .window
+    }
+
+    /// A rail sheet's Esc key equivalent is in the book window, and a dialog's in the dialog's
+    /// window, beside a window fallback each. A palette's is in its popover's own window.
+    private var keyEquivalentTaker: EscapeKeyTaker {
+        switch self {
+        case .dialog, .sheet: .layer
+        case .popover, .findBar, .focusMode: .window
+        }
+    }
+}
+
+/// Which of two Esc key equivalents in one window takes a plain Esc: the top layer's, or the
+/// window's own.
+public enum EscapeKeyTaker: Hashable, Sendable {
+    case layer, window
 }
 
 /// Whether a dialog can close: `busy` while it's doing what it was opened for, and closing it
@@ -79,6 +101,14 @@ public enum EscapeResult: Hashable, Sendable {
     /// The top layer stays, and so does everything under it.
     case hold(EscapeLayer)
     case passOn
+
+    /// The layer Esc closes or holds.
+    public var layer: EscapeLayer? {
+        switch self {
+        case .close(let layer), .hold(let layer): layer
+        case .passOn: nil
+        }
+    }
 }
 
 /// Where Tab moves the focus (PLAN §8.4), in the order it moves: the page, the right panel, the
