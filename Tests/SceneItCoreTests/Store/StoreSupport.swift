@@ -1,7 +1,7 @@
 import Dispatch
 import Foundation
+import Observation
 import SceneItTestSupport
-import Synchronization
 import Testing
 
 @testable import SceneItCore
@@ -10,6 +10,7 @@ import Testing
 /// scripted answer is missing (or of another kind) gets its first button, as Return would;
 /// with `holding`, questions wait until `releaseHeld()`.
 @MainActor
+@Observable
 final class ScriptedPrompts: StorePrompts {
     private var answers: [any Hashable & Sendable]
     private(set) var titles: [String] = []
@@ -112,30 +113,65 @@ func createBook(_ name: String, in folder: URL, store: TestStore) async throws -
 
 /// Holds a file-system call (on the thread making it) until the test opens the gate, so the
 /// test can act on the main actor while the store waits for the disk.
+///
+/// The store makes its file-system calls synchronously on a thread of Swift's shared pool, so
+/// a held call keeps that thread. Making a gate waits for one of `GatePermits`, which keep that
+/// from taking every thread of the pool: the work that opens the gates needs one.
 final class Gate: Sendable {
-    private let arrivals = Mutex(0)
+    private let arrivals = AsyncStream<Void>.makeStream()
     private let proceed = DispatchSemaphore(value: 0)
+
+    init() async {
+        await GatePermits.shared.acquire()
+    }
+
+    deinit {
+        Task { await GatePermits.shared.release() }
+    }
 
     /// Called by the blocked call.
     func pass() {
-        arrivals.withLock { $0 += 1 }
+        arrivals.continuation.yield()
         proceed.wait()
     }
 
-    /// Records an issue, rather than hanging, if nothing arrives within `eventually`'s budget.
+    /// Returns at the next arrival, however long the disk call takes to get here; the suite's
+    /// time limit ends a call that never comes.
     @MainActor
     func waitForArrival(sourceLocation: SourceLocation = #_sourceLocation) async {
-        await eventually(
-            {
-                arrivals.withLock { arrivals in
-                    guard arrivals > 0 else { return false }
-                    arrivals -= 1
-                    return true
-                }
-            }, sourceLocation: sourceLocation)
+        var next = arrivals.stream.makeAsyncIterator()
+        if await next.next() == nil { Issue.record("the gate closed", sourceLocation: sourceLocation) }
     }
 
     func open() {
         proceed.signal()
+    }
+}
+
+/// How many gates may exist at once: half the pool's threads, so the other half always runs.
+actor GatePermits {
+    static let shared = GatePermits(ProcessInfo.processInfo.activeProcessorCount / 2)
+
+    private var free: Int
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(_ count: Int) {
+        free = max(1, count)
+    }
+
+    func acquire() async {
+        if free > 0 {
+            free -= 1
+        } else {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+    }
+
+    func release() {
+        if waiting.isEmpty {
+            free += 1
+        } else {
+            waiting.removeFirst().resume()
+        }
     }
 }

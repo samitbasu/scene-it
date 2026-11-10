@@ -152,7 +152,7 @@ struct FiledCopyIndexesTests {
     @Test func closingTheBookMidReadIsFinal() async throws {
         try await withFiledBook { store, book, _, _, fileSystem in
             let indexes = try #require(book.filedCopyIndexes)
-            let gate = Gate()
+            let gate = await Gate()
             fileSystem.before(Self.firstCopy) { gate.pass() }
             let search = Task { await indexes.index(of: .first) }
             await gate.waitForArrival()

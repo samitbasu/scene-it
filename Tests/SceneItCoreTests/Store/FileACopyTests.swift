@@ -164,13 +164,13 @@ struct FileACopyTests {
 
             book.write("Still failing")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(book.pendingRecords.count == 1, "kept while the index still can't be written")
 
             fileSystem.clearFault()
             book.write("And now it works")
             store.saveNow()
-            await eventually { book.pendingRecords.isEmpty }
+            await whenObserved { book.pendingRecords.isEmpty }
             let copy = try #require(try Self.indexOnDisk(url).copies.first)
             #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
             #expect(copy.filed == Self.record.filed)
@@ -346,7 +346,7 @@ struct FileACopyTests {
         let book = try #require(store.current)
         book.write("Mine")
         store.saveNow()
-        await eventually { book.status == .saved }
+        await whenObserved { book.status == .saved }
         book.filingDraft = typedDraft()
         try change(url)
         book.write("More of mine")
@@ -361,7 +361,7 @@ struct FileACopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
 
             let book = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { prompts.titles.count == 1 && book.status == .saved }
+            await whenObserved { prompts.titles.count == 1 && book.status == .saved }
 
             #expect(prompts.titles == [Self.externalChangeTitle], "nothing asked about the dialog")
             #expect(store.current === book)
@@ -376,7 +376,7 @@ struct FileACopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
 
             let book = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { store.current !== book && store.current != nil }
+            await whenObserved { store.current !== book && store.current != nil }
 
             let reopened = try #require(store.current)
             #expect(reopened.book == (try draft(7)), "precondition: their version was read again")
@@ -401,7 +401,7 @@ struct FileACopyTests {
                 try FileManager.default.removeItem(at: bookMd)
                 try FileManager.default.createDirectory(at: bookMd, withIntermediateDirectories: false)
             }
-            await eventually { store.current !== book && store.current != nil }
+            await whenObserved { store.current !== book && store.current != nil }
 
             let reopened = try #require(store.current)
             let copy = folder.appending(path: "Novel (my edits).sceneit")
@@ -433,7 +433,7 @@ struct FileACopyTests {
 
         let book = try await draftThenExternalChange(url, store: store)
         let editable = choice == .openAnyway(otherMac)
-        await eventually {
+        await whenObserved {
             prompts.titles.count == 2 && store.current !== book && store.current?.isEditable == editable
         }
         #expect(prompts.labels.last == [ReadOnlyWording.keepReadOnly, ReadOnlyWording.openAnyway])
@@ -551,7 +551,7 @@ struct FileACopyTests {
             let old = try await Self.fileWithIndexFailing(store, fileSystem)
 
             _ = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { store.current !== old && store.current != nil }
+            await whenObserved { store.current !== old && store.current != nil }
 
             let reopened = try #require(store.current)
             #expect(reopened.book == (try draft(7)), "precondition: their version was read again")
@@ -562,7 +562,7 @@ struct FileACopyTests {
             fileSystem.clearFault()
             reopened.write("Saved at last")
             store.saveNow()
-            await eventually { reopened.pendingRecords.isEmpty }
+            await whenObserved { reopened.pendingRecords.isEmpty }
             let copy = try #require(try Self.indexOnDisk(url).copies.first)
             #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
             #expect(prompts.notices.count == 1, "only the filing's notice: nothing was lost")
@@ -579,7 +579,7 @@ struct FileACopyTests {
             fileSystem.before(.lock("Novel.sceneit/.lock")) { fileSystem.clearFault() }
 
             _ = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { store.current !== old && store.current != nil }
+            await whenObserved { store.current !== old && store.current != nil }
 
             let reopened = try #require(store.current)
             #expect(old.pendingRecords.count == 1, "precondition: not saved before the book was read again")
@@ -600,7 +600,7 @@ struct FileACopyTests {
             fileSystem.before(.writeTemporary("Novel (my edits).sceneit/book.md")) { fileSystem.clearFault() }
 
             _ = try await Self.draftThenExternalChange(url, store: store, change: Self.notAFile)
-            await eventually { store.current !== old && store.current != nil }
+            await whenObserved { store.current !== old && store.current != nil }
 
             let reopened = try #require(store.current)
             let mine = folder.appending(path: "Novel (my edits).sceneit")
@@ -625,7 +625,7 @@ struct FileACopyTests {
             let old = try await Self.fileWithIndexFailing(store, fileSystem)
 
             _ = try await Self.draftThenExternalChange(url, store: store, change: Self.notAFile)
-            await eventually { prompts.notices.count == 3 }
+            await whenObserved { prompts.notices.count == 3 }
 
             #expect(store.current !== old && store.current?.pendingRecords.isEmpty == true)
             let told = try #require(
@@ -807,7 +807,7 @@ struct FileACopyTests {
             }
 
             _ = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { prompts.notices.count == 3 }
+            await whenObserved { prompts.notices.count == 3 }
 
             #expect(store.current == nil, "precondition: the reload failed")
             #expect(prompts.notices[1].message.hasSuffix("is first in Recent Books."), "the book-lost notice")
@@ -832,7 +832,7 @@ struct FileACopyTests {
             fileSystem.before(.lock("Novel.sceneit/.lock")) { try? other.encoded().write(to: lock) }
 
             _ = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { prompts.titles.count == 2 && store.current !== old && store.current != nil }
+            await whenObserved { prompts.titles.count == 2 && store.current !== old && store.current != nil }
 
             let reopened = try #require(store.current)
             try #require(!reopened.isEditable, "precondition: kept read-only")
@@ -857,7 +857,7 @@ struct FileACopyTests {
             _ = try await Self.draftThenExternalChange(url, store: store) { url in
                 try damaged(try draft(7)).write(to: url.appending(path: "book.md"), options: .atomic)
             }
-            await eventually { prompts.titles.count == 2 && store.current !== old && store.current != nil }
+            await whenObserved { prompts.titles.count == 2 && store.current !== old && store.current != nil }
             let reopened = try #require(store.current)
             try #require(reopened.canBeMadeEditable, "precondition: read again, repaired and read-only")
             try #require(
@@ -887,7 +887,7 @@ struct FileACopyTests {
 
             book.write("A save retries the record")
             store.saveNow()
-            await eventually { prompts.notices.count == 2 }
+            await whenObserved { prompts.notices.count == 2 }
 
             #expect(book.pendingRecords.isEmpty)
             #expect(try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]], "their section is kept")
@@ -926,7 +926,7 @@ struct FileACopyTests {
 
             book.write("A save retries the record")
             store.saveNow()
-            await eventually { prompts.notices.count == 2 }
+            await whenObserved { prompts.notices.count == 2 }
 
             #expect(book.pendingRecords.isEmpty)
             #expect(book.archiveNotices.contains(.pendingEntryForAnotherCopy(.first)))
@@ -952,7 +952,7 @@ struct FileACopyTests {
             fileSystem.before(.lock("Novel.sceneit/.lock")) { try? Self.replaceArchive(of: url, index: true) }
 
             _ = try await Self.draftThenExternalChange(url, store: store)
-            await eventually { store.current !== old && store.current != nil && prompts.notices.count == 2 }
+            await whenObserved { store.current !== old && store.current != nil && prompts.notices.count == 2 }
 
             let reopened = try #require(store.current)
             #expect(reopened.archiveNotices.contains(.pendingEntryForAnotherCopy(.first)))
@@ -979,7 +979,7 @@ struct FileACopyTests {
 
             book.write("A save retries the record")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
 
             #expect(book.archiveNotices.contains(.pendingEntryUnverified(.first)))
             #expect(book.pendingRecords.mapValues(\.record) == [.first: Self.record], "still pending")
@@ -990,7 +990,7 @@ struct FileACopyTests {
             fileSystem.clearFault()
             book.write("And now it can be read")
             store.saveNow()
-            await eventually { book.pendingRecords.isEmpty }
+            await whenObserved { book.pendingRecords.isEmpty }
             let copy = try #require(try Self.indexOnDisk(url).copies.first)
             #expect([copy.tags, [copy.note]] == [["draft 4"], ["Before the ending"]])
             #expect(prompts.notices.count == 1)
@@ -1086,13 +1086,13 @@ struct FileACopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try await Self.fileWithIndexFailing(store, fileSystem)
             fileSystem.clearFault()
-            let gate = Gate()
+            let gate = await Gate()
             fileSystem.before(.writeTemporary("Novel.sceneit/book.md")) { gate.pass() }
             book.write("Stuck")
             await gate.waitForArrival()
             prompts.answer([QuitAlertChoice.quitAnyway])
             async let quit = store.prepareToQuit()
-            await eventually { book.autosave?.quitIsQueuedBehindASave == true }
+            await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
             clock.advance(by: AutosavePolicy.quitGracePeriod)
             #expect(await quit == .left)
             let lost = ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
@@ -1102,7 +1102,7 @@ struct FileACopyTests {
                 .write(to: PackageLayout(root: url).archiveIndex)
 
             gate.open()
-            await eventually { book.pendingRecords.isEmpty }
+            await whenObserved { book.pendingRecords.isEmpty }
 
             try #require(
                 try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]],

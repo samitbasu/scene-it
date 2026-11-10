@@ -11,23 +11,41 @@ import Testing
 /// in `OneAtATime` press keys: a key equivalent can reach another window's sheet (#165).
 @MainActor
 func press(_ key: TestKey, in window: NSWindow, _ press: KeyPress = .first) throws {
-    let event = try #require(
+    let event = try keyDown(key, in: window, press)
+    if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
+}
+
+/// `key` where it arrives when nothing in the window took it: the end of the responder chain,
+/// `WindowEscapeFallback`. (Through the window, a shown sheet's `EscapeKey` takes it first.)
+@MainActor
+func sendToTheEscapeFallback(_ key: TestKey, in window: NSWindow) throws {
+    let fallback = try #require(window.escapeFallback, "precondition: the window's Esc fallback")
+    fallback.keyDown(with: try keyDown(key, in: window, .first))
+}
+
+@MainActor
+private func keyDown(_ key: TestKey, in window: NSWindow, _ press: KeyPress) throws -> NSEvent {
+    try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: key.characters,
             charactersIgnoringModifiers: key.characters, isARepeat: press == .repeated, keyCode: key.keyCode))
-    if !window.performKeyEquivalent(with: event) { window.sendEvent(event) }
 }
 
 extension NSWindow {
     /// Whether `WindowEscapeFallback` is in this window's responder chain.
     var hasEscapeFallback: Bool {
+        escapeFallback != nil
+    }
+
+    /// `WindowEscapeFallback`'s responder, from this window's responder chain.
+    var escapeFallback: WindowEscapeFallback.EscapeResponder? {
         var responder = nextResponder
         while let current = responder {
-            if current is WindowEscapeFallback.EscapeResponder { return true }
+            if let fallback = current as? WindowEscapeFallback.EscapeResponder { return fallback }
             responder = current.nextResponder
         }
-        return false
+        return nil
     }
 }
 
@@ -538,8 +556,8 @@ extension OneAtATime {
         }
 
         /// A sheet covers the find bar, so Esc closes the sheet and leaves the find bar. The Esc is
-        /// pressed once the sheet holds the focus: its own focus view, or the Search field. (The
-        /// moment before, with the window itself the first responder, is
+        /// pressed once the sheet holds the focus: its own focus view, or the Search field. (An Esc
+        /// that reaches the window itself, its first responder, is
         /// `escReachingTheWindowItselfStillCloses`.)
         @Test func escWithASheetOverTheFindBarClosesOnlyTheSheet() async throws {
             try await withPage([ferry]) { harness in
@@ -557,17 +575,21 @@ extension OneAtATime {
         }
 
         /// An Esc that reaches the window itself, with no view holding the focus, still closes what
-        /// Esc closes: a sheet, then focus mode.
+        /// Esc closes: a sheet, then focus mode. Through the window, whether a sheet's `EscapeKey`
+        /// takes an Esc first depends on the turn SwiftUI shows or removes it in, so the test hands
+        /// the Esc to the fallback at the end of the window's responder chain.
         @Test func escReachingTheWindowItselfStillCloses() async throws {
             try await withPage([ferry]) { harness in
                 harness.focusPage(at: 4)
                 harness.chrome.set(.on)
                 harness.modes.mode = .search
+                await eventually { harness.searchSheetHasTheFocus }
+                try #require(harness.searchSheetHasTheFocus, "precondition: the sheet shows, with the focus")
                 #expect(harness.window.makeFirstResponder(nil))
                 try #require(
                     harness.window.firstResponder === harness.window, "precondition: no view has the focus")
                 let keys = try harness.keys
-                try press(.escape, in: harness.window)
+                try sendToTheEscapeFallback(.escape, in: harness.window)
                 #expect(harness.modes.mode == .page, "Esc closes the sheet")
                 #expect(harness.chrome.focusMode == .on, "and only the sheet")
                 #expect(
@@ -577,13 +599,13 @@ extension OneAtATime {
                 #expect(harness.window.makeFirstResponder(nil))
                 try #require(
                     harness.window.firstResponder === harness.window, "precondition: no view has the focus")
-                try press(.escape, in: harness.window)
+                try sendToTheEscapeFallback(.escape, in: harness.window)
                 #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
                 #expect(keys.lastEscape?.entrance == .window)
                 #expect(keys.lastEscape?.result == .close(.focusMode))
 
                 #expect(harness.window.makeFirstResponder(nil))
-                try press(.escape, in: harness.window)
+                try sendToTheEscapeFallback(.escape, in: harness.window)
                 #expect(harness.modes.mode == .page, "with nothing to close, nothing changes")
                 #expect(harness.chrome.focusMode == .off)
             }
