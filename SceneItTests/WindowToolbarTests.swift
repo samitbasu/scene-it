@@ -28,6 +28,16 @@ extension OneAtATime.BookStoreIntegrationTests {
             .first { $0.items.contains { $0.title == WindowWording.actualSize } }
     }
 
+    @MainActor
+    static func ticked(_ window: NSWindow) -> [String]? {
+        zoomMenu(window)?.items.filter { $0.state == .on }.map(\.title)
+    }
+
+    @MainActor
+    static func zoomItem(_ step: ZoomStep, in window: NSWindow) -> NSMenuItem? {
+        zoomMenu(window)?.items.first { $0.title == WindowWording.zoomStep(step) }
+    }
+
     /// Each group is a run of adjacent items, which share one glass capsule; two spaces part them.
     @Test func theToolbarGroupsUndoZoomOutputsAndFileACopy() async throws {
         try await withTemporaryFolder { folder in
@@ -65,6 +75,7 @@ extension OneAtATime.BookStoreIntegrationTests {
             let url = folder.appending(path: "Tide.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             let book = try #require(store.current)
+            try #require(book.status == .saved, "precondition: a saved book, for the check below")
             let window = try #require(books.mainWindow, "precondition: the app's main window")
             await eventually { window.toolbar?.isVisible == true && Self.zoomMenu(window) != nil }
             let menu = try #require(Self.zoomMenu(window), "precondition: the toolbar's zoom menu")
@@ -89,8 +100,18 @@ extension OneAtATime.BookStoreIntegrationTests {
             try #require(Zoom.steps.contains(chosen), "precondition: 150% is on the ladder")
             try choose(WindowWording.zoom(chosen))
             #expect(preferences.zoom == chosen)
-            await eventually { Self.zoomMenu(window)?.items.first { $0.state == .on }?.title == "150%" }
-            #expect(Self.toolbarSlots(window).contains(.item("150%")), "the menu's title follows the zoom")
+            let chosenTitle = WindowWording.zoom(chosen)
+            await eventually { Self.ticked(window) == [chosenTitle] }
+            #expect(Self.ticked(window) == [chosenTitle])
+            #expect(
+                Self.toolbarSlots(window).contains(.item(chosenTitle)), "the menu's title follows the zoom")
+
+            let pinched = Zoom(clamping: 1.503)
+            try #require(pinched != chosen && pinched.isAt(chosen), "precondition: a pinch near 150%")
+            preferences.setZoom(pinched)
+            await eventually { Self.ticked(window) == [chosenTitle] }
+            #expect(Self.ticked(window) == [chosenTitle], "a zoom near a step ticks that step")
+            preferences.setZoom(chosen)
 
             try choose(WindowWording.zoomIn)
             #expect(preferences.zoom == Zoom(clamping: 1.75))
@@ -99,6 +120,19 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(preferences.zoom == Zoom(clamping: 1.25))
             try choose(WindowWording.actualSize)
             #expect(preferences.zoom == .standard)
+
+            let ends: [(Zoom?, dimmed: ZoomStep, enabled: ZoomStep)] = [
+                (Zoom.steps.last, .zoomIn, .zoomOut), (Zoom.steps.first, .zoomOut, .zoomIn),
+            ]
+            for (end, dimmed, enabled) in ends {
+                let end = try #require(end)
+                try choose(WindowWording.zoom(end))
+                #expect(preferences.zoom == end)
+                await eventually { Self.zoomItem(dimmed, in: window)?.isEnabled == false }
+                #expect(Self.zoomItem(dimmed, in: window)?.isEnabled == false, "\(dimmed) at \(end)")
+                #expect(Self.zoomItem(enabled, in: window)?.isEnabled == true, "\(enabled) at \(end)")
+            }
+            try choose(WindowWording.actualSize)
             #expect(book.status == .saved, "zoom isn't part of the book (ADR 0022)")
 
             #expect(await store.closeBook() == .left)

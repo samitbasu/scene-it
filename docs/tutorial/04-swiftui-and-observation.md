@@ -626,7 +626,7 @@ in a row, because one leaves the capsules nearly touching; it's one `@ToolbarCon
 property, `gap`, so every gap is the same. Nothing draws glass by hand.
 
 The zoom is one `Menu` titled with the zoom ("150%"). It lists `Zoom.steps`, each a `Toggle`
-(a menu shows a toggle as a checkmark), then Zoom In, Zoom Out and Actual Size from
+(a menu shows a toggle as a checkmark; a zoom within `Zoom.isAt`'s tolerance of a step, as a pinch leaves it, ticks that step, the same rule Zoom In and Zoom Out step by), then Zoom In, Zoom Out and Actual Size from
 `ZoomStepButtons`, the same view the View menu uses, so the two can't drift. Only the View
 menu's copy binds ⌘=, ⌘- and ⌘0 (`ZoomKeys.bound`); binding a shortcut twice would leave AppKit
 to pick which item answers it. Fit Width stays in the View menu: it needs the page's width,

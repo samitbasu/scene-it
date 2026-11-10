@@ -57,6 +57,6 @@ struct ZoomMenu: View {
     }
 
     private func chosen(_ zoom: Zoom) -> Binding<Bool> {
-        Binding(get: { preferences.zoom == zoom }, set: { _ in preferences.setZoom(zoom) })
+        Binding(get: { preferences.zoom.isAt(zoom) }, set: { _ in preferences.setZoom(zoom) })
     }
 }
