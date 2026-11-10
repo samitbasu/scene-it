@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The commit gate (docs/decisions/0008-local-ci.md). Silent and exit 0 when green;
-# otherwise prints every failing step's diagnostics and exits non-zero.
+# otherwise prints every failing step's diagnostics and exits non-zero. A change that touches
+# only docs (docs_only_change in lib.sh) skips the build and tests, and says so.
 set -euo pipefail
 
 source "$(dirname "$0")/lib.sh"
@@ -70,6 +71,15 @@ for guard in "${source_guards[@]}"; do
     run "${guard%%:*}" 5 "${guard#*:}" "${swift_paths[@]}"
 done
 run lint 5 lint_swift
+if [[ -f site/index.html ]]; then
+    run site-html 5 check_html site/index.html
+fi
+
+if docs=$(docs_only_change "$main_branch"); then
+    echo "check.sh: docs-only change since ${main_branch#refs/remotes/}: skipping build and tests"
+    sed 's/^/    /' <<<"$docs"
+    exit 0
+fi
 
 prepare_builds refuse build/DerivedData .build || exit 1
 

@@ -8,6 +8,105 @@ lint_swift() {
     swift format lint --strict --recursive --parallel "${swift_paths[@]}"
 }
 
+# The branch every change merges into. The gate compares the checked-out commit with its
+# merge-base on this branch (docs_only_change). Spelled out in full, because a tag or local
+# branch named `origin/main` would take precedence over the short name.
+readonly main_branch=refs/remotes/origin/main
+
+# is_docs_path <path>: whether <path> is documentation that no build or test reads. Anything
+# else, including a path this doesn't know, needs the full gate. Some Markdown is test input:
+# the corpus, docs/format (its tables are parsed), docs/tutorial (scanned for `book.json`) and
+# the mockup screenshots (compared with renders). Git quotes unusual paths, which then match
+# nothing here. Matching ignores case, as APFS does.
+is_docs_path() {
+    case $(tr '[:upper:]' '[:lower:]' <<<"$1") in
+        docs/format/* | docs/tutorial/* | novel-app-build-bundle/mockups/* | design/*.swift) return 1 ;;
+        docs/* | site/* | design/* | novel-app-build-bundle/*.md | .github/*.md) return 0 ;;
+        */*) return 1 ;;
+        *.md | license) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Whether the working tree may differ from HEAD: a change or an untracked file, whatever the
+# user's status settings, or a tracked file git has been told not to look at
+# (--assume-unchanged or --skip-worktree, which `ls-files -v` shows as a lower-case or S tag).
+working_tree_may_differ() {
+    local status flags
+    status=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || return 0
+    [[ -z $status ]] || return 0
+    flags=$(git ls-files -v) || return 0
+    grep -q '^[a-zS] ' <<<"$flags"
+}
+
+# docs_only_change <base>: when every path the checked-out commit changes since its merge-base
+# with <base> is documentation (is_docs_path), prints those paths and succeeds. Fails, so the
+# full gate runs, when CHECK_FULL is set, the working tree may differ from HEAD, there's no
+# merge-base, or nothing changed, as on <base> itself. Renames count as both paths. check.sh
+# always passes $main_branch; only the tests pass another base.
+docs_only_change() {
+    local merge_base changed path
+    [[ -z ${CHECK_FULL:-} ]] || return 1
+    ! working_tree_may_differ || return 1
+    merge_base=$(git merge-base "$1" HEAD 2>/dev/null) || return 1
+    changed=$(git -c core.quotePath=true diff --name-only --no-renames "$merge_base" HEAD) || return 1
+    [[ -n $changed ]] || return 1
+    while IFS= read -r path; do
+        is_docs_path "$path" || return 1
+    done <<<"$changed"
+    echo "$changed"
+}
+
+# check_html <file>…: fails, naming the line, on an end tag that doesn't close the innermost
+# open element, an element left open, or a self-closed non-void element. Every non-void element
+# must be closed by its end tag.
+check_html() {
+    python3 -I - "$@" <<'EOF'
+import sys
+from html.parser import HTMLParser
+
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+class Balance(HTMLParser):
+    def __init__(self, name):
+        super().__init__()
+        self.name, self.open, self.errors = name, [], []
+
+    def error_at(self, message):
+        self.errors.append(f"{self.name}:{self.getpos()[0]}: error: {message}")
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in VOID:
+            self.open.append((tag, self.getpos()[0]))
+
+    def handle_startendtag(self, tag, attrs):
+        if tag not in VOID:
+            self.error_at(f"<{tag}/> doesn't close a non-void element in HTML")
+
+    def handle_endtag(self, tag):
+        if tag in VOID:
+            self.error_at(f"</{tag}> closes a void element")
+        elif not self.open or self.open[-1][0] != tag:
+            expected = f"</{self.open[-1][0]}>" if self.open else "no end tag"
+            self.error_at(f"</{tag}> where {expected} was expected")
+        else:
+            self.open.pop()
+
+failed = False
+for name in sys.argv[1:]:
+    parser = Balance(name)
+    with open(name, encoding="utf-8") as file:
+        parser.feed(file.read())
+    parser.close()
+    for tag, line in parser.open:
+        parser.errors.append(f"{name}:{line}: error: <{tag}> is never closed")
+    for error in parser.errors:
+        print(error)
+    failed = failed or bool(parser.errors)
+sys.exit(1 if failed else 0)
+EOF
+}
+
 strip_ansi() {
     sed -E $'s/\x1b\\[[0-9;]*m//g; s/\x1b\\]8;;[^\x1b]*\x1b\\\\//g'
 }

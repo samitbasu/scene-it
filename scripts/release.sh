@@ -50,7 +50,7 @@ require_merged_commit() {
     [[ $(git rev-parse --is-shallow-repository) == false ]] \
         || die "this is a shallow clone, so the commit count (the build number) is wrong; run git fetch --unshallow"
     git fetch -q origin || die "can't fetch origin"
-    git merge-base --is-ancestor HEAD origin/main \
+    git merge-base --is-ancestor HEAD "$main_branch" \
         || die "HEAD is not on origin/main. Release only merged commits, so each build number names one commit and later releases get higher numbers."
 }
 

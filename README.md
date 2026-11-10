@@ -93,7 +93,8 @@ just test-filter Corpus # extra arguments are passed through where the table sho
 scripts/check.sh
 ```
 
-Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
+Takes no arguments. One environment variable: `CHECK_FULL=1` never skips the build and tests
+(see docs-only changes below). The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
 runs steps 1–7 in order, stopping at the first failure. If they pass, it runs steps 8 and 9
@@ -128,13 +129,50 @@ at the same time and waits for both:
    Steps 2–6 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
    ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
    for each hit.
-7. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
+7. `swift format lint --strict --recursive` over those paths, using `.swift-format`. Then, if
+   `site/index.html` exists, `check_html` from `scripts/lib.sh` (step `site-html`): every
+   element other than a void one (`br`, `img`, `meta`…) must be closed by its own end tag,
+   while it's the innermost open element; a self-closed `<div/>` doesn't count. It runs
+   `python3 -I` with `html.parser`; macOS ships `python3` with Xcode. It prints
+   `file:line: error: …` for each mismatched, unclosed or self-closed tag.
+
+   Then, if the change is docs-only (below), check.sh stops here.
 8. `swift test` (SceneItCore unit tests; build output in `.build/`).
 9. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests. Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
+
+**Docs-only changes:** check.sh skips steps 8 and 9 when every path the checked-out commit
+changes is documentation. It compares `HEAD` with its merge-base with
+`refs/remotes/origin/main`, which nothing overrides. The full name means a tag or local
+branch called `origin/main` can't stand in for it. It lists renamed files under both names. It then prints, on stdout,
+and exits 0:
+
+```
+check.sh: docs-only change since origin/main: skipping build and tests
+    README.md
+    docs/dev/WORKFLOW.md
+```
+
+- **Documentation** is `is_docs_path` in `scripts/lib.sh`: `docs/`, `site/`, `design/` other
+  than its Swift files, Markdown at the top level, `novel-app-build-bundle/*.md`, `LICENSE`, and
+  Markdown under `.github/`. Paths match whatever their case, as on APFS, so `docs/Tutorial/`
+  is `docs/tutorial/`.
+- **Not documentation**, because tests read them: `docs/format/` (the transliteration test
+  parses `book-format.md`), `docs/tutorial/` (a test scans it for `book.json`), the mockups in
+  `novel-app-build-bundle/mockups/`, and the Markdown in `Tests/Corpus/`. A new test that reads a
+  file elsewhere under the docs paths must add that path to `is_docs_path`'s exclusions.
+  Workflow files under `.github/workflows/` aren't documentation either: a change to the runner
+  or Xcode must prove itself with a full run.
+- **The full gate runs** whenever any changed path isn't documentation, including any path the
+  list doesn't know and any name git quotes (it always quotes non-ASCII names here, whatever
+  `core.quotePath` says); when the working tree may differ from `HEAD`
+  (a change or an untracked file, whatever `status.showUntrackedFiles` says, or a file marked
+  `--assume-unchanged` or `--skip-worktree`); when there's no merge-base (no `origin/main`, or a shallow clone); and when nothing
+  changed, as on `main` itself. Setting `CHECK_FULL=1` forces it. Nothing forces the docs-only
+  path.
 
 Steps 8 and 9 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
 builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
@@ -191,7 +229,7 @@ same way, then dies of the same signal, so a calling shell or loop sees the inte
 130, 143 or 129). No step keeps running in the background. A test-host `Scene It.app` outside the gate's
 own process tree is spared on purpose: it might be the writer's own Debug run.
 
-**Output on success:** nothing, exit status 0.
+**Output on success:** nothing, exit status 0, except for the docs-only message (above).
 
 **Output on failure:** exit status 1, and on stderr, for each failed step:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
@@ -203,12 +241,27 @@ and the path of the samples. Only when the xcodebuild step fails, each failing t
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
 **Products:** one log per step in `build/check/` (`guard-tests.log`, `lib-tests.log`, `textkit1-guard.log`,
-`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `no-ai-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
+`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `no-ai-guard.log`, `lint.log`, `site-html.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
 `build/DerivedData/Build/Products/Debug/Scene It.app`, and each build folder's
 `scene-it-build-inputs` (above). All of `build/` except
 `build/release/` (see release.sh) can be deleted at any time. Run this before every commit; nothing lands on `main`
 without it passing.
+
+**On GitHub Actions:** `.github/workflows/check.yml` runs `scripts/check.sh` unchanged on every
+pull request and every push to `main`, so the docs-only decision is the same one as locally;
+the workflow has no path filter of its own. It uses the `xcode-27` runner image (macOS 27 on
+Apple Silicon) with `DEVELOPER_DIR` set to Xcode 27.2, the version the project is built with.
+GitHub announced that image as generally available on 2026-10-15, but the runner-images table
+still labels it a preview. The workflow checks out the full history, so that the merge-base with
+`origin/main` exists, without keeping the token. A newer run on the same pull request cancels
+the older one; each push to `main` runs to the end. A run is limited to 60 minutes. When it fails
+or is cancelled, it uploads `build/check/` (the step logs, hang samples and `SceneIt.xcresult`) as the artifact
+`check-<run>-<attempt>`, kept for 14 days. No signing certificate is needed: Debug is signed ad
+hoc. **The job runs only while the repository is public** (`if:
+github.event.repository.private == false`). GitHub bills macOS minutes on private repositories
+at ten times the Linux rate, and standard runners are free on public ones, so while the
+repository is private every run is skipped and costs nothing.
 
 ### `scripts/test-guards.sh`: tests for the source guards
 
@@ -254,7 +307,20 @@ the tree (as an interrupted gate does, which must survive the call) and from out
 timeout does). Nothing in the tree may be left running, and neither may a build product started
 after the snapshot. Three processes must be left running and not stopped: a process outside the
 tree, a build product that was already running, and a `Scene It.app`. The stand-in build products
-are symbolic links to `sleep` under the fixture's `build/`. Takes about 5 seconds. **Output:**
+are symbolic links to `sleep` under the fixture's `build/`. Takes about 5 seconds.
+
+It checks the docs-only gate too. `is_docs_path` must accept each kind of documentation and
+reject code, test input under the docs paths, unknown paths and a quoted name. On a fixture
+repository, `docs_only_change` must pass a docs-only branch and a rename within docs, listing
+the files. It must run the full gate on the base itself, a mixed change, a code-only change, an
+unknown path, a rename from code into docs, a docs-only branch that merged code, a new
+directory `docs/Tutorial/`, an untracked or modified file, an untracked file hidden by
+`status.showUntrackedFiles=no`, a modified file marked `--assume-unchanged` or
+`--skip-worktree`, `CHECK_FULL=1`, a non-ASCII name under `core.quotePath=false`, a tag and a
+local branch named `origin/main` at an untested code commit (the short name is shadowed, as a
+precondition, and the full name isn't), and a base that doesn't exist. `check_html` must accept
+well-formed HTML with void and self-closed void elements, and reject a mismatched end tag
+(naming its line), an element left open and a self-closed `<div/>`. **Output:**
 nothing on success. On failure, one `✘` line per failed check, and exit status 1.
 **Products:** none; the fixtures are deleted and any leftover `sleep` is killed on exit.
 
@@ -667,7 +733,8 @@ xcrun notarytool store-credentials scene-it-notary --apple-id <your Apple ID ema
 **Status:** draft, not live. `site/` is one hand-written page (`index.html`, `style.css`, `images/`) with no
 build step, no JavaScript and nothing loaded from other servers. It will be served by GitHub Pages at
 **scene-it.net** once the repository is public and the steps below are done. To preview it, open
-`site/index.html` in a browser.
+`site/index.html` in a browser. `scripts/check.sh` checks that its tags balance (`site-html`), and
+a change only to `site/` is docs-only for the gate: nothing builds or tests read it.
 
 **Download link.** The page's button points at
 `https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg`, which GitHub redirects to the
