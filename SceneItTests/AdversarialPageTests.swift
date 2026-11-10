@@ -238,12 +238,7 @@ struct PageFuzzTests {
                 page.focusPage(at: 0)
                 let fuzz = Fuzz(page: page, pasteboard: pasteboard, seed: seed)
                 for _ in 0..<PageFuzz.steps {
-                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                        RunLoop.main.perform {
-                            MainActor.assumeIsolated { fuzz.step() }
-                            done.resume()
-                        }
-                    }
+                    await onTheRunLoop { fuzz.step() }
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                         DispatchQueue.main.async {
                             fuzz.checkPage()

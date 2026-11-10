@@ -120,13 +120,18 @@ told `.passedOn`:
 | Comments' search field | `.onKeyPress(.escape)` | the field's own |
 | A comment card | `cancelOperation` | ends the edit |
 | The Errors tab | `cancelOperation` | focus back to the page |
+| No view (the window is its own first responder) | `WindowEscapeFallback.EscapeView`, a key equivalent (step 1) | none |
 
 (The notes' own find bar keeps AppKit's Esc, which closes that bar.)
 
 Why a key equivalent for sheets and popovers? Their focus is often in a SwiftUI `TextField`,
 whose field editor would see the key first otherwise; key equivalents run before it (step 1).
 Why *not* one for the page? Because it would run first everywhere in the window, including fields
-that have their own Esc.
+that have their own Esc. The window does have one window-wide Esc key equivalent, the last row of
+the table, and it is safe for one reason: it looks at the key only while
+`window.firstResponder === window`, that is, while no view has the focus. With no focused view,
+there is no view whose own Esc it could take away. (Why it's needed at all is under "When no view
+has the focus", below.)
 
 One trap worth knowing: neither `NSTextView` nor `NSResponder` actually *implements*
 `cancelOperation:`. Swift lets you write `override func cancelOperation` (the method is declared
@@ -145,15 +150,62 @@ override func doCommand(by selector: Selector) {
 code; think of a `&'static str` method name looked up in a vtable at runtime.
 
 **When no view has the focus.** Just after a sheet opens, or after a focused view goes away, the
-window itself can be the first responder. Then no view hears Esc, and before this fix nothing did:
-the writer could be stuck in focus mode. AppKit hands a key that nothing took along the responder
-chain, view, superview, …, window, and on to whatever follows the window. So
-`WindowEscapeFallback` puts one small `NSResponder` at the *end* of that chain, whose `keyDown`
-asks `escape(from: .window)`. A view that handles Esc never passes the key on, so Esc is never handled twice.
-It goes at the end, not straight after the window: the first try put it straight after, and
-SwiftUI's own focus and popovers stopped working in the tests, because SwiftUI keeps responders of
-its own there. In Rust terms, the chain is a linked list of `&mut dyn Responder`, and we appended
-a node instead of splicing one in where SwiftUI expects its own.
+window itself can be the first responder. Then no view hears Esc, and at first nothing did: the
+writer could be stuck in focus mode.
+
+The first fix used step 3. AppKit hands a key that nothing took along the responder chain, view,
+superview, …, window, and on to whatever follows the window. So `WindowEscapeFallback` puts one
+small `NSResponder` at the *end* of that chain, whose `keyDown` asks `escape(from: .window)`. A
+view that handles Esc never passes the key on, so Esc is never handled twice. It goes at the end,
+not straight after the window: the first try put it straight after, and SwiftUI's own focus and
+popovers stopped working in the tests, because SwiftUI keeps responders of its own there. In Rust
+terms, the chain is a linked list of `&mut dyn Responder`, and we appended a node instead of
+splicing one in where SwiftUI expects its own.
+
+That turned out to work only while the window isn't *key* (the window that gets the keyboard),
+and the book window is key whenever the writer types. `NSWindow.keyDown` doesn't pass an
+unhandled Esc down the chain. It turns the key into the command `cancelOperation:` and sends that
+to the key window's responder chain, which starts at the first responder: the window itself.
+SwiftUI's window class answers `cancelOperation:` and does nothing with it, so the command stops
+there, and the `keyDown` at the end of the chain never runs. The tests didn't notice on the
+owner's Mac, where the test app ran in the background and no window was key. They failed on
+GitHub's runner, where the test app was active and its window key. In Rust terms, an earlier
+`match` arm returned "handled" and dropped the event.
+
+So the fallback also has a view, `WindowEscapeFallback.EscapeView`, that takes a plain Esc at
+step 1, as a key equivalent, before any `keyDown` runs:
+
+```swift
+override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    guard let window, window.firstResponder === window, let responder else { return false }
+    return responder.escape(event, offered: .asKeyEquivalent) == .handled
+}
+```
+
+`===` is identity, not equality (`std::ptr::eq`, not `==`). That guard is what keeps a window-wide
+key equivalent from taking the page's or a field's Esc, as described above. The responder's
+`keyDown` stays, for a window that isn't key, and both go through the one `escape(_:offered:)`, so
+they agree on what a plain Esc is.
+
+One more case. A rail sheet's or a dialog's `EscapeKey` is a key equivalent too, so with a sheet up
+and no view focused, AppKit offers the Esc to two views. Which it asks first depends on the order
+it walks the views, which we don't control. The answer mustn't depend on that order, because the
+sheet's Esc belongs to the sheet: the Scenes sheet's closes an open card field before the sheet,
+and the File Cabinet's closes its tag field. So the fallback stands aside whenever the top layer
+has its own key equivalent in that window. The rule sits with the Esc order in `SceneItCore`,
+not in the view:
+
+```swift
+public static func keyEquivalentTaker(in context: EscapeContext) -> EscapeKeyTaker {
+    escape(in: context).layer?.keyEquivalentTaker ?? .window
+}
+```
+
+A rail sheet (in the book window) and a dialog (in its own window, which has a fallback of its own)
+answer `.layer`. A palette answers `.window`, because its `EscapeKey` is in the popover's own
+window, so the book window's fallback has no rival for the key. A test offers the Esc to the
+fallback's view directly, with the Scenes sheet up, and requires it to refuse; then offers it to
+the window, and requires that the sheet's `EscapeKey` closed the sheet.
 
 **Moving the focus mid-key.** Closing the find bar moves the focus (AppKit gives it to the page),
 so `PageFocus.closeFindBar` puts it back. A field's focus is really its *field editor*'s, a shared
