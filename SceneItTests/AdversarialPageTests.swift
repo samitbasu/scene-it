@@ -117,7 +117,10 @@ private final class Fuzz {
         let tmpStart = ContinuousClock.now
         view.setSelectedRange(randomRange(length, &rng))
         let tmpKind = Int.random(in: 0..<16, using: &rng)
-        defer { tmpTimes[tmpKind, default: .zero] += ContinuousClock.now - tmpStart; tmpCounts[tmpKind, default: 0] += 1 }
+        defer {
+            tmpTimes[tmpKind, default: .zero] += ContinuousClock.now - tmpStart
+            tmpCounts[tmpKind, default: 0] += 1
+        }
         switch tmpKind {
         case 0, 1:
             let text = randomText(&rng)
@@ -246,8 +249,13 @@ struct PageFuzzTests {
                 var tmpCheck = Duration.zero
                 for tmpIndex in 0..<PageFuzz.steps {
                     if tmpIndex == 100 {
-                        let kinds = fuzz.tmpTimes.sorted { $0.key < $1.key }.map { "\($0.key):\(fuzz.tmpCounts[$0.key] ?? 0)x \($0.value)" }
-                        Issue.record(Comment(rawValue: "TMPFUZZ seed=\(seed) wall=\(tmpWall) check=\(tmpCheck) kinds=\(kinds)"))
+                        let kinds = fuzz.tmpTimes.sorted { $0.key < $1.key }.map {
+                            "\($0.key):\(fuzz.tmpCounts[$0.key] ?? 0)x \($0.value)"
+                        }
+                        Issue.record(
+                            Comment(
+                                rawValue:
+                                    "TMPFUZZ seed=\(seed) wall=\(tmpWall) check=\(tmpCheck) kinds=\(kinds)"))
                     }
                     let tmpIteration = ContinuousClock.now
                     defer { tmpWall += ContinuousClock.now - tmpIteration }
