@@ -202,9 +202,10 @@ extension OneAtATime.BookStoreIntegrationTests {
             }
             defer { PrintFlow.present = present }
             let printing = try #require(books.mainWindowChrome.printing)
-            await eventually { printing.window === window }
+            // The chooser's sheet can still be on its way out, and Print… won't show over a sheet.
+            await eventually { printing.window === window && window.attachedSheet == nil }
             printing.begin()
-            try #require(recorded.shown.count == 1, "precondition: the print dialog is up")
+            #expect(recorded.shown.count == 1, "precondition: the print dialog is up")
             await expectAgreement(.disabled, "the print dialog is up")
             printing.finished()
             await expectAgreement(.enabled, "the print dialog went")
