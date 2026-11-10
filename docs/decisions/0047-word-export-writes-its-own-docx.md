@@ -34,7 +34,7 @@ Scene It writes the .docx itself, a minimal, standard-conformant WordprocessingM
 - **The document:** the title paragraph has `pStyle Heading1`; body paragraphs have no properties, so
   they take `Normal`. Each run carries only what the scene says: bold, italic, strikethrough, a
   palette color (`w:color`) and a highlight as shading (`w:shd`, the palette's fill), in the schema's
-  order; uncoloured text has no `w:color`, so it's Word's automatic color. Notes aren't written, nor
+  order; uncolored text has no `w:color`, so it's Word's automatic color. Notes aren't written, nor
   comments unless the writer asks for them (0048).
 - **Text** is the stored text, which `CharacterPolicy` keeps to printable ASCII, smartened as print
   smartens it (decision 0022; added by #35, which also joins neighboring runs Word would format alike).

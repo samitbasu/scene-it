@@ -186,7 +186,7 @@ identical to main at 5ed80b6), with a throwaway book that has a few filed copies
    6. Export over an existing .docx (replace in the save panel); a name ending in `.doc` is refused with the notice.
    7. File → Export to Word… sits after Export as SceneIt… and is enabled only while a scene is open.
    8. In Word's Page Setup, note the page size and margins it opens with, and whether they suit a manuscript (entry 61).
-   9. With Word in dark mode, uncoloured text follows Word, and palette colors stay as they are.
+   9. With Word in dark mode, uncolored text follows Word, and palette colors stay as they are.
 10. **File Cabinet sheet**
     1. Open it from the rail on a book with filed copies. Check the cards and their ages, and the filters: type, pick dates, click chips; ⓧ clears the dates.
     2. + tag on a card: type, Return, type another, Esc. × removes a tag. Reopen the book: the tags are kept.
