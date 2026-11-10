@@ -16,11 +16,11 @@ struct BookStoreTests {
             #expect(book.status == .saved)
             let scene = try #require(book.addScene(after: nil))
             #expect(book.status == .saving, "adding a scene opens it, and a scene switch saves at once")
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             book.replaceBody(of: scene, with: [[Run("It was a dark and stormy night.")]])
             #expect(book.status == .unsaved)
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
             #expect(memory.lastSaved != nil)
             let snapshots = try FileManager.default.contentsOfDirectory(
@@ -44,14 +44,14 @@ struct BookStoreTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try #require(store.current)
             let scene = try #require(book.addScene(after: nil))
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             book.replaceBody(of: scene, with: [[Run("First")]])
             clock.advance(by: .seconds(1))
             book.setTitle(of: scene, to: "The ferry")
             clock.advance(by: .seconds(1))
             #expect(book.status == .unsaved)
             clock.advance(by: .seconds(1))
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.title == "The ferry")
         }
     }
@@ -63,16 +63,16 @@ struct BookStoreTests {
             let book = try #require(store.current)
             let first = try #require(book.write("One"))
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             book.replaceBody(of: first, with: [[Run("One, revised")]])
             book.select(nil)
             #expect(book.openScene == nil)
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.body == [[Run("One, revised")]])
 
             book.replaceBody(of: first, with: [[Run("One, again")]])
             store.appDeactivated()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.body == [[Run("One, again")]])
         }
     }
@@ -84,7 +84,7 @@ struct BookStoreTests {
             let book = try #require(store.current)
             let scene = try #require(book.write("Same"))
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             let before = book.book
             book.replaceBody(of: scene, with: [[Run("Same")]])
             book.setTitle(of: SceneID(rawValue: "no such scene"), to: "Ignored")
@@ -103,13 +103,13 @@ struct BookStoreTests {
             let book = try #require(store.current)
             book.write("Mine")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
 
             let theirs = try draft(7)
             try writeExternally(theirs, to: url)
             book.write("More of mine")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
 
             #expect(prompts.titles == ["This book was changed by another program."])
             #expect(prompts.labels == [["Keep My Version", "Open Other Version"]])
@@ -126,14 +126,14 @@ struct BookStoreTests {
             let book = try #require(store.current)
             book.write("Mine")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
 
             let theirs = try draft(7)
             try writeExternally(theirs, to: url)
             book.write("More of mine")
             let mine = book.book
             store.saveNow()
-            await eventually { store.current !== book && store.current != nil }
+            await whenObserved { store.current !== book && store.current != nil }
 
             let reopened = try #require(store.current)
             #expect(reopened.book == theirs)
@@ -158,7 +158,7 @@ struct BookStoreTests {
             book.write("Mine")
             let mine = book.book
             store.saveNow()
-            await eventually { store.current !== book && store.current != nil }
+            await whenObserved { store.current !== book && store.current != nil }
             #expect(try bookOnDisk(folder.appending(path: "Novel (my edits 2).sceneit")) == mine)
         }
     }
@@ -173,14 +173,14 @@ struct BookStoreTests {
             try writeExternally(try draft(7), to: url)
             book.write("Mine")
             store.saveNow()
-            await eventually { prompts.titles.count == 1 }
+            await whenObserved { prompts.titles.count == 1 }
             guard case .changedOnDisk(.externallyModified(.changed)) = book.status else {
                 Issue.record("status is \(book.status)")
                 return
             }
             #expect(StoreWording.status(book.status) == "Changed on disk")
             prompts.releaseHeld()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
         }
     }
 
@@ -474,7 +474,7 @@ struct BookStoreTests {
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem)
 
             let opening = Task { await store.open(url) }
-            await eventually { prompts.titles.count == 1 }
+            await whenObserved { prompts.titles.count == 1 }
             let readOnly = try #require(store.current)
             try #require(!readOnly.isEditable, "precondition: read-only behind the alert")
             let book = url.appending(path: "book.md")
@@ -538,7 +538,7 @@ struct BookStoreTests {
 
             #expect(await store.prepareToQuit() == .stayed)
             #expect(prompts.labels.first == ["Cancel", "Quit Anyway"])
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(prompts.labels.last == ["Keep My Version", "Open Other Version"])
             #expect(try bookOnDisk(url) == book.book)
             #expect(try bookOnDisk(url, file: "book.md.bak1") == draft(3))

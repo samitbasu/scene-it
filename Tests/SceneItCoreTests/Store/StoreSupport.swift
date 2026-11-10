@@ -1,7 +1,7 @@
 import Dispatch
 import Foundation
+import Observation
 import SceneItTestSupport
-import Synchronization
 import Testing
 
 @testable import SceneItCore
@@ -10,6 +10,7 @@ import Testing
 /// scripted answer is missing (or of another kind) gets its first button, as Return would;
 /// with `holding`, questions wait until `releaseHeld()`.
 @MainActor
+@Observable
 final class ScriptedPrompts: StorePrompts {
     private var answers: [any Hashable & Sendable]
     private(set) var titles: [String] = []
@@ -111,31 +112,88 @@ func createBook(_ name: String, in folder: URL, store: TestStore) async throws -
 }
 
 /// Holds a file-system call (on the thread making it) until the test opens the gate, so the
-/// test can act on the main actor while the store waits for the disk.
+/// test can act on the main actor while the store waits for the disk. Made by `withGate`.
+///
+/// The store makes its file-system calls synchronously on a thread of Swift's shared pool, so
+/// a held call keeps that thread, and the fake can't suspend instead. `withGate` takes one of
+/// `GatePermits` first, which keeps the held calls from taking every thread of the pool: the
+/// work that opens the gates needs one.
 final class Gate: Sendable {
-    private let arrivals = Mutex(0)
+    private let arrivals = AsyncStream<Void>.makeStream()
     private let proceed = DispatchSemaphore(value: 0)
+
+    fileprivate init() {}
 
     /// Called by the blocked call.
     func pass() {
-        arrivals.withLock { $0 += 1 }
+        arrivals.continuation.yield()
         proceed.wait()
     }
 
-    /// Records an issue, rather than hanging, if nothing arrives within `eventually`'s budget.
+    /// Returns at the next arrival, however long the disk call takes to get here. Cancelling the
+    /// task (as a suite's time limit does) ends the wait with an issue.
     @MainActor
     func waitForArrival(sourceLocation: SourceLocation = #_sourceLocation) async {
-        await eventually(
-            {
-                arrivals.withLock { arrivals in
-                    guard arrivals > 0 else { return false }
-                    arrivals -= 1
-                    return true
-                }
-            }, sourceLocation: sourceLocation)
+        var next = arrivals.stream.makeAsyncIterator()
+        if await next.next() == nil {
+            Issue.record("cancelled before the call arrived", sourceLocation: sourceLocation)
+        }
     }
 
     func open() {
         proceed.signal()
+    }
+}
+
+/// Runs `body` with a gate, once a permit is free. However `body` ends, the gate opens, so a
+/// held call goes on, and the permit is returned.
+@MainActor
+func withGate<T>(
+    sourceLocation: SourceLocation = #_sourceLocation, _ body: (Gate) async throws -> T
+) async throws -> T {
+    guard await GatePermits.shared.acquire() == .resumed else {
+        Issue.record("cancelled before a gate was free", sourceLocation: sourceLocation)
+        throw CancellationError()
+    }
+    let gate = Gate()
+    let result: Result<T, any Error>
+    do {
+        result = .success(try await body(gate))
+    } catch {
+        result = .failure(error)
+    }
+    gate.open()
+    await GatePermits.shared.release()
+    return try result.get()
+}
+
+/// How many gates may be held at once: half the pool's threads, so the other half always runs.
+/// On a one-core host the pool has one thread, which any held call takes, so the gated tests
+/// need two cores or more.
+actor GatePermits {
+    static let shared = GatePermits(ProcessInfo.processInfo.activeProcessorCount / 2)
+
+    private var free: Int
+    private var waiting: [Wake] = []
+
+    init(_ count: Int) {
+        free = max(1, count)
+    }
+
+    /// `.cancelled` if the task was cancelled first, holding no permit.
+    func acquire() async -> WakeOutcome {
+        if free > 0 {
+            free -= 1
+            return .resumed
+        }
+        return await suspend { waiting.append($0) }
+    }
+
+    /// Hands the permit to the first waiter still waiting, or frees it.
+    func release() {
+        while !waiting.isEmpty {
+            if waiting.removeFirst().resume() { return }
+        }
+        free += 1
     }
 }

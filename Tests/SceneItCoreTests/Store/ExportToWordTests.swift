@@ -25,7 +25,7 @@ struct ExportToWordTests {
             book.setTitle(of: scene, to: "The ferry")
             try #require(book.status != .saved, "precondition: unsaved edits")
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             book.replaceBody(of: scene, with: [[Run("The ferry left at "), Run("dusk", styles: [.italic])]])
             let package = try DirectorySnapshot(url)
             let name = WordExportWording.defaultFileName(

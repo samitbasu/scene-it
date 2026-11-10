@@ -84,7 +84,8 @@ offered two language-model features inside it:
     three off; in each sheet it then changes the field's text from the model, so SwiftUI updates the
     field while it's edited, and checks again;
   - checks a plain AppKit field in a window of its own, which only the app-wide watch covers, and
-    that a window freed without being closed doesn't stop a new window at its address being watched;
+    that nothing of a window's watch outlives the window when it's freed without being closed (so
+    nothing is kept by its address), and that a new window is watched from its first update;
   - checks that the main menu holds no Writing Tools item, that one added to the Edit menu is taken out
     again with its separator, and that every top-level menu and the Edit menu's other items are left;
     and that a menu holding a Writing Tools item among others is never taken for one.

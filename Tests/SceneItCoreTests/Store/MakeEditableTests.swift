@@ -30,7 +30,7 @@ struct MakeEditableTests {
             #expect(book.isEditable)
             #expect(book.status == .unsaved, "the repaired book differs from the file")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
 
             let original = try #require(try originals(url).first)
             #expect(try Data(contentsOf: original) == bytes)
@@ -78,7 +78,7 @@ struct MakeEditableTests {
             #expect(try Data(contentsOf: url.layout.book) == bytes, "nothing saved yet")
             book.replaceBody(of: scene, with: [[Run("Now allowed")]])
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes.first?.body == [[Run("Now allowed")]])
             #expect(await store.makeEditable() == .notRepaired, "it's editable already")
             #expect(await store.closeBook() == .left)

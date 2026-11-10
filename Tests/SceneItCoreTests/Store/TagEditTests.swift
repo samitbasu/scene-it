@@ -234,13 +234,13 @@ struct TagEditTests {
         try await withTags { book, scene, url in
             step(book, scene) { #expect(book.addTag("red, door", to: scene)) }
             book.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scene(scene)?.tags == ["Mara", "clue", "red, door"])
             let text = String(decoding: try Data(contentsOf: url.appending(path: "book.md")), as: UTF8.self)
             #expect(text.contains("tags: Mara, clue, red\\, door\n"), "the comma escaped (§2.2)")
             step(book, scene) { #expect(book.removeTag("clue", from: scene)) }
             book.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scene(scene)?.tags == ["Mara", "red, door"])
         }
     }

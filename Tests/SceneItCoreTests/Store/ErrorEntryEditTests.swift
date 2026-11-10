@@ -69,7 +69,7 @@ struct ErrorEntryEditTests {
             #expect(book.book.errors.isEmpty)
 
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url) == book.book)
             #expect(try bookOnDisk(url).errorCount == 2)
             #expect(await store.closeBook() == .left)
@@ -106,7 +106,7 @@ struct ErrorEntryEditTests {
             #expect(scene.modified == before.scenes[0].modified, "a repair isn't an edit of the text")
 
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             let saved = try bookOnDisk(url)
             #expect(saved == book.book)
             #expect(
@@ -128,7 +128,7 @@ struct ErrorEntryEditTests {
             #expect(book.status == .unsaved)
             #expect(book.book.scenes[0].errors.first == ErrorEntry(.comments, edited))
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes[0].errors.first == ErrorEntry(.comments, edited))
             #expect(
                 book.repairError(try ref(.line, in: book), as: "x") == .refused, "a [line] can't be repaired")
@@ -354,7 +354,7 @@ struct ErrorEntryEditTests {
             #expect(await store.makeEditable() == .editable)
             #expect(book.repairError(comment, as: Self.fixed) == .repaired)
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try bookOnDisk(url).scenes[0].comments.count == 1)
             #expect(await store.closeBook() == .left)
         }

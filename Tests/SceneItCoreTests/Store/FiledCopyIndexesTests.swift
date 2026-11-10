@@ -152,18 +152,19 @@ struct FiledCopyIndexesTests {
     @Test func closingTheBookMidReadIsFinal() async throws {
         try await withFiledBook { store, book, _, _, fileSystem in
             let indexes = try #require(book.filedCopyIndexes)
-            let gate = Gate()
-            fileSystem.before(Self.firstCopy) { gate.pass() }
-            let search = Task { await indexes.index(of: .first) }
-            await gate.waitForArrival()
-            #expect(await store.closeBook() == .left)
-            gate.open()
-            #expect(await search.value == nil, "the waiting search learns the book closed")
-            #expect(!indexes.isRequested(.first), "the read's result isn't kept")
-            fileSystem.clearCalls()
-            indexes.prepare([.first])
-            #expect(await indexes.index(of: .first) == nil)
-            #expect(!fileSystem.calls.contains(Self.firstCopy), "nothing reads again")
+            try await withGate { gate in
+                fileSystem.before(Self.firstCopy) { gate.pass() }
+                let search = Task { await indexes.index(of: .first) }
+                await gate.waitForArrival()
+                #expect(await store.closeBook() == .left)
+                gate.open()
+                #expect(await search.value == nil, "the waiting search learns the book closed")
+                #expect(!indexes.isRequested(.first), "the read's result isn't kept")
+                fileSystem.clearCalls()
+                indexes.prepare([.first])
+                #expect(await indexes.index(of: .first) == nil)
+                #expect(!fileSystem.calls.contains(Self.firstCopy), "nothing reads again")
+            }
         }
     }
 

@@ -51,7 +51,7 @@ struct ExportReviewCopyTests {
             let book = try #require(store.current)
             let scenes = try Self.prepare(book)
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             let package = try DirectorySnapshot(url)
             let destination = folder.appending(path: "Novel.md")
 
@@ -112,7 +112,7 @@ struct ExportReviewCopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             let package = try DirectorySnapshot(url)
             let destination =
                 path.isEmpty
@@ -163,7 +163,7 @@ struct ExportReviewCopyTests {
             try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             let destination = folder.appending(path: "Novel.md")
             try Data("the earlier copy".utf8).write(to: destination)
             fileSystem.inject(.fail(.move("temporary Novel.md", over: "Novel.md"), cause: .noSpace))
@@ -259,7 +259,7 @@ struct ExportReviewCopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             let renamed = folder.appending(path: "Renamed.sceneit", directoryHint: .isDirectory)
             try FileManager.default.moveItem(at: url, to: renamed)
             let package = try DirectorySnapshot(renamed)
@@ -366,7 +366,7 @@ struct ExportReviewCopyTests {
             try await createBook("Novel", in: folder, store: store)
             let scenes = try Self.prepare(try #require(store.current))
             store.saveNow()
-            await eventually { store.current?.status == .saved }
+            await whenObserved { store.current?.status == .saved }
             let destination = folder.appending(path: "Novel.md")
             fileSystem.inject(.fail(.publish("Novel.md"), cause: .permissionDenied))
             fileSystem.clearCalls()
