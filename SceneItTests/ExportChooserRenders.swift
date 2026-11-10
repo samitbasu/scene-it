@@ -65,6 +65,66 @@ extension WindowRenders {
         }
     }
 
+    /// The shipped chooser's notes (#155) over books with lines Scene It couldn't read. With one
+    /// in the second scene: all ticked, so its line shows (`export-note-shown`), then that scene
+    /// unticked (`export-note-hidden`). With the book's own as well: both lines
+    /// (`export-note-both`), then the scene unticked, leaving the book's (`export-note-book`).
+    @Test func exportChooserNote() async throws {
+        let output = try #require(renderFolder).appending(path: "export", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        var sample = Self.sampleBook()
+        sample.scenes[1].errors = [ErrorEntry(.line, "@@ a line Scene It couldn't read")]
+        try await renderNotes(
+            of: sample,
+            [
+                ("export-note-shown", "A ticked scene holds text the export leaves out: its line shows"),
+                ("export-note-hidden", "That scene unticked: no line"),
+            ], to: output)
+        sample.errors = [ErrorEntry(.line, "@@ a line before the first scene")]
+        try await renderNotes(
+            of: sample,
+            [
+                ("export-note-both", "The book's own unreadable text too: both lines"),
+                ("export-note-book", "That scene unticked: the book's line stays"),
+            ], to: output)
+    }
+
+    /// The chooser over `sample` with everything ticked, then with its second scene unticked.
+    private func renderNotes(
+        of sample: Book, _ states: [(name: String, caption: String)], to output: URL
+    ) async throws {
+        try await withSampleBook(sample) { store, book, preferences in
+            let flow = ExportFlow(book: book, destination: { .nowhere })
+            flow.begin()
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences,
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page),
+                export: flow)
+            let expected = [
+                [ExportWording.scenesTextLeftOut]
+                    + (sample.errors.isEmpty ? [] : [ExportWording.bookTextLeftOut]),
+                sample.errors.isEmpty ? [] : [ExportWording.bookTextLeftOut],
+            ]
+            for (state, notes) in zip(states, expected) {
+                try #require(
+                    flow.choice.map(ExportWording.notes(for:)) == notes, "precondition: \(state.name)")
+                let (renders, close) = try await Self.withWindow(window) { window in
+                    let sheet = try #require(window.attachedSheet, "precondition: the chooser is a sheet")
+                    return (
+                        try Self.withSheet(window, sheet),
+                        Self.bitmap(of: try #require(sheet.contentView?.superview), scale: 3)
+                    )
+                }
+                try Self.write(
+                    renders, name: state.name, caption: state.caption, to: output,
+                    beside: Self.fileACopyMockup)
+                try Self.png(close).write(to: output.appending(path: "\(state.name)-dialog@3x.png"))
+                flow.click(book.book.scenes[1].id, .single)
+            }
+            flow.cancel()
+        }
+    }
+
     /// `sheet` attached to the window `base` draws, at 1×, 2× and 3×, as the shipped chooser is.
     private static func renderAsSheet(
         _ sheet: some View, over base: some View, name: String, caption: String, to output: URL

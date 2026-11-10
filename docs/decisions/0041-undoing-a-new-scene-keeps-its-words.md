@@ -1,7 +1,7 @@
 # 0041 — Undoing a new scene keeps its words in the Deleted section
 
-**Status:** Proposed (2026-11-08, a default decision on #28, with the coordinator's call on titles; for
-the owner's review). Extends PLAN §8.6 and [0031](0031-boneyard-delete-hides.md).
+**Status:** Accepted (2026-11-09, the owner). Proposed 2026-11-08 as a default decision on #28, with
+the coordinator's call on titles. Extends PLAN §8.6 and [0031](0031-boneyard-delete-hides.md).
 
 ## Decision
 Adding a scene (the Scenes sheet's + New scene and its dashed tile, #28) is one step on

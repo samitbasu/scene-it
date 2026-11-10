@@ -28,7 +28,7 @@ final class ExportFlow {
 
     func begin() {
         guard choice == nil else { return }
-        choice = ExportChoice(story: book.book.scenes)
+        choice = ExportChoice(book: book.book)
     }
 
     func cancel() {
@@ -118,7 +118,8 @@ struct ExportChooserDialog: View {
     var body: some View {
         WindowDialog(
             icon: "square.and.arrow.up.fill", title: ExportWording.dialogTitle,
-            explanation: ExportWording.dialogExplanation
+            explanation: ExportWording.dialogExplanation,
+            notes: flow.choice.map(ExportWording.notes(for:)) ?? []
         ) {
             if let choice = flow.choice {
                 ExportSceneList(flow: flow, choice: choice)

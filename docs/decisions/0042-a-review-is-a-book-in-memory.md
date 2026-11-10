@@ -1,7 +1,7 @@
 # 0042 — A review is a book in memory; the document decides what changes and where it saves
 
-**Status:** Accepted (2026-11-08, #80), with default decisions taken while the owner was away (listed
-in the PR, for the owner's review). Implements Review Book… from [ADR 0029](0029-review-round-trip.md)
+**Status:** Accepted (2026-11-08, #80), with default decisions taken while the owner was away; the owner
+accepted those defaults on 2026-11-09, the lock trade-off (decision 9) included. Implements Review Book… from [ADR 0029](0029-review-round-trip.md)
 and the review format's §3–§4 and §9 Q9 ([`review-format.md`](../format/review-format.md)).
 
 ## Context
@@ -72,10 +72,11 @@ parallel "open review" type would have forked every one of them.
    `Reviews/Copies/<export id>.lock`, keyed by its copy, so two new reviews of one copy on this Mac
    can't both be edited; at its first save it takes its own lock before its file appears, then lets
    the copy's go. Application Support is local, so there's no lock record and no Open Anyway.
-   **Trade-off for the owner to review:** this lock protects only within one user account on one
+   **Trade-off:** this lock protects only within one user account on one
    Mac. A review file in a shared or synced folder opened by another user, or on another Mac, isn't
    locked out; ADR 0018's change detection (decision 8) is what keeps both versions then. A lock
    beside the copy would cover those cases at the price of a second file in the reader's folder.
+   The owner accepted this trade-off as is (2026-11-09).
 
 ## Not in this change
 - Reviews aren't in Recent Books; Review Book… opens them again.

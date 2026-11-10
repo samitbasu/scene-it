@@ -435,7 +435,13 @@ only these, add `-only-testing:SceneItTests/WindowRenders/commentsPanel\(\)`.
 and 2× beside `14-file-a-copy-dialog.png`, with a `-dialog@3x.png` close-up; and the save-panel
 accessory alternative alone (`export-c-panel-accessory`, 1× and 2×), since the system panel around it
 can't be drawn offscreen. To render only these, add
-`-only-testing:SceneItTests/WindowRenders/exportChooser\(\)`.
+`-only-testing:SceneItTests/WindowRenders/exportChooser\(\)`. `exportChooserNote` (#155) renders the
+shipped sheet's notes about text Scene It couldn't read into the same subfolder. Over a book whose
+second scene holds an `### Unparsed` line: `export-note-shown` (all ticked, so the scenes' line shows)
+and `export-note-hidden` (that scene unticked). Over the same book with a line of the book's own too:
+`export-note-both` (both lines) and `export-note-book` (the scene unticked, so only the book's line).
+Each is at 1× and 2× beside `14-file-a-copy-dialog.png`, with a `-dialog@3x.png` close-up; add
+`-only-testing:SceneItTests/WindowRenders/exportChooserNote\(\)`.
 
 `scenesSheet` renders the Scenes sheet (#28, `ScenesSheetRenders.swift`) into a `scenes/` subfolder, at 1× and
 2× and beside mockup 07, 08 or 09: the recommended look as `final-scenes-cards`, `final-scenes-cards-tagging`

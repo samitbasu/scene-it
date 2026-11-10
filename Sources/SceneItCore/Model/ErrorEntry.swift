@@ -6,6 +6,15 @@ public enum ErrorTag: String, CaseIterable, Hashable, Sendable {
     case marks
     case line
     case notice
+
+    /// The entry holds text from the file Scene It couldn't read, rather than a note about a
+    /// repair it made.
+    public var holdsUnreadableText: Bool {
+        switch self {
+        case .frontMatter, .metadata, .comments, .marks, .line: true
+        case .notice: false
+        }
+    }
 }
 
 /// A line the parser couldn't understand, or a note about a repair it made: one row of the
