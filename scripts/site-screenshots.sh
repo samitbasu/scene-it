@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # site-screenshots.sh [<render folder>]: renders the website's screenshots with the `site` test
 # (SceneItTests/SiteRenders.swift) and writes each as a 256-color PNG into site/images/. The
-# renders and the test's log go in <render folder>, build/site-renders by default.
-# .github/workflows/site-screenshots.yml runs this too, so a developer and CI take the same steps.
+# renders and the test's log go in <render folder>, build/site-renders by default. Images the test
+# no longer renders are left in site/images/ for a person to delete.
 set -euo pipefail
 
 usage() {
@@ -49,6 +49,7 @@ rendered=("$renders"/*@2x.png)
 
 for render in "${rendered[@]}"; do
     name=$(basename "$render" @2x.png)
-    magick "$render" -strip -dither None -colors 256 "PNG8:site/images/$name.png"
+    magick "$render" -strip -dither None -colors 256 "PNG8:$render_folder/$name.png"
+    mv "$render_folder/$name.png" "site/images/$name.png"
     echo "site/images/$name.png"
 done

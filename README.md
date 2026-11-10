@@ -42,8 +42,7 @@ Justfile                   optional shortcuts for the scripts (see Scripts)
 docs/                      decisions, workflow, tutorials
 design/icon/               the app icon's generator (writes SceneIt/AppIcon.icon)
 site/                      the download website: index.html, style.css, images/
-.github/workflows/         check.yml (the gate), pages.yml (deploys site/ to GitHub Pages),
-                             site-screenshots.yml (refreshes site/images/ by pull request)
+.github/workflows/         check.yml (the gate) and pages.yml (deploys site/ to GitHub Pages)
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
 ```
@@ -646,12 +645,15 @@ scripts/site-screenshots.sh /tmp/site-renders    # renders into a folder of your
    `<render folder>/xcodebuild.log`.
 2. Writes every `<render folder>/site/<name>@2x.png` the test rendered to `site/images/<name>.png` as a
    256-color PNG, which keeps each under 200 KB:
-   `magick <render> -strip -dither None -colors 256 "PNG8:site/images/<name>.png"`. The test decides which
+   `magick <render> -strip -dither None -colors 256 "PNG8:<temporary file>"`, then moved over
+   `site/images/<name>.png`, so a failed conversion leaves the tracked image as it was. The test decides which
    screenshots exist; the script doesn't list them. `site/images/app-icon.png` isn't a render and is left alone.
+   The script never deletes an image: if the test stops producing a screenshot, delete its `site/images/` file
+   by hand.
 
 The optional argument is the render folder, relative to the current folder (default: `build/site-renders` in the
-repository). [`.github/workflows/site-screenshots.yml`](#website) runs the same script on GitHub's runner.
-**Output:** the path of each image written, one per line; review the change with `git status site/images`.
+repository). **Output:** the path of each image written, one per line; review the change with
+`git status site/images`.
 **Output on failure:** exit status 1 and `site-screenshots.sh: the site render failed (full log: <render
 folder>/xcodebuild.log)` followed by the log's error lines, or a message that ImageMagick is missing or that the
 test rendered nothing. More than one argument, or one starting with `-`, prints the usage and exits 2.
@@ -772,23 +774,8 @@ asset of that name in the newest release
 
 **Screenshots.** `scripts/site-screenshots.sh` renders them with the `site` test and writes them into
 `site/images/` as 256-color PNGs (see [its section](#scriptssite-screenshotssh-refresh-the-websites-screenshots)).
-[`.github/workflows/site-screenshots.yml`](.github/workflows/site-screenshots.yml) runs it on GitHub's runner
-when a release is published, so the pictures match each shipped version, or by hand (Actions → site screenshots
-→ Run workflow, which renders the branch chosen there). If any image changed, it pushes them to a branch
-`site-screenshots/<run id>` and opens a pull request, "Site: refresh screenshots", that names the commit they
-were rendered from; if none changed, the run ends with a notice. Two GitHub rules shape it:
-- A pull request opened with the workflow's `GITHUB_TOKEN` starts its `check` run only after someone with
-  write access chooses **Approve workflows to run** on it
-  ([Triggering a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
-  Dispatching `check.yml` on the branch wouldn't help: checks from a `workflow_dispatch` run don't appear on the
-  PR or satisfy the required `check`
-  ([Troubleshooting required status checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)).
-  A change only to `site/images/` is docs-only for the gate, so the approved run takes a few minutes.
-- Opening the PR needs Settings → Actions → General → **Allow GitHub Actions to create and approve pull
-  requests**. While that's off, the branch is still pushed, and the run's warning and summary link to opening
-  the PR by hand (a PR you open starts `check` without approval).
-
-The runner's renders can differ from a Mac's, so look at the PR's images before merging.
+Run it on the Mac, review the image diff (`git status site/images`, then look at what changed), and commit the
+images. The owner chose local capture over a CI job on 2026-11-10.
 
 The app is light-only (`AppDelegate` sets the Aqua appearance), so there are no dark screenshots; the page itself
 follows the reader's light or dark setting. `site/images/app-icon.png` is the app icon's `Default`
