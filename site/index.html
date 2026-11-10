@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene It: write your novel one scene at a time</title>
+  <meta name="description" content="Scene It is a Mac app for writing a novel as an ordered list of scenes, on a manuscript page, with comments, filed copies and backups that keep your words safe.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/png" href="images/app-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the content</a>
+
+  <header class="hero">
+    <div class="wrap">
+      <img class="hero-icon" src="images/app-icon.png" width="160" height="160" alt="The Scene It app icon: a stack of index cards">
+      <h1>Scene It</h1>
+      <p class="tagline">Write your novel one scene at a time.</p>
+      <p class="no-ai"><a href="#no-ai">Written with AI help. No AI of its own. Needs no internet.</a></p>
+      <p>
+        <a class="download" href="https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg">Download for Mac</a>
+      </p>
+      <p class="requirements">Version 0.1.1 · macOS 26 or later · Apple silicon and Intel</p>
+      <p class="install">Free and open source. Open the disk image and drag Scene It to Applications.</p>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="feature" aria-labelledby="scenes">
+      <div class="wrap">
+        <div class="copy">
+          <h2 id="scenes">Write it scene by scene</h2>
+          <p>Your book is an ordered list of scenes, each on a manuscript page in Times New Roman, double-spaced. The Scenes sheet lays them out as cards: drag one to reorder the story, tag it, or start a new scene with its title.</p>
+          <p>Drag a scene you&rsquo;ve cut onto the Boneyard. It keeps its words, notes and comments, and you can drag it back whenever you change your mind.</p>
+        </div>
+        <figure>
+          <img src="images/scenes.png" width="2880" height="1800" loading="lazy" alt="The Scenes sheet: numbered cards for each scene, with titles, word counts, first lines and tags, and the Boneyard tray along the bottom holding two cut scenes.">
+        </figure>
+      </div>
+    </section>
+
+    <section class="feature" aria-labelledby="comments">
+      <div class="wrap">
+        <div class="copy">
+          <h2 id="comments">Comments in color</h2>
+          <p>Select some words and click Comment. The words are underlined in the comment&rsquo;s color, and where comments overlap their underlines stack, so none is hidden.</p>
+          <p>Click an underline to find its comment, or a comment to find its words. Search your comments by word, by color, or both: <code>#red ferry</code>.</p>
+        </div>
+        <figure>
+          <img src="images/comments.png" width="2880" height="1800" loading="lazy" alt="A scene on the page with words underlined in red, blue and purple, and the Comments panel beside it showing a card for each comment.">
+        </figure>
+      </div>
+    </section>
+
+    <section class="feature" aria-labelledby="cabinet">
+      <div class="wrap">
+        <div class="copy">
+          <h2 id="cabinet">File a copy, find it again</h2>
+          <p>File a Copy keeps a dated, tagged copy of the whole book in the File Cabinet, and its text never changes. Open any copy to read the book as it was then, and bring a scene from it back into your book.</p>
+          <p>Search looks through every filed copy at once, so the line you cut three drafts ago is still a search away.</p>
+        </div>
+        <figure>
+          <img src="images/cabinet.png" width="2880" height="1800" loading="lazy" alt="Search in the File Cabinet: the word letter found in every filed copy, grouped by the date each copy was filed and its tags, each copy marked as opening read-only.">
+        </figure>
+      </div>
+    </section>
+
+    <section class="feature" aria-labelledby="print">
+      <div class="wrap">
+        <div class="copy">
+          <h2 id="print">Print it, or send it to Word</h2>
+          <p>Print a scene or the whole manuscript in manuscript format. Or print it with your comments in a column beside the text, each one beside the line it&rsquo;s about, joined to its words by a line.</p>
+          <p>Export to Word saves a scene as a Word document. Tick Include comments, and your comments arrive as Word comments in the margin, ready for an editor to answer.</p>
+        </div>
+        <figure class="paper">
+          <img src="images/print.png" width="1584" height="1224" loading="lazy" alt="A printed landscape page: the scene double-spaced on the left, with underlined words, and its comments in a column on the right, each joined to its words by a thin line.">
+        </figure>
+      </div>
+    </section>
+
+    <section class="feature" aria-labelledby="read-aloud">
+      <div class="wrap">
+        <div class="copy">
+          <h2 id="read-aloud">Hear it read aloud</h2>
+          <p>Select a passage and press Play (&#9654;). Your Mac reads it aloud in its own voice and highlights each sentence as it goes, so you hear the rhythm your eye skims past.</p>
+        </div>
+        <figure>
+          <img src="images/read-aloud.png" width="2880" height="1800" loading="lazy" alt="Two paragraphs selected on the page while they are read aloud, the sentence being spoken highlighted in yellow, and the Stop button in the bar above the page.">
+        </figure>
+      </div>
+    </section>
+
+    <section class="safe" aria-labelledby="safe">
+      <div class="wrap">
+        <h2 id="safe">Your words are safe</h2>
+        <ul class="promises">
+          <li class="wide" id="no-ai">
+            <h3>Made with AI&rsquo;s help, with no AI of its own</h3>
+            <p>Scene It was written with the help of AI coding tools (<a href="https://claude.ai">Claude, from Anthropic</a>). The app itself has no AI of its own and never gives what you write to an AI service: Scene It never sends your words anywhere. Apple&rsquo;s Writing Tools and text predictions are switched off inside it. Spell checking and reading aloud come from macOS and run on your Mac; Apple may use on-device models for them, and nothing leaves your Mac. Scene It never needs an internet connection.</p>
+          </li>
+          <li>
+            <h3>Saved as you write</h3>
+            <p>Scene It saves two seconds after you stop typing, at least every thirty seconds while you type, and whenever you switch scenes or quit. Every save is checked by reading it back in before it&rsquo;s written, then swapped in whole, so the last good version is never half-overwritten.</p>
+          </li>
+          <li>
+            <h3>Backups at every scale</h3>
+            <p>Inside the book, Scene It keeps the three versions before the current one. As you save, it also takes snapshots and keeps at most one per ten minutes for the last day, one per day for a month, and one per week after that. They&rsquo;re copied outside the book too, in case the book itself is lost.</p>
+          </li>
+          <li>
+            <h3>Plain text you can open anywhere</h3>
+            <p>Your book is a <code>.sceneit</code> package, which Finder shows as one document. Choose Show Package Contents and you&rsquo;ll find the whole book in one Markdown text file, <code>book.md</code>, that any text editor can read, today or in twenty years.</p>
+          </li>
+          <li>
+            <h3>No scene is thrown away</h3>
+            <p>Cut scenes wait in the Boneyard. Even a scene you delete for good stays in the book&rsquo;s file, out of sight, and a filed copy&rsquo;s text never changes.</p>
+          </li>
+          <li>
+            <h3>Nothing leaves your Mac</h3>
+            <p>No account, no cloud, no tracking. Read aloud uses your Mac&rsquo;s own voices. If something goes wrong, Report a Problem drafts an email for you to send, and it never includes your writing.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>Scene It is free software under the <a href="https://github.com/samitbasu/scene-it/blob/main/LICENSE">MIT License</a>. Copyright &copy; 2026 Samit Basu.</p>
+      <p><a href="https://github.com/samitbasu/scene-it">Source code</a> · <a href="mailto:basu.samit@gmail.com?subject=Scene%20It%20feedback">Send feedback</a> · <a href="https://github.com/samitbasu/scene-it/issues">Technical bug reports (GitHub Issues)</a></p>
+    </div>
+  </footer>
+</body>
+</html>

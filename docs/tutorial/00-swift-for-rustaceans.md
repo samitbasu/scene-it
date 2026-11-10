@@ -360,7 +360,7 @@ final class StoreSketch {
 
 Associated types and constrained existentials look the way you'd expect.
 *Primary* associated types (`Archive<Entry>`) let you write `any Archive<E>`, the
-analogue of `dyn Iterator<Item = E>`:
+analog of `dyn Iterator<Item = E>`:
 
 ```swift
 public protocol Archive<Entry> {
@@ -577,7 +577,7 @@ final class SaveCoordinator {
 - `unowned let x: T` is a non-optional weak reference that **traps** if it's used
   after the object dies. Use it only when the referent provably outlives the
   holder (a child pointing at its owner). `unowned(unsafe)` is a raw pointer,
-  undefined behaviour after the referent is freed.
+  undefined behavior after the referent is freed.
 
   ```swift
   final class SceneCard {
@@ -813,7 +813,7 @@ compiler writing the message enum and the `await` on the reply.
 ### 8.3 `@MainActor`: thread confinement, checked
 
 `@MainActor` is a *global actor*: annotating a type puts all its members on the
-main thread's executor. PLAN §3 makes `BookStore` `@MainActor`. The Rust analogue
+main thread's executor. PLAN §3 makes `BookStore` `@MainActor`. The Rust analog
 is a `!Send` type confined to the UI thread, with one difference: in Swift you can
 *hold* a reference anywhere (a `@MainActor` class is implicitly `Sendable`), and
 the compiler checks each *access*:
@@ -1021,7 +1021,7 @@ struct TagEditor {
 ```
 
 SwiftUI's `@State`, `@Binding` and `@Environment` are property wrappers, and
-`$name` there projects a `Binding`. Rust has no direct analogue. The nearest is
+`$name` there projects a `Binding`. Rust has no direct analog. The nearest is
 a newtype with `Deref`, but the wrapper is invisible to the property's users.
 
 That invisibility is why CLAUDE.md prefers newtypes for constrained values. The

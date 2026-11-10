@@ -12,6 +12,8 @@ external mirror, and immutable filed copies.
 | [`docs/dev/WORKFLOW.md`](docs/dev/WORKFLOW.md) | How work is picked up, built, reviewed and merged |
 | [`docs/tutorial/`](docs/tutorial/) | Walkthrough of the app for Rust programmers new to Swift and macOS |
 | [GitHub issues](https://github.com/samitbasu/scene-it/issues) | Work queue, milestones M0–M7 |
+| [`site/`](site/) | The download website (see [Website](#website)) |
+| [`LICENSE`](LICENSE) | MIT License |
 
 ## Requirements
 
@@ -39,6 +41,8 @@ scripts/                   the scripts below; lib.sh holds shared paths and log 
 Justfile                   optional shortcuts for the scripts (see Scripts)
 docs/                      decisions, workflow, tutorials
 design/icon/               the app icon's generator (writes SceneIt/AppIcon.icon)
+site/                      the download website: index.html, style.css, images/
+.github/workflows/         pages.yml, which deploys site/ to GitHub Pages
 build/                     all build output (git-ignored)
 dist/                      release artifacts (git-ignored)
 ```
@@ -48,7 +52,7 @@ dist/                      release artifacts (git-ignored)
 All scripts are run from the repository root, use `bash` with `set -euo pipefail`,
 and exit non-zero on failure. **Status** shows whether a script exists yet. A
 script marked *planned* lands with the issue named, and its section is updated
-from the real behaviour when it merges.
+from the real behavior when it merges.
 
 ### `Justfile`: optional shortcuts
 
@@ -93,11 +97,11 @@ Takes no arguments. One environment variable: `CHECK_FULL=1` never skips the bui
 (see docs-only changes below). The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
-runs steps 1–6 in order, stopping at the first failure. If they pass, it runs steps 7 and 8
+runs steps 1–7 in order, stopping at the first failure. If they pass, it runs steps 8 and 9
 at the same time and waits for both:
 
 1. `scripts/test-guards.sh` and `scripts/test-lib.sh` (below): check that the source guards
-   in steps 2–5 reject and accept what they should, and that the gate's own helpers
+   in steps 2–6 reject and accept what they should, and that the gate's own helpers
    (the stale-build check and the cleanup on a timeout or an interrupt) work.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
@@ -111,11 +115,21 @@ at the same time and waits for both:
    Crash reports, which problem reports include verbatim, quote these messages.
 5. **Exit-test guard:** fails on `processExitsWith`, `exitsWith:` or `ExitTest`. A Swift
    Testing exit test's child process launches as the real app, against the owner's real data (#120).
+6. **No-AI guard:** fails on an `import` of a machine-learning, language or AI framework
+   (`CoreML`, `CreateML`, `NaturalLanguage`, `FoundationModels`, `Speech`, `Translation`, `Vision`,
+   `VisionKit`, `ImagePlayground`, `SoundAnalysis`), of Siri's (`AppIntents`, `Intents`) or of a
+   networking one (`Network`, `CFNetwork`, `CloudKit`); on `URLSession`, `URLRequest`, `URLProtocol`,
+   `NWConnection`, `NWListener`, `NWBrowser`, `NSURLConnection`, `CKContainer`, `CFStream…`, `CFSocket…` or
+   `NSLinguisticTagger`; and on `Data(contentsOf:` or `String(contentsOf:` with a `URL(string: "<scheme>://`.
+   `import WebKit` fails under `SceneIt/` and `Sources/` (the tests may render with it).
+   `SceneItTests/HTMLPasteTests.swift` may use `URLRequest` and `URLProtocol`, to record requests and prove
+   there are none; everything else is refused there too.
+   Scene It's text never reaches a language model or the network (ADR 0049).
 
-   Steps 2–5 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
+   Steps 2–6 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
    ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
    for each hit.
-6. `swift format lint --strict --recursive` over those paths, using `.swift-format`. Then, if
+7. `swift format lint --strict --recursive` over those paths, using `.swift-format`. Then, if
    `site/index.html` exists, `check_html` from `scripts/lib.sh` (step `site-html`): every
    element other than a void one (`br`, `img`, `meta`…) must be closed by its own end tag,
    while it's the innermost open element; a self-closed `<div/>` doesn't count. It runs
@@ -123,14 +137,14 @@ at the same time and waits for both:
    `file:line: error: …` for each mismatched, unclosed or self-closed tag.
 
    Then, if the change is docs-only (below), check.sh stops here.
-7. `swift test` (SceneItCore unit tests; build output in `.build/`).
-8. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
+8. `swift test` (SceneItCore unit tests; build output in `.build/`).
+9. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests. Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 
-**Docs-only changes:** check.sh skips steps 7 and 8 when every path the checked-out commit
+**Docs-only changes:** check.sh skips steps 8 and 9 when every path the checked-out commit
 changes is documentation. It compares `HEAD` with its merge-base with
 `refs/remotes/origin/main`, which nothing overrides. The full name means a tag or local
 branch called `origin/main` can't stand in for it. It lists renamed files under both names. It then prints, on stdout,
@@ -160,13 +174,13 @@ check.sh: docs-only change since origin/main: skipping build and tests
   changed, as on `main` itself. Setting `CHECK_FULL=1` forces it. Nothing forces the docs-only
   path.
 
-Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
+Steps 8 and 9 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
 builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
 an incremental build on a quiet machine, and less when the machine is busy.
 
-**Stale builds:** before steps 7 and 8, check.sh deletes a build folder it can't trust, so
+**Stale builds:** before steps 8 and 9, check.sh deletes a build folder it can't trust, so
 that step builds from clean (ADR 0008). Otherwise the builds are incremental. A clean build
-adds about 30 s to each of steps 7 and 8. A folder is trusted when its `scene-it-build-inputs`
+adds about 30 s to each of steps 8 and 9. A folder is trusted when its `scene-it-build-inputs`
 record matches its inputs, and its build database (`…/XCBuildData/build.db`) is no newer than
 that record. A folder with build output but no database at that path isn't trusted, so a
 change of build system that moves the database shows up as a clean build on every run, never
@@ -196,14 +210,14 @@ as a check that silently stops working.
 - If the check itself fails (no toolchain, or not in a git checkout), check.sh prints
   `check.sh: stale-build check failed: <reason>` and exits 1.
 
-Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
+Each step has a wall-clock limit: 5 minutes for steps 1–7, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
 check.sh kills two sets of processes: the step's own process tree, and any process that runs
 something from the step's own build folder (`.build/` for `swift test`, `build/` for
-xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`.
+xcodebuild, either for steps 1–7), started while the step ran, and isn't `Scene It.app`.
 That spares a Debug app or an IDE build that was already running, and an app the step didn't
-start itself. So a timeout in one of steps 7 and 8 never kills the other. Before it kills
+start itself. So a timeout in one of steps 8 and 9 never kills the other. Before it kills
 them, check.sh samples up to four of them that are test runners (`swiftpm-testing-helper`,
 an `.xctest` bundle or a test host app), all at once, for 3 seconds, into
 `build/check/<step>-hang-<pid>.txt`. It then stops each one (`SIGSTOP`), lists them again
@@ -219,15 +233,15 @@ own process tree is spared on purpose: it might be the writer's own Debug run.
 
 **Output on failure:** exit status 1, and on stderr, for each failed step:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
-`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. Steps 7
-and 8 don't stop at the first failure: each failed one is reported. `swift-test`'s report
+`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. Steps 8
+and 9 don't stop at the first failure: each failed one is reported. `swift-test`'s report
 prints as soon as it ends; xcodebuild's prints once both have finished.
 A step that ran out of time adds `error: still running after <n> min (or s), so it was killed: <command>`
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
 **Products:** one log per step in `build/check/` (`guard-tests.log`, `lib-tests.log`, `textkit1-guard.log`,
-`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `lint.log`, `site-html.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
+`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `no-ai-guard.log`, `lint.log`, `site-html.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
 `build/DerivedData/Build/Products/Debug/Scene It.app`, and each build folder's
 `scene-it-build-inputs` (above). All of `build/` except
@@ -387,8 +401,8 @@ Least covered files:
 …
 
 Skipped under coverage (timing-sensitive): ScalingTests PerformanceTests
-Core HTML: /Users/samitbasu/Devel/scene-it/build/coverage/core-html/index.html
-App result bundle: /Users/samitbasu/Devel/scene-it/build/coverage/app.xcresult
+Core HTML: <repo>/build/coverage/core-html/index.html
+App result bundle: <repo>/build/coverage/app.xcresult
 ```
 
 **Output on failure:** exit status 1 and `coverage.sh: <step> failed (full log:
@@ -421,7 +435,8 @@ Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time lim
 the steps (never under two minutes). Those limits assume the scheme's cap of four hosted tests at
 a time (ADR 0039). A run that doesn't take the scheme's test action (an explicit `.xctestplan`,
 say) loses it; put `TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4` in front of the
-command to restore it. **Output:** the test results; a failure lists the last
+command to restore it. Such a run also loses the scheme's `-NSAutomaticWindowAnimationsEnabled NO`,
+without which every test window leaks a dispatch thread and a long run hangs (ADR 0050). **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
 
 ### A longer run of the formatting fuzz
@@ -608,6 +623,13 @@ Esc…" hint as focus mode begins), `focus-vs-normal.png` side by side, and `nor
 `focus-from-panel-collapsed`. It drives the app's own store, so it runs in `BookStoreIntegrationTests`: to
 render only these, use `-only-testing:SceneItTests/OneAtATime/BookStoreIntegrationTests/focusModeRenders\(\)`.
 
+`site` renders the website's screenshots (`SiteRenders.swift`) into a `site/` subfolder, at 2× only: `scenes`
+(the Scenes sheet and the Boneyard tray), `comments` (a commented page with a card selected), `cabinet` (Search's
+File Cabinet scope over five filed copies), `read-aloud` (two paragraphs being read) and `print` (the first page
+printed with comments). The book is the Scenes sheet's sample with a page-long ferry scene and nine comments. To
+render only these, add `-only-testing:SceneItTests/WindowRenders/site\(\)`; then see [Website](#website) for
+copying them into `site/images/`.
+
 ### `scripts/release.sh`: build a distributable app
 
 **Status:** available. The default mode also needs the `scene-it-notary` profile
@@ -676,9 +698,9 @@ reports it as *Unnotarized Developer ID* and blocks it once. A stopgap only.
 `build/release/`, and the archive copy. For example:
 
 ```
-/Users/samitbasu/Devel/scene-it/dist/Scene It 0.1.0-unnotarized.zip
-/Users/samitbasu/Devel/scene-it/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
-/Users/samitbasu/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
+<repo>/dist/Scene It 0.1.0-unnotarized.zip
+<repo>/build/release/0.1.0-26-unnotarized/Scene It.xcarchive/dSYMs/Scene It.app.dSYM
+~/Library/Developer/Xcode/Archives/2026-11-01/Scene It 0.1.0-26-unnotarized.xcarchive
 ```
 
 **Output on failure:** exit status 1 and, on stderr, `release.sh: <step> failed (full log:
@@ -706,6 +728,130 @@ login keychain, never in the repository.
 xcrun notarytool store-credentials scene-it-notary --apple-id <your Apple ID email> --team-id 8H6754RJ2W
 ```
 
+## Website
+
+**Status:** draft, not live. `site/` is one hand-written page (`index.html`, `style.css`, `images/`) with no
+build step, no JavaScript and nothing loaded from other servers. It will be served by GitHub Pages at
+**scene-it.net** once the repository is public and the steps below are done. To preview it, open
+`site/index.html` in a browser. `scripts/check.sh` checks that its tags balance (`site-html`), and
+a change only to `site/` is docs-only for the gate: nothing builds or tests read it.
+
+**Download link.** The page's button points at
+`https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg`, which GitHub redirects to the
+asset of that name in the newest release
+([Linking to releases](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)).
+`release.sh` names its DMG `dist/Scene It <version>.dmg`, with spaces, so every release must upload a copy named
+`Scene-It.dmg`. The page's "Version 0.1.1" line is edited by hand at each release.
+
+**Screenshots.** Render them with the `site` test (see [Rendering the window for
+review](#rendering-the-window-for-review)), then copy them into `site/images/` as 256-color PNGs, which keeps each
+under 200 KB (ImageMagick, `brew install imagemagick`):
+
+```sh
+for name in scenes comments cabinet read-aloud print; do
+    magick "/tmp/window-renders/site/$name@2x.png" -strip -dither None -colors 256 "PNG8:site/images/$name.png"
+done
+```
+
+The app is light-only (`AppDelegate` sets the Aqua appearance), so there are no dark screenshots; the page itself
+follows the reader's light or dark setting. `site/images/app-icon.png` is the app icon's `Default`
+rendition at 384 × 384 px, exported with `ictool` as in [Regenerating the app icon](#regenerating-the-app-icon)
+(`--output-file site/images/app-icon.png --rendition Default --width 384 --height 384`); re-export it when the icon
+changes.
+
+**Deployment.** [`.github/workflows/pages.yml`](.github/workflows/pages.yml) uploads `site/` with
+`actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages`, on every push to `main`
+that changes `site/`, or by hand (Actions → Pages → Run workflow). Until Pages is enabled it can't deploy: its
+runs, including the one after this lands on `main`, fail harmlessly at `configure-pages`.
+
+### Going live (once)
+
+The order matters: GitHub asks for the domain to be added to the repository *before* the DNS records point at
+it, and recommends verifying it first, so nobody else can claim it in between
+([Managing a custom domain](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site),
+[Verifying your custom domain](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/verifying-your-custom-domain-for-github-pages)).
+
+1. **Make the repository public**, then **enable Pages**: Settings → Pages → Build and deployment → Source:
+   **GitHub Actions**. Run the Pages workflow once (Actions → Pages → Run workflow); the site appears at
+   `https://samitbasu.github.io/scene-it/`.
+2. **Verify the domain** for your account (not the repository): profile picture → Settings → Pages → Add a
+   domain → `scene-it.net`. GitHub shows a TXT record, named `_github-pages-challenge-samitbasu.scene-it.net`,
+   with a value. Add it in Squarespace (step 4, type TXT, Name `_github-pages-challenge-samitbasu`), wait for it to
+   resolve (`dig TXT _github-pages-challenge-samitbasu.scene-it.net +short`), then click Verify. Leave the record
+   in place for good: removing it unverifies the domain.
+3. **Set the custom domain**: repository Settings → Pages → Custom domain → `scene-it.net` → Save. With a
+   GitHub Actions workflow this setting is what counts: GitHub ignores a `CNAME` file in that case
+   ([Troubleshooting custom domains](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/troubleshooting-custom-domains-and-github-pages)).
+   `site/CNAME` names the same domain as a record in the repository, and a branch source would read it if
+   the source were ever switched.
+4. **DNS at Squarespace Domains** (the registrar): Domains dashboard → `scene-it.net` → **DNS** in the side panel
+   ([Edit your domain's DNS records](https://support.squarespace.com/hc/en-us/articles/360002101888-Edit-your-domain-s-DNS-records)).
+   Every change asks for your password (and 2FA) again.
+   1. **Delete the Squarespace Defaults** that claim the same names: the four `A` records on `@`
+      (198.185.159.144, 198.185.159.145, 198.49.23.144, 198.49.23.145) and the `www` `CNAME` to
+      `ext-cust.squarespace.com`
+      ([the values](https://support.squarespace.com/hc/en-us/articles/360035485391-DNS-records-for-connecting-third-party-domains)).
+      Squarespace's docs don't say whether custom apex `A` records may sit beside its defaults, but if both were
+      kept, browsers would be sent to Squarespace's servers for some lookups, and a `www` `CNAME` can't share its
+      name with another record. Deleting the defaults disconnects the domain from any Squarespace site and
+      breaks Squarespace's PayPal Payment Links; nothing of ours uses either. Leave any email (`MX`, `TXT`)
+      records alone. (**Add preset → Squarespace defaults** puts them back.)
+   2. **Add custom records**
+      ([DNS records for web hosting](https://support.squarespace.com/hc/en-us/articles/31119879125645-DNS-records-for-web-hosting)),
+      with GitHub's current addresses (from *Managing a custom domain*, checked 2026-11-09):
+
+      | Type | Name | Data |
+      | --- | --- | --- |
+      | A | `@` | 185.199.108.153 |
+      | A | `@` | 185.199.109.153 |
+      | A | `@` | 185.199.110.153 |
+      | A | `@` | 185.199.111.153 |
+      | AAAA | `@` | 2606:50c0:8000::153 |
+      | AAAA | `@` | 2606:50c0:8001::153 |
+      | AAAA | `@` | 2606:50c0:8002::153 |
+      | AAAA | `@` | 2606:50c0:8003::153 |
+      | CNAME | `www` | `samitbasu.github.io` |
+
+      If Squarespace calls an IPv6 address invalid, enter it uncompressed, e.g.
+      `2606:50c0:8000:0000:0000:0000:0000:0153`. Squarespace can't put a `CNAME` on `@`, which is why the apex uses
+      `A`/`AAAA` records. Never add a wildcard (`*`) record: GitHub warns it invites domain takeovers.
+   3. Check: `dig scene-it.net +noall +answer -t A`, `dig scene-it.net +noall +answer -t AAAA` and
+      `dig www.scene-it.net +noall +answer` should show only GitHub's addresses. Squarespace's records have a 4-hour
+      TTL; changes can take up to 24–48 hours.
+5. **Turn on Enforce HTTPS** (Settings → Pages) once GitHub has issued the certificate; the box can take up to
+   24 hours to become available.
+
+**Primary domain: `scene-it.net`, the apex** (the owner's decision, 2026-11-09). `www.scene-it.net` redirects to
+it: with both sets of records above, GitHub creates that redirect by itself. The Custom domain field and
+`site/CNAME` both name the apex. The cost is that the apex is pinned to GitHub's four IP addresses, which GitHub
+could change one day; re-check them against *Managing a custom domain* if the site stops resolving.
+
+### Cutting a release for the site
+
+```sh
+scripts/release.sh                                   # dist/Scene It 0.1.1.dmg, notarized
+cp "dist/Scene It 0.1.1.dmg" dist/Scene-It.dmg       # the name the site links to
+shasum -a 256 dist/Scene-It.dmg | tee dist/Scene-It.dmg.sha256
+gh release create v0.1.1 dist/Scene-It.dmg dist/Scene-It.dmg.sha256 \
+    --title "Scene It 0.1.1" --notes "SHA-256: $(cut -d' ' -f1 dist/Scene-It.dmg.sha256)"
+```
+
+The asset's name comes from the file's name. `gh release create v0.1.1 "dist/Scene It 0.1.1.dmg#Scene-It.dmg"`
+would **not** work: the text after `#` is only the asset's display label
+([gh release create](https://cli.github.com/manual/gh_release_create)). GitHub would store the asset under the file's
+own name with its spaces rewritten as periods, `Scene.It.0.1.1.dmg` (it renames filenames with special or
+non-alphanumeric characters:
+[Upload a release asset](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset)), and the site's
+link would fail. Hence the copy to `Scene-It.dmg`. Publish the SHA-256 in the release notes and as the `.sha256`
+asset, so a reader can check the download with `shasum -a 256 Scene-It.dmg`.
+
+**Release checklist for the site:**
+- [ ] The build is universal; before a wide release, smoke-test the DMG on an Intel Mac (open, write, save, quit,
+      reopen), since the page promises "Apple silicon and Intel".
+- [ ] After `gh release create`, check the asset is named exactly `Scene-It.dmg` (`gh release view v0.1.1`) and that
+      `https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg` downloads it.
+- [ ] Update the "Version …" line on the page (`site/index.html`).
+
 ## Reading a problem report
 
 Writers send reports from **Help → Report a Problem…** to the address in
@@ -730,3 +876,7 @@ Release builds need their dSYM to symbolicate (`atos`). `scripts/release.sh` kee
 `open SceneIt.xcodeproj`, choose the **SceneIt** scheme, then press Run. New Swift
 files placed under `SceneIt/` are picked up automatically, so you never need to edit
 the project file to add sources.
+
+## License
+
+Scene It is released under the [MIT License](LICENSE). Copyright (c) 2026 Samit Basu.

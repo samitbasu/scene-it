@@ -24,7 +24,7 @@ the newest comment's color.
   always stays above the next line's slot and inside the paragraph's drawing surface. At 1x and 50%, for instance, 3 fit:
   zooming out takes a deep stack into the fallback sooner, which the owner accepted (#24).
   **Past the limit, the fallback applies to that stretch only**: one line, at the first level, in the newest covering
-  comment's colour.
+  comment's color.
 - **The notes have no comments** (ADR 0035), so nothing is drawn there.
 - **A misspelled commented word:** the spelling dots and the first line sit together, the dots over the line (rendered
   for the owner, #24); the placement (first line 3 pt below the baseline) is accepted as it is for now.
@@ -37,7 +37,7 @@ the newest comment's color.
 The owner judged two compare sheets. **The first round's sheet (candidates A to E) was invalid:** TextKit keeps a
 paragraph's layout fragment when its layout is invalidated, and the fragments then kept the style they were made with, so
 some paragraphs drew in another candidate's style. Fragments now read the palette from the delegate every time they draw
-(tested: a recolour reaches a fragment already laid out). The second round (A, B and two thinner candidates, F and G, drawn
+(tested: a recolor reaches a fragment already laid out). The second round (A, B and two thinner candidates, F and G, drawn
 correctly) chose F over a one-pixel hairline (G) and the earlier 1 pt / 2 pt-apart (A) and 1.5 pt (B) lines.
 
 ## Hit-testing (#24)
@@ -55,10 +55,10 @@ places the caret.
   (`NSTextLineFragment.characterIndex(for:)`), never `layoutManager`.
 
 ## Redrawing
-A change to the comments (a recolour, a comment added or taken away) lays out again only the paragraphs those comments
+A change to the comments (a recolor, a comment added or taken away) lays out again only the paragraphs those comments
 cover, and the page then marks those paragraphs, and nothing else, to be drawn again. Laying them out isn't enough:
 TextKit 2 draws each paragraph into a view of its own and keeps that drawing when only the fragment's layout is
-invalidated, so a recolour arriving through an undo, a redo or SwiftUI's update of the page showed the old colour
+invalidated, so a recolor arriving through an undo, a redo or SwiftUI's update of the page showed the old color
 until something else redrew the paragraph (#25, found in the owner's trial build). A paragraph's drawing surface
 reaches into the spacing below it only if it's commented.
 

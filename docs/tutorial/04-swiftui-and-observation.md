@@ -25,7 +25,7 @@ rail, page, right panel and status bar, with the rail's sheets over the page (th
 | [`SceneIt/Books/`](../../SceneIt/Books/) | the app side: `BookController` (panels), `BookCommands` (menus), `AlertPrompts` (`NSAlert`) |
 | [`SceneIt/AppDelegate.swift`](../../SceneIt/AppDelegate.swift) | launch, books from Finder, deactivation, quitting |
 
-The store lives in `SceneItCore`, which has no AppKit, so all of its behaviour is tested with
+The store lives in `SceneItCore`, which has no AppKit, so all of its behavior is tested with
 `swift test` ([`Tests/SceneItCoreTests/Store/`](../../Tests/SceneItCoreTests/Store/)). The app
 layer is thin, and its integration tests drive the real app
 ([`SceneItTests/BookStoreIntegrationTests.swift`](../../SceneItTests/BookStoreIntegrationTests.swift)).
@@ -266,7 +266,7 @@ last pass of "Open Other Version" (§5), so nothing typed can miss the copy.
 ### One book at a time, never switched in place (ADR 0038)
 
 A book is chosen on the start screen, and Close Book goes back there; while a book is open,
-nothing else opens. New Book… and Open Book… are greyed, and a book Finder or a second launch
+nothing else opens. New Book… and Open Book… are grayed, and a book Finder or a second launch
 sends is refused with an alert. Switching books is "Close Book, then choose".
 
 This came from a suspected leak (#88): closing a book in place could leave the old `OpenBook`
@@ -541,7 +541,7 @@ groups for ours:
 A menu action is synchronous, so anything async starts a `Task`. In the app target that
 `Task` inherits the main actor (ADR 0011), so it can call the store without hopping.
 `.disabled` reads `isChoosing`, which Observation tracks like any view input, so the items
-grey out the moment a book opens.
+gray out the moment a book opens.
 
 ### The window's state (#13)
 
@@ -582,7 +582,7 @@ key window, so the menu would do nothing while another window (the crash report,
 also can't be driven by a hosted test, whose windows are never really key. Format and Edit's items
 still use focused values for the page, which is about the focused editor.
 
-Toggle Right Panel is greyed out with no book open: `.disabled(books.store.current == nil)`.
+Toggle Right Panel is grayed out with no book open: `.disabled(books.store.current == nil)`.
 SwiftUI refreshes its menu items **lazily**, when AppKit asks a menu to update (the writer
 opening it, or a shortcut), not when the store changes. So a test that reads `isEnabled` right
 after opening a book sees the old value forever. The hosted test does what opening the menu

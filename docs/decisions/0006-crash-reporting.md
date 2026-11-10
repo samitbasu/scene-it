@@ -9,7 +9,7 @@ Use Apple frameworks only:
 - **MetricKit** (`MXMetricManager`) receives crash and hang diagnostics on later launches. They're saved to Application Support.
 - **Help → Report a Problem…** (offered automatically after a detected crash) builds a zip containing recent logs (via `OSLogStore`), MetricKit payloads, matching `.ips` files from `~/Library/Logs/DiagnosticReports`, the app and OS version, and a summary of settings. No manuscript text is included. The writer previews what's in the zip, and the app opens a prefilled email with the zip revealed in Finder to attach.
 
-The destination address is a pending decision (GitHub issue labelled `decision`).
+The destination address is a pending decision (GitHub issue labeled `decision`).
 
 ## Rust analogy
 `os.Logger` ≈ `tracing` with a system-wide collector. A crash `.ips` ≈ a

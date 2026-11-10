@@ -382,7 +382,7 @@ means the serializer wrote something the parser reads differently.
 The book comparison is the one the adversarial review added. Comparing bytes alone missed a
 lossy save: a run carrying a comment id that the scene's comment list doesn't have is
 written without it, so the bytes are perfectly stable, and the id is simply gone. Comparing
-the re-read book with the original (after merging neighbouring runs, which is the one
+the re-read book with the original (after merging neighboring runs, which is the one
 change the format makes on purpose) catches that whole class: whatever the file can't
 hold shows up as a refused save, never as a silently different book. Comparing `Book`s is
 safe here, despite `String ==`'s canonical equivalence (§2), because every string in the

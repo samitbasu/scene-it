@@ -48,9 +48,9 @@ A tutorial that paraphrases code drifts from it. These rules prevent that:
   `// DOES NOT COMPILE` were checked to fail with the quoted error. When the
   real model lands (#7), chapter 02 points
   at it, and anything in 00 that disagrees should be fixed in 00.
-- **Claims about behaviour are verified, not remembered.** Where a chapter says
+- **Claims about behavior are verified, not remembered.** Where a chapter says
   what the compiler or runtime does (a diagnostic, a trap, an encoding), that was
-  observed on this toolchain. Where behaviour depends on build settings, the
+  observed on this toolchain. Where behavior depends on build settings, the
   chapter says so and links the decision record that fixes the setting.
 
 ## Conventions

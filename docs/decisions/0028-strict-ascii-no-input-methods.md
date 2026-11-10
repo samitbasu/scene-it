@@ -1,6 +1,7 @@
 # 0028 — Strict ASCII text; no input methods on the page
 
 **Status:** Accepted (2026-11-03). **Supersedes the "Characters" section of [0022](0022-markdown-book-format.md)** (Latin-1).
+**Amended by [0049](0049-no-ai-or-language-model.md)** (2026-11-09): word predictions are off for good.
 Breaking change while undeployed; the file stays `format: 2`.
 
 ## Decision
@@ -62,7 +63,8 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   - `NSAutomaticTextCompletionEnabled` and `NSAutomaticInlinePredictionEnabled` set the spelling checker's switches.
     Text completion is the Touch Bar's list of candidate words (NSTextView's own `isAutomaticTextCompletionEnabled`,
     which stays on, only allows that list); it never changes the text unless the writer picks a word. Inline
-    prediction is the grey suggestion ahead of the caret.
+    prediction is the gray suggestion ahead of the caret. *Both are now off for good (ADR 0049; see
+    the amendment below).*
   - `NSAutomaticCapitalizationEnabled` and `NSAutomaticPeriodSubstitutionEnabled` are registered off, but they come
     from System Settings when it sets them, as it does on the owner's Mac; there they're on until the writer turns
     them off in System Settings.
@@ -83,3 +85,13 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   *History:* first the editors held every automatic change off for good, with hidden menu items and overridden
   switches (PR #128). The owner rejected that as fighting the OS ("The user can toggle spelling and substitutions
   themselves from the right click menu") and chose the standard menus with off-to-start values.
+
+## Amendment: word predictions are off for good (ADR 0049, 2026-11-09)
+Inline predictions and the Touch Bar's word candidates come from Apple's language models, and the
+owner wants Scene It's text never to reach one. So they are no longer the writer's to switch: every
+`KeyboardTextView` reports `inlinePredictionType` `.no` and `isAutomaticTextCompletionEnabled` `false`
+whatever sets them, and every other text view the focus reaches is given the same values
+(`FocusedTextWatch`). No Edit-menu or context-menu item switched either of them on this macOS, so no
+item had to go; System Settings' own switches no longer reach Scene It's text views. The two keys stay
+registered off in `AutomaticTextChanges.startingValues`, for any text view outside Scene It's windows
+(a system panel's field). Every other automatic change above is unchanged and still the writer's.

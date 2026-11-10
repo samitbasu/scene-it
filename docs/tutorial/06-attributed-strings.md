@@ -325,7 +325,7 @@ consequences are deliberate:
 - **Images are removed.** In an attributed string an image is an `.attachment`
   attribute on a U+FFFC OBJECT REPLACEMENT CHARACTER. The editors refuse images
   ([decision 0016](../decisions/0016-text-only-no-images.md)), and as a second line of
-  defence the codec deletes every U+FFFC, with or without an attachment, so an
+  defense the codec deletes every U+FFFC, with or without an attachment, so an
   invisible placeholder never reaches disk. `isObjectReplacement`, next to
   `isLineBreak`, is the one test for it:
 
@@ -335,7 +335,7 @@ consequences are deliberate:
 ```
 
 Runs that end up with the same `RunFormat` merge, and empty pieces are skipped, so
-the output has no empty runs and no two neighbouring runs alike. An empty paragraph
+the output has no empty runs and no two neighboring runs alike. An empty paragraph
 saves as zero runs, which is how the model writes a blank line. Text that leaves a
 single empty paragraph (empty text, or only a U+FFFC) saves as no paragraphs (`[]`),
 because loading `[]` and `[[]]` both give an empty string.

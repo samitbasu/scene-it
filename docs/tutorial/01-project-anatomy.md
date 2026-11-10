@@ -33,7 +33,7 @@ This is like a Cargo workspace where the binary crate needs a special bundler
 | `[lib]` | `.library(name:targets:)` product plus a `.target` |
 | `tests/` integration tests | `.testTarget`, in `Tests/<Name>/` by convention |
 | `edition = "2024"` | `swiftLanguageModes: [.v6]` |
-| `MACOSX_DEPLOYMENT_TARGET=26.0`, as honoured by `rustc` | `platforms: [.macOS(.v26)]`, the minimum OS the binary loads on |
+| `MACOSX_DEPLOYMENT_TARGET=26.0`, as honored by `rustc` | `platforms: [.macOS(.v26)]`, the minimum OS the binary loads on |
 | `#![deny(warnings)]` | `.treatAllWarnings(as: .error)` in `swiftSettings` |
 | `Cargo.lock` | `Package.resolved`. It doesn't exist yet because we have no dependencies. |
 | `pub` / `pub(crate)` | `public` / `internal` (the default) |
@@ -44,7 +44,7 @@ as if they were `pub(crate)` and the tests were in the same crate. `private`
 and `fileprivate` items stay hidden.
 
 Swift 6 language mode turns on *complete* data-race checking at compile time.
-It's the closest analogue to `Send`/`Sync` enforcement: sharing mutable state
+It's the closest analog to `Send`/`Sync` enforcement: sharing mutable state
 across concurrency domains is a compile error.
 
 ## The Xcode project
@@ -139,7 +139,7 @@ plutil -p "build/DerivedData/Build/Products/Debug/Scene It.app/Contents/Info.pli
 `assets/`: an `icon.json` and one SVG per layer in `Assets/`. It's the format of
 Icon Composer (in `Xcode.app/Contents/Applications/`). We don't draw finished
 pictures of the icon. We describe a stack of flat layers: the tile's fill, then
-groups of shapes, each with a colour per appearance (`fill-specializations`, here
+groups of shapes, each with a color per appearance (`fill-specializations`, here
 light and dark). The system adds the glass, the lighting and the shadows, and draws
 the tinted and clear versions itself, at whatever size it needs. So there is no
 per-size artwork: the 16 px icon in a Finder list is this same art, scaled.
@@ -218,7 +218,7 @@ it stays ad hoc.
 It prints nothing and exits 0 when green. Otherwise it prints the failing
 step's diagnostics and exits 1. Full logs are in `build/check/`.
 
-| Step | Cargo analogue |
+| Step | Cargo analog |
 | --- | --- |
 | grep for TextKit 1 APIs (`layoutManager`, `NSLayoutManager`, `usingTextLayoutManager: false`) in all Swift sources | a custom lint: any of them silently switches a text view to TextKit 1 (PLAN §2) |
 | `swift format lint --strict` with [`.swift-format`](../../.swift-format) | `cargo fmt --check` (plus a few style lints) |

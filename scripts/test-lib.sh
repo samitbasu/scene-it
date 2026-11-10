@@ -178,7 +178,7 @@ expect_failure 'with an unknown folder' prepare_build build/Elsewhere 'Xcode 2' 
 # --- The docs-only gate ---------------------------------------------------------------------
 
 for path in README.md CLAUDE.md LICENSE docs/decisions/0001-x.md docs/dev/WORKFLOW.md docs/user/guide.md \
-    site/index.html site/images/a.png design/icon/notes.txt design/icon/art.png \
+    site/index.html site/style.css site/CNAME site/images/scenes.png design/icon/notes.txt design/icon/art.png \
     novel-app-build-bundle/PLAN.md .github/PULL_REQUEST_TEMPLATE.md Docs/User/Guide.MD readme.md License; do
     is_docs_path "$path" || fail "is_docs_path took $path for code"
 done
@@ -188,7 +188,7 @@ for path in Package.swift Justfile .swift-format .gitignore Sources/SceneItCore/
     docs/format/book-format.md docs/tutorial/01-anatomy.md design/icon/generate.swift \
     novel-app-build-bundle/mockups/screenshots/01-main-window.png .github/actions/x/action.yml \
     unknown/README.md LICENSE.txt '"docs/caf\303\251.md"' .github/workflows/check.yml \
-    .github/workflows/pages.yaml docs/Tutorial/01-anatomy.md DOCS/FORMAT/book-format.md \
+    .github/workflows/pages.yml .github/workflows/pages.yaml docs/Tutorial/01-anatomy.md DOCS/FORMAT/book-format.md \
     Design/Icon/Generate.SWIFT Novel-App-Build-Bundle/Mockups/a.png tests/corpus/README.md; do
     ! is_docs_path "$path" || fail "is_docs_path took $path for docs"
 done

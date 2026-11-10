@@ -30,7 +30,7 @@ gh pr list                                                    # all open PRs
    every PR and on `main` (`.github/workflows/check.yml`); until then that workflow is skipped.
 5. Add or extend a tutorial chapter if the issue introduced a new Swift/macOS concept (see the issue's "Tutorial" line).
 6. If you added or changed a script, update its section in the top-level `README.md` (usage, example arguments, output products).
-7. Open a PR with `Closes #N` in the body. List any intentional behaviour changes or deviations from PLAN.
+7. Open a PR with `Closes #N` in the body. List any intentional behavior changes or deviations from PLAN.
 8. An independent reviewer (a fresh agent) reviews the PR against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings and re-run the gate.
 9. The **coordinating session** (not the implementing agent) squash-merges once the review is clean and it has re-run `scripts/check.sh` on the PR branch itself. Implementing agents never merge their own work. Work that depends on an unmerged PR may branch from that PR's branch, then rebase with `git rebase --onto origin/main <old-base-tip>` after the squash-merge.
 

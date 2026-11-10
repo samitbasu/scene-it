@@ -661,7 +661,7 @@ Where the volume can swap, this closes the window for writers that **rename a ne
 version into place**, which is what sync services and most editors do. A writer that
 already had `book.md` open and **edits it in place** can still write into the displaced
 file after the comparison, and that write is lost when the file is discarded. That window
-is small, and closing it would need a lock that other programs honour, which they don't.
+is small, and closing it would need a lock that other programs honor, which they don't.
 Two copies of Scene It can't get here: the book lock of §12 lets only one of them edit.
 
 ## 8. Permissions and locks

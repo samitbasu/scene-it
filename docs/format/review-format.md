@@ -7,7 +7,7 @@ format's rule applies unchanged.
 
 It covers four things:
 
-1. **The review copy** (§2): the single `.md` file **Export as SceneIt…** writes, and how Scene It recognises it.
+1. **The review copy** (§2): the single `.md` file **Export as SceneIt…** writes, and how Scene It recognizes it.
 2. **The review file** `<name>.review.md` (§3–§4): the reviewer's comments and notes, kept beside the copy, and how it
    finds its copy.
 3. **Copy Review** (§5–§6): the HTML and plain text put on the clipboard.
@@ -73,7 +73,7 @@ exported: 2026-11-03T10:15:00-08:00
 | --- | --- | --- |
 | `title` | As book format §1.5 | The author's book title, as it was at export |
 | `format` | `2` | The book format version. The copy follows it exactly. |
-| `export` † | An id: 1–64 characters from `A–Z a–z 0–9 _ -` (book format §2.2). Scene It writes a fresh 26-character ULID for **every export**. | The **export id**. It's what the copy is recognised by, and what its review file binds to (§4). Two exports of the same book, even of the same scenes a minute apart, have different export ids. |
+| `export` † | An id: 1–64 characters from `A–Z a–z 0–9 _ -` (book format §2.2). Scene It writes a fresh 26-character ULID for **every export**. | The **export id**. It's what the copy is recognized by, and what its review file binds to (§4). Two exports of the same book, even of the same scenes a minute apart, have different export ids. |
 | `exported` † | A timestamp (book format §2.2's `modified` format) | When the copy was exported. Informational only: shown when a review file belongs to another copy (§4.3). |
 
 **Written as:** `---⏎title: <title>⏎format: 2⏎export: <id>⏎exported: <timestamp>⏎---⏎`. The book format's canonical
@@ -95,7 +95,7 @@ It's written by the book serializer (book format §7.1), so it's canonical, and 
 and the same bytes. If verification fails, nothing is written. The file is written atomically to where the author
 chose; it isn't inside a package and isn't backed up.
 
-### 2.3 Recognising files on Review Book…
+### 2.3 Recognizing files on Review Book…
 
 Review Book… accepts a `.md` file and looks at its front matter (book format §1.5) to decide what it is †:
 
@@ -336,7 +336,7 @@ A scene with nothing in it isn't written; one with only notes has no Comments bl
 
 **Save verification** is book format §7.2 with the copy as context: let `b = serialize(review, copy)` and
 `p = parse(b, copy)`. The save may proceed only if `p`'s error entries are exactly the review's, `p` is the review
-(neighbouring runs of the same format merged), and `serialize(p, copy) == b` byte for byte. The autosave, rotation and
+(neighboring runs of the same format merged), and `serialize(p, copy) == b` byte for byte. The autosave, rotation and
 lock rules are the book's (ADR 0005, 0020, 0029); their placement for a file outside a package is §9 Q9.
 
 ---
@@ -384,7 +384,7 @@ re-anchoring (ADR 0022).
 
 ### 4.4 Opening a review file directly
 
-Review Book… on a review file `D/Y.review.md` (recognised by its `copy` key, §2.3) looks for its copy among the
+Review Book… on a review file `D/Y.review.md` (recognized by its `copy` key, §2.3) looks for its copy among the
 `.md` files in `D` that aren't review files: the one whose `export` equals the review's `copy`, preferring `Y.md`
 (the name without `.review`). If it's found, the copy opens **with this review**, even if §4.1 would have picked
 another match. If not, an alert says the copy it belongs to must be in the same folder; nothing opens.
@@ -421,7 +421,7 @@ For an anchored comment, let `T` be the copy scene's body plain text (book forma
 the comment's ranges: `s` the smallest start, `e` the largest end. (A review's comments normally have one range; the
 text between ranges of a hand-made list is marked as passage too.) The hull is taken over the characters the comment
 **covers**, which are never `\n` (book format §4.7), so a range written as starting or ending on a paragraph's `\n`
-quotes exactly as if it didn't: it doesn't pull in the neighbouring paragraph.
+quotes exactly as if it didn't: it doesn't pull in the neighboring paragraph.
 
 - **The quoted text** is `T[ps ..< pe]`: `ps` is the index just after the last `\n` before `s` (or 0), and `pe` is the
   index of the first `\n` at or after `e` (or the length of `T`). So it's the paragraph holding the passage, or, for a
@@ -840,7 +840,7 @@ Tests/Corpus/
   review-output/<case>/   copy.md, review.md, copied-at.txt, expected.html, expected.txt, expected-standalone.html
 ```
 
-`recognised.txt` holds the export id the copy is recognised by, or `not a review copy`. For `review/` cases the fresh
+`recognised.txt` holds the export id the copy is recognized by, or `not a review copy`. For `review/` cases the fresh
 review id comes from the corpus's id generator (`id-A0`, …); scene ids in copies never do (§2.4).
 
 ### A. Review copies (review-copy mode)

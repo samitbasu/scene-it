@@ -40,7 +40,7 @@ parallel "open review" type would have forked every one of them.
    0018's external-change detection and ADR 0019's backup policy) moved, unchanged, into
    `GuardedWrite`, parameterized by a `SavedFileLayout` (the file, and where its side files go). The
    editing lock (`flock` plus the network `LockRecord`) moved into `HeldLock`. `BookPackage` and the
-   new `ReviewFile` both use them; `BookPackage`'s behaviour and tests are unchanged, except that a
+   new `ReviewFile` both use them; `BookPackage`'s behavior and tests are unchanged, except that a
    lock taken on a path that then fails (a create that can't finish, a book that turns out read-only
    under the lock) now takes its `LockRecord` back out of `.lock` as it's dropped, as a lock released
    normally always did.
@@ -86,7 +86,7 @@ parallel "open review" type would have forked every one of them.
 - Stray temporary files a crash leaves beside a review file aren't swept.
 
 ## Learning notes
-The design is "one type, two capabilities" rather than "two types, one protocol": a Rust analogue is
+The design is "one type, two capabilities" rather than "two types, one protocol": a Rust analog is
 an `enum Document { Book(PackageLayout), Review(ReviewContext) }` field on the one session struct,
 with a single `fn accepts(&self, edit: EditKind) -> bool` every mutator calls, instead of a
 `trait Document` with two implementations that the UI would have to be generic over.
