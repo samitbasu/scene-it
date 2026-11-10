@@ -308,6 +308,7 @@ struct WindowRenders {
     /// `view` in an offscreen window of `windowSize`, laid out and drawn, for `capture`.
     static func withWindow<T>(
         _ view: some View, in windowType: NSWindow.Type = NSWindow.self,
+        size windowSize: CGSize = windowSize,
         preparing prepare: (NSWindow) async throws -> Void = { _ in }, capture: (NSWindow) throws -> T
     ) async throws -> T {
         let controller = NSHostingController(rootView: view)
