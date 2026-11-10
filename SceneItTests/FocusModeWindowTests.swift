@@ -209,7 +209,11 @@ extension OneAtATime {
 
                 harness.chrome.set(.off)
                 await settle(harness)
-                #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
+                let after = try harness.deskFrame
+                #expect(
+                    after == before,
+                    "DIAG the chrome is back exactly as it was: before=\(before) focused=\(focused) after=\(after) window=\(window.frame) content=\(window.contentLayoutRect) screens=\(NSScreen.screens.map(\.frame))"
+                )
                 #expect(harness.preferences.rightPanel == panel)
             }
         }
@@ -609,8 +613,19 @@ extension OneAtATime {
                 #expect(harness.window.makeFirstResponder(nil))
                 try #require(
                     harness.window.firstResponder === harness.window, "precondition: no view has the focus")
-                try press(.escape, in: harness.window)
-                #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
+                let diagEvent = try #require(
+                    NSEvent.keyEvent(
+                        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                        windowNumber: harness.window.windowNumber, context: nil, characters: "\u{1b}",
+                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+                let tookIt = harness.window.performKeyEquivalent(with: diagEvent)
+                if !tookIt { harness.window.sendEvent(diagEvent) }
+                let buttons = subviewTree(of: harness.window.contentView).map { String(describing: type(of: $0)) }
+                    .filter { $0.contains("Button") || $0.contains("Key") }
+                #expect(
+                    harness.chrome.focusMode == .off,
+                    "DIAG Esc leaves focus mode: keyEquivalentTook=\(tookIt) fr=\(String(describing: harness.window.firstResponder.map { type(of: $0) })) mode=\(harness.modes.mode) fallback=\(harness.window.hasEscapeFallback) buttons=\(buttons) sheet=\(String(describing: harness.window.attachedSheet))"
+                )
                 #expect(keys.lastEscape?.entrance == .window, "through the window to its fallback")
                 #expect(keys.lastEscape?.result == .close(.focusMode))
 

@@ -508,6 +508,10 @@ extension PageHarness {
         let router = try self.undo
         let wanted = UndoState(undo: undo.map { "Undo \($0)" }, redo: redo.map { "Redo \($0)" })
         await eventually { router.state == wanted }
-        #expect(router.state == wanted)
+        let s = book.structureUndo
+        #expect(
+            router.state == wanted,
+            "DIAG stack=\(router.stack) isStructure=\(router.manager === s) canUndo=\(s.canUndo) level=\(s.groupingLevel) byEvent=\(s.groupsByEvent) modes=\(s.runLoopModes) mainMode=\(String(describing: RunLoop.main.currentMode)) fr=\(String(describing: window.firstResponder.map { type(of: $0) })) active=\(NSApp.isActive) modal=\(String(describing: NSApp.modalWindow))"
+        )
     }
 }
