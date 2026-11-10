@@ -106,13 +106,15 @@ Scene It.app/
     │   ├── Scene It               the executable (Debug: a small launcher stub)
     │   ├── Scene It.debug.dylib   Debug only: the real code, for SwiftUI previews
     │   └── __preview.dylib        Debug only: the previews hook
+    ├── Resources/
+    │   ├── Assets.car             compiled asset catalog: the app icon's layers
+    │   └── AppIcon.icns           the icon, flattened, for older code paths
     └── _CodeSignature/
         └── CodeResources          hashes of every file in the bundle
 ```
 
-A Release build has just `MacOS/Scene It`. Later, resources (icons, asset
-catalogs) go in `Contents/Resources/`, and embedded frameworks go in
-`Contents/Frameworks/`. `SceneItCore` is linked statically, so it never appears
+A Release build has just `MacOS/Scene It` and `Resources/`. Embedded frameworks
+would go in `Contents/Frameworks/`. `SceneItCore` is linked statically, so it never appears
 as a separate file. In Release its code is inside `MacOS/Scene It`. In Debug, it
 is inside `Scene It.debug.dylib`, along with the rest of the app's code. When the tests run, Xcode also copies
 `SceneItTests.xctest` into `Contents/PlugIns/`, and the app loads it at launch.
@@ -130,6 +132,33 @@ build time, so the book type is always `<bundle id>.book`. Check the result with
 ```sh
 plutil -p "build/DerivedData/Build/Products/Debug/Scene It.app/Contents/Info.plist"
 ```
+
+## The app icon: an Icon Composer document
+
+[`SceneIt/AppIcon.icon`](../../SceneIt/AppIcon.icon) is a folder, like a crate's
+`assets/`: an `icon.json` and one SVG per layer in `Assets/`. It's the format of
+Icon Composer (in `Xcode.app/Contents/Applications/`). We don't draw finished
+pictures of the icon. We describe a stack of flat layers: the tile's fill, then
+groups of shapes, each with a colour per appearance (`fill-specializations`, here
+light and dark). The system adds the glass, the lighting and the shadows, and draws
+the tinted and clear versions itself, at whatever size it needs. So there is no
+per-size artwork: the 16 px icon in a Finder list is this same art, scaled.
+
+Because `SceneIt/` is a synchronized folder, the document is picked up as a
+resource with no pbxproj entry. The one setting that ties it in is
+`ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` on the app target. `actool`
+compiles the document into `Assets.car` (the layers, as vectors, for every
+appearance) and a flat `AppIcon.icns`, and writes `CFBundleIconName` and
+`CFBundleIconFile` into `Info.plist`. Look inside with:
+
+```sh
+xcrun assetutil --info "build/DerivedData/Build/Products/Debug/Scene It.app/Contents/Resources/Assets.car"
+```
+
+The document is generated: [`design/icon/generate.swift`](../../design/icon/generate.swift)
+draws the layers with Core Graphics paths and writes the SVGs and `icon.json`
+(README, "Regenerating the app icon"). Editing the document in Icon Composer works too,
+but the next regeneration overwrites it, so make lasting changes in the script.
 
 ## UTIs and the `.sceneit` package
 
