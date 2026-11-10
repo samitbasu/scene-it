@@ -1,6 +1,7 @@
 # 0039 — The hosted tests run at most four at a time
 
-**Status:** Accepted (2026-11-07), resolves #132
+**Status:** Accepted (2026-11-07), resolves #132. Amended by
+[0051](0051-tests-wait-their-turn-before-their-time-limit.md): the width is now 2.
 
 ## Decision
 The scheme's test action sets `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH = 4`, so Swift
