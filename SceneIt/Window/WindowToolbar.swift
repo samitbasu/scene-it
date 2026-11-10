@@ -1,9 +1,10 @@
 import SceneItCore
 import SwiftUI
 
-/// The window toolbar (PLAN §4.1). Undo and Redo go where `UndoRouter` says; Print and Export to
-/// Word go through the window's own flows, as the File menu does. File a copy… is only for a book
-/// open for editing and not being closed (`FilingFlow.canBegin`).
+/// The window toolbar (PLAN §4.1): Undo and Redo, the zoom menu, Print and Export to Word, and
+/// File a copy…, each group in its own glass capsule. Undo and Redo go where `UndoRouter` says;
+/// Print and Export to Word go through the window's own flows, as the File menu does. File a
+/// copy… is only for a book open for editing and not being closed (`FilingFlow.canBegin`).
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
     let store: AppBookStore
@@ -19,33 +20,23 @@ struct WindowToolbar: ToolbarContent {
                 .padding(.horizontal, 8)
         }
         .sharedBackgroundVisibility(.hidden)
-        ToolbarItem {
-            ControlGroup {
-                Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
-                    .help(undo.state.undo ?? WindowWording.undo)
-                    .disabled(undo.state.undo == nil)
-                Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
-                    .help(undo.state.redo ?? WindowWording.redo)
-                    .disabled(undo.state.redo == nil)
-            }
-            .disabled(!book.isEditable)
+        ToolbarItemGroup {
+            Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
+                .help(undo.state.undo ?? WindowWording.undo)
+                .disabled(undo.state.undo == nil || !book.isEditable)
+            Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
+                .help(undo.state.redo ?? WindowWording.redo)
+                .disabled(undo.state.redo == nil || !book.isEditable)
         }
+        gap
         ToolbarItem {
-            ControlGroup {
-                zoomButton(.zoomOut, systemImage: "minus")
-                Text(WindowWording.zoom(preferences.zoom))
-                    .monospacedDigit()
-                    .frame(minWidth: 44)
-                zoomButton(.zoomIn, systemImage: "plus")
-            }
+            ZoomMenu(preferences: preferences)
         }
-        ToolbarSpacer(.fixed)
-        ToolbarItem {
+        gap
+        ToolbarItemGroup {
             Button(WindowWording.print, systemImage: "printer") { printing.begin() }
                 .labelStyle(.titleAndIcon)
                 .disabled(!printing.canBegin)
-        }
-        ToolbarItem {
             Button(WindowWording.exportToWord, systemImage: "doc.text") {
                 Task { await wordExport.begin() }
             }
@@ -59,7 +50,7 @@ struct WindowToolbar: ToolbarContent {
 
     /// Hidden over a filed copy (PLAN §4.1).
     @ToolbarContentBuilder private var fileACopy: some ToolbarContent {
-        ToolbarSpacer(.fixed)
+        gap
         ToolbarItem {
             Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
                 .labelStyle(.titleAndIcon)
@@ -68,10 +59,11 @@ struct WindowToolbar: ToolbarContent {
         }
     }
 
-    private func zoomButton(_ step: ZoomStep, systemImage: String) -> some View {
-        Button(WindowWording.zoomStep(step), systemImage: systemImage) { preferences.zoom(step) }
-            .help(WindowWording.zoomStep(step))
-            .disabled(!preferences.canZoom(step))
+    /// Adjacent items share one glass capsule until a spacer. One fixed spacer leaves the capsules
+    /// nearly touching, so the gap between groups is two.
+    @ToolbarContentBuilder private var gap: some ToolbarContent {
+        ToolbarSpacer(.fixed)
+        ToolbarSpacer(.fixed)
     }
 }
 

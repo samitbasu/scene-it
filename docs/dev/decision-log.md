@@ -93,6 +93,7 @@ M6 can be reviewed in one place. M6's entries start at 38.
 | 79 | 2026-11-09 | #180 | behavior | A copy whose file can't be read is skipped with a note; a damaged or newer-format copy is still searched. Copies are read only once the first File Cabinet search runs; after that, a newly filed copy is read at once. | Skip newer-format copies; read every copy when the book opens | It searches what would open, and a writer who never searches the cabinet never pays. | `FiledCopyIndexes` |
 | 80 | 2026-11-09 | #180 | behavior | The Search sheet's query, options, scope, picker and range stay with the open book, across opening and closing a copy; they're lost when the book closes. | Reset each time | — | `OpenBook.searchSettings` |
 | 81 | 2026-11-10 | #196 | behavior | File → Export to Word… and the toolbar's Export to Word are disabled while the Scenes, Search or File Cabinet sheet, File a Copy's dialog, Export as SceneIt's chooser or the print dialog is up, as Print… already is. Both follow the main window, so a dialog up there disables them even when another window (Settings, say) is key. Before, the menu item stayed enabled under a rail sheet and under the print dialog, and followed the key window's dialogs. | Leave rail sheets and the print dialog out of Word's rule, as the menu had it | One rule (`OutputGate.isOpen`) for both outputs, so the toolbar's Print and Export to Word, side by side, never disagree; and neither starts while a sheet is on the window, so a save panel doesn't open over the print dialog. | Edit `WordExportFlow.canBegin`. |
+| 82 | 2026-11-10 | toolbar | owner/aesthetic | Toolbar layout C: Undo and Redo share one glass capsule (`ToolbarItemGroup`), the zoom is one pull-down titled with the zoom ("150%") listing `Zoom.steps` with the current one ticked, then Zoom In, Zoom Out and Actual Size, and Print and Export to Word share a labeled capsule. Two fixed spacers part the groups and File a copy…. This replaces PLAN §4.1's "− 100% +" stepper. Fit Width stays in the View menu only. Renders: `build/review/toolbar/toolbar-options.png` (and `-dark`), the pick `C-groups-zoom-menu.png` (and `-dark`), the result `final-light.png` and `final-dark.png`. | A: as before, a `ControlGroup` per group, which drew each button as its own circle (`A-current`). B: C's groups with the − 150% + stepper in one capsule (`B-groups`). D: C with icon-only Print and Export to Word (`D-icon-only`). | The owner's pick from the renders. Groups read as groups, and the zoom takes one slot. | `WindowToolbar`, `ZoomMenu` |
 
 ## What landed while the owner was offline (2026-11-08 → 09)
 
@@ -219,6 +220,12 @@ identical to main at 5ed80b6), with a throwaway book that has a few filed copies
     6. Tick Search tags and search a copy tag (for example `draft`): "Tags of this copy" groups appear.
     7. Tab reaches the picker and the date fields from the search field.
     8. In a copy opened from a result, open Search: only This scene and Whole book show, and a result opens in the copy with its match selected.
+14. **Toolbar (entry 82)**, in light and dark
+    1. Four capsules after the breadcrumb: Undo and Redo, the zoom, Print and Export to Word, then the blue File a copy…, as in `final-light.png`. Over a filed copy File a copy… is gone.
+    2. Click the zoom: the ladder from 50% to 300% with the current zoom ticked, then Zoom In, Zoom Out and Actual Size. Pick 150%: the page zooms and the button reads 150%. Pinch to an odd zoom: no step is ticked.
+    3. At 300%, Zoom In in the menu is dimmed; at 50%, Zoom Out. ⌘=, ⌘- and ⌘0 still zoom once per press.
+    4. Hover the zoom for its "Zoom" tooltip, and with VoiceOver on, it reads as Zoom with its value.
+    5. Narrow the window until items overflow into the » menu: the zoom shows there as a submenu.
 
 ## Decisions waiting for the owner (not made by default)
 

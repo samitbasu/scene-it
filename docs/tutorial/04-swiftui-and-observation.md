@@ -594,6 +594,49 @@ The right panel's open state and tab are **app preferences**, not book data (ADR
 test host and previews (chosen by `ProcessRole`, like `BookMemory`). Toggling the panel never
 marks the book unsaved.
 
+### The toolbar: glass capsules and the zoom menu
+
+The toolbar ([`Window/WindowToolbar.swift`](../../SceneIt/Window/WindowToolbar.swift)) is
+declared with `ToolbarContent`, a result builder like `body`'s: a small DSL whose output is a
+typed tree, closer to a macro expanding into nested generic types than to a `Vec` built at run
+time. SwiftUI turns that tree into AppKit `NSToolbarItem`s.
+
+On macOS 26 (Liquid Glass) the **toolbar**, not each control, draws the glass: a run of adjacent
+toolbar items shares one capsule, and a `ToolbarSpacer` ends the run. That is why the first
+layout looked wrong. Undo and Redo sat in a `ControlGroup`, which in Rust terms you'd expect to
+be "one value, drawn as one segmented control". But a `ControlGroup` is *one* toolbar item whose
+buttons the system draws as separate glass buttons, so Undo, Redo, −, 150% and + each came out
+as their own circle, while Print and Export to Word, two plain adjacent items, shared a capsule.
+The grouping the eye reads is the toolbar's, so the fix is to group at the toolbar level:
+
+```swift
+ToolbarItemGroup {
+    Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
+    Button(WindowWording.redo, systemImage: "arrow.uturn.forward") { undo.redo() }
+}
+gap
+ToolbarItem { ZoomMenu(preferences: preferences) }
+gap
+```
+
+`ToolbarItemGroup` isn't a container AppKit sees: it flattens into one `NSToolbarItem` per
+button (a hosted test lists them), and those items are adjacent, so they share a capsule. Two
+groups with nothing between them merge into one capsule. The gap is two `ToolbarSpacer(.fixed)`
+in a row, because one leaves the capsules nearly touching; it's one `@ToolbarContentBuilder`
+property, `gap`, so every gap is the same. Nothing draws glass by hand.
+
+The zoom is one `Menu` titled with the zoom ("150%"). It lists `Zoom.steps`, each a `Toggle`
+(a menu shows a toggle as a checkmark), then Zoom In, Zoom Out and Actual Size from
+`ZoomStepButtons`, the same view the View menu uses, so the two can't drift. Only the View
+menu's copy binds ⌘=, ⌘- and ⌘0 (`ZoomKeys.bound`); binding a shortcut twice would leave AppKit
+to pick which item answers it. Fit Width stays in the View menu: it needs the page's width,
+which the toolbar doesn't have.
+
+A hosted test can't click a SwiftUI toolbar control without synthesized input, but AppKit gives
+every toolbar item a `menuFormRepresentation`, the menu it shows when the item overflows, and
+SwiftUI builds the zoom item's from the same `Menu`. The test chooses from that menu, through the
+real actions.
+
 ### Remembering the last book
 
 The app isn't sandboxed, so the recent-books list is plain paths in `UserDefaults`, behind the
