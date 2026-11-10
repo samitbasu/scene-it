@@ -22,6 +22,9 @@ struct WindowToolbar: ToolbarContent {
                 .padding(.horizontal, 8)
         }
         .sharedBackgroundVisibility(.hidden)
+        if Self.justify == .trailingSpacer {
+            ToolbarSpacer(.flexible)
+        }
         switch Self.variant {
         case .current: current
         case .groups: groups(zoom: .stepper, output: .titleAndIcon)
@@ -64,47 +67,57 @@ struct WindowToolbar: ToolbarContent {
     enum Gap { case fixed, doubleFixed, flexible }
     static var gap: Gap = .fixed
 
+    enum Justify { case leading, trailingSpacer, primaryAction }
+    static var justify: Justify = .leading
+    private var placement: ToolbarItemPlacement { Self.justify == .primaryAction ? .primaryAction : .automatic }
+
+    enum FileACopyLook { case labeledBlue, iconBlue, iconInPill, iconOwnPill }
+    static var fileACopyLook: FileACopyLook = .labeledBlue
+
     @ToolbarContentBuilder private var groupGap: some ToolbarContent {
         switch Self.gap {
-        case .fixed: ToolbarSpacer(.fixed)
+        case .fixed: ToolbarSpacer(.fixed, placement: placement)
         case .doubleFixed:
-            ToolbarSpacer(.fixed)
-            ToolbarSpacer(.fixed)
-        case .flexible: ToolbarSpacer(.flexible)
+            ToolbarSpacer(.fixed, placement: placement)
+            ToolbarSpacer(.fixed, placement: placement)
+        case .flexible: ToolbarSpacer(.flexible, placement: placement)
         }
     }
 
     /// Each run of adjacent items shares one glass capsule; `ToolbarSpacer` ends a run.
     @ToolbarContentBuilder private func groups(zoom: ZoomControl, output: OutputLabels) -> some ToolbarContent {
-        ToolbarItemGroup {
+        ToolbarItemGroup(placement: placement) {
             undoButton
             redoButton
         }
         groupGap
         switch zoom {
         case .stepper:
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: placement) {
                 zoomButton(.zoomOut, systemImage: "minus")
                 zoomLabel
                 zoomButton(.zoomIn, systemImage: "plus")
             }
         case .menu:
-            ToolbarItem { zoomMenu }
+            ToolbarItem(placement: placement) { zoomMenu }
         }
         groupGap
         switch output {
         case .titleAndIcon:
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: placement) {
                 printButton.labelStyle(.titleAndIcon)
                 exportButton.labelStyle(.titleAndIcon)
             }
         case .iconOnly:
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: placement) {
                 printButton.labelStyle(.iconOnly).help(WindowWording.print)
                 exportButton.labelStyle(.iconOnly).help(WindowWording.exportToWord)
+                if Self.fileACopyLook == .iconInPill && book.document.kind != .filedCopy {
+                    fileACopyButton.labelStyle(.iconOnly).help(WindowWording.fileACopy)
+                }
             }
         }
-        if book.document.kind != .filedCopy {
+        if Self.fileACopyLook != .iconInPill && book.document.kind != .filedCopy {
             fileACopy
         }
     }
@@ -215,12 +228,22 @@ struct WindowToolbar: ToolbarContent {
     /// Hidden over a filed copy (PLAN §4.1).
     @ToolbarContentBuilder private var fileACopy: some ToolbarContent {
         groupGap
-        ToolbarItem {
-            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.borderedProminent)
-                .disabled(!filing.canBegin(in: store))
+        ToolbarItem(placement: placement) {
+            switch Self.fileACopyLook {
+            case .labeledBlue, .iconInPill:
+                fileACopyButton.labelStyle(.titleAndIcon).buttonStyle(.borderedProminent)
+            case .iconBlue:
+                fileACopyButton.labelStyle(.iconOnly).buttonStyle(.borderedProminent)
+                    .help(WindowWording.fileACopy)
+            case .iconOwnPill:
+                fileACopyButton.labelStyle(.iconOnly).help(WindowWording.fileACopy)
+            }
         }
+    }
+
+    private var fileACopyButton: some View {
+        Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
+            .disabled(!filing.canBegin(in: store))
     }
 
     private func zoomButton(_ step: ZoomStep, systemImage: String) -> some View {
