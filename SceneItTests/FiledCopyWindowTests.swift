@@ -239,7 +239,8 @@ extension OneAtATime {
         }
 
         /// Export to Word… while a copy shows exports the copy's scene, named for the copy, never
-        /// the book hidden under it (PLAN §7.5).
+        /// the book hidden under it (PLAN §7.5): the main window's flow, which the File menu and the
+        /// toolbar both use, is the copy's.
         @Test func exportToWordWhileACopyShowsExportsTheCopy() async throws {
             try await withTemporaryFolder { folder in
                 let books = BookController(role: .testHost)
@@ -258,15 +259,20 @@ extension OneAtATime {
                 #expect(await store.openFiledCopy(.first, of: book) == .opened)
                 let copy = try #require(store.shown)
                 try #require(copy !== book, "precondition: the copy shows")
-                let exported = try #require(books.wordExportScene)
-                #expect(exported.book === copy)
+                let window = await hostOffscreen(
+                    MainWindow(books: books), size: WindowMetrics.defaultSize,
+                    until: { _ in books.mainWindowChrome.wordExport?.book === copy })
+                defer { window.close() }
+                let flow = try #require(books.mainWindowChrome.wordExport)
+                #expect(flow.book === copy)
+                let exported = try #require(flow.scene)
                 #expect(
-                    WordExportWording.defaultFileName(scene: exported.scene, of: copy.document)
+                    WordExportWording.defaultFileName(scene: exported, of: copy.document)
                         == "The ferry, \(ArchiveWording.day(Self.record.filed)).docx")
                 let destination = folder.appending(path: "Filed.docx")
                 books.wordDestination = .fixed(destination)
 
-                #expect(await books.exportToWord() == .exported)
+                #expect(await flow.begin() == .exported)
 
                 let read = try NSAttributedString(
                     url: destination, options: [.documentType: NSAttributedString.DocumentType.officeOpenXML],
@@ -296,11 +302,17 @@ extension OneAtATime {
                 let comment = try #require(book.book.scene(scene)?.comments.first)
                 try #require(book.setText("Changed since.", ofComment: comment.id, in: scene))
                 #expect(await store.openFiledCopy(.first, of: book) == .opened)
-                try #require(store.shown !== book, "precondition: the copy shows")
+                let copy = try #require(store.shown)
+                try #require(copy !== book, "precondition: the copy shows")
+                let window = await hostOffscreen(
+                    MainWindow(books: books), size: WindowMetrics.defaultSize,
+                    until: { _ in books.mainWindowChrome.wordExport?.book === copy })
+                defer { window.close() }
+                let flow = try #require(books.mainWindowChrome.wordExport)
                 let destination = folder.appending(path: "Filed.docx")
                 books.wordDestination = .fixed(destination, choosing: .include)
 
-                #expect(await books.exportToWord() == .exported)
+                #expect(await flow.begin() == .exported)
 
                 let comments = try #require(
                     try OneAtATime.BookStoreIntegrationTests.exportedComments(destination))

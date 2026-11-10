@@ -163,7 +163,9 @@ The menu and the toolbar both go through the window's one `PrintFlow`. The toolb
 main window also registers it with `MainWindowChrome`, as it does its focus mode for the View menu,
 and File → Print… calls that. There's one book window (ADR 0038), so both print the book that window
 shows, as a sheet on that window, which the window reports through `WindowReporter`; and both are
-disabled while a rail sheet, a dialog or the print dialog itself is up. The dialog's end comes back
+disabled while a rail sheet, a dialog or the print dialog itself is up. What "a rail sheet or a dialog
+is up" means is one property, `WindowOverlays.noneUp`, which Export to Word's `WordExportFlow`
+reads too, so the two can't disagree about when the window is free. The dialog's end comes back
 through an Objective-C selector, `printOperationDidRun(_:success:contextInfo:)`,
 which is why `PrintFlow` is an `NSObject`.
 

@@ -13,7 +13,9 @@ struct BookWindow: View {
     @Binding var mode: WindowMode
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
+    @State private var overlays: WindowOverlays
     @State private var printing: PrintFlow
+    @State private var wordExport: WordExportFlow
     @State private var undo: UndoRouter
     @State private var pageFocus: PageFocus
     @State private var editors: SceneEditors
@@ -25,11 +27,12 @@ struct BookWindow: View {
     @State private var readAloud: ReadAloud
     let newBookDestination: SaveDestination
 
-    /// `readAloud` is the app's; without one, the window reads aloud to a recorder.
+    /// `readAloud` is the app's; without one, the window reads aloud to a recorder. `printing` and
+    /// `wordExport`, if given, are made with `overlays`.
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         mode: Binding<WindowMode>, filing: FilingFlow? = nil, export: ExportFlow? = nil,
-        printing: PrintFlow? = nil,
+        overlays: WindowOverlays? = nil, printing: PrintFlow? = nil, wordExport: WordExportFlow? = nil,
         search: SearchSheetModel? = nil, scenes: ScenesSheetModel? = nil, cabinet: FileCabinetModel? = nil,
         chrome: WindowChrome? = nil, readAloud: ReadAloud? = nil,
         newBookDestination: SaveDestination = .nowhere
@@ -44,7 +47,12 @@ struct BookWindow: View {
         _filing = State(initialValue: filing)
         let export = export ?? ExportFlow(book: book, destination: { .nowhere })
         _export = State(initialValue: export)
-        _printing = State(initialValue: printing ?? PrintFlow(book: book, filing: filing, export: export))
+        let overlays = overlays ?? WindowOverlays(filing: filing, export: export)
+        _overlays = State(initialValue: overlays)
+        _printing = State(initialValue: printing ?? PrintFlow(book: book, overlays: overlays))
+        _wordExport = State(
+            initialValue: wordExport
+                ?? WordExportFlow(book: book, store: store, overlays: overlays, destination: { .nowhere }))
         _search = State(initialValue: search ?? SearchSheetModel(book: book))
         _scenes = State(initialValue: scenes ?? ScenesSheetModel())
         _cabinet = State(initialValue: cabinet ?? FileCabinetModel())
@@ -118,7 +126,7 @@ struct BookWindow: View {
         .background(WindowEscapeFallback(keys: keys))
         .onChange(of: mode, initial: true) { old, new in
             undo.mode = mode
-            printing.windowMode = new
+            overlays.mode = new
             if new.isSheet { readAloud.stop() }
             if mode == .search { search.refresh() } else { search.close() }
             if mode != .scenes { scenes.close() }
@@ -153,7 +161,7 @@ struct BookWindow: View {
         .toolbar {
             WindowToolbar(
                 book: book, store: store, preferences: preferences, undo: undo, filing: filing,
-                printing: printing)
+                printing: printing, wordExport: wordExport)
         }
         .navigationTitle(book.book.title)
         .focusedSceneValue(\.filingFlow, filing)

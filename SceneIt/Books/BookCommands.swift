@@ -38,8 +38,8 @@ struct BookCommands: Commands {
                 .disabled(filing?.canBegin(in: books.store) != true || export?.choice != nil)
             Button(ExportWording.menuItem) { export?.begin() }
                 .disabled(export?.canBegin(in: books.store) != true || filing?.draft != nil)
-            Button(WordExportWording.menuItem) { Task { await books.exportToWord() } }
-                .disabled(books.wordExportScene == nil || filing?.draft != nil || export?.choice != nil)
+            Button(WordExportWording.menuItem) { Task { await books.mainWindowChrome.wordExport?.begin() } }
+                .disabled(books.mainWindowChrome.wordExport?.canBegin != true)
             Button(ReviewOutputWording.copyMenuItem) { books.copyReview() }
                 .disabled(books.shareableReview == nil)
             Button(ReviewOutputWording.saveMenuItem) { Task { await books.saveReview() } }

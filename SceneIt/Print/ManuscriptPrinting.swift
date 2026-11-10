@@ -9,10 +9,7 @@ import SwiftUI
 @Observable
 final class PrintFlow: NSObject {
     let book: AppOpenBook
-    private let filing: FilingFlow
-    private let export: ExportFlow
-    /// What the window shows over the book, kept up to date by the window.
-    var windowMode = WindowMode.page
+    private let overlays: WindowOverlays
     /// The window the dialog is a sheet of.
     @ObservationIgnored weak var window: NSWindow?
     /// The print dialog is up.
@@ -27,17 +24,15 @@ final class PrintFlow: NSObject {
             contextInfo: nil)
     }
 
-    init(book: AppOpenBook, filing: FilingFlow, export: ExportFlow) {
+    init(book: AppOpenBook, overlays: WindowOverlays) {
         self.book = book
-        self.filing = filing
-        self.export = export
+        self.overlays = overlays
     }
 
     /// Whether Print… can start: the book has something to print, and nothing else is up in the
     /// window, no rail sheet, dialog or print dialog.
     var canBegin: Bool {
-        ManuscriptPrinting.canPrint(book) && !isPrinting && !windowMode.isSheet && filing.draft == nil
-            && export.choice == nil
+        ManuscriptPrinting.canPrint(book) && !isPrinting && overlays.noneUp
     }
 
     func begin() {

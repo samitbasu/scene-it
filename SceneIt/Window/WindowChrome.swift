@@ -43,11 +43,16 @@ final class MainWindowChrome {
     private(set) var mode: Binding<WindowMode>?
     /// Its Print…, for File → Print…, so the menu and the toolbar print the same book.
     private(set) var printing: PrintFlow?
+    /// Its Export to Word…, for the File menu, so the menu and the toolbar export the same scene.
+    private(set) var wordExport: WordExportFlow?
 
-    func show(_ chrome: WindowChrome, mode: Binding<WindowMode>, printing: PrintFlow) {
+    func show(
+        _ chrome: WindowChrome, mode: Binding<WindowMode>, printing: PrintFlow, wordExport: WordExportFlow
+    ) {
         self.chrome = chrome
         self.mode = mode
         self.printing = printing
+        self.wordExport = wordExport
     }
 
     func gone(_ chrome: WindowChrome) {
@@ -55,6 +60,7 @@ final class MainWindowChrome {
         self.chrome = nil
         mode = nil
         printing = nil
+        wordExport = nil
     }
 }
 

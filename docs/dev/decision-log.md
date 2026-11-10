@@ -184,7 +184,7 @@ identical to main at 5ed80b6), with a throwaway book that has a few filed copies
    4. In Word, a new paragraph after the body is TNR 12 pt, double-spaced.
    5. Export from a read-only book, a review and a Boneyard scene: it works, and nothing in the book changes.
    6. Export over an existing .docx (replace in the save panel); a name ending in `.doc` is refused with the notice.
-   7. File → Export to Word… sits after Export as SceneIt… and is enabled only while a scene is open.
+   7. File → Export to Word… sits after Export as SceneIt… and is enabled only while a scene is open. The toolbar's Export to Word does the same, and both are disabled while the Scenes, Search or File Cabinet sheet, File a Copy's dialog or Export as SceneIt's chooser is up.
    8. In Word's Page Setup, note the page size and margins it opens with, and whether they suit a manuscript (entry 61).
    9. With Word in dark mode, uncolored text follows Word, and palette colors stay as they are.
 10. **File Cabinet sheet**
