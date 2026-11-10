@@ -118,7 +118,7 @@ struct ExportChooserDialog: View {
     var body: some View {
         WindowDialog(
             icon: "square.and.arrow.up.fill", title: ExportWording.dialogTitle,
-            explanation: ExportWording.dialogExplanation
+            explanation: ExportWording.dialogExplanation, note: flow.choice.flatMap(ExportWording.note(for:))
         ) {
             if let choice = flow.choice {
                 ExportSceneList(flow: flow, choice: choice)

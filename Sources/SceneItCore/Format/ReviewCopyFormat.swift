@@ -34,6 +34,12 @@ public struct ReviewCopy: Hashable, Sendable {
             })
     }
 
+    /// Whether exporting `scene` leaves out any of its error entries: its `### Unparsed` section,
+    /// the Errors tab's rows for it.
+    public static func leavesOutErrors(of scene: BookScene) -> Bool {
+        projected(scene).errors != scene.errors
+    }
+
     /// The copy a verified parse describes, for checking that it serializes to the same bytes.
     fileprivate init(rereading parsed: ParsedReviewCopy, as copy: ReviewCopy) {
         self.init(book: parsed.parsed.book, export: copy.export, exported: copy.exported)

@@ -44,11 +44,13 @@ extension OneAtATime.BookStoreIntegrationTests {
 
     /// Opens the sample in the app's own window; the chooser's flow, from the window's keys.
     @MainActor
-    private func openSample(in folder: URL, _ books: BookController) async throws -> (URL, NSWindow) {
+    private func openSample(
+        in folder: URL, _ books: BookController, _ sample: Book = sample()
+    ) async throws -> (URL, NSWindow) {
         let url = folder.appending(path: "Tide 79.sceneit", directoryHint: .isDirectory)
         #expect(await books.store.create(at: url) == .created)
         #expect(await books.store.closeBook() == .left)
-        try BookFormat.serialize(Self.sample()).write(to: url.appending(path: "book.md"), options: .atomic)
+        try BookFormat.serialize(sample).write(to: url.appending(path: "book.md"), options: .atomic)
         #expect(await books.store.open(url) == .opened)
         let window = try #require(books.mainWindow, "precondition: the app's main window")
         return (url, window)
@@ -168,6 +170,83 @@ extension OneAtATime.BookStoreIntegrationTests {
             #expect(flow.choice != nil, "and the chooser stays up")
             flow.cancel()
             await eventually { window.attachedSheet == nil }
+            #expect(await books.store.closeBook() == .left)
+            expectNoQuestions()
+        }
+    }
+
+    /// The sample with an `### Unparsed` line in its second scene, as a repaired book has.
+    private static let garbled = "@@ garbled 155 @@"
+    private static func sampleWithErrors() -> Book {
+        var book = sample()
+        book.scenes[1].errors = [ErrorEntry(.line, garbled)]
+        return book
+    }
+
+    /// The sheet's height as its content lays out: the note is a line of its own, so the sheet is
+    /// taller while it shows. The test host has no accessibility client, so SwiftUI's text itself
+    /// can't be read back.
+    @MainActor
+    private func height(of sheet: NSWindow) -> CGFloat {
+        sheet.frame.height
+    }
+
+    /// The note under the explanation follows the ticks, and what it warns of is what the export
+    /// leaves out.
+    @Test func theChooserSaysWhenTickedScenesHoldTextTheExportLeavesOut() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            try #require(books.store.isChoosing, "precondition: the start screen")
+            let destination = folder.appending(path: "Tide 79 for review.md")
+            books.exportDestination = .fixed(destination)
+            defer { books.exportDestination = .nowhere }
+            let (_, window) = try await openSample(in: folder, books, Self.sampleWithErrors())
+            try #require(
+                books.store.current?.book.errorGroups.map(\.owner) == [.scene(SceneID(rawValue: "s2"))],
+                "precondition: the Errors tab lists the second scene's entry")
+            await eventually { self.flow(in: window) != nil }
+            let flow = try #require(flow(in: window))
+
+            flow.begin()
+
+            await eventually { window.attachedSheet != nil }
+            let sheet = try #require(window.attachedSheet, "the chooser is the window's sheet")
+            let choice = try #require(flow.choice)
+            #expect(
+                flow.choice.flatMap(ExportWording.note(for:)) == ExportWording.errorsLeftOut, "all ticked")
+            let shown = height(of: sheet)
+            @MainActor func click(_ id: String) {
+                let current = flow.choice?.isTicked(SceneID(rawValue: id)) ?? false
+                ExportSceneList.ticked(SceneID(rawValue: id), in: flow, choice, modifiers: { [] })
+                    .wrappedValue = !current
+            }
+
+            click("s2")
+            #expect(flow.choice.flatMap(ExportWording.note(for:)) == nil, "the scene with the entry unticked")
+            await eventually { self.height(of: sheet) < shown }
+            let hidden = height(of: sheet)
+            #expect(hidden < shown, "the note's line left the sheet")
+
+            click("s1")
+            #expect(
+                flow.choice.flatMap(ExportWording.note(for:)) == nil, "another scene unticked: still none")
+            #expect(height(of: sheet) == hidden)
+
+            click("s1")
+            click("s2")
+            try #require(flow.choice?.allTicked == true, "precondition: all ticked again")
+            await eventually { self.height(of: sheet) == shown }
+            #expect(height(of: sheet) == shown, "ticked again: the note is back")
+
+            try press(.return, in: sheet)
+
+            await eventually {
+                FileManager.default.fileExists(atPath: destination.path(percentEncoded: false))
+            }
+            await eventually { window.attachedSheet == nil }
+            let text = String(decoding: try Data(contentsOf: destination), as: UTF8.self)
+            #expect(text.contains("Nobody met **her**."), "the scene with the entry was exported")
+            #expect(!text.contains(Self.garbled) && !text.contains("Unparsed"), "without the entry")
             #expect(await books.store.closeBook() == .left)
             expectNoQuestions()
         }

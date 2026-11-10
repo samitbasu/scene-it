@@ -72,6 +72,58 @@ struct ExportChoiceTests {
         #expect(choice.allTicked)
     }
 
+    /// Scenes 2 and 5 hold error entries, as a repaired book's `### Unparsed` sections do.
+    static func choiceWithErrors() -> ExportChoice {
+        let story = ids.enumerated().map { index, id in
+            var scene = BookScene(
+                id: id, modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle("S"))
+            if [1, 4].contains(index) { scene.errors = [ErrorEntry(.line, "garbled \(index)")] }
+            return scene
+        }
+        return ExportChoice(story: story)
+    }
+
+    @Test func theNoteShowsWhileATickedSceneHoldsErrorEntries() throws {
+        var choice = Self.choiceWithErrors()
+        try #require(choice.allTicked, "precondition: all ticked")
+        #expect(choice.leavesOutErrors, "all ticked")
+        #expect(ExportWording.note(for: choice) == ExportWording.errorsLeftOut)
+
+        choice.click(Self.ids[1], .single)
+        #expect(choice.leavesOutErrors, "some ticked: scene 5 still is")
+        choice.click(Self.ids[4], .single)
+        #expect(Self.ticked(choice) == [1, 3, 4, 6], "precondition: both scenes with entries unticked")
+        #expect(!choice.leavesOutErrors, "the scenes with entries are unticked")
+        #expect(ExportWording.note(for: choice) == nil)
+
+        choice.untickAll()
+        #expect(!choice.leavesOutErrors, "none ticked")
+        choice.click(Self.ids[4], .single)
+        #expect(choice.leavesOutErrors, "only a scene with entries ticked")
+    }
+
+    @Test func noNoteWithoutErrorEntries() {
+        var choice = Self.choice()
+        #expect(!choice.leavesOutErrors && ExportWording.note(for: choice) == nil, "all ticked")
+        choice.click(Self.ids[0], .single)
+        #expect(!choice.leavesOutErrors, "some ticked")
+        choice.untickAll()
+        #expect(!choice.leavesOutErrors, "none ticked")
+    }
+
+    @Test func theNoteFollowsWhatTheReviewCopyLeavesOut() {
+        var scene = BookScene(
+            id: Self.ids[0], modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle("S"))
+        #expect(!ReviewCopy.leavesOutErrors(of: scene))
+        scene.errors = [ErrorEntry(.notice, "repaired"), ErrorEntry(.line, "garbled")]
+        #expect(ReviewCopy.leavesOutErrors(of: scene))
+        let copy = ReviewCopy(
+            projecting: Book(title: "T", scenes: [scene]), chosen: [scene.id],
+            export: ExportID(rawValue: "e"),
+            exported: Timestamp(secondsSince1970: 0, offset: .zero))
+        #expect(copy.book.scenes.map(\.errors) == [[]], "precondition: the copy has none of them")
+    }
+
     @Test func aBookWithOneSceneSaysScene() {
         #expect(ExportWording.tickedCount(1, of: 1) == "1 of 1 scene")
     }

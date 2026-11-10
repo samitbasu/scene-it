@@ -65,6 +65,45 @@ extension WindowRenders {
         }
     }
 
+    /// The shipped chooser over a book whose second scene holds an `### Unparsed` line (#155):
+    /// all ticked, so the note under the explanation shows; then that scene unticked, so it doesn't.
+    @Test func exportChooserNote() async throws {
+        let output = try #require(renderFolder).appending(path: "export", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        var sample = Self.sampleBook()
+        sample.scenes[1].errors = [ErrorEntry(.line, "@@ a line Scene It couldn't read")]
+        try await withSampleBook(sample) { store, book, preferences in
+            let flow = ExportFlow(book: book, destination: { .nowhere })
+            flow.begin()
+            let window = BookWindow(
+                book: book, store: store, preferences: preferences,
+                formatting: EditorFormatting(preferences: preferences), mode: .constant(.page),
+                export: flow)
+            let damaged = book.book.scenes[1].id
+            for (name, caption, shows) in [
+                (
+                    "export-note-shown", "A ticked scene holds text the export leaves out: the note shows",
+                    true
+                ),
+                ("export-note-hidden", "That scene unticked: no note", false),
+            ] {
+                try #require(flow.choice?.leavesOutErrors == shows, "precondition: \(name)")
+                let (renders, close) = try await Self.withWindow(window) { window in
+                    let sheet = try #require(window.attachedSheet, "precondition: the chooser is a sheet")
+                    return (
+                        try Self.withSheet(window, sheet),
+                        Self.bitmap(of: try #require(sheet.contentView?.superview), scale: 3)
+                    )
+                }
+                try Self.write(
+                    renders, name: name, caption: caption, to: output, beside: Self.fileACopyMockup)
+                try Self.png(close).write(to: output.appending(path: "\(name)-dialog@3x.png"))
+                flow.click(damaged, .single)
+            }
+            flow.cancel()
+        }
+    }
+
     /// `sheet` attached to the window `base` draws, at 1×, 2× and 3×, as the shipped chooser is.
     private static func renderAsSheet(
         _ sheet: some View, over base: some View, name: String, caption: String, to output: URL

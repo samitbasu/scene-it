@@ -11,6 +11,8 @@ public struct ExportChoice: Hashable, Sendable {
 
     public let rows: [Row]
     public private(set) var ticked: Set<SceneID>
+    /// The scenes whose export would leave out error entries.
+    private let holdingErrors: Set<SceneID>
     /// Where a Shift-click's range starts: the last scene clicked.
     private var anchor: SceneID?
 
@@ -19,6 +21,7 @@ public struct ExportChoice: Hashable, Sendable {
             Row(id: scene.id, number: index + 1, name: WindowWording.sceneName(scene))
         }
         ticked = Set(rows.map(\.id))
+        holdingErrors = Set(story.filter(ReviewCopy.leavesOutErrors(of:)).map(\.id))
     }
 
     public func isTicked(_ id: SceneID) -> Bool {
@@ -50,6 +53,11 @@ public struct ExportChoice: Hashable, Sendable {
     /// Export can go ahead: at least one scene is ticked.
     public var canExport: Bool {
         !ticked.isEmpty
+    }
+
+    /// Some ticked scene holds error entries the export will leave out.
+    public var leavesOutErrors: Bool {
+        !ticked.isDisjoint(with: holdingErrors)
     }
 
     public var allTicked: Bool {

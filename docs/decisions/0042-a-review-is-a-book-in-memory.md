@@ -76,6 +76,7 @@ parallel "open review" type would have forked every one of them.
    Mac. A review file in a shared or synced folder opened by another user, or on another Mac, isn't
    locked out; ADR 0018's change detection (decision 8) is what keeps both versions then. A lock
    beside the copy would cover those cases at the price of a second file in the reader's folder.
+   The owner accepted this trade-off as is (2026-11-09).
 
 ## Not in this change
 - Reviews aren't in Recent Books; Review Book… opens them again.
