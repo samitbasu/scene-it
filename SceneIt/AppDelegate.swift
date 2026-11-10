@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let diagnostics = DiagnosticsController.shared
     private let books = BookController.shared
     private var phase = Phase.launching
+    private var writingToolsMenu: NSObjectProtocol?
 
     /// The app-wide lock (ADR 0020), held until the process exits.
     private static var instanceLock: InstanceLock?
@@ -66,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        writingToolsMenu = LanguageModelsOff.keepWritingToolsOutOfTheMenus()
         switch phase {
         case .starting(let lastSession, let requested):
             phase = .running

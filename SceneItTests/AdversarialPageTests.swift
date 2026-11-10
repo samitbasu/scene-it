@@ -310,6 +310,8 @@ struct AdversarialPageTests {
             #expect(page.page.writingToolsBehavior == .none && editor.writingToolsBehavior == .none)
             page.page.writingToolsBehavior = .complete
             #expect(page.page.writingToolsBehavior == .none, "Writing Tools can't be turned back on")
+            page.page.inlinePredictionType = .yes
+            #expect(page.page.inlinePredictionType == .no, "nor can inline predictions (ADR 0049)")
         }
     }
 

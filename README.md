@@ -91,11 +91,11 @@ scripts/check.sh
 Takes no arguments. The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
-runs steps 1–6 in order, stopping at the first failure. If they pass, it runs steps 7 and 8
+runs steps 1–7 in order, stopping at the first failure. If they pass, it runs steps 8 and 9
 at the same time and waits for both:
 
 1. `scripts/test-guards.sh` and `scripts/test-lib.sh` (below): check that the source guards
-   in steps 2–5 reject and accept what they should, and that the gate's own helpers
+   in steps 2–6 reject and accept what they should, and that the gate's own helpers
    (the stale-build check and the cleanup on a timeout or an interrupt) work.
 2. **TextKit 1 guard:** fails if any `.swift` file in those paths matches
    `\blayoutManager\b|NSLayoutManager|usingTextLayoutManager: *false`.
@@ -109,25 +109,30 @@ at the same time and waits for both:
    Crash reports, which problem reports include verbatim, quote these messages.
 5. **Exit-test guard:** fails on `processExitsWith`, `exitsWith:` or `ExitTest`. A Swift
    Testing exit test's child process launches as the real app, against the owner's real data (#120).
+6. **No-AI guard:** fails on an `import` of a machine-learning, language or AI framework
+   (`CoreML`, `CreateML`, `NaturalLanguage`, `FoundationModels`, `Speech`, `Translation`, `Vision`,
+   `VisionKit`, `ImagePlayground`, `SoundAnalysis`) or a networking one (`Network`, `CloudKit`), and on
+   `URLSession`, `URLRequest`, `NWConnection`, `NWListener`, `NWBrowser`, `NSURLConnection` or `CKContainer`.
+   Scene It's text never reaches a language model or the network (ADR 0049).
 
-   Steps 2–5 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
+   Steps 2–6 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,
    ignores lines that are only a `//` comment, and prints `file:line: error: <rule>: <line>`
    for each hit.
-6. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
-7. `swift test` (SceneItCore unit tests; build output in `.build/`).
-8. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
+7. `swift format lint --strict --recursive` over those paths, using `.swift-format`.
+8. `swift test` (SceneItCore unit tests; build output in `.build/`).
+9. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests. Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 
-Steps 7 and 8 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
+Steps 8 and 9 share no files: SwiftPM builds `SceneItCore` into `.build/`, and xcodebuild
 builds its own copy into `build/DerivedData`. Running them together saves about 40–50 s on
 an incremental build on a quiet machine, and less when the machine is busy.
 
-**Stale builds:** before steps 7 and 8, check.sh deletes a build folder it can't trust, so
+**Stale builds:** before steps 8 and 9, check.sh deletes a build folder it can't trust, so
 that step builds from clean (ADR 0008). Otherwise the builds are incremental. A clean build
-adds about 30 s to each of steps 7 and 8. A folder is trusted when its `scene-it-build-inputs`
+adds about 30 s to each of steps 8 and 9. A folder is trusted when its `scene-it-build-inputs`
 record matches its inputs, and its build database (`…/XCBuildData/build.db`) is no newer than
 that record. A folder with build output but no database at that path isn't trusted, so a
 change of build system that moves the database shows up as a clean build on every run, never
@@ -157,14 +162,14 @@ as a check that silently stops working.
 - If the check itself fails (no toolchain, or not in a git checkout), check.sh prints
   `check.sh: stale-build check failed: <reason>` and exits 1.
 
-Each step has a wall-clock limit: 5 minutes for steps 1–6, 15 for `swift test`, 45 for
+Each step has a wall-clock limit: 5 minutes for steps 1–7, 15 for `swift test`, 45 for
 xcodebuild. A step still running at its limit fails. Swift Testing's own time limits can't
 end a test that's blocked, so without this a hung test hangs the gate (#77). At the limit,
 check.sh kills two sets of processes: the step's own process tree, and any process that runs
 something from the step's own build folder (`.build/` for `swift test`, `build/` for
-xcodebuild, either for steps 1–6), started while the step ran, and isn't `Scene It.app`.
+xcodebuild, either for steps 1–7), started while the step ran, and isn't `Scene It.app`.
 That spares a Debug app or an IDE build that was already running, and an app the step didn't
-start itself. So a timeout in one of steps 7 and 8 never kills the other. Before it kills
+start itself. So a timeout in one of steps 8 and 9 never kills the other. Before it kills
 them, check.sh samples up to four of them that are test runners (`swiftpm-testing-helper`,
 an `.xctest` bundle or a test host app), all at once, for 3 seconds, into
 `build/check/<step>-hang-<pid>.txt`. It then stops each one (`SIGSTOP`), lists them again
@@ -180,15 +185,15 @@ own process tree is spared on purpose: it might be the writer's own Debug run.
 
 **Output on failure:** exit status 1, and on stderr, for each failed step:
 `check.sh: <step> failed (full log: build/check/<step>.log)`, followed by the
-`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. Steps 7
-and 8 don't stop at the first failure: each failed one is reported. `swift-test`'s report
+`error:`/`warning:`/`✘` lines from that log, or its last 50 lines if none match. Steps 8
+and 9 don't stop at the first failure: each failed one is reported. `swift-test`'s report
 prints as soon as it ends; xcodebuild's prints once both have finished.
 A step that ran out of time adds `error: still running after <n> min (or s), so it was killed: <command>`
 and the path of the samples. Only when the xcodebuild step fails, each failing test from
 that run's result bundle is also listed as `✘ <target>/<test>: <failure text>`.
 
 **Products:** one log per step in `build/check/` (`guard-tests.log`, `lib-tests.log`, `textkit1-guard.log`,
-`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
+`logging-guard.log`, `trap-message-guard.log`, `exit-test-guard.log`, `no-ai-guard.log`, `lint.log`, `swift-test.log`, `xcodebuild.log`), the test result bundle
 `build/check/SceneIt.xcresult` (open it in Xcode), and the built app at
 `build/DerivedData/Build/Products/Debug/Scene It.app`, and each build folder's
 `scene-it-build-inputs` (above). All of `build/` except

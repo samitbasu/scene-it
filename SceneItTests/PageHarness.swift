@@ -28,12 +28,14 @@ struct BookWindowWithMode: View {
     var cabinet: FileCabinetModel?
     var chrome: WindowChrome?
     var readAloud: ReadAloud?
+    var filing: FilingFlow?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
             formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
-            search: search, scenes: scenes, cabinet: cabinet, chrome: chrome, readAloud: readAloud)
+            filing: filing, search: search, scenes: scenes, cabinet: cabinet, chrome: chrome,
+            readAloud: readAloud)
     }
 }
 
@@ -59,6 +61,8 @@ struct PageHarness {
     let cabinet: FileCabinetModel
     /// The window's focus mode.
     let chrome: WindowChrome
+    /// The window's File a Copy.
+    let filing: FilingFlow
     /// Whether the editors keep the writer's automatic-change preferences or have them off.
     let automaticChanges: AutomaticChangesInTests
 
@@ -173,11 +177,12 @@ func withPage(
         let modes = ModeBox()
         let chrome = WindowChrome()
         let search = SearchSheetModel(book: book, indexing: searchIndexing)
+        let filing = FilingFlow(book: book)
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                 box: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
-                readAloud: books.readAloud))
+                readAloud: books.readAloud, filing: filing))
         controller.sizingOptions = []
         let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -199,7 +204,7 @@ func withPage(
             url: url, store: store, book: book, window: window, page: page, title: title,
             formatting: books.formatting, readAloud: books.readAloud, preferences: books.preferences,
             modes: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
-            automaticChanges: automaticChanges)
+            filing: filing, automaticChanges: automaticChanges)
         harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)

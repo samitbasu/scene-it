@@ -61,6 +61,20 @@ expect rejects forbid_exit_tests Tests/CoreTests/T.swift '#require(processExitsW
 expect rejects forbid_exit_tests SceneItTests/T.swift 'let result: ExitTest.Result = r'
 expect accepts forbid_exit_tests SceneItTests/T.swift 'app.terminate(nil)'
 
+expect rejects forbid_ai_and_networking SceneIt/Model.swift 'import CoreML'
+expect rejects forbid_ai_and_networking SceneIt/Model.swift 'import FoundationModels'
+expect rejects forbid_ai_and_networking Sources/Core/Words.swift 'import NaturalLanguage'
+expect rejects forbid_ai_and_networking SceneIt/Speak.swift '@preconcurrency import Speech'
+expect rejects forbid_ai_and_networking SceneIt/Speak.swift 'import class Translation.TranslationSession'
+expect rejects forbid_ai_and_networking SceneIt/Net.swift 'import Network'
+expect rejects forbid_ai_and_networking SceneIt/Net.swift 'let (data, _) = try await URLSession.shared.data(from: url)'
+expect rejects forbid_ai_and_networking Tests/CoreTests/T.swift 'var request = URLRequest(url: url)'
+expect accepts forbid_ai_and_networking SceneIt/Speech.swift 'import AVFoundation'
+expect accepts forbid_ai_and_networking SceneIt/Speech.swift 'let synthesizer = AVSpeechSynthesizer()'
+expect accepts forbid_ai_and_networking SceneIt/Window.swift 'import SwiftUI'
+expect accepts forbid_ai_and_networking SceneIt/Window.swift 'import NetworkedThing'
+expect accepts forbid_ai_and_networking SceneIt/Speech.swift '    /// Not `import Speech`: speech recognition is a model.'
+
 expect_missing_path_fails() {
     local status=0
     (cd "$fixtures" && forbid_textkit1 does-not-exist >/dev/null) || status=$?

@@ -462,8 +462,23 @@ Should anything ever change the storage without asking (no known path does), the
 storage delegate notices a character the policy doesn't admit in the edited range: the model
 has already taken the admitted reading, and the page reloads from it once the edit is over. That
 backstop is a scan of the edited range only, so it costs nothing per keystroke. Writing Tools is
-off on every `KeyboardTextView` for the same reason: it rewrites text in ways the veto can't be
-shown to see.
+off on every `KeyboardTextView`: it rewrites text in ways the veto can't be shown to see, and it's
+a language model, which Scene It's text never reaches (ADR 0049). Inline predictions and the Touch
+Bar's word candidates are off for the same reason. The overrides return a constant and ignore the
+setter, the Swift way to make a stored property of a superclass read-only:
+
+```swift
+    override var inlinePredictionType: NSTextInputTraitType {
+        get { .no }
+        set {}
+    }
+```
+
+Text fields are the harder case. A field doesn't edit its own text: while it's being edited, a
+*field editor* (an `NSTextView`) does, and SwiftUI supplies one per `TextField`, with Writing Tools
+on. `LanguageModelsOff` watches the window's `firstResponder` with key-value observation (Swift's
+`window.observe(\.firstResponder)`, roughly a typed callback on a property change) and switches the
+three off on whichever text view takes the focus, before any key reaches it.
 
 The veto is also where a book that has stopped taking edits says no. Close Book (and Open Other
 Version's reload) detaches the book in one main-actor turn ([chapter 04](04-swiftui-and-observation.md)),

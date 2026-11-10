@@ -8,6 +8,7 @@ readonly source_guards=(
     logging-guard:forbid_unchecked_logging
     trap-message-guard:forbid_interpolated_traps
     exit-test-guard:forbid_exit_tests
+    no-ai-guard:forbid_ai_and_networking
 )
 
 # forbid_all <path>…: runs every source guard, reporting all their hits.
@@ -74,4 +75,12 @@ forbid_exit_tests() {
     # An exit test's child process launches as the real app against the owner's data (#120).
     forbid_pattern 'exit tests are forbidden: the child runs the real app against real data (issue 120)' \
         'processExitsWith|exitsWith:|ExitTest\b' -- "$@"
+}
+
+forbid_ai_and_networking() {
+    # Scene It's text never reaches a language model or the network (ADR 0049): no machine
+    # learning, language or AI framework, and no networking API.
+    forbid_pattern 'no AI, machine learning or networking (ADR 0049)' \
+        '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?(CoreML|CreateML|NaturalLanguage|FoundationModels|Speech|Translation|Vision|VisionKit|ImagePlayground|SoundAnalysis|Network|CloudKit)([.[:space:]]|$)|\b(URLSession|URLRequest|NWConnection|NWListener|NWBrowser|NSURLConnection|CKContainer)\b' \
+        -- "$@"
 }

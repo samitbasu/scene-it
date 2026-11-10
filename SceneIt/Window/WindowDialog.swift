@@ -26,6 +26,7 @@ struct WindowDialog<Content: View>: View {
         }
         .padding(20)
         .frame(width: 440)
+        .languageModelsOff()
     }
 
     private static func explaining(_ line: String) -> some View {
