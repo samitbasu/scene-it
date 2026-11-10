@@ -476,9 +476,10 @@ setter, the Swift way to make a stored property of a superclass read-only:
 
 Text fields are the harder case. A field doesn't edit its own text: while it's being edited, a
 *field editor* (an `NSTextView`) does, and SwiftUI supplies one per `TextField`, with Writing Tools
-on. `LanguageModelsOff` watches the window's `firstResponder` with key-value observation (Swift's
-`window.observe(\.firstResponder)`, roughly a typed callback on a property change) and switches the
-three off on whichever text view takes the focus, before any key reaches it.
+on. `FocusedTextWatch`, started by the app delegate, watches every window's `firstResponder` with
+key-value observation (Swift's `window.observe(\.firstResponder)`, roughly a typed callback on a
+property change) and switches the three off on whichever text view takes the focus, before any key
+reaches it.
 
 The veto is also where a book that has stopped taking edits says no. Close Book (and Open Other
 Version's reload) detaches the book in one main-actor turn ([chapter 04](04-swiftui-and-observation.md)),

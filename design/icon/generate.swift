@@ -272,6 +272,12 @@ let document: [String: Any] = [
     "supported-platforms": ["squares": ["macOS"]],
 ]
 
+// The output folder's Assets/ is deleted and rewritten, so only an Icon Composer document will do.
+guard CommandLine.arguments.count == 2, CommandLine.arguments[1].hasSuffix(".icon") else {
+    FileHandle.standardError.write(
+        Data("usage: swift design/icon/generate.swift <path>.icon   (e.g. SceneIt/AppIcon.icon)\n".utf8))
+    exit(2)
+}
 let out = URL(fileURLWithPath: CommandLine.arguments[1])
 let assets = out.appendingPathComponent("Assets")
 try? FileManager.default.removeItem(at: assets)

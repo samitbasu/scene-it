@@ -29,12 +29,13 @@ struct BookWindowWithMode: View {
     var chrome: WindowChrome?
     var readAloud: ReadAloud?
     var filing: FilingFlow?
+    var export: ExportFlow?
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences,
             formatting: formatting ?? EditorFormatting(preferences: preferences), mode: $box.mode,
-            filing: filing, search: search, scenes: scenes, cabinet: cabinet, chrome: chrome,
+            filing: filing, export: export, search: search, scenes: scenes, cabinet: cabinet, chrome: chrome,
             readAloud: readAloud)
     }
 }
@@ -63,6 +64,8 @@ struct PageHarness {
     let chrome: WindowChrome
     /// The window's File a Copy.
     let filing: FilingFlow
+    /// The window's Export as SceneIt.
+    let export: ExportFlow
     /// Whether the editors keep the writer's automatic-change preferences or have them off.
     let automaticChanges: AutomaticChangesInTests
 
@@ -178,11 +181,12 @@ func withPage(
         let chrome = WindowChrome()
         let search = SearchSheetModel(book: book, indexing: searchIndexing)
         let filing = FilingFlow(book: book)
+        let export = ExportFlow(book: book, destination: { .nowhere })
         let controller = NSHostingController(
             rootView: BookWindowWithMode(
                 book: book, store: store, preferences: books.preferences, formatting: books.formatting,
                 box: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
-                readAloud: books.readAloud, filing: filing))
+                readAloud: books.readAloud, filing: filing, export: export))
         controller.sizingOptions = []
         let window = windowType.init(
             contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered,
@@ -204,7 +208,7 @@ func withPage(
             url: url, store: store, book: book, window: window, page: page, title: title,
             formatting: books.formatting, readAloud: books.readAloud, preferences: books.preferences,
             modes: modes, search: search, scenes: scenesSheet, cabinet: cabinet, chrome: chrome,
-            filing: filing, automaticChanges: automaticChanges)
+            filing: filing, export: export, automaticChanges: automaticChanges)
         harness.settle(page)
         await eventually { harness.pageMirrorsModel }
         try await body(harness)

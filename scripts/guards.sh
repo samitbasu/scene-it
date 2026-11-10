@@ -79,8 +79,22 @@ forbid_exit_tests() {
 
 forbid_ai_and_networking() {
     # Scene It's text never reaches a language model or the network (ADR 0049): no machine
-    # learning, language or AI framework, and no networking API.
+    # learning, language or AI framework, no Siri or Shortcuts surface, and no networking API.
+    # HTMLPasteTests records requests through URLProtocol (URLRequest) to prove there are none.
+    # Like every guard, only whole-line comments are skipped: a trailing comment naming one of
+    # these is a hit, and is reworded.
+    local status=0 path app_paths=()
     forbid_pattern 'no AI, machine learning or networking (ADR 0049)' \
-        '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?(CoreML|CreateML|NaturalLanguage|FoundationModels|Speech|Translation|Vision|VisionKit|ImagePlayground|SoundAnalysis|Network|CloudKit)([.[:space:]]|$)|\b(URLSession|URLRequest|NWConnection|NWListener|NWBrowser|NSURLConnection|CKContainer)\b' \
-        -- "$@"
+        '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?(CoreML|CreateML|NaturalLanguage|FoundationModels|Speech|Translation|Vision|VisionKit|ImagePlayground|SoundAnalysis|AppIntents|Intents|Network|CFNetwork|CloudKit)([.[:space:]]|$)|\b(URLSession|URLRequest|NWConnection|NWListener|NWBrowser|NSURLConnection|CKContainer|CFStream[[:alnum:]]*|CFSocket[[:alnum:]]*|NSLinguisticTagger)\b|\b(Data|String)\(contentsOf: *URL\(string: *"[a-z]+://' \
+        SceneItTests/HTMLPasteTests.swift -- "$@" || status=$?
+    # WebKit fetches what a page names; the tests may use it to render previews, the app may not.
+    for path in "$@"; do
+        [[ $path == SceneIt || $path == SceneIt/* || $path == Sources || $path == Sources/* ]] && app_paths+=("$path")
+    done
+    if ((${#app_paths[@]} > 0)); then
+        forbid_pattern 'no WebKit in the app (ADR 0049)' \
+            '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?WebKit([.[:space:]]|$)' -- "${app_paths[@]}" \
+            || status=$?
+    fi
+    return "$status"
 }

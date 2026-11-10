@@ -4,8 +4,8 @@ import SwiftUI
 /// Scene It's text never reaches a language model (ADR 0049): no text view in it offers Apple
 /// Intelligence's Writing Tools or predicts words (inline, or in the Touch Bar's candidate
 /// list), and the menus offer no Writing Tools. Scene It's own editors are `KeyboardTextView`s,
-/// which hold all three off for good; this covers every other text view a window's focus
-/// reaches: SwiftUI's fields and the find bar's.
+/// which hold all three off for good; `FocusedTextWatch` covers every other text view that takes
+/// the focus in one of the app's windows.
 enum LanguageModelsOff {
     static func keepOff(_ view: NSTextView) {
         if view.writingToolsBehavior != .none { view.writingToolsBehavior = .none }
@@ -20,14 +20,30 @@ enum LanguageModelsOff {
 
     // MARK: The menus
 
-    /// Takes Writing Tools out of the main menu now, and again whenever AppKit adds it back.
+    /// Takes Writing Tools out of the main menu now, and again whenever AppKit adds it back:
+    /// on the next turn of the run loop, so a run of insertions finishes undisturbed first.
     static func keepWritingToolsOutOfTheMenus() -> NSObjectProtocol {
         removeWritingTools(from: NSApp.mainMenu)
         return NotificationCenter.default.addObserver(
-            forName: NSMenu.didAddItemNotification, object: nil, queue: nil
+            forName: NSMenu.didAddItemNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { removeWritingTools(from: NSApp.mainMenu) }
+            Task { @MainActor in await removeWritingToolsSoon() }
         }
+    }
+
+    private static var removal = Removal.none
+
+    private enum Removal {
+        case none, pending
+    }
+
+    /// One removal for a run of insertions, once they're done.
+    private static func removeWritingToolsSoon() async {
+        guard removal == .none else { return }
+        removal = .pending
+        await Task.yield()
+        removal = .none
+        removeWritingTools(from: NSApp.mainMenu)
     }
 
     /// Removes every item of `menu` and its submenus that offers Writing Tools, with the
@@ -48,41 +64,62 @@ enum LanguageModelsOff {
         }
     }
 
-    /// The Writing Tools item (`showWritingTools:`), or a submenu of them.
+    /// A Writing Tools item (`showWritingTools:`), or a submenu that holds nothing else.
     static func offersWritingTools(_ item: NSMenuItem) -> Bool {
+        if isWritingTools(item) { return true }
+        guard let items = item.submenu?.items.filter({ !$0.isSeparatorItem }), !items.isEmpty else {
+            return false
+        }
+        return items.allSatisfy(isWritingTools)
+    }
+
+    private static func isWritingTools(_ item: NSMenuItem) -> Bool {
         item.action == #selector(NSResponder.showWritingTools(_:))
-            || item.submenu?.items.contains { $0.action == #selector(NSResponder.showWritingTools(_:)) }
-                == true
     }
 }
 
 extension View {
-    /// Every text view in this view's window: Writing Tools and inline predictions off (ADR 0049).
+    /// SwiftUI's fields here offer no Writing Tools (ADR 0049); `FocusedTextWatch` does the rest.
     func languageModelsOff() -> some View {
         writingToolsBehavior(.disabled)
-            .background(FocusedTextWatch())
     }
 }
 
-/// Holds Writing Tools and inline predictions off in each text view that takes its window's
-/// focus, before a key reaches it. A field's editor belongs to whoever made the field (SwiftUI,
-/// the find bar), and only the focus says which one is at work.
-private struct FocusedTextWatch: NSViewRepresentable {
-    func makeNSView(context: Context) -> WatchView {
-        WatchView()
+/// Holds Writing Tools and word predictions off in each text view that takes the focus in any of
+/// the app's windows (its own, and the panels AppKit shows in its process: open, save, print),
+/// before a key reaches it. A field's editor belongs to whoever made the field (SwiftUI, the find
+/// bar, a panel), and only the focus says which one is at work. Each window is watched from its
+/// first update, which comes before the writer can type in it.
+final class FocusedTextWatch {
+    private var watching: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    private var notifications: [NSObjectProtocol] = []
+
+    init() {
+        let center = NotificationCenter.default
+        notifications = [
+            center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main) {
+                [weak self] notification in
+                let window = notification.object as? NSWindow
+                MainActor.assumeIsolated { window.map { self?.watch($0) } }
+            },
+            center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
+                [weak self] notification in
+                let window = notification.object as? NSWindow
+                MainActor.assumeIsolated { window.map { self?.watching[ObjectIdentifier($0)] = nil } }
+            },
+        ]
     }
 
-    func updateNSView(_ view: WatchView, context: Context) {}
+    isolated deinit {
+        for observer in notifications { NotificationCenter.default.removeObserver(observer) }
+    }
 
-    final class WatchView: NSView {
-        private var watching: NSKeyValueObservation?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            watching = window?.observe(\.firstResponder, options: [.initial, .new]) { window, _ in
-                MainActor.assumeIsolated {
-                    if let text = window.firstResponder as? NSTextView { LanguageModelsOff.keepOff(text) }
-                }
+    private func watch(_ window: NSWindow) {
+        let id = ObjectIdentifier(window)
+        guard watching[id] == nil else { return }
+        watching[id] = window.observe(\.firstResponder, options: [.initial, .new]) { window, _ in
+            MainActor.assumeIsolated {
+                if let text = window.firstResponder as? NSTextView { LanguageModelsOff.keepOff(text) }
             }
         }
     }

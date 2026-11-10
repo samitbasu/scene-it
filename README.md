@@ -112,8 +112,12 @@ at the same time and waits for both:
    Testing exit test's child process launches as the real app, against the owner's real data (#120).
 6. **No-AI guard:** fails on an `import` of a machine-learning, language or AI framework
    (`CoreML`, `CreateML`, `NaturalLanguage`, `FoundationModels`, `Speech`, `Translation`, `Vision`,
-   `VisionKit`, `ImagePlayground`, `SoundAnalysis`) or a networking one (`Network`, `CloudKit`), and on
-   `URLSession`, `URLRequest`, `NWConnection`, `NWListener`, `NWBrowser`, `NSURLConnection` or `CKContainer`.
+   `VisionKit`, `ImagePlayground`, `SoundAnalysis`), of Siri's (`AppIntents`, `Intents`) or of a
+   networking one (`Network`, `CFNetwork`, `CloudKit`); on `URLSession`, `URLRequest`, `NWConnection`,
+   `NWListener`, `NWBrowser`, `NSURLConnection`, `CKContainer`, `CFStream…`, `CFSocket…` or
+   `NSLinguisticTagger`; and on `Data(contentsOf:` or `String(contentsOf:` with a `URL(string: "<scheme>://`.
+   `import WebKit` fails under `SceneIt/` and `Sources/` (the tests may render with it).
+   `SceneItTests/HTMLPasteTests.swift` is exempt: it records requests to prove there are none.
    Scene It's text never reaches a language model or the network (ADR 0049).
 
    Steps 2–6 are functions in `scripts/guards.sh`, listed once in its `source_guards`. Each one fails if a path is missing,

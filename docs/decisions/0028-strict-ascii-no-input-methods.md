@@ -91,7 +91,7 @@ Inline predictions and the Touch Bar's word candidates come from Apple's languag
 owner wants Scene It's text never to reach one. So they are no longer the writer's to switch: every
 `KeyboardTextView` reports `inlinePredictionType` `.no` and `isAutomaticTextCompletionEnabled` `false`
 whatever sets them, and every other text view the focus reaches is given the same values
-(`LanguageModelsOff`). No Edit-menu or context-menu item switched either of them on this macOS, so no
+(`FocusedTextWatch`). No Edit-menu or context-menu item switched either of them on this macOS, so no
 item had to go; System Settings' own switches no longer reach Scene It's text views. The two keys stay
 registered off in `AutomaticTextChanges.startingValues`, for any text view outside Scene It's windows
 (a system panel's field). Every other automatic change above is unchanged and still the writer's.

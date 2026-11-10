@@ -12,18 +12,13 @@ import Testing
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2)))
 struct LanguageModelsOffTests {
-    /// The book window's view tree in each of its states: the page with each right-panel tab,
-    /// the find bar, each sheet, and File a Copy's dialog. Every field takes the focus, so its
-    /// editor is the one it types with.
-    @Test func everyTextViewInTheWindowHasLanguageModelsOff() async throws {
-        try await withPage(
-            [scene("One", letterScene, .withTooEarly)], filed: CabinetSearchSheetTests.records
-        ) { page in
-            var seen = Set<String>()
-            func check(_ state: String) async throws {
-                seen.formUnion(try await Self.checkEveryTextView(in: page.window, state))
-            }
-
+    /// The book window's view tree with each right-panel tab and the find bar. Every field takes
+    /// the focus, so its editor is the one it types with.
+    @Test func everyTextViewBesideThePageHasThemOff() async throws {
+        try await withBookWindow(reaching: [
+            "page", "notes", "comment card", WindowWording.untitledScene, CommentWording.searchPlaceholder,
+            TagWording.addPlaceholder, "find bar",
+        ]) { page, check in
             _ = try await page.showNotes()
             try await check("the Notes tab")
             page.preferences.showRightPanelTab(.comments)
@@ -41,12 +36,20 @@ struct LanguageModelsOffTests {
             await eventually { (try? page.desk.findField) != nil }
             try #require(try page.desk.findField != nil, "precondition: the find bar shows")
             try await check("the find bar")
+        }
+    }
 
-            let sheets: [(WindowMode, String)] = [
-                (.scenes, ScenesWording.filterPlaceholder), (.search, SearchWording.placeholder),
-                (.fileCabinet, FileCabinetWording.searchPlaceholder),
+    /// Each sheet's field, and again after the text SwiftUI shows in it changes while it's edited.
+    @Test func everySheetsFieldHasThemOff() async throws {
+        try await withBookWindow(reaching: [
+            ScenesWording.filterPlaceholder, SearchWording.placeholder, FileCabinetWording.searchPlaceholder,
+        ]) { page, check in
+            let sheets: [(WindowMode, String, @MainActor (String) -> Void)] = [
+                (.scenes, ScenesWording.filterPlaceholder, { page.scenes.filter = $0 }),
+                (.search, SearchWording.placeholder, { page.search.text = $0 }),
+                (.fileCabinet, FileCabinetWording.searchPlaceholder, { page.cabinet.filter.words = $0 }),
             ]
-            for (mode, placeholder) in sheets {
+            for (mode, placeholder, change) in sheets {
                 page.modes.mode = mode
                 @MainActor func field() -> NSTextField? {
                     subviewTree(of: page.window.contentView).lazy.compactMap { $0 as? NSTextField }.first {
@@ -54,12 +57,25 @@ struct LanguageModelsOffTests {
                     }
                 }
                 await eventually { field() != nil }
-                try #require(field() != nil, "precondition: the \(mode) sheet's field shows")
+                let sheetField = try #require(field(), "precondition: the \(mode) sheet's field shows")
                 try await check("the \(mode) sheet")
+                #expect(page.window.makeFirstResponder(sheetField))
+                let editor = try #require(sheetField.currentEditor() as? NSTextView)
+                change("zz")
+                await eventually { editor.string == "zz" }
+                #expect(editor.string == "zz", "precondition: SwiftUI updated the field being edited")
+                #expect(LanguageModelsOff.areOff(in: editor), "the \(mode) sheet's editor, after an update")
+                page.window.makeFirstResponder(nil)
+                change("")
                 page.modes.mode = .page
                 await eventually { page.title.isEnabled }
             }
+        }
+    }
 
+    /// File a Copy's dialog and Export as SceneIt's chooser, each a sheet window of its own.
+    @Test func everyDialogsTextViewHasThemOff() async throws {
+        try await withBookWindow(reaching: ["File a Copy's tags", "File a Copy's note"]) { page, check in
             page.filing.begin()
             await eventually { page.window.attachedSheet != nil }
             try #require(page.window.attachedSheet != nil, "precondition: File a Copy's dialog shows")
@@ -67,13 +83,12 @@ struct LanguageModelsOffTests {
             page.filing.cancel()
             await eventually { page.window.attachedSheet == nil }
 
-            let expected: Set<String> = [
-                "page", "notes", "comment card", WindowWording.untitledScene,
-                CommentWording.searchPlaceholder, "find bar", ScenesWording.filterPlaceholder,
-                SearchWording.placeholder, FileCabinetWording.searchPlaceholder, "File a Copy's tags",
-                "File a Copy's note",
-            ]
-            #expect(expected.subtracting(seen).isEmpty, "precondition: every surface was reached")
+            page.export.begin()
+            await eventually { page.window.attachedSheet != nil }
+            try #require(page.window.attachedSheet != nil, "precondition: Export as SceneIt's chooser shows")
+            try await check("Export as SceneIt")
+            page.export.cancel()
+            await eventually { page.window.attachedSheet == nil }
         }
     }
 
@@ -81,21 +96,44 @@ struct LanguageModelsOffTests {
     /// back.
     @Test func theMenusOfferNoWritingTools() async throws {
         let main = try #require(NSApp.mainMenu)
-        await eventually { !Self.items(of: main).contains(where: LanguageModelsOff.offersWritingTools) }
+        let topLevel = main.items.map(\.title)
+        let edit = try #require(main.items.lazy.compactMap(\.submenu).first { $0.title == "Edit" })
+        let editItems = edit.items.count
         #expect(!Self.items(of: main).contains(where: LanguageModelsOff.offersWritingTools))
         #expect(!Self.items(of: main).contains { $0.title.localizedCaseInsensitiveContains("Writing Tools") })
 
-        let edit = try #require(main.items.lazy.compactMap(\.submenu).first { $0.title == "Edit" })
-        let added = NSMenuItem.writingToolsItems
-        try #require(
-            added.contains(where: LanguageModelsOff.offersWritingTools), "precondition: AppKit's items")
         edit.addItem(.separator())
-        for item in added { edit.addItem(item) }
+        for item in NSMenuItem.writingToolsItems { edit.addItem(item) }
+        try #require(
+            Self.items(of: main).contains(where: LanguageModelsOff.offersWritingTools),
+            "precondition: AppKit's Writing Tools items are in the Edit menu")
         await eventually { !Self.items(of: main).contains(where: LanguageModelsOff.offersWritingTools) }
         #expect(
             !Self.items(of: main).contains(where: LanguageModelsOff.offersWritingTools),
             "added back, taken out")
-        #expect(edit.items.last?.isSeparatorItem == false, "with its separator")
+        #expect(edit.items.count == editItems, "with its separator, and nothing else")
+        #expect(main.items.map(\.title) == topLevel, "every top-level menu is still there")
+        #expect(edit.supermenu === main, "the Edit menu is still there")
+    }
+
+    /// A menu that only holds a Writing Tools item among others is never taken for one.
+    @Test func aMenuWithOtherItemsIsntWritingTools() throws {
+        let tools = try #require(NSMenuItem.writingToolsItems.first)
+        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        edit.submenu = NSMenu(title: "Edit")
+        edit.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        let show = NSMenuItem(
+            title: "Show Writing Tools", action: #selector(NSResponder.showWritingTools(_:)),
+            keyEquivalent: "")
+        edit.submenu?.addItem(show)
+        #expect(!LanguageModelsOff.offersWritingTools(edit))
+        #expect(LanguageModelsOff.offersWritingTools(show))
+        #expect(LanguageModelsOff.offersWritingTools(tools), "precondition: AppKit's item is one")
+        let main = NSMenu(title: "Main")
+        main.addItem(edit)
+        LanguageModelsOff.removeWritingTools(from: main)
+        #expect(main.items == [edit])
+        #expect(edit.submenu?.items.map(\.title) == ["Copy"])
     }
 
     @Test func takingWritingToolsOutLeavesNoStraySeparator() throws {
@@ -111,6 +149,39 @@ struct LanguageModelsOffTests {
         #expect(menu.items[1].isSeparatorItem)
     }
 
+    /// Any window in the app, not only the book window: a plain AppKit field, as an open or save
+    /// panel has, types with an editor that has them off.
+    @Test func aFieldInAnyWindowHasThemOff() async throws {
+        let field = NSTextField(string: "words")
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(field)
+        field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
+        window.setFrame(NSRect(x: -30000, y: -30000, width: 300, height: 80), display: false)
+        window.orderFront(nil)
+        defer { window.close() }
+        window.update()
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        #expect(!(editor is KeyboardTextView), "precondition: the window's own field editor")
+        #expect(LanguageModelsOff.areOff(in: editor))
+    }
+
+    /// ADR 0049 lists the open and save panels as system UI: their fields live in another
+    /// process, out of Scene It's reach. If they ever come into the app's own windows, this
+    /// fails, and the app-wide watch (`aFieldInAnyWindowHasThemOff`) then covers them.
+    @Test func theOpenAndSavePanelsFieldsAreTheSystems() {
+        for panel in [NSSavePanel(), NSOpenPanel()] {
+            let views = subviewTree(of: panel.contentView)
+            #expect(
+                views.contains { NSStringFromClass(type(of: $0)).contains("Remote") },
+                "precondition: \(type(of: panel)) shows another process's view")
+            #expect(!views.contains { $0 is NSText || $0 is NSTextField }, "\(type(of: panel))")
+        }
+    }
+
     /// Scene It's own editors hold both off whatever sets them.
     @Test func anEditorCantTurnThemBackOn() {
         let view = KeyboardTextView(editability: { .editable })
@@ -118,6 +189,23 @@ struct LanguageModelsOffTests {
         view.inlinePredictionType = .yes
         view.isAutomaticTextCompletionEnabled = true
         #expect(LanguageModelsOff.areOff(in: view))
+    }
+
+    /// The book window over a commented scene with filed copies; `body` checks it in each state
+    /// it reaches (`check`), and between them they must check each of `surfaces`.
+    private func withBookWindow(
+        reaching surfaces: Set<String>,
+        _ body: (PageHarness, _ check: (String) async throws -> Void) async throws -> Void
+    ) async throws {
+        try await withPage(
+            [scene("One", letterScene, .withTooEarly)], filed: CabinetSearchSheetTests.records
+        ) { page in
+            var seen = Set<String>()
+            try await body(page) { state in
+                seen.formUnion(try await Self.checkEveryTextView(in: page.window, state))
+            }
+            #expect(surfaces.subtracting(seen).isEmpty, "precondition: every surface was reached")
+        }
     }
 
     /// Checks every text view in `window` and its sheet, and the editor of every field that
@@ -135,9 +223,6 @@ struct LanguageModelsOffTests {
                 let editor = try #require(
                     field.currentEditor() as? NSTextView, "\(state): \(name(of: field))")
                 #expect(LanguageModelsOff.areOff(in: editor), "\(state): \(name(of: field))'s editor")
-                try await Task.sleep(for: .milliseconds(50))
-                #expect(
-                    LanguageModelsOff.areOff(in: editor), "\(state): \(name(of: field))'s editor, updated")
                 checked.insert(name(of: field))
                 window.makeFirstResponder(nil)
             }
