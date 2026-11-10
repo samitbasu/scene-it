@@ -129,7 +129,7 @@ macOS novel-writing app (Swift 6, SwiftUI + AppKit TextKit 2). These notes are p
 
 - **Start here when resuming:** `docs/dev/WORKFLOW.md`. Work is tracked as GitHub issues and milestones (`gh issue list`).
 - **Spec:** `novel-app-build-bundle/PLAN.md`. **Deviations and decisions:** `docs/decisions/` (they override PLAN).
-- **Gate:** `scripts/check.sh` must pass before any commit lands on `main`.
+- **Gate:** `scripts/check.sh` must pass before any commit lands on `main`. It runs on GitHub Actions only (the `check` job, required by branch protection); don't run it on the owner's Mac. Running a single test locally (a new one, or one CI reported failing) is fine; the full suite runs on GitHub.
 - **Scripts are documented in `README.md`** (usage, example arguments, outputs). Any PR that adds or changes a script updates that section.
 - **Layout:** `SceneItCore` SwiftPM package (model, persistence, backups, archive, search, reporting) under `Package.swift`/`Sources`/`Tests`; thin app target in `SceneIt/` (synchronized folders, so never hand-edit the pbxproj to add files).
 - **Swift translation of the rules above:** no naked `Bool` parameters (use two-case enums); no naked `Double`/`Float`/`CGFloat` parameters in our APIs (use newtypes such as `Zoom` and `SpeechRate`); time spans use the non-negative `Interval` newtype over `Duration` (Swift's `Duration` is signed, so it can't carry the invariant on its own; ADR 0010); illegal states unrepresentable. The app target defaults to `@MainActor` isolation, and background work opts out explicitly with `@concurrent` (ADR 0011). The JSON format (PLAN §5) is a contract; the in-memory model may be richer, with `Codable` mapping to the exact JSON.
