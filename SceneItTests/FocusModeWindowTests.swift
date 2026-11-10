@@ -620,8 +620,10 @@ extension OneAtATime {
                         charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
                 let tookIt = harness.window.performKeyEquivalent(with: diagEvent)
                 if !tookIt { harness.window.sendEvent(diagEvent) }
-                let buttons = subviewTree(of: harness.window.contentView).map { String(describing: type(of: $0)) }
-                    .filter { $0.contains("Button") || $0.contains("Key") }
+                let buttons = subviewTree(of: harness.window.contentView).map {
+                    String(describing: type(of: $0))
+                }
+                .filter { $0.contains("Button") || $0.contains("Key") }
                 #expect(
                     harness.chrome.focusMode == .off,
                     "DIAG Esc leaves focus mode: keyEquivalentTook=\(tookIt) fr=\(String(describing: harness.window.firstResponder.map { type(of: $0) })) mode=\(harness.modes.mode) fallback=\(harness.window.hasEscapeFallback) buttons=\(buttons) sheet=\(String(describing: harness.window.attachedSheet))"

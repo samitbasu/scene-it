@@ -408,7 +408,9 @@ extension OneAtATime.BookStoreIntegrationTests {
             "\($0.keyEquivalent) \($0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue)"
         }
         let shared = byKey.filter { $0.value.count > 1 }.mapValues {
-            $0.map { "DIAG \($0.title) hidden=\($0.isHidden) alt=\($0.isAlternate) action=\(String(describing: $0.action)) in=\($0.menu?.title ?? "-") at=\($0.menu?.index(of: $0) ?? -1)" }
+            $0.map {
+                "DIAG \($0.title) hidden=\($0.isHidden) alt=\($0.isAlternate) action=\(String(describing: $0.action)) in=\($0.menu?.title ?? "-") at=\($0.menu?.index(of: $0) ?? -1)"
+            }
         }
         #expect(shared.isEmpty, "\(shared)")
     }
