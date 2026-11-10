@@ -513,10 +513,6 @@ extension PageHarness {
             window.update()
             return router.state == wanted
         }
-        let s = book.structureUndo
-        #expect(
-            router.state == wanted,
-            "DIAG stack=\(router.stack) isStructure=\(router.manager === s) canUndo=\(s.canUndo) level=\(s.groupingLevel) byEvent=\(s.groupsByEvent) modes=\(s.runLoopModes) mainMode=\(String(describing: RunLoop.main.currentMode)) fr=\(String(describing: window.firstResponder.map { type(of: $0) })) active=\(NSApp.isActive) modal=\(String(describing: NSApp.modalWindow))"
-        )
+        #expect(router.state == wanted)
     }
 }

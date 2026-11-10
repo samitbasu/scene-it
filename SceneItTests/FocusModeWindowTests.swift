@@ -24,7 +24,7 @@ func sendToTheEscapeFallback(_ key: TestKey, in window: NSWindow) throws {
 }
 
 @MainActor
-private func keyDown(_ key: TestKey, in window: NSWindow, _ press: KeyPress) throws -> NSEvent {
+func keyDown(_ key: TestKey, in window: NSWindow, _ press: KeyPress) throws -> NSEvent {
     try #require(
         NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: key.modifiers, timestamp: 0,
@@ -589,8 +589,9 @@ extension OneAtATime {
         /// An Esc that reaches the window itself, with no view holding the focus, still closes what
         /// Esc closes: a sheet, then focus mode. A shown sheet's `EscapeKey` takes an Esc pressed in
         /// the window first, so for the sheet the test hands the Esc to the fallback at the end of
-        /// the window's responder chain. Once the sheet's views have gone, Esc is pressed in the
-        /// window and reaches the fallback itself.
+        /// the window's responder chain. Once the sheet's views have gone, the window offers Esc
+        /// as a key equivalent, as AppKit does first, and the fallback takes it there: past that,
+        /// a key SwiftUI window answers the Esc itself (`WindowEscapeFallback`).
         @Test func escReachingTheWindowItselfStillCloses() async throws {
             try await withPage([ferry]) { harness in
                 harness.focusPage(at: 4)
@@ -613,39 +614,11 @@ extension OneAtATime {
                 #expect(harness.window.makeFirstResponder(nil))
                 try #require(
                     harness.window.firstResponder === harness.window, "precondition: no view has the focus")
-                let diagEvent = try #require(
-                    NSEvent.keyEvent(
-                        with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                        windowNumber: harness.window.windowNumber, context: nil, characters: "\u{1b}",
-                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
-                var chain: [String] = []
-                var link = harness.window.nextResponder
-                while let current = link {
-                    chain.append(String(describing: type(of: current)))
-                    link = current.nextResponder
-                }
-                let tookIt = harness.window.performKeyEquivalent(with: diagEvent)
-                if !tookIt { harness.window.sendEvent(diagEvent) }
-                let afterSend = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
-                if harness.chrome.focusMode == .on { harness.window.keyDown(with: diagEvent) }
-                let afterKeyDown = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
-                if harness.chrome.focusMode == .on {
-                    harness.window.escapeFallback?.keyDown(with: diagEvent)
-                }
-                let afterFallback = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
-                Issue.record(
-                    Comment(
-                        rawValue:
-                            "DIAG2 chain=\(chain) key=\(harness.window.isKeyWindow) appKey=\(String(describing: NSApp.keyWindow)) frame=\(harness.window.frame) afterSend=\(afterSend) afterKeyDown=\(afterKeyDown) afterFallback=\(afterFallback)"
-                    ))
-                let buttons = subviewTree(of: harness.window.contentView).map {
-                    String(describing: type(of: $0))
-                }
-                .filter { $0.contains("Button") || $0.contains("Key") }
+                let escape = try keyDown(.escape, in: harness.window, .first)
                 #expect(
-                    harness.chrome.focusMode == .off,
-                    "DIAG Esc leaves focus mode: keyEquivalentTook=\(tookIt) fr=\(String(describing: harness.window.firstResponder.map { type(of: $0) })) mode=\(harness.modes.mode) fallback=\(harness.window.hasEscapeFallback) buttons=\(buttons) sheet=\(String(describing: harness.window.attachedSheet))"
-                )
+                    harness.window.performKeyEquivalent(with: escape),
+                    "taken as a key equivalent, before AppKit sends the key window cancelOperation:")
+                #expect(harness.chrome.focusMode == .off, "Esc leaves focus mode")
                 #expect(keys.lastEscape?.entrance == .window, "through the window to its fallback")
                 #expect(keys.lastEscape?.result == .close(.focusMode))
 

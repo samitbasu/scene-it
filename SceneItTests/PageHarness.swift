@@ -119,12 +119,18 @@ struct PageHarness {
     }
 }
 
-/// A test's window, which stays where the test puts it, off every screen, at the size it's given.
-/// While the app is active, AppKit moves a titled window it orders in onto the screen, and
-/// shrinks one taller than the screen (GitHub's runners have a 1024 × 768 one) to fit.
+/// A test's window, which stays where the test puts it, off every screen, at the size it's given,
+/// and takes a new size at once. While the app is active, AppKit moves a titled window it orders
+/// in onto the screen, and shrinks one taller than the screen (GitHub's runners have a 1024 × 768
+/// one) to fit; and it animates the window's resizing as the toolbar hides and shows without
+/// waiting for the animation to end, so a test would see the window part of the way there.
 class OffscreenWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
+    }
+
+    override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
+        0
     }
 }
 
