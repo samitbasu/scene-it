@@ -8,15 +8,7 @@ import SwiftUI
 /// copy.
 @Observable
 final class PrintFlow: NSObject {
-    let book: AppOpenBook
-    private let filing: FilingFlow
-    private let export: ExportFlow
-    /// What the window shows over the book, kept up to date by the window.
-    var windowMode = WindowMode.page
-    /// The window the dialog is a sheet of.
-    @ObservationIgnored weak var window: NSWindow?
-    /// The print dialog is up.
-    private(set) var isPrinting = false
+    private let gate: OutputGate
 
     /// How the dialog is shown: as a sheet, except in tests, which record it instead.
     static var present: @MainActor (NSPrintOperation, NSWindow, PrintFlow) -> Void = {
@@ -27,26 +19,30 @@ final class PrintFlow: NSObject {
             contextInfo: nil)
     }
 
-    init(book: AppOpenBook, filing: FilingFlow, export: ExportFlow) {
-        self.book = book
-        self.filing = filing
-        self.export = export
+    init(gate: OutputGate) {
+        self.gate = gate
     }
 
-    /// Whether Print… can start: the book has something to print, and nothing else is up in the
-    /// window, no rail sheet, dialog or print dialog.
+    var book: AppOpenBook {
+        gate.book
+    }
+
+    var window: NSWindow? {
+        gate.window
+    }
+
+    /// Whether Print… can start: the book has something to print, and the gate is open.
     var canBegin: Bool {
-        ManuscriptPrinting.canPrint(book) && !isPrinting && !windowMode.isSheet && filing.draft == nil
-            && export.choice == nil
+        ManuscriptPrinting.canPrint(book) && gate.isOpen
     }
 
     func begin() {
-        guard canBegin, let window, window.attachedSheet == nil else { return }
-        isPrinting = true
+        guard canBegin, !gate.windowHasSheet, let window else { return }
+        gate.printDialog = .open
         Self.present(ManuscriptPrinting.operation(for: book), window, self)
     }
 
-    /// The dialog has gone, printed or cancelled.
+    /// The dialog has gone, printed or canceled.
     @objc func printOperationDidRun(
         _ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?
     ) {
@@ -54,7 +50,7 @@ final class PrintFlow: NSObject {
     }
 
     func finished() {
-        isPrinting = false
+        gate.printDialog = .closed
     }
 }
 

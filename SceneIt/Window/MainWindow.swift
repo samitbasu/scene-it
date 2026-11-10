@@ -21,6 +21,7 @@ struct MainWindow: View {
                     formatting: books.formatting, readAloud: books.readAloud,
                     mainChrome: books.mainWindowChrome,
                     exportDestination: { [books] in books.exportDestination },
+                    wordDestination: { [books] in books.wordDestination },
                     newBookDestination: books.newBookDestination
                 )
                 .id(book.instanceID)
@@ -87,13 +88,14 @@ private struct OpenBookWindow: View {
     @State private var chrome = WindowChrome()
     @State private var filing: FilingFlow
     @State private var export: ExportFlow
-    @State private var printing: PrintFlow
+    let wordDestination: () -> WordDestination
     let newBookDestination: SaveDestination
 
     init(
         book: AppOpenBook, store: AppBookStore, preferences: AppPreferences, formatting: EditorFormatting,
         readAloud: ReadAloud, mainChrome: MainWindowChrome,
         exportDestination: @escaping () -> SaveDestination,
+        wordDestination: @escaping () -> WordDestination,
         newBookDestination: SaveDestination
     ) {
         self.newBookDestination = newBookDestination
@@ -107,17 +109,16 @@ private struct OpenBookWindow: View {
         _filing = State(initialValue: filing)
         let export = ExportFlow(book: book, destination: exportDestination)
         _export = State(initialValue: export)
-        _printing = State(initialValue: PrintFlow(book: book, filing: filing, export: export))
+        self.wordDestination = wordDestination
     }
 
     var body: some View {
         BookWindow(
             book: book, store: store, preferences: preferences, formatting: formatting, mode: $mode,
-            filing: filing, export: export, printing: printing, chrome: chrome, readAloud: readAloud,
+            filing: filing, export: export, wordDestination: wordDestination, chrome: chrome,
+            mainChrome: mainChrome, readAloud: readAloud,
             newBookDestination: newBookDestination
         )
-        .onAppear { mainChrome.show(chrome, mode: $mode, printing: printing) }
-        .onDisappear { mainChrome.gone(chrome) }
     }
 }
 

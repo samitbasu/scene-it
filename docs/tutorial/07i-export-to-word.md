@@ -1,7 +1,7 @@
 # 07i — Export to Word: writing a file format yourself
 
-Issues #37 and #183 (PLAN §10.2, ADR 0045, 0047, 0048). File → Export to Word… saves the open scene as
-a `.docx`: the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt,
+Issues #37 and #183 (PLAN §10.2, ADR 0045, 0047, 0048). File → Export to Word… and the toolbar's Export to Word
+save the open scene as a `.docx`: the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt,
 double-spaced with a half-inch first-line indent, with bold, italic, strikethrough, colors and
 highlights, the punctuation smartened as print's is, and, if the save panel's Include comments is
 ticked, the comments as Word's own margin comments. The Swift and macOS lessons: when not to use the
@@ -155,7 +155,7 @@ start of each balloon, carries `<w:rStyle w:val="CommentReference"/>`, Word's sm
 reference" style, which the styles define only when comments are written.)
 
 The checkbox is the save panel's `accessoryView`, an `NSHostingView` around a SwiftUI `Toggle` bound
-to a small `@Observable` options object. `exportToWord()` makes a fresh object for each export, so
+to a small `@Observable` options object. `WordExportFlow.begin()` makes a fresh object for each export, so
 the box always starts unticked: no stored preference to leak a writer's private notes into the next
 export. The panel itself sits behind a `WordDestination` closure, as the other save panels sit behind
 `SaveDestination`, so the hosted test hands the export a closure that ticks the box through the very

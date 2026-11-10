@@ -2,26 +2,43 @@ import AppKit
 import SceneItCore
 import SwiftUI
 
-/// Export to Word… (PLAN §10.2) for the open scene, from the File menu. It puts out the scene as it
-/// is now, saved or not, and works on a read-only book or review.
-extension BookController {
-    /// The shown book and its open scene, while there's one to export: a filed copy's, while one
-    /// shows over the book (PLAN §7.5).
-    var wordExportScene: (book: AppOpenBook, scene: BookScene)? {
-        guard let book = store.shown, let scene = book.book.scene(book.openScene) else { return nil }
-        return (book, scene)
+/// Export to Word… (PLAN §10.2) for one book window's open scene, from the File menu (through
+/// `MainWindowChrome`) and the toolbar alike. It puts out the scene the window shows as it is now,
+/// saved or not, and works on a read-only book, a review or a filed copy (PLAN §7.5).
+@MainActor
+@Observable
+final class WordExportFlow {
+    private let gate: OutputGate
+    private let destination: () -> WordDestination
+
+    init(gate: OutputGate, destination: @escaping () -> WordDestination) {
+        self.gate = gate
+        self.destination = destination
+    }
+
+    var book: AppOpenBook {
+        gate.book
+    }
+
+    var scene: BookScene? {
+        book.book.scene(book.openScene)
+    }
+
+    /// Whether Export to Word… can start: a scene is open, and the gate is open.
+    var canBegin: Bool {
+        scene != nil && gate.isOpen
     }
 
     /// The save panel asks where, and whether the comments go (ADR 0048), and the store writes the
-    /// document there. `nil` if the panel was cancelled or no scene is open.
+    /// document there. `nil` if it can't start or the panel was canceled.
     @discardableResult
-    func exportToWord() async -> WordExportResult? {
+    func begin() async -> WordExportResult? {
         let options = WordExportOptions()
-        guard let (book, scene) = wordExportScene,
-            let url = await wordDestination.choose(
+        guard canBegin, !gate.windowHasSheet, let scene,
+            let url = await destination().choose(
                 WordExportWording.defaultFileName(scene: scene, of: book.document), options)
         else { return nil }
-        return await store.exportToWord(
+        return await gate.store.exportToWord(
             of: book, scene: scene.id, to: url, comments: options.comments.comments(by: .account))
     }
 }

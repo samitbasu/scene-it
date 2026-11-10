@@ -160,10 +160,16 @@ can still change. `localizedSummaryItems()` is what the dialog lists when it's c
 The accessory's look is SwiftUI in an `NSHostingView`, the reverse of chapter 05's bridge.
 
 The menu and the toolbar both go through the window's one `PrintFlow`. The toolbar holds it; the
-main window also registers it with `MainWindowChrome`, as it does its focus mode for the View menu,
+window also registers it with `MainWindowChrome`, as it does its focus mode for the View menu,
 and File → Print… calls that. There's one book window (ADR 0038), so both print the book that window
-shows, as a sheet on that window, which the window reports through `WindowReporter`; and both are
-disabled while a rail sheet, a dialog or the print dialog itself is up. The dialog's end comes back
+shows, as a sheet on that window, which the window reports through `WindowReporter`.
+
+The window makes `PrintFlow` and Export to Word's `WordExportFlow` together, as one
+`WindowOutputs`, around one `OutputGate`, so they can't be given different ideas of the window. The
+gate's `isOpen` is the single rule for when either may start: the window still shows the store's
+shown book (a filed copy can replace it before the old window's flows are unregistered), and no rail
+sheet, dialog or print dialog is up. The print dialog's state lives in the gate, not in `PrintFlow`,
+so Export to Word sees it too. The dialog's end comes back
 through an Objective-C selector, `printOperationDidRun(_:success:contextInfo:)`,
 which is why `PrintFlow` is an `NSObject`.
 
