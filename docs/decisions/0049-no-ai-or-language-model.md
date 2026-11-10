@@ -36,9 +36,10 @@ offered two language-model features inside it:
      On macOS 27 the importer fetches none of them: `HTMLPasteTests` pastes HTML naming each kind at a
      server on the Mac's loopback address (by `127.0.0.1` and by `localhost`, over HTTP and HTTPS) and
      checks that no connection reached it. The server counts connections from any process, so this
-     covers WebKit's own networking process too. The test also records every request the URL loading
-     system is asked for, but that sees only requests made inside Scene It's process, so it adds
-     nothing about WebKit's. What's proven is that these references, at this server, aren't fetched;
+     covers WebKit's own networking process too. The test also records the requests the URL loading
+     system is asked for and checks none names an origin in the pasted HTML (other tests in the same
+     host load pages of their own, so it can't demand none at all); that sees only requests made
+     inside Scene It's process, so it adds nothing about WebKit's. What's proven is that these references, at this server, aren't fetched;
      that the importer would treat a reference to another host the same way is an inference, not a
      test. The test runs in the gate, so a macOS that starts fetching fails it.
    - Books are files on the Mac. The one thing that can leave the Mac is Help › Report a Problem's

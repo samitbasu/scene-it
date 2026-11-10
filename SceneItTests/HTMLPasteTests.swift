@@ -37,16 +37,19 @@ struct HTMLPasteTests {
             }
         }
         #expect(server.connections == 0, "no connection reached the server")
-        #expect(RequestRecorder.urls == [], "no request was made")
+        // The recorder hears the whole test host, where other tests load pages of their own; a
+        // request the paste could have caused names one of the pasted HTML's origins.
+        let origins = Self.origins(port: server.port)
+        let pasted = RequestRecorder.urls.filter { url in origins.contains { url.hasPrefix($0 + "/") } }
+        #expect(pasted == [], "no request was made to anything the HTML names")
     }
 
     /// Every kind of reference a page can make, each at the loopback server: a style sheet, an
     /// imported one, a background, images over HTTPS and HTTP, by address and by host name, a
     /// frame and a script.
     static func html(referencing port: UInt16) -> String {
-        let https = "https://127.0.0.1:\(port)"
-        let http = "http://localhost:\(port)"
-        let plain = "http://127.0.0.1:\(port)"
+        let named = origins(port: port)
+        let (https, http, plain) = (named[0], named[1], named[2])
         return """
             <html><head>
             <link rel="stylesheet" href="\(https)/sheet.css">
@@ -56,6 +59,11 @@ struct HTMLPasteTests {
             <img src="\(https)/a.png"> <img src="\(http)/b.png"> <img src="\(plain)/c.png">
             <iframe src="\(https)/frame.html"></iframe></p></body></html>
             """
+    }
+
+    /// Every origin the pasted HTML names: the loopback server, by address and by host name.
+    static func origins(port: UInt16) -> [String] {
+        ["https://127.0.0.1:\(port)", "http://localhost:\(port)", "http://127.0.0.1:\(port)"]
     }
 }
 
