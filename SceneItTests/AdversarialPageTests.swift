@@ -97,8 +97,6 @@ private final class Fuzz {
     let pasteboard: NSPasteboard
     var rng: SplitMix
     var log: [String] = []
-    var tmpTimes: [Int: Duration] = [:]
-    var tmpCounts: [Int: Int] = [:]
     /// The first step after which the model wasn't the codec's reading of the page, with the
     /// steps leading to it.
     var bodyMismatch: [String]?
@@ -114,14 +112,8 @@ private final class Fuzz {
     func step() {
         let view = page.page
         let length = page.storage.length
-        let tmpStart = ContinuousClock.now
         view.setSelectedRange(randomRange(length, &rng))
-        let tmpKind = Int.random(in: 0..<16, using: &rng)
-        defer {
-            tmpTimes[tmpKind, default: .zero] += ContinuousClock.now - tmpStart
-            tmpCounts[tmpKind, default: 0] += 1
-        }
-        switch tmpKind {
+        switch Int.random(in: 0..<16, using: &rng) {
         case 0, 1:
             let text = randomText(&rng)
             log.append("insertText(\(text.debugDescription)) at \(view.selectedRange())")
@@ -245,30 +237,10 @@ struct PageFuzzTests {
             try await PageHarness.withPasteboard { pasteboard in
                 page.focusPage(at: 0)
                 let fuzz = Fuzz(page: page, pasteboard: pasteboard, seed: seed)
-                var tmpWall = Duration.zero
-                var tmpCheck = Duration.zero
-                for tmpIndex in 0..<PageFuzz.steps {
-                    if tmpIndex == 100 {
-                        let kinds = fuzz.tmpTimes.sorted { $0.key < $1.key }.map {
-                            "\($0.key):\(fuzz.tmpCounts[$0.key] ?? 0)x \($0.value)"
-                        }
-                        Issue.record(
-                            Comment(
-                                rawValue:
-                                    "TMPFUZZ seed=\(seed) wall=\(tmpWall) check=\(tmpCheck) kinds=\(kinds)"))
-                    }
-                    let tmpIteration = ContinuousClock.now
-                    defer { tmpWall += ContinuousClock.now - tmpIteration }
-                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                        RunLoop.main.perform {
-                            MainActor.assumeIsolated { fuzz.step() }
-                            done.resume()
-                        }
-                    }
+                for _ in 0..<PageFuzz.steps {
+                    await onTheRunLoop { fuzz.step() }
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                         DispatchQueue.main.async {
-                            let tmpC = ContinuousClock.now
-                            defer { tmpCheck += ContinuousClock.now - tmpC }
                             fuzz.checkPage()
                             done.resume()
                         }
