@@ -8,6 +8,7 @@ readonly source_guards=(
     logging-guard:forbid_unchecked_logging
     trap-message-guard:forbid_interpolated_traps
     exit-test-guard:forbid_exit_tests
+    no-ai-guard:forbid_ai_and_networking
 )
 
 # forbid_all <path>…: runs every source guard, reporting all their hits.
@@ -74,4 +75,30 @@ forbid_exit_tests() {
     # An exit test's child process launches as the real app against the owner's data (#120).
     forbid_pattern 'exit tests are forbidden: the child runs the real app against real data (issue 120)' \
         'processExitsWith|exitsWith:|ExitTest\b' -- "$@"
+}
+
+forbid_ai_and_networking() {
+    # Scene It's text never reaches a language model or the network (ADR 0049): no machine
+    # learning, language or AI framework, no Siri or Shortcuts surface, and no networking API.
+    # Like every guard, only whole-line comments are skipped: a trailing comment naming one of
+    # these is a hit, and is reworded.
+    local status=0 path app_paths=()
+    forbid_pattern 'no AI, machine learning or networking (ADR 0049)' \
+        '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?(CoreML|CreateML|NaturalLanguage|FoundationModels|Speech|Translation|Vision|VisionKit|ImagePlayground|SoundAnalysis|AppIntents|Intents|Network|CFNetwork|CloudKit)([.[:space:]]|$)|\b(URLSession|NWConnection|NWListener|NWBrowser|NSURLConnection|CKContainer|CFStream[[:alnum:]]*|CFSocket[[:alnum:]]*|NSLinguisticTagger)\b|\b(Data|String)\(contentsOf: *URL\(string: *"[a-z]+://' \
+        -- "$@" || status=$?
+    # HTMLPasteTests records requests through a URLProtocol to prove that none are made.
+    forbid_pattern 'no networking (ADR 0049)' '\b(URLRequest|URLProtocol)\b' \
+        SceneItTests/HTMLPasteTests.swift -- "$@" || status=$?
+    # WebKit fetches what a page names; the tests may use it to render previews, the app may not.
+    for path in "$@"; do
+        case ${path#./} in
+            SceneIt | SceneIt/* | Sources | Sources/*) app_paths+=("$path") ;;
+        esac
+    done
+    if ((${#app_paths[@]} > 0)); then
+        forbid_pattern 'no WebKit in the app (ADR 0049)' \
+            '(^|[^[:alnum:]_])import[[:space:]]+([a-z]+[[:space:]]+)?WebKit([.[:space:]]|$)' -- "${app_paths[@]}" \
+            || status=$?
+    fi
+    return "$status"
 }

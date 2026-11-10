@@ -186,6 +186,7 @@ struct AutomaticTextChangeTests {
             #expect(window.makeFirstResponder(field))
             let editor = try #require(field.currentEditor() as? AdmittingTextView, "the fix's own editor")
             #expect(editor.inputContext == nil)
+            #expect(LanguageModelsOff.areOff(in: editor), "no Writing Tools or predictions (ADR 0049)")
             #expect(
                 editor.isAutomaticSpellingCorrectionEnabled
                     == UserDefaults.standard.bool(forKey: "NSAutomaticSpellingCorrectionEnabled"))

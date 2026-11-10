@@ -95,10 +95,21 @@ class KeyboardTextView: NSTextView {
         nil
     }
 
-    /// Writing Tools rewrites text through paths the character policy's veto may never see, so
-    /// it's off for good; setting it does nothing.
+    /// Writing Tools and word predictions (inline, and the Touch Bar's candidates) come from
+    /// language models, which never see Scene It's text (ADR 0049), so all are off for good;
+    /// setting them does nothing.
     override var writingToolsBehavior: NSWritingToolsBehavior {
         get { .none }
+        set {}
+    }
+
+    override var inlinePredictionType: NSTextInputTraitType {
+        get { .no }
+        set {}
+    }
+
+    override var isAutomaticTextCompletionEnabled: Bool {
+        get { false }
         set {}
     }
 
