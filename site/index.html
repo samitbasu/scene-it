@@ -17,6 +17,7 @@
       <img class="hero-icon" src="images/app-icon.png" width="160" height="160" alt="The Scene It app icon: a stack of index cards">
       <h1>Scene It</h1>
       <p class="tagline">Write your novel one scene at a time.</p>
+      <p class="no-ai"><a href="#no-ai">Written with AI help. Contains no AI. Needs no internet.</a></p>
       <p>
         <a class="download" href="https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg">Download for Mac</a>
       </p>
@@ -56,7 +57,7 @@
       <div class="wrap">
         <div class="copy">
           <h2 id="cabinet">File a copy, find it again</h2>
-          <p>File a Copy keeps a dated, tagged copy of the whole book in the File Cabinet, and nothing ever changes it. Open any copy to read the book as it was then, and bring a scene from it back into your book.</p>
+          <p>File a Copy keeps a dated, tagged copy of the whole book in the File Cabinet, and its text never changes. Open any copy to read the book as it was then, and bring a scene from it back into your book.</p>
           <p>Search looks through every filed copy at once, so the line you cut three drafts ago is still a search away.</p>
         </div>
         <figure>
@@ -69,7 +70,7 @@
       <div class="wrap">
         <div class="copy">
           <h2 id="print">Print it, or send it to Word</h2>
-          <p>Print a scene or the whole manuscript in manuscript format. Or print it with your comments in a column beside the text, each one level with the line it&rsquo;s about.</p>
+          <p>Print a scene or the whole manuscript in manuscript format. Or print it with your comments in a column beside the text, each one beside the line it&rsquo;s about, joined to its words by a line.</p>
           <p>Export to Word saves a scene as a Word document. Tick Include comments, and your comments arrive as Word comments in the margin, ready for an editor to answer.</p>
         </div>
         <figure class="paper">
@@ -82,7 +83,7 @@
       <div class="wrap">
         <div class="copy">
           <h2 id="read-aloud">Hear it read aloud</h2>
-          <p>Select a passage and press &#9654;. Your Mac reads it aloud in its own voice and highlights each sentence as it goes, so you hear the rhythm your eye skims past.</p>
+          <p>Select a passage and press Play (&#9654;). Your Mac reads it aloud in its own voice and highlights each sentence as it goes, so you hear the rhythm your eye skims past.</p>
         </div>
         <figure>
           <img src="images/read-aloud.png" width="2880" height="1800" loading="lazy" alt="Two paragraphs selected on the page while they are read aloud, the sentence being spoken highlighted in yellow, and the Stop button in the bar above the page.">
@@ -94,21 +95,25 @@
       <div class="wrap">
         <h2 id="safe">Your words are safe</h2>
         <ul class="promises">
+          <li class="wide" id="no-ai">
+            <h3>Made with AI&rsquo;s help &mdash; but there&rsquo;s no AI in it</h3>
+            <p>Scene It was written with the help of AI coding tools (Claude, from Anthropic: <a href="https://claude.ai">claude.ai</a>). The app those tools produced contains no AI and uses no AI features: nothing you write is sent to, read by, or rewritten by an AI or language model, and Apple&rsquo;s Writing Tools and text predictions are switched off. Everyday features such as spell checking and reading aloud are provided by macOS itself, on your Mac. Scene It never needs an internet connection.</p>
+          </li>
           <li>
             <h3>Saved as you write</h3>
-            <p>Scene It saves two seconds after you stop typing, at least every thirty seconds while you type, and whenever you switch scenes or quit. Every save is read back and checked before it replaces the last one.</p>
+            <p>Scene It saves two seconds after you stop typing, at least every thirty seconds while you type, and whenever you switch scenes or quit. Every save is checked by reading it back in before it&rsquo;s written, then swapped in whole, so the last good version is never half-overwritten.</p>
           </li>
           <li>
             <h3>Backups at every scale</h3>
-            <p>The last three saves are kept beside the book. A snapshot is kept every ten minutes for a day, every day for a month, and every week after that, with a second set outside the book, in case the book itself is lost.</p>
+            <p>Inside the book, Scene It keeps the three versions before the current one. As you save, it also takes snapshots and keeps at most one per ten minutes for the last day, one per day for a month, and one per week after that. They&rsquo;re copied outside the book too, in case the book itself is lost.</p>
           </li>
           <li>
             <h3>Plain text you can open anywhere</h3>
-            <p>Your book is one Markdown text file inside its <code>.sceneit</code> folder. Any text editor can read it, today or in twenty years.</p>
+            <p>Your book is a <code>.sceneit</code> package, which Finder shows as one document. Choose Show Package Contents and you&rsquo;ll find the whole book in one Markdown text file, <code>book.md</code>, that any text editor can read, today or in twenty years.</p>
           </li>
           <li>
-            <h3>Nothing is thrown away</h3>
-            <p>Cut scenes wait in the Boneyard. Even a scene you delete for good stays in the book&rsquo;s file, out of sight, and filed copies can never be changed.</p>
+            <h3>No scene is thrown away</h3>
+            <p>Cut scenes wait in the Boneyard. Even a scene you delete for good stays in the book&rsquo;s file, out of sight, and a filed copy&rsquo;s text never changes.</p>
           </li>
           <li>
             <h3>Nothing leaves your Mac</h3>
@@ -122,7 +127,7 @@
   <footer>
     <div class="wrap">
       <p>Scene It is free software under the <a href="https://github.com/samitbasu/scene-it/blob/main/LICENSE">MIT License</a>. Copyright &copy; 2026 Samit Basu.</p>
-      <p><a href="https://github.com/samitbasu/scene-it">Source code</a> · <a href="https://github.com/samitbasu/scene-it/issues">Send feedback or report a bug</a></p>
+      <p><a href="https://github.com/samitbasu/scene-it">Source code</a> · <a href="mailto:basu.samit@gmail.com?subject=Scene%20It%20feedback">Send feedback</a> · <a href="https://github.com/samitbasu/scene-it/issues">Technical bug reports (GitHub Issues)</a></p>
     </div>
   </footer>
 </body>

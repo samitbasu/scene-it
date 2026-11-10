@@ -117,6 +117,27 @@ h3 {
   margin: 0 0 2rem;
 }
 
+.no-ai {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: -1rem 0 2rem;
+  padding: 0.35rem 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.no-ai a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.no-ai a:hover {
+  text-decoration: underline;
+}
+
 .download {
   display: inline-block;
   background: var(--accent);
@@ -217,6 +238,11 @@ figure.paper img {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
   gap: 2rem 2.5rem;
+}
+
+.promises .wide {
+  grid-column: 1 / -1;
+  max-width: 48rem;
 }
 
 .promises h3 {

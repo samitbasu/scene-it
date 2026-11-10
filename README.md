@@ -718,12 +718,10 @@ it, and recommends verifying it first, so nobody else can claim it in between
 5. **Turn on Enforce HTTPS** (Settings → Pages) once GitHub has issued the certificate; the box can take up to
    24 hours to become available.
 
-**Apex or www?** Recommended: **`scene-it.net` (the apex) as the primary**, which is what `site/CNAME` names.
-It's the shorter address to say and print, and with both sets of records above GitHub redirects
-`www.scene-it.net` to it by itself. The cost is that the apex is pinned to GitHub's four IP addresses, which
-GitHub could change one day (re-check them when something breaks); a `www` primary would follow GitHub through
-its `CNAME` instead, and the apex would then redirect to `www`. Either works; changing later means editing the
-Custom domain field and `site/CNAME`.
+**Primary domain: `scene-it.net`, the apex** (the owner's decision, 2026-11-09). `www.scene-it.net` redirects to
+it: with both sets of records above, GitHub creates that redirect by itself. The Custom domain field and
+`site/CNAME` both name the apex. The cost is that the apex is pinned to GitHub's four IP addresses, which GitHub
+could change one day; re-check them against *Managing a custom domain* if the site stops resolving.
 
 ### Cutting a release for the site
 
@@ -735,11 +733,21 @@ gh release create v0.1.1 dist/Scene-It.dmg dist/Scene-It.dmg.sha256 \
     --title "Scene It 0.1.1" --notes "SHA-256: $(cut -d' ' -f1 dist/Scene-It.dmg.sha256)"
 ```
 
-The file's own name becomes the asset's name. `gh release create v0.1.1 "dist/Scene It 0.1.1.dmg#Scene-It.dmg"`
+The asset's name comes from the file's name. `gh release create v0.1.1 "dist/Scene It 0.1.1.dmg#Scene-It.dmg"`
 would **not** work: the text after `#` is only the asset's display label
-([gh release create](https://cli.github.com/manual/gh_release_create)), so the asset would keep the spaced name
-and the site's link would fail. Publish the SHA-256 in the release notes and as the `.sha256` asset, so a reader
-can check the download with `shasum -a 256 Scene-It.dmg`. Then update the version on the page.
+([gh release create](https://cli.github.com/manual/gh_release_create)). GitHub would store the asset under the file's
+own name with its spaces rewritten as periods, `Scene.It.0.1.1.dmg` (it renames filenames with special or
+non-alphanumeric characters:
+[Upload a release asset](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset)), and the site's
+link would fail. Hence the copy to `Scene-It.dmg`. Publish the SHA-256 in the release notes and as the `.sha256`
+asset, so a reader can check the download with `shasum -a 256 Scene-It.dmg`.
+
+**Release checklist for the site:**
+- [ ] The build is universal; before a wide release, smoke-test the DMG on an Intel Mac (open, write, save, quit,
+      reopen), since the page promises "Apple silicon and Intel".
+- [ ] After `gh release create`, check the asset is named exactly `Scene-It.dmg` (`gh release view v0.1.1`) and that
+      `https://github.com/samitbasu/scene-it/releases/latest/download/Scene-It.dmg` downloads it.
+- [ ] Update the "Version …" line on the page (`site/index.html`).
 
 ## Reading a problem report
 
