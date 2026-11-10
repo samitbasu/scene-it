@@ -138,11 +138,13 @@ at the same time and waits for both:
 
    Then, if the change is docs-only (below), check.sh stops here.
 8. `swift test` (SceneItCore unit tests; build output in `.build/`), at most four tests at a
-   time (`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4`, ADR 0051).
+   time (`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4`, ADR 0051). With the variable set,
+   `theToolchainHonorsTheParallelizationWidth` fails if more tests than that run at once; a
+   run without it (`just test`) skips that test.
 9. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
    This builds the app and runs the app-hosted tests, at most two at a time (the scheme's
-   test action, ADRs 0039 and 0051). Compiler warnings are errors,
+   test action, so Xcode's ⌘U and `just test-app` too; ADRs 0039 and 0051). Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 

@@ -39,7 +39,7 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
           swift --version
-          sysctl -n hw.ncpu hw.activecpu hw.memsize
+          sysctl hw.ncpu hw.activecpu hw.memsize
 
       - name: scripts/check.sh
         run: scripts/check.sh
