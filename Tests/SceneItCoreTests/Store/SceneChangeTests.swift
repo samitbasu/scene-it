@@ -80,7 +80,7 @@ struct SceneChangeTests {
 
     private func save(_ store: TestStore, _ book: OpenBook<ManualClock>) async {
         store.saveNow()
-        await eventually { book.status == .saved }
+        await whenObserved { book.status == .saved }
     }
 
     @Test func eachChangeIsOneNamedUndoableStep() async throws {

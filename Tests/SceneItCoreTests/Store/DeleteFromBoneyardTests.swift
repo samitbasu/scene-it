@@ -92,7 +92,7 @@ struct DeleteFromBoneyardTests {
             #expect(book.structureUndo.canUndo && !book.structureUndo.canRedo)
 
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             let saved = String(decoding: try Data(contentsOf: url.layout.book), as: UTF8.self)
             #expect(try bookOnDisk(url) == book.book)
             #expect(!saved.contains("# Boneyard"))
@@ -119,7 +119,7 @@ struct DeleteFromBoneyardTests {
             book.structureUndo.undo()
             #expect(book.status == .unsaved, "the undo is an edit to save")
             store.saveNow()
-            await eventually { book.status == .saved }
+            await whenObserved { book.status == .saved }
             #expect(try Data(contentsOf: url.layout.book) == Data(Self.text.utf8))
             #expect(await store.closeBook() == .left)
         }
