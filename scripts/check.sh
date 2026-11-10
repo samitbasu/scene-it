@@ -84,7 +84,9 @@ fi
 prepare_builds refuse build/DerivedData .build || exit 1
 
 # SwiftPM builds into .build and xcodebuild into build/, so the two steps run at once.
-time_limited swift-test 15 '\.build' swift test &
+# Uncapped, Swift Testing starts every test at once and a test's time limit counts the wait for
+# its turn on a thread, so on a slow host the limits fail tests that are only queued (ADR 0051).
+time_limited swift-test 15 '\.build' env SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4 swift test &
 swift_test=$!
 time_limited xcodebuild 45 build xcodebuild \
     -project SceneIt.xcodeproj \
