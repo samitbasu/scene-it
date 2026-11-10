@@ -54,7 +54,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH"
-            value = "4"
+            value = "2"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
