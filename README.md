@@ -777,13 +777,16 @@ when a release is published, so the pictures match each shipped version, or by h
 → Run workflow, which renders the branch chosen there). If any image changed, it pushes them to a branch
 `site-screenshots/<run id>` and opens a pull request, "Site: refresh screenshots", that names the commit they
 were rendered from; if none changed, the run ends with a notice. Two GitHub rules shape it:
-- Pull requests opened with the workflow's `GITHUB_TOKEN` don't start other workflows, so the required `check`
-  wouldn't run on the PR. A `workflow_dispatch` is the exception, so the job then runs `gh workflow run check.yml
-  --ref <branch>`, whose run reports `check` on the PR's head commit, which is what branch protection reads. A
-  change only to `site/images/` is docs-only for the gate, so that run takes a few minutes.
+- A pull request opened with the workflow's `GITHUB_TOKEN` starts its `check` run only after someone with
+  write access chooses **Approve workflows to run** on it
+  ([Triggering a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
+  Dispatching `check.yml` on the branch wouldn't help: checks from a `workflow_dispatch` run don't appear on the
+  PR or satisfy the required `check`
+  ([Troubleshooting required status checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)).
+  A change only to `site/images/` is docs-only for the gate, so the approved run takes a few minutes.
 - Opening the PR needs Settings → Actions → General → **Allow GitHub Actions to create and approve pull
-  requests**. While that's off, the branch is still pushed and `check` still dispatched, and the run's warning
-  and summary link to opening the PR by hand.
+  requests**. While that's off, the branch is still pushed, and the run's warning and summary link to opening
+  the PR by hand (a PR you open starts `check` without approval).
 
 The runner's renders can differ from a Mac's, so look at the PR's images before merging.
 
