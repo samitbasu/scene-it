@@ -1,0 +1,84 @@
+# Renders the website's screenshots with scripts/site-screenshots.sh and, if any changed, pushes
+# them to a branch and opens a pull request (README.md, "Website").
+#
+# Pushes and pull requests made with GITHUB_TOKEN don't start other workflows, so the PR's
+# required `check` would never run. A workflow_dispatch is the exception, so this dispatches
+# check.yml on the branch itself; its run reports `check` on the PR's head commit.
+name: site screenshots
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-screenshots
+  cancel-in-progress: false
+
+jobs:
+  render:
+    # As in check.yml: macOS minutes on a private repository are billed at 10x.
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          command -v magick || brew install imagemagick
+          magick -version | head -n 1
+
+      - name: scripts/site-screenshots.sh
+        run: scripts/site-screenshots.sh build/site-renders
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: site-screenshots/${{ github.run_id }}
+          RENDERED_FROM: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          changed=$(git status --porcelain -- site/images)
+          if [[ -z $changed ]]; then
+            echo "::notice::The site's screenshots are already up to date."
+            exit 0
+          fi
+          sha=$(git rev-parse HEAD)
+          git switch -c "$BRANCH"
+          git add -- site/images
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Site: refresh screenshots" -m "Rendered by scripts/site-screenshots.sh from $RENDERED_FROM ($sha)."
+          gh auth setup-git
+          git push origin "$BRANCH"
+
+          {
+            echo "Rendered by \`scripts/site-screenshots.sh\` from $RENDERED_FROM ($sha) in [run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo
+            echo "Changed:"
+            git diff --name-only HEAD~1 HEAD | sed 's/.*/- `&`/'
+            echo
+            echo "\`check\` is dispatched on this branch by the same run, because pull requests opened by GITHUB_TOKEN don't start workflows."
+          } >"$RUNNER_TEMP/pr-body.md"
+
+          if ! gh pr create --base main --head "$BRANCH" --title "Site: refresh screenshots" \
+            --body-file "$RUNNER_TEMP/pr-body.md"; then
+            compare="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
+            echo "::warning::Pushed $BRANCH but couldn't open its pull request (Settings → Actions → General → \"Allow GitHub Actions to create and approve pull requests\" may be off). Open it by hand: $compare"
+            echo "Open the pull request by hand: $compare" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          gh workflow run check.yml --ref "$BRANCH"
