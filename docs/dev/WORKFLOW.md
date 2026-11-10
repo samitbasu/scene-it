@@ -23,7 +23,11 @@ gh pr list                                                    # all open PRs
 1. Pick the lowest-numbered open milestone's unblocked issue (check its "Depends on" line).
 2. Claim it: `gh issue edit N --add-label in-progress`.
 3. Branch: `git switch -c issue-N-short-name` (or work in a git worktree).
-4. Implement, with tests. Run `scripts/check.sh` until it's green.
+4. Implement, with tests. Run `scripts/check.sh` until it's green. Commit first: on a commit
+   that changes only documentation, the gate skips the build and tests and says so, but a dirty
+   tree, or any change outside the docs paths, always gets the full gate (README, "Docs-only
+   changes"). Once the repository is public, GitHub Actions runs the same `scripts/check.sh` on
+   every PR and on `main` (`.github/workflows/check.yml`); until then that workflow is skipped.
 5. Add or extend a tutorial chapter if the issue introduced a new Swift/macOS concept (see the issue's "Tutorial" line).
 6. If you added or changed a script, update its section in the top-level `README.md` (usage, example arguments, output products).
 7. Open a PR with `Closes #N` in the body. List any intentional behaviour changes or deviations from PLAN.
