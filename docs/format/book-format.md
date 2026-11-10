@@ -887,7 +887,7 @@ refused. Precisely †:
 > Let `b = serialize(book)` and `p = parse(b)`. The save may proceed only if
 >
 > 1. `p`'s error entries are exactly `book`'s error entries: no new ones;
-> 2. `p` **is** `book`, with neighbouring runs of the same format merged (the one change the canonical form makes,
+> 2. `p` **is** `book`, with neighboring runs of the same format merged (the one change the canonical form makes,
 >    §7.3): every title, tag, paragraph, run, comment and entry compares equal; and
 > 3. `serialize(p) == b` byte for byte.
 

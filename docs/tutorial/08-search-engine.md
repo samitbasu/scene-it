@@ -60,7 +60,7 @@ Every field is a `let`, and every type inside is a value type, so the snapshot c
 while a search reads it. That is what lets the whole thing be `Sendable` without a lock. In Rust
 you'd get the same guarantee from `Arc<[SearchUnit]>` with no interior mutability: the compiler
 lets you send it to another thread because nobody can write to it. Swift's `Sendable` is the
-analogue of `Send + Sync` for values. A struct is `Sendable` when all its stored properties
+analog of `Send + Sync` for values. A struct is `Sendable` when all its stored properties
 are, and the compiler checks that when you declare the conformance.
 
 Building the units is cheap: `Book` is a value type with copy-on-write storage, so taking a
@@ -143,7 +143,7 @@ public struct Iterator: AsyncIteratorProtocol {
 
 This is the pull model of a Rust `Stream`: nothing happens unless someone polls. The obvious
 alternative, an `AsyncStream` fed by a background `Task`, is push-based: the task runs ahead of
-the consumer and has to be cancelled separately when the consumer goes away. With a pull-based
+the consumer and has to be canceled separately when the consumer goes away. With a pull-based
 iterator there is no second task to leak.
 
 Two details in that excerpt are worth a second look.
@@ -170,7 +170,7 @@ as much as the final one.
 
 Swift tasks, like Rust futures, can't be killed from outside. Rust cancels a future by dropping
 it; Swift cancels a task by setting a flag, and the code running in it decides when to stop.
-`SearchRun.advance` checks `Task.isCancelled` before every unit, so a cancelled search stops
+`SearchRun.advance` checks `Task.isCancelled` before every unit, so a canceled search stops
 within one unit (one paragraph, and each unit's matching is linear in its words) and the
 sequence ends without a `.complete` update. When the writer
 types another letter, the Search sheet cancels the task iterating the old query and starts a new
@@ -312,7 +312,7 @@ fine = Σ over matched keywords k of  idf(k) × (1 + 0.25 × ln(occurrences of k
 - **Repeats:** the logarithm gives diminishing returns.
 - **Compactness:** `1 / (1 + the number of other words in the smallest window that holds every
   matched keyword)`, taken within a sentence when the tier is `.sentence`.
-- **Adjacency:** the fraction of neighbouring query keywords that are also neighbours in the text,
+- **Adjacency:** the fraction of neighboring query keywords that are also neighbors in the text,
   in query order ("bear claw" beats "claw bear").
 - **Boost:** 1 for a title, 0.5 for a tag set.
 
@@ -400,7 +400,7 @@ run = Task { [weak self] in
 
 The app target is `@MainActor` by default (ADR 0011), so this `Task` and its loop body run on
 the main actor, while each `next()` hops off it (`@concurrent`, §4) to do the searching. The
-`guard` is the important line. Cancelling is cooperative: the old task may already hold one
+`guard` is the important line. Canceling is cooperative: the old task may already hold one
 update when the new query cancels it. Both run on the main actor, though, and `cancel()` is
 called there before the new task starts, so a check made on the main actor *after* the update
 arrives can't miss it, and a stale update never replaces a newer one. In Rust you'd get the
@@ -410,7 +410,7 @@ before writing to shared state; here the actor plays the counter's part.
 Closing the sheet (`close()`) cancels the search and drops the indexes and the results;
 opening it (`refresh()`) searches the book as it is then. Results from an earlier opening are
 never shown, because their offsets describe text that may have changed. As a second line of
-defence, `SearchHit.target(in:)` checks that the hit's text is still what the book holds before
+defense, `SearchHit.target(in:)` checks that the hit's text is still what the book holds before
 it selects anything (`.scene` otherwise).
 
 The model keeps one index per scope, each a `Task<any SearchIndex, Never>`, so a query typed
@@ -423,7 +423,7 @@ and `SearchHit.target(in:)` turns a hit's paragraph-relative highlight into the 
 view selects, by adding the lengths of the paragraphs before it, plus one line break each.
 
 The tests inject the index (`SearchSheetModel(book:indexing:)`) with one that holds back a
-search's last update until it's cancelled, so "a new query cancels the old search" is checked
+search's last update until it's canceled, so "a new query cancels the old search" is checked
 without any timing: see `aNewQueryCancelsTheSearchInProgress` in
 [`SearchSheetTests.swift`](../../SceneItTests/SearchSheetTests.swift).
 

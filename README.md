@@ -52,7 +52,7 @@ dist/                      release artifacts (git-ignored)
 All scripts are run from the repository root, use `bash` with `set -euo pipefail`,
 and exit non-zero on failure. **Status** shows whether a script exists yet. A
 script marked *planned* lands with the issue named, and its section is updated
-from the real behaviour when it merges.
+from the real behavior when it merges.
 
 ### `Justfile`: optional shortcuts
 
@@ -666,7 +666,7 @@ asset of that name in the newest release
 `Scene-It.dmg`. The page's "Version 0.1.1" line is edited by hand at each release.
 
 **Screenshots.** Render them with the `site` test (see [Rendering the window for
-review](#rendering-the-window-for-review)), then copy them into `site/images/` as 256-colour PNGs, which keeps each
+review](#rendering-the-window-for-review)), then copy them into `site/images/` as 256-color PNGs, which keeps each
 under 200 KB (ImageMagick, `brew install imagemagick`):
 
 ```sh

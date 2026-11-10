@@ -274,7 +274,7 @@ the cards' tags), forgets the click. The two orders are compared apart: cutting 
 restoring the first tile leaves them the same joined end to end.
 A click doesn't scroll (the card is under the pointer); the sheet's `onChange(of: model.focused)`
 scrolls only when the focus didn't come from a click. A tile has no single-click selection,
-because the card focus belongs to the story grid. The tile behaviour, the tooltips and the
+because the card focus belongs to the story grid. The tile behavior, the tooltips and the
 no-scroll click are defaults awaiting the owner (decision log entry 37).
 
 ### The File Cabinet (#33)

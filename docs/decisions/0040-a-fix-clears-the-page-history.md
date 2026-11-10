@@ -23,7 +23,7 @@ interleaving. Nothing else in the app writes a scene's tags or comments outside 
 Clearing on a Fix makes the interleavings impossible, so the inverses stay exact and simple.
 
 ## Consequences
-- **Behaviour change (approved):** after an Errors-tab Fix to a scene's tags or comments, Undo on
+- **Behavior change (approved):** after an Errors-tab Fix to a scene's tags or comments, Undo on
   that scene's page has nothing to undo from before the Fix. This is the same as after a Fix to its
   text.
 - Undoing the Fix (Errors tab) changes the scene from outside the page history too, so it clears it

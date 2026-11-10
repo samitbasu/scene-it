@@ -19,7 +19,7 @@ Files: [`SceneIt/Editor/Speech.swift`](../../SceneIt/Editor/Speech.swift),
 `AVSpeechSynthesizer` takes an `AVSpeechUtterance` (a string, a voice and a rate) and speaks it on
 the Mac itself; nothing leaves the machine (ADR 0044). It reports progress through a **delegate**:
 an object you hand it, conforming to `AVSpeechSynthesizerDelegate`, whose methods it calls as
-things happen. The Rust analogue is a `Box<dyn Listener>` the library holds and calls back, except
+things happen. The Rust analog is a `Box<dyn Listener>` the library holds and calls back, except
 that the synthesizer holds its delegate *weakly*: the delegate must be kept alive by someone else.
 Three of its methods matter here:
 
@@ -120,8 +120,8 @@ with `enumerateSubstrings(options: .bySentences)`, and is a pure core type, so i
 
 The highlight must never reach the document: the text storage mirrors the model, and anything put
 in it would be saved. TextKit 2 has a display-only layer for exactly this, *rendering attributes*:
-`NSTextLayoutManager.addRenderingAttribute(_:value:for:)` colours a range as it's drawn without
-touching the storage. The page already uses one, `.backgroundColor`, to paint the selection's colour
+`NSTextLayoutManager.addRenderingAttribute(_:value:for:)` colors a range as it's drawn without
+touching the storage. The page already uses one, `.backgroundColor`, to paint the selection's color
 over highlighted words the selection covers (ADR 0034). Two owners of one attribute would erase each
 other's ranges, so the spoken sentence joins that same code, set last so it wins:
 
@@ -137,7 +137,7 @@ other's ranges, so the spoken sentence joins that same code, set last so it wins
 A first version drew the sentence as a band in `drawBackground`, under the text like the selection.
 It broke up wherever the sentence held a highlighted word: TextKit draws rendering attributes with
 the text, above anything the view's background draws. Tests check that the storage is the same after
-a sentence is highlighted, and that the sentence is one colour across a highlighted word.
+a sentence is highlighted, and that the sentence is one color across a highlighted word.
 
 ## 7. A shortcut on a button
 

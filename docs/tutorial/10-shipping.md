@@ -5,12 +5,12 @@ without macOS warning them off it ([ADR 0001](../decisions/0001-distribution-dev
 The pipeline is [`scripts/release.sh`](../../scripts/release.sh); its usage and outputs are
 in the [README](../../README.md#scriptsreleasesh-build-a-distributable-app).
 
-| Step | Tool | Rust-world analogue |
+| Step | Tool | Rust-world analog |
 | --- | --- | --- |
-| Build an optimised, universal binary plus debug info | `xcodebuild archive` | `cargo build --release` for two targets, then `lipo` |
+| Build an optimized, universal binary plus debug info | `xcodebuild archive` | `cargo build --release` for two targets, then `lipo` |
 | Sign it with our identity | `codesign`, run by Xcode | `cosign sign` / `minisign`, except the OS checks it on every launch |
 | Repackage for distribution | `xcodebuild -exportArchive` | the packaging half of `cargo dist` |
-| Ask Apple to scan it | `xcrun notarytool submit` | no direct analogue; closest is a Sigstore transparency-log entry |
+| Ask Apple to scan it | `xcrun notarytool submit` | no direct analog; closest is a Sigstore transparency-log entry |
 | Attach Apple's receipt | `xcrun stapler staple` | bundling the transparency-log inclusion proof with the artifact |
 | Check what a downloader's Mac will decide | `spctl -a` | none |
 | Wrap it in a disk image | `diskutil image create from` | the `.dmg` installer `cargo dist` can build |
@@ -285,13 +285,13 @@ A DMG is a disk image: a file containing a file system. Ours holds the stapled a
 symbolic link to `/Applications`, so the window that opens invites a drag. It's made with
 `diskutil image create from --format UDZO` (zlib-compressed, read-only), which puts an APFS
 volume inside the image, so it opens on any Mac we support (macOS 26 and later). `hdiutil` used to
-do this; its man page on macOS 27 marks the verb deprecated in favour of `diskutil image`.
+do this; its man page on macOS 27 marks the verb deprecated in favor of `diskutil image`.
 The DMG gets its own Developer ID signature, notarization and staple, so the first thing
 the downloader opens is trusted, and the app inside is checked again when it launches.
 
 ## dSYMs and symbolication
 
-Release builds are optimised and their symbol tables are stripped: the shipped executable
+Release builds are optimized and their symbol tables are stripped: the shipped executable
 has 826 symbols for arm64, the debug info 5982. The DWARF goes into a separate **dSYM**
 bundle (`DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"`), much like
 `-C split-debuginfo=packed` in Rust, or `objcopy --only-keep-debug` on Linux. A binary and its

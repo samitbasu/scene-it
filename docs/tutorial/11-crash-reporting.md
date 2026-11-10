@@ -4,7 +4,7 @@ How Scene It notices that it crashed, what it keeps on disk to explain why, and 
 writer sends that to us without any of their book in it ([ADR 0006](../decisions/0006-crash-reporting.md),
 [ADR 0009](../decisions/0009-report-destination.md)).
 
-| Piece | Where | Rust analogue |
+| Piece | Where | Rust analog |
 | --- | --- | --- |
 | `Log` facade over `os.Logger` | [`Sources/SceneItCore/Diagnostics/Log.swift`](../../Sources/SceneItCore/Diagnostics/Log.swift), [`LogValue.swift`](../../Sources/SceneItCore/Diagnostics/LogValue.swift) | `tracing` macros with a restricted field type |
 | `LogRing`, our own on-disk copy | [`Sources/SceneItCore/Diagnostics/LogRing.swift`](../../Sources/SceneItCore/Diagnostics/LogRing.swift) | a `tracing-appender` rolling file writer, size-capped |

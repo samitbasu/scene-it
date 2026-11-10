@@ -40,7 +40,7 @@ takes about 1.5 ms each way, against the existing Swift codec's 27 ms parse. A c
 1 µs, which is fine even once per keystroke. The friction:
 
 - Generated signatures use untyped `throws`, so Scene It's typed throws is lost at the boundary.
-- Cancelling a Swift `Task` doesn't cancel the Rust future.
+- Canceling a Swift `Task` doesn't cancel the Rust future.
 - A panic in a non-throwing function hits `try!` and becomes a Swift trap, with the panic message
   in it. That conflicts with the repo's "static trap messages" guard.
 - The generated Swift is 1,481 lines and produces 1,216 `swift format` findings, so it must be
@@ -280,7 +280,7 @@ Rust programmer expects. **Cons:**
 | Used in production by | Firefox iOS/Android (application-services), Matrix rust-sdk (Element X iOS), others | smaller projects | everyone, by hand |
 | Swift 6 strict concurrency | **Verified here:** the generated code compiles under `-swift-version 6` with warnings as errors (Swift 6.4.2). Records are `Sendable`; objects are `@unchecked Sendable` classes, relying on Rust's `Send + Sync` (UniFFI requires it); foreign traits are `AnyObject, Sendable` | not verified in this spike; historically lagged on `Sendable` annotations | whatever you write: a C function imports as `nonisolated`, and you add `Sendable` to your wrappers |
 | Errors | Rust `enum` becomes a Swift `enum: Error`; **signatures are untyped `throws`** | `Result` becomes `throws` | out-parameters or status codes; you write the mapping |
-| Async | `async fn` becomes Swift `async`, polled without a Rust runtime unless you opt into tokio. **Cancelling the Swift task doesn't cancel the Rust future**, and the generated code `fatalError`s on `CALL_CANCELLED` ("Cancellation not supported yet") | supported (per docs) | callbacks plus continuations, by hand |
+| Async | `async fn` becomes Swift `async`, polled without a Rust runtime unless you opt into tokio. **Canceling the Swift task doesn't cancel the Rust future**, and the generated code `fatalError`s on `CALL_CANCELLED` ("Cancellation not supported yet") | supported (per docs) | callbacks plus continuations, by hand |
 | Callbacks (Swift → called from Rust) | `#[uniffi::export(with_foreign)] trait` becomes a Swift protocol (verified) | supported | function pointers plus a context pointer |
 | Zero-copy | `&[u8]` arguments ("ByRef bytes", new in 0.32); otherwise everything is serialized into a `RustBuffer` | some | yes: a borrowed `UnsafeRawBufferPointer` costs nothing (measured ~0 for 700 KB) |
 | Amount of glue | generated: 1,481 lines of Swift for 10 functions, 3 records, 1 error, 1 object, 1 callback trait | generated in `build.rs` | ~5 lines of C header per function, plus Swift wrappers you write and test |
@@ -305,7 +305,7 @@ problem. swift-bridge's bus factor and unverified Swift 6 story make it the weak
      edit took **2.5 s** in the spike (cargo, then bindgen, then `xcodebuild -create-xcframework`).
      The risk is a *stale* library when someone builds in Xcode without the pre-action. UniFFI's
      generated `uniffiEnsureInitialized` `fatalError`s on an API checksum mismatch, which catches
-     signature drift but not behaviour drift.
+     signature drift but not behavior drift.
   2. **A SwiftPM build-tool plugin running cargo:** sandboxed (no network, writes only to the
      plugin's work directory), so cargo needs vendored dependencies and `--offline`. It's fragile,
      and Xcode asks the user to trust the plugin.
@@ -345,7 +345,7 @@ problem. swift-bridge's bus factor and unverified Swift 6 story make it the weak
 
 ### 4.1 What Rust buys
 
-- **Reviewability by the owner.** It's the strongest argument. Trust-labelled code
+- **Reviewability by the owner.** It's the strongest argument. Trust-labeled code
   (`trust` issues: the parser, save and verify, backups, locks) is the code you most need to read
   closely, and Rust is the language you read best.
 - **Real fuzzing.** cargo-fuzz (libFuzzer) works on macOS with nightly; nightly is installed here
@@ -440,7 +440,7 @@ pieces and mutation kinds port to a cargo-fuzz dictionary and mutator.
 
 0. **Decide (ADR) and do the work that pays off anyway.** Turn the spec examples and fixtures
    into a language-neutral corpus: `input.md`, `canonical.md` and an `errors.txt` listing the
-   error entries. Point the Swift tests at it, with no change in behaviour. This step is useful
+   error entries. Point the Swift tests at it, with no change in behavior. This step is useful
    **even under A**.
 1. **Write the Rust codec from the spec, test-only.** A `rust/` workspace that passes the corpus,
    with proptest and cargo-fuzz. `check.sh` runs `cargo fmt`, `clippy` and `test`. The app is

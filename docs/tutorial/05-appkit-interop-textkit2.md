@@ -127,7 +127,7 @@ after touching layoutManager: textLayoutManager false
 ```
 
 There is no error and no log line; the text view just gets slower and loses TextKit 2
-behaviour. So `scripts/check.sh` greps every Swift file for that property's name and for
+behavior. So `scripts/check.sh` greps every Swift file for that property's name and for
 `NSLayoutManager`, and fails the gate if either appears (`forbid_textkit1` in
 `scripts/guards.sh`). The page is created explicitly on TextKit 2, which documents the choice
 even though it's also the default:
@@ -228,7 +228,7 @@ text storage calls it rather than storing a style of its own.
 With the spacing below, the system's selection of several lines is one block: TextKit's
 selection segments for every line after the first reach up over the gap above. The owner wanted
 a band per line, text height, so both editors switch the system's highlight off
-(`selectedTextAttributes = [:]`, which leaves its views with no colour) and draw the bands
+(`selectedTextAttributes = [:]`, which leaves its views with no color) and draw the bands
 themselves, behind the text, in `drawBackground(in:)`.
 
 `SelectionBands.bands(of:in:)` (in the core) is the rule: it enumerates the selection's
@@ -241,7 +241,7 @@ A band is never narrower than a space, so a selected empty paragraph shows as a 
 container's inset moves, only for what's selected within the viewport (TextKit's
 `viewportRange`), so selecting all of a long scene costs no more than a line. It marks only the
 bands that appeared or went (a set difference) as needing display, `setNeedsDisplay(_:)` with a
-rect rather than the whole view, so a drag redraws little. The colour is the system's pair:
+rect rather than the whole view, so a drag redraws little. The color is the system's pair:
 `selectedTextBackgroundColor` while the view has the focus in the key window,
 `unemphasizedSelectedTextBackgroundColor` otherwise.
 
@@ -249,7 +249,7 @@ A highlight (`.backgroundColor` in the text) is drawn with the text, over the ba
 it would hide a selection. TextKit 2's *rendering attributes* are display-only attributes on a
 range, kept by the layout manager rather than the storage, and they win over the text's own:
 `addRenderingAttribute(.backgroundColor, value: selectionColor, for: range)` on the selected,
-visible ranges draws the selection colour in the highlight's place, and removing it when the
+visible ranges draws the selection color in the highlight's place, and removing it when the
 selection moves gives the highlight back. The notes draw no background, and then
 `NSTextView` never calls `drawBackground(in:)`, so `draw(_:)` paints their bands.
 
@@ -260,7 +260,7 @@ TextKit 2 lays text out in *layout fragments*, one per paragraph, and each draws
 (`textLayoutManager(_:textLayoutFragmentFor:in:)`), so the page (`ManuscriptTextView`) makes a
 `CommentUnderliner` its layout manager's delegate, and every paragraph of the page is a
 `CommentUnderlineFragment` (the notes have no comments, ADR 0035, and keep TextKit's own):
-TextKit's own drawing, then a line per comment below the baseline, in the comment's colour. A
+TextKit's own drawing, then a line per comment below the baseline, in the comment's color. A
 Rust analogy: the delegate is a factory closure the layout engine calls, and the fragment is a
 type that wraps the default `draw` and adds to it.
 
@@ -280,7 +280,7 @@ Three things about fragments are worth knowing:
 
 - **They outlive invalidation.** `invalidateLayout(for:)` lays the same fragment objects out
   again; it doesn't ask the delegate for new ones. So a fragment must not copy anything that can
-  change (the comments' colours): it holds its `CommentUnderliner` and reads the palette, behind
+  change (the comments' colors): it holds its `CommentUnderliner` and reads the palette, behind
   a `Mutex`, each time it draws. (A first version copied it, and kept drawing the old style.)
 - **They may draw outside their frame.** TextKit lays a line's spacing out above the next line,
   so the double spacing below a paragraph's last line (ADR 0034) is at the top of the next
@@ -293,7 +293,7 @@ Three things about fragments are worth knowing:
 
 Each comment keeps one level across its paragraph (`CommentPalette.underlines(of:depth:)`, a
 pure function of the paragraph's attributed string), and past the depth that fits below a line
-the stretch gets one line in the newest comment's colour.
+the stretch gets one line in the newest comment's color.
 
 A plain click on commented text selects its comment. `SceneTextView.mouseDown(with:)` asks
 `CommentUnderlineFragment.character(at:in:)` which character is under the press, or above the
@@ -305,8 +305,8 @@ underline it's on, using TextKit 2's `NSTextLineFragment.characterIndex(for:)`. 
 process: a mouse-up posted to the window's queue first, so that `NSTextView`'s mouse-tracking
 loop, which waits for it, returns.
 
-The cursor is left to the system, colour included: `insertionPointColor` is never set, so it's
-the accent colour, as in TextEdit.
+The cursor is left to the system, color included: `insertionPointColor` is never set, so it's
+the accent color, as in TextEdit.
 
 ## 4. The text storage is a mirror; the model is the truth
 
@@ -764,7 +764,7 @@ unwind. The trap now reads the executor record too, through the runtime's
 a dead frame's record is exactly what crashes.
 
 The trap looks the function up with `dlsym` and `unsafeBitCast`s the pointer to
-`@convention(c) () -> UInt`: the Rust analogue is `libloading` plus a `transmute` of the symbol to
+`@convention(c) () -> UInt`: the Rust analog is `libloading` plus a `transmute` of the symbol to
 an `extern "C" fn() -> usize`. The real function uses the Swift calling convention and returns a
 two-word struct (the executor's identity, then its witness table). On arm64 both conventions
 return the first word in `x0`, and on x86_64 in `rax`, so a C signature that returns one word

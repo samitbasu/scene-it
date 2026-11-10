@@ -2,7 +2,7 @@
 
 Chapter 03 covered *how* a book gets onto disk. This one covers *when*: the autosave
 scheduler (PLAN §5.4, issue #10). It's a small piece of code that teaches four things a
-Rust programmer meets early in Swift: modelling a scheduler as a pure state machine, the
+Rust programmer meets early in Swift: modeling a scheduler as a pure state machine, the
 `Clock` protocol, task cancellation, and `@MainActor`.
 
 ## Where the code is
@@ -289,6 +289,6 @@ that never returns would otherwise hang the quit forever, so after the grace per
 
 It also responds to cancellation: it's declared `async throws(CancellationError)`. Waiting is a
 continuation parked in a dictionary. `withTaskCancellationHandler` resumes it when the task is
-cancelled, and a second task sleeping on the clock resumes it at the grace deadline. Whichever
+canceled, and a second task sleeping on the clock resumes it at the grace deadline. Whichever
 comes first wins; the other finds the continuation already gone. That's Swift's equivalent of
 `tokio::select!` over a notification, a timer and cancellation, written out by hand.
