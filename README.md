@@ -89,9 +89,8 @@ just test-filter Corpus # extra arguments are passed through where the table sho
 scripts/check.sh
 ```
 
-Takes no arguments. Two environment variables: `CHECK_BASE` (the branch a change merges
-into, `origin/main` by default) and `CHECK_FULL=1` (never skip the build and tests); see
-docs-only changes below. The Swift paths it checks are `Package.swift`, `Sources/`,
+Takes no arguments. One environment variable: `CHECK_FULL=1` never skips the build and tests
+(see docs-only changes below). The Swift paths it checks are `Package.swift`, `Sources/`,
 `Tests/`, `SceneIt/` and `SceneItTests/`. They're defined once in `scripts/lib.sh`,
 which check.sh and format.sh source. It first deletes `build/check/SceneIt.xcresult`, then
 runs steps 1–6 in order, stopping at the first failure. If they pass, it runs steps 7 and 8
@@ -118,9 +117,10 @@ at the same time and waits for both:
    for each hit.
 6. `swift format lint --strict --recursive` over those paths, using `.swift-format`. Then, if
    `site/index.html` exists, `check_html` from `scripts/lib.sh` (step `site-html`): every
-   element other than a void one (`br`, `img`, `meta`…) must be closed explicitly, by the end
-   tag of the innermost open element. It runs `python3`'s `html.parser`, which macOS ships
-   with Xcode. It prints `file:line: error: …` for each mismatched or unclosed tag.
+   element other than a void one (`br`, `img`, `meta`…) must be closed by its own end tag,
+   while it's the innermost open element; a self-closed `<div/>` doesn't count. It runs
+   `python3 -I` with `html.parser`; macOS ships `python3` with Xcode. It prints
+   `file:line: error: …` for each mismatched, unclosed or self-closed tag.
 
    Then, if the change is docs-only (below), check.sh stops here.
 7. `swift test` (SceneItCore unit tests; build output in `.build/`).
@@ -131,9 +131,8 @@ at the same time and waits for both:
    are not fatal.
 
 **Docs-only changes:** check.sh skips steps 7 and 8 when every path the checked-out commit
-changes is documentation. It compares `HEAD` with its merge-base with `origin/main`, or with
-the branch named by `CHECK_BASE` (for example `CHECK_BASE=upstream/main`), and lists renamed
-files under both names. It then prints, on stdout, and exits 0:
+changes is documentation. It compares `HEAD` with its merge-base with `origin/main`, which
+nothing overrides, and lists renamed files under both names. It then prints, on stdout, and exits 0:
 
 ```
 check.sh: docs-only change since origin/main: skipping build and tests
@@ -143,14 +142,18 @@ check.sh: docs-only change since origin/main: skipping build and tests
 
 - **Documentation** is `is_docs_path` in `scripts/lib.sh`: `docs/`, `site/`, `design/` other
   than its Swift files, Markdown at the top level, `novel-app-build-bundle/*.md`, `LICENSE`, and
-  the workflow YAML and Markdown under `.github/`.
+  Markdown under `.github/`. Paths match whatever their case, as on APFS, so `docs/Tutorial/`
+  is `docs/tutorial/`.
 - **Not documentation**, because tests read them: `docs/format/` (the transliteration test
   parses `book-format.md`), `docs/tutorial/` (a test scans it for `book.json`), the mockups in
   `novel-app-build-bundle/mockups/`, and the Markdown in `Tests/Corpus/`. A new test that reads a
   file elsewhere under the docs paths must add that path to `is_docs_path`'s exclusions.
+  Workflow files under `.github/workflows/` aren't documentation either: a change to the runner
+  or Xcode must prove itself with a full run.
 - **The full gate runs** whenever any changed path isn't documentation, including any path the
-  list doesn't know and any name git quotes; when the working tree has changes or untracked
-  files; when there's no merge-base (no `origin/main`, or a shallow clone); and when nothing
+  list doesn't know and any name git quotes; when the working tree may differ from `HEAD`
+  (a change or an untracked file, whatever `status.showUntrackedFiles` says, or a file marked
+  `--assume-unchanged` or `--skip-worktree`); when there's no merge-base (no `origin/main`, or a shallow clone); and when nothing
   changed, as on `main` itself. Setting `CHECK_FULL=1` forces it. Nothing forces the docs-only
   path.
 
@@ -231,10 +234,12 @@ without it passing.
 **On GitHub Actions:** `.github/workflows/check.yml` runs `scripts/check.sh` unchanged on every
 pull request and every push to `main`, so the docs-only decision is the same one as locally;
 the workflow has no path filter of its own. It uses the `xcode-27` runner image (macOS 27 on
-Apple Silicon) with `DEVELOPER_DIR` set to Xcode 27.2, the version the project is built with,
-and checks out the full history so that the merge-base with `origin/main` exists. A newer run on
-the same pull request cancels the older one. A run is limited to 60 minutes. When it fails, it
-uploads `build/check/` (the step logs, hang samples and `SceneIt.xcresult`) as the artifact
+Apple Silicon) with `DEVELOPER_DIR` set to Xcode 27.2, the version the project is built with.
+GitHub announced that image as generally available on 2026-10-15, but the runner-images table
+still labels it a preview. The workflow checks out the full history, so that the merge-base with
+`origin/main` exists, without keeping the token. A newer run on the same pull request cancels
+the older one; each push to `main` runs to the end. A run is limited to 60 minutes. When it fails
+or is cancelled, it uploads `build/check/` (the step logs, hang samples and `SceneIt.xcresult`) as the artifact
 `check-<run>-<attempt>`, kept for 14 days. No signing certificate is needed: Debug is signed ad
 hoc. **The job runs only while the repository is public** (`if:
 github.event.repository.private == false`). GitHub bills macOS minutes on private repositories
@@ -291,10 +296,12 @@ It checks the docs-only gate too. `is_docs_path` must accept each kind of docume
 reject code, test input under the docs paths, unknown paths and a quoted name. On a fixture
 repository, `docs_only_change` must pass a docs-only branch and a rename within docs, listing
 the files. It must run the full gate on the base itself, a mixed change, a code-only change, an
-unknown path, a rename from code into docs, a docs-only branch that merged code, an untracked or
-modified file, `CHECK_FULL=1`, and a base that doesn't exist. `check_html` must accept
-well-formed HTML with void and self-closed elements, and reject a mismatched end tag (naming its
-line) and an element left open. **Output:**
+unknown path, a rename from code into docs, a docs-only branch that merged code, a new
+directory `docs/Tutorial/`, an untracked or modified file, an untracked file hidden by
+`status.showUntrackedFiles=no`, a modified file marked `--assume-unchanged` or
+`--skip-worktree`, `CHECK_FULL=1`, and a base that doesn't exist. `check_html` must accept
+well-formed HTML with void and self-closed void elements, and reject a mismatched end tag
+(naming its line), an element left open and a self-closed `<div/>`. **Output:**
 nothing on success. On failure, one `✘` line per failed check, and exit status 1.
 **Products:** none; the fixtures are deleted and any leftover `sleep` is killed on exit.
 

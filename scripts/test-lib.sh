@@ -179,7 +179,7 @@ expect_failure 'with an unknown folder' prepare_build build/Elsewhere 'Xcode 2' 
 
 for path in README.md CLAUDE.md LICENSE docs/decisions/0001-x.md docs/dev/WORKFLOW.md docs/user/guide.md \
     site/index.html site/images/a.png design/icon/notes.txt design/icon/art.png \
-    novel-app-build-bundle/PLAN.md .github/workflows/check.yml .github/workflows/pages.yaml; do
+    novel-app-build-bundle/PLAN.md .github/PULL_REQUEST_TEMPLATE.md Docs/User/Guide.MD readme.md License; do
     is_docs_path "$path" || fail "is_docs_path took $path for code"
 done
 for path in Package.swift Justfile .swift-format .gitignore Sources/SceneItCore/A.swift \
@@ -187,13 +187,16 @@ for path in Package.swift Justfile .swift-format .gitignore Sources/SceneItCore/
     scripts/check.sh scripts/README.md Config/Info.plist SceneIt.xcodeproj/project.pbxproj \
     docs/format/book-format.md docs/tutorial/01-anatomy.md design/icon/generate.swift \
     novel-app-build-bundle/mockups/screenshots/01-main-window.png .github/actions/x/action.yml \
-    unknown/README.md LICENSE.txt '"docs/caf\303\251.md"'; do
+    unknown/README.md LICENSE.txt '"docs/caf\303\251.md"' .github/workflows/check.yml \
+    .github/workflows/pages.yaml docs/Tutorial/01-anatomy.md DOCS/FORMAT/book-format.md \
+    Design/Icon/Generate.SWIFT Novel-App-Build-Bundle/Mockups/a.png tests/corpus/README.md; do
     ! is_docs_path "$path" || fail "is_docs_path took $path for docs"
 done
 
 mkdir -p "$fixtures/docs-gate"
 cd "$fixtures/docs-gate"
 git init -q -b main
+[[ $(git rev-parse --show-toplevel) -ef $fixtures/docs-gate ]] || { echo "✘ the docs-gate fixture isn't its own repository"; exit 1; }
 git config user.email gate@example.com
 git config user.name Gate
 git config commit.gpgsign false
@@ -239,6 +242,27 @@ rm Sources/B.swift
 echo 'more' >>README.md
 expect_scope full 'a docs-only commit with a modified file'
 git checkout -q README.md
+
+# Changes that a plain `git status --porcelain` misses still get the full gate.
+# hidden_from_status <what>: the precondition that plain status shows nothing.
+hidden_from_status() {
+    [[ -z $(git status --porcelain) ]] || fail "precondition: plain git status shows $1"
+}
+git config status.showUntrackedFiles no
+echo 'let b = 2' >Sources/B.swift
+hidden_from_status 'an untracked file with status.showUntrackedFiles=no'
+expect_scope full 'an untracked file with status.showUntrackedFiles=no'
+rm Sources/B.swift
+git config --unset status.showUntrackedFiles
+for flag in assume-unchanged skip-worktree; do
+    git update-index --$flag Sources/A.swift
+    echo 'let a = 9' >Sources/A.swift
+    hidden_from_status "a modified file marked --$flag"
+    expect_scope full "a modified file marked --$flag"
+    git update-index --no-$flag Sources/A.swift
+    git checkout -q Sources/A.swift
+done
+expect_scope docs 'the docs-only change, with the flags cleared' $'README.md\ndocs/decision.md'
 on_branch mixed eval 'echo more >>README.md; echo "let a = 2" >Sources/A.swift'
 expect_scope full 'a change to docs and code'
 on_branch code-only eval 'echo "let a = 3" >Sources/A.swift'
@@ -252,6 +276,9 @@ expect_scope docs 'a rename within docs' $'docs/decision.md\ndocs/renamed.md'
 git switch -q docs-only
 git merge -q --no-edit code-only
 expect_scope full 'a docs-only branch that merged in code'
+on_branch case-folded eval 'mkdir -p docs/Tutorial; echo x >docs/Tutorial/a.md'
+[[ $(git diff --name-only base HEAD) == docs/Tutorial/a.md ]] || fail "precondition: git didn't record docs/Tutorial"
+expect_scope full 'a change to docs/tutorial spelled docs/Tutorial'
 ! docs_only_change no-such-branch >/dev/null 2>&1 || fail "docs_only_change skipped the build with no merge-base"
 
 # --- check_html ------------------------------------------------------------------------------
@@ -267,6 +294,12 @@ check_html "$fixtures/bad.html" >"$fixtures/output" || status=$?
     || fail "check_html didn't name the mismatched tag's line: $(<"$fixtures/output")"
 printf '%s\n' '<html><body>' '<section>' '</body></html>' >"$fixtures/open.html"
 ! check_html "$fixtures/open.html" >/dev/null || fail "check_html accepted an element left open"
+printf '%s\n' '<html><body>' '<div/>' '</body></html>' >"$fixtures/self-closed.html"
+status=0
+check_html "$fixtures/self-closed.html" >"$fixtures/output" || status=$?
+((status != 0)) || fail "check_html accepted a self-closed <div/>"
+[[ $(<"$fixtures/output") == *"self-closed.html:2: error: <div/>"* ]] \
+    || fail "check_html didn't name the self-closed tag's line: $(<"$fixtures/output")"
 
 # --- kill_doomed ----------------------------------------------------------------------------
 

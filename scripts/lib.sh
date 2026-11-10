@@ -10,33 +10,43 @@ lint_swift() {
 
 # The branch every change merges into. The gate compares the checked-out commit with its
 # merge-base on this branch (docs_only_change).
-readonly check_base=${CHECK_BASE:-origin/main}
+readonly main_branch=origin/main
 
 # is_docs_path <path>: whether <path> is documentation that no build or test reads. Anything
 # else, including a path this doesn't know, needs the full gate. Some Markdown is test input:
 # the corpus, docs/format (its tables are parsed), docs/tutorial (scanned for `book.json`) and
 # the mockup screenshots (compared with renders). Git quotes unusual paths, which then match
-# nothing here.
+# nothing here. Matching ignores case, as APFS does.
 is_docs_path() {
-    case $1 in
+    case $(tr '[:upper:]' '[:lower:]' <<<"$1") in
         docs/format/* | docs/tutorial/* | novel-app-build-bundle/mockups/* | design/*.swift) return 1 ;;
-        docs/* | site/* | design/* | novel-app-build-bundle/*.md) return 0 ;;
-        .github/workflows/*.yml | .github/workflows/*.yaml | .github/*.md) return 0 ;;
+        docs/* | site/* | design/* | novel-app-build-bundle/*.md | .github/*.md) return 0 ;;
         */*) return 1 ;;
-        *.md | LICENSE) return 0 ;;
+        *.md | license) return 0 ;;
         *) return 1 ;;
     esac
 }
 
+# Whether the working tree may differ from HEAD: a change or an untracked file, whatever the
+# user's status settings, or a tracked file git has been told not to look at
+# (--assume-unchanged or --skip-worktree, which `ls-files -v` shows as a lower-case or S tag).
+working_tree_may_differ() {
+    local status flags
+    status=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || return 0
+    [[ -z $status ]] || return 0
+    flags=$(git ls-files -v) || return 0
+    grep -q '^[a-zS] ' <<<"$flags"
+}
+
 # docs_only_change <base>: when every path the checked-out commit changes since its merge-base
 # with <base> is documentation (is_docs_path), prints those paths and succeeds. Fails, so the
-# full gate runs, when CHECK_FULL is set, the working tree has changes or untracked files,
-# there's no merge-base, or nothing changed, as on <base> itself. Renames count as both paths.
+# full gate runs, when CHECK_FULL is set, the working tree may differ from HEAD, there's no
+# merge-base, or nothing changed, as on <base> itself. Renames count as both paths. check.sh
+# always passes $main_branch; only the tests pass another base.
 docs_only_change() {
-    local merge_base changed status path
+    local merge_base changed path
     [[ -z ${CHECK_FULL:-} ]] || return 1
-    status=$(git status --porcelain) || return 1
-    [[ -z $status ]] || return 1
+    ! working_tree_may_differ || return 1
     merge_base=$(git merge-base "$1" HEAD 2>/dev/null) || return 1
     changed=$(git diff --name-only --no-renames "$merge_base" HEAD) || return 1
     [[ -n $changed ]] || return 1
@@ -47,9 +57,10 @@ docs_only_change() {
 }
 
 # check_html <file>…: fails, naming the line, on an end tag that doesn't close the innermost
-# open element, or an element left open. Every non-void element must be closed explicitly.
+# open element, an element left open, or a self-closed non-void element. Every non-void element
+# must be closed by its end tag.
 check_html() {
-    python3 - "$@" <<'EOF'
+    python3 -I - "$@" <<'EOF'
 import sys
 from html.parser import HTMLParser
 
@@ -68,7 +79,8 @@ class Balance(HTMLParser):
             self.open.append((tag, self.getpos()[0]))
 
     def handle_startendtag(self, tag, attrs):
-        pass
+        if tag not in VOID:
+            self.error_at(f"<{tag}/> doesn't close a non-void element in HTML")
 
     def handle_endtag(self, tag):
         if tag in VOID:

@@ -10,8 +10,10 @@ on:
 permissions:
   contents: read
 
+# A newer run on a pull request cancels the older one. Each push to main has a group of its
+# own, so none is cancelled, even while it waits.
 concurrency:
-  group: check-${{ github.event.pull_request.number || github.ref }}
+  group: check-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -29,6 +31,7 @@ jobs:
         with:
           # check.sh diffs against the merge-base with origin/main, so it needs the history.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Toolchain
         run: |
@@ -40,7 +43,7 @@ jobs:
         run: scripts/check.sh
 
       - name: Upload the gate's logs and result bundle
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: check-${{ github.run_id }}-${{ github.run_attempt }}

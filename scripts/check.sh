@@ -75,8 +75,8 @@ if [[ -f site/index.html ]]; then
     run site-html 5 check_html site/index.html
 fi
 
-if docs=$(docs_only_change "$check_base"); then
-    echo "check.sh: docs-only change since $check_base: skipping build and tests"
+if docs=$(docs_only_change "$main_branch"); then
+    echo "check.sh: docs-only change since $main_branch: skipping build and tests"
     sed 's/^/    /' <<<"$docs"
     exit 0
 fi
