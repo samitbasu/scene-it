@@ -198,6 +198,11 @@ extension OneAtATime {
                 let before = try harness.deskFrame
                 let size = window.frame.size
 
+                var resizes: [NSRect] = []
+                let watching = NotificationCenter.default.addObserver(
+                    forName: NSWindow.didResizeNotification, object: window, queue: nil
+                ) { _ in MainActor.assumeIsolated { resizes.append(window.frame) } }
+                defer { NotificationCenter.default.removeObserver(watching) }
                 harness.chrome.set(.on)
                 await settle(harness)
                 let focused = try harness.deskFrame
@@ -210,10 +215,9 @@ extension OneAtATime {
 
                 harness.chrome.set(.off)
                 await settle(harness)
-                await eventually { window.frame.size == size }
                 try #require(
                     window.frame.size == size,
-                    "precondition: the window is its own size again, as the toolbar comes back: \(window.frame)"
+                    "precondition: the window is its own size again, as the toolbar comes back: TMPDIAG \(resizes)"
                 )
                 #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
                 #expect(harness.preferences.rightPanel == panel)
@@ -840,7 +844,9 @@ private func open(_ palette: WindowPopover, with keys: WindowKeys) async throws 
 }
 
 /// SwiftUI's layout of focus mode, done: the desk reaches the window's left edge in focus mode,
-/// and starts right of the rail out of it.
+/// and starts right of the rail out of it; and the window has stopped resizing. While the app is
+/// active, AppKit animates the window's resizing as the toolbar hides and shows, without waiting
+/// for it to end.
 @MainActor
 private func settle(_ harness: PageHarness) async {
     await eventually {
@@ -848,6 +854,13 @@ private func settle(_ harness: PageHarness) async {
         let reachesTheEdge = (try? harness.deskFrame.minX) == 0
         return reachesTheEdge == (harness.chrome.focusMode == .on)
     }
+    var last = harness.window.frame
+    for _ in 0..<50 {
+        try? await Task.sleep(for: .milliseconds(100))
+        if harness.window.frame == last { break }
+        last = harness.window.frame
+    }
+    harness.window.contentView?.layoutSubtreeIfNeeded()
 }
 
 @MainActor
