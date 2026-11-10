@@ -625,6 +625,15 @@ groups with nothing between them merge into one capsule. The gap is two `Toolbar
 in a row, because one leaves the capsules nearly touching; it's one `@ToolbarContentBuilder`
 property, `gap`, so every gap is the same. Nothing draws glass by hand.
 
+Two more toolbar rules shape the layout. A `ToolbarSpacer(.flexible)` after the breadcrumb takes
+up the slack, so the groups sit at the trailing edge. (The `.primaryAction` placement, which
+sounds like "the trailing end", stays leading on macOS.) And Print, Export to Word and File a
+copy… share one `ToolbarItemGroup` with `.labelStyle(.iconOnly)` on the group. A `Label`'s style
+travels down the environment, like a value threaded through every child, so one modifier covers
+all three. Icon-only hides the title, not the button's name: each still has its title as its
+accessibility label, and `.help` gives it a tooltip. Over a filed copy an `if` inside the group
+drops File a copy…, and the capsule closes up around the other two.
+
 The zoom is one `Menu` titled with the zoom ("150%"). It lists `Zoom.steps`, each a `Toggle`
 (a menu shows a toggle as a checkmark; a zoom within `Zoom.isAt`'s tolerance of a step, as a pinch leaves it, ticks that step, the same rule Zoom In and Zoom Out step by), then Zoom In, Zoom Out and Actual Size from
 `ZoomStepButtons`, the same view the View menu uses, so the two can't drift. Only the View

@@ -13,12 +13,17 @@ extension OneAtATime.BookStoreIntegrationTests {
     enum ToolbarSlot: Equatable {
         case item(String)
         case space
+        case flexibleSpace
     }
 
     @MainActor
     static func toolbarSlots(_ window: NSWindow) -> [ToolbarSlot] {
         (window.toolbar?.items ?? []).map { item in
-            item.itemIdentifier == .space ? .space : .item(item.menuFormRepresentation?.title ?? item.label)
+            switch item.itemIdentifier {
+            case .space: .space
+            case .flexibleSpace: .flexibleSpace
+            default: .item(item.menuFormRepresentation?.title ?? item.label)
+            }
         }
     }
 
@@ -38,8 +43,10 @@ extension OneAtATime.BookStoreIntegrationTests {
         zoomMenu(window)?.items.first { $0.title == WindowWording.zoomStep(step) }
     }
 
-    /// Each group is a run of adjacent items, which share one glass capsule; two spaces part them.
-    @Test func theToolbarGroupsUndoZoomOutputsAndFileACopy() async throws {
+    /// After the breadcrumb a flexible space pushes the groups to the trailing edge. Each group is
+    /// a run of adjacent items, which share one glass capsule; two spaces part them. Over a filed
+    /// copy the last group has no File a copy….
+    @Test func theToolbarGroupsUndoZoomAndTheOutputsAtTheTrailingEdge() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
             let store = books.store
@@ -48,16 +55,28 @@ extension OneAtATime.BookStoreIntegrationTests {
                 books.preferences.zoom == .standard, "precondition: no other test left a zoom behind")
             let url = folder.appending(path: "Tide.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
+            let book = try #require(store.current)
             let window = try #require(books.mainWindow, "precondition: the app's main window")
             await eventually { window.toolbar?.isVisible == true && Self.toolbarSlots(window).count > 1 }
 
             let gap: [ToolbarSlot] = [.space, .space]
-            let expected: [ToolbarSlot] =
-                [.item(WindowWording.undo), .item(WindowWording.redo)] + gap
+            let groups: [ToolbarSlot] =
+                [.flexibleSpace, .item(WindowWording.undo), .item(WindowWording.redo)] + gap
                 + [.item(WindowWording.zoom(.standard))] + gap
-                + [.item(WindowWording.print), .item(WindowWording.exportToWord)] + gap
-                + [.item(WindowWording.fileACopy)]
-            #expect(Array(Self.toolbarSlots(window).dropFirst()) == expected, "after the breadcrumb")
+                + [.item(WindowWording.print), .item(WindowWording.exportToWord)]
+            #expect(
+                Array(Self.toolbarSlots(window).dropFirst()) == groups + [.item(WindowWording.fileACopy)],
+                "after the breadcrumb")
+
+            let record = FilingRecord(filed: CalendarDay(year: 2026, month: 10, day: 13)!, tags: [], note: "")
+            guard case .filed = await store.fileACopy(of: book, as: record) else {
+                Issue.record("precondition: a copy is filed")
+                return
+            }
+            #expect(await store.openFiledCopy(.first, of: book) == .opened)
+            try #require(store.shown?.document.kind == .filedCopy, "precondition: the copy shows")
+            await eventually { Array(Self.toolbarSlots(window).dropFirst()) == groups }
+            #expect(Array(Self.toolbarSlots(window).dropFirst()) == groups, "no File a copy… over a copy")
 
             #expect(await store.closeBook() == .left)
             expectNoQuestions()

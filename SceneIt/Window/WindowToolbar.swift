@@ -1,10 +1,12 @@
 import SceneItCore
 import SwiftUI
 
-/// The window toolbar (PLAN §4.1): Undo and Redo, the zoom menu, Print and Export to Word, and
-/// File a copy…, each group in its own glass capsule. Undo and Redo go where `UndoRouter` says;
-/// Print and Export to Word go through the window's own flows, as the File menu does. File a
-/// copy… is only for a book open for editing and not being closed (`FilingFlow.canBegin`).
+/// The window toolbar (PLAN §4.1, ADR 0052): the breadcrumb at the leading edge, then at the
+/// trailing edge Undo and Redo, the zoom menu, and Print, Export to Word and File a copy… as
+/// icons, each group in its own glass capsule. Undo and Redo go where `UndoRouter` says; Print
+/// and Export to Word go through the window's own flows, as the File menu does. File a copy… is
+/// hidden over a filed copy, and only for a book open for editing and not being closed
+/// (`FilingFlow.canBegin`).
 struct WindowToolbar: ToolbarContent {
     let book: AppOpenBook
     let store: AppBookStore
@@ -20,6 +22,7 @@ struct WindowToolbar: ToolbarContent {
                 .padding(.horizontal, 8)
         }
         .sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.flexible)
         ToolbarItemGroup {
             Button(WindowWording.undo, systemImage: "arrow.uturn.backward") { undo.undo() }
                 .help(undo.state.undo ?? WindowWording.undo)
@@ -34,28 +37,22 @@ struct WindowToolbar: ToolbarContent {
         }
         gap
         ToolbarItemGroup {
-            Button(WindowWording.print, systemImage: "printer") { printing.begin() }
-                .labelStyle(.titleAndIcon)
-                .disabled(!printing.canBegin)
-            Button(WindowWording.exportToWord, systemImage: "doc.text") {
-                Task { await wordExport.begin() }
+            Group {
+                Button(WindowWording.print, systemImage: "printer") { printing.begin() }
+                    .help(WindowWording.print)
+                    .disabled(!printing.canBegin)
+                Button(WindowWording.exportToWord, systemImage: "doc.text") {
+                    Task { await wordExport.begin() }
+                }
+                .help(WindowWording.exportToWord)
+                .disabled(!wordExport.canBegin)
+                if book.document.kind != .filedCopy {
+                    Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
+                        .help(WindowWording.fileACopy)
+                        .disabled(!filing.canBegin(in: store))
+                }
             }
-            .labelStyle(.titleAndIcon)
-            .disabled(!wordExport.canBegin)
-        }
-        if book.document.kind != .filedCopy {
-            fileACopy
-        }
-    }
-
-    /// Hidden over a filed copy (PLAN §4.1).
-    @ToolbarContentBuilder private var fileACopy: some ToolbarContent {
-        gap
-        ToolbarItem {
-            Button(WindowWording.fileACopy, systemImage: "archivebox") { filing.begin() }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.borderedProminent)
-                .disabled(!filing.canBegin(in: store))
+            .labelStyle(.iconOnly)
         }
     }
 
