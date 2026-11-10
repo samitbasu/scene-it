@@ -7,5 +7,5 @@ import Testing
 @Test func theSchemeCapsHowManyHostedTestsRunAtOnce() throws {
     let setting = ProcessInfo.processInfo.environment["SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH"]
     let width = try #require(setting.flatMap(Int.init), "the scheme's test action sets the width")
-    #expect((1...4).contains(width))
+    #expect((1...2).contains(width))
 }

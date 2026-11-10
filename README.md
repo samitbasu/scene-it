@@ -137,10 +137,12 @@ at the same time and waits for both:
    `file:line: error: …` for each mismatched, unclosed or self-closed tag.
 
    Then, if the change is docs-only (below), check.sh stops here.
-8. `swift test` (SceneItCore unit tests; build output in `.build/`).
+8. `swift test` (SceneItCore unit tests; build output in `.build/`), at most four tests at a
+   time (`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4`, ADR 0051).
 9. `xcodebuild -project SceneIt.xcodeproj -scheme SceneIt -destination 'platform=macOS'
    -derivedDataPath build/DerivedData -resultBundlePath build/check/SceneIt.xcresult test`.
-   This builds the app and runs the app-hosted tests. Compiler warnings are errors,
+   This builds the app and runs the app-hosted tests, at most two at a time (the scheme's
+   test action, ADRs 0039 and 0051). Compiler warnings are errors,
    through the project's build settings and the package manifest. Linker warnings
    are not fatal.
 
@@ -432,9 +434,9 @@ notes together, across scene and tab switches; the gate runs 2 seeds × 120 step
 `-only-testing:SceneItTests/NotesFuzzTests`.
 
 Seeds run 1 to N, so a failure is replayed with the same N. Each seed's time limit grows with
-the steps (never under two minutes). Those limits assume the scheme's cap of four hosted tests at
-a time (ADR 0039). A run that doesn't take the scheme's test action (an explicit `.xctestplan`,
-say) loses it; put `TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4` in front of the
+the steps (never under two minutes). Those limits assume the scheme's cap of two hosted tests at
+a time (ADRs 0039 and 0051). A run that doesn't take the scheme's test action (an explicit `.xctestplan`,
+say) loses it; put `TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=2` in front of the
 command to restore it. Such a run also loses the scheme's `-NSAutomaticWindowAnimationsEnabled NO`,
 without which every test window leaks a dispatch thread and a long run hangs (ADR 0050). **Output:** the test results; a failure lists the last
 steps before the page and the model disagreed. **Products:** none beyond the result bundle.
