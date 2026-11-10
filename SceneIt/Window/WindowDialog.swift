@@ -1,13 +1,13 @@
 import SwiftUI
 
 /// The frame the window's dialogs share (File a Copy, Export as SceneIt): a tinted icon beside
-/// the title and a line of explanation, with a note under it when there is one, then the
-/// dialog's own content, 440 pt wide.
+/// the title and a line of explanation, with any notes under it, then the dialog's own content,
+/// 440 pt wide.
 struct WindowDialog<Content: View>: View {
     let icon: String
     let title: String
     let explanation: String
-    var note: String?
+    var notes: [String] = []
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -19,9 +19,7 @@ struct WindowDialog<Content: View>: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.headline)
                     Self.explaining(explanation)
-                    if let note {
-                        Self.explaining(note)
-                    }
+                    ForEach(notes, id: \.self, content: Self.explaining)
                 }
             }
             content

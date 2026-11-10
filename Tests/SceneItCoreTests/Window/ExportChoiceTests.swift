@@ -13,7 +13,7 @@ struct ExportChoiceTests {
                 id: id, modified: Timestamp(secondsSince1970: 0, offset: .zero),
                 title: SceneTitle(index == 2 ? "" : "Scene \(index + 1)"))
         }
-        return ExportChoice(story: story)
+        return ExportChoice(book: Book(title: "T", scenes: story))
     }
 
     static func ticked(_ choice: ExportChoice) -> [Int] {
@@ -72,56 +72,115 @@ struct ExportChoiceTests {
         #expect(choice.allTicked)
     }
 
-    /// Scenes 2 and 5 hold error entries, as a repaired book's `### Unparsed` sections do.
-    static func choiceWithErrors() -> ExportChoice {
-        let story = ids.enumerated().map { index, id in
-            var scene = BookScene(
-                id: id, modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle("S"))
-            if [1, 4].contains(index) { scene.errors = [ErrorEntry(.line, "garbled \(index)")] }
-            return scene
-        }
-        return ExportChoice(story: story)
+    static func scene(_ index: Int, errors: [ErrorEntry] = []) -> BookScene {
+        var scene = BookScene(
+            id: ids[index], modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle("S"))
+        scene.errors = errors
+        return scene
     }
 
-    @Test func theNoteShowsWhileATickedSceneHoldsErrorEntries() throws {
-        var choice = Self.choiceWithErrors()
+    /// Scenes 2 and 5 hold a line Scene It couldn't read, as a repaired book's `### Unparsed`
+    /// sections do; scene 4 holds only repair notices.
+    static func choiceWithUnreadableText(bookErrors: [ErrorEntry] = []) -> ExportChoice {
+        let notices = [
+            ErrorEntry(.notice, "The scene had no id."), ErrorEntry(.notice, "Characters changed."),
+        ]
+        let story = ids.indices.map { index in
+            switch index {
+            case 1, 4: scene(index, errors: [ErrorEntry(.line, "garbled \(index)")])
+            case 3: scene(index, errors: notices)
+            default: scene(index)
+            }
+        }
+        var book = Book(title: "T", scenes: story)
+        book.errors = bookErrors
+        return ExportChoice(book: book)
+    }
+
+    @Test func theScenesLineShowsWhileATickedSceneHoldsUnreadableText() throws {
+        var choice = Self.choiceWithUnreadableText()
         try #require(choice.allTicked, "precondition: all ticked")
-        #expect(choice.leavesOutErrors, "all ticked")
-        #expect(ExportWording.note(for: choice) == ExportWording.errorsLeftOut)
+        #expect(choice.leavesOutTickedScenesText, "all ticked")
+        #expect(ExportWording.notes(for: choice) == [ExportWording.scenesTextLeftOut])
 
         choice.click(Self.ids[1], .single)
-        #expect(choice.leavesOutErrors, "some ticked: scene 5 still is")
+        #expect(choice.leavesOutTickedScenesText, "some ticked: scene 5 still is")
         choice.click(Self.ids[4], .single)
-        #expect(Self.ticked(choice) == [1, 3, 4, 6], "precondition: both scenes with entries unticked")
-        #expect(!choice.leavesOutErrors, "the scenes with entries are unticked")
-        #expect(ExportWording.note(for: choice) == nil)
+        #expect(
+            Self.ticked(choice) == [1, 3, 4, 6], "precondition: both scenes with unreadable text unticked")
+        #expect(!choice.leavesOutTickedScenesText, "scene 4's notices aren't unreadable text")
+        #expect(ExportWording.notes(for: choice).isEmpty)
 
         choice.untickAll()
-        #expect(!choice.leavesOutErrors, "none ticked")
+        #expect(!choice.leavesOutTickedScenesText, "none ticked")
         choice.click(Self.ids[4], .single)
-        #expect(choice.leavesOutErrors, "only a scene with entries ticked")
+        #expect(choice.leavesOutTickedScenesText, "only a scene with unreadable text ticked")
     }
 
-    @Test func noNoteWithoutErrorEntries() {
+    @Test func noLineForAStoryWithoutUnreadableText() {
         var choice = Self.choice()
-        #expect(!choice.leavesOutErrors && ExportWording.note(for: choice) == nil, "all ticked")
+        #expect(!choice.leavesOutTickedScenesText && ExportWording.notes(for: choice).isEmpty, "all ticked")
         choice.click(Self.ids[0], .single)
-        #expect(!choice.leavesOutErrors, "some ticked")
+        #expect(!choice.leavesOutTickedScenesText, "some ticked")
         choice.untickAll()
-        #expect(!choice.leavesOutErrors, "none ticked")
+        #expect(!choice.leavesOutTickedScenesText, "none ticked")
     }
 
-    @Test func theNoteFollowsWhatTheReviewCopyLeavesOut() {
-        var scene = BookScene(
-            id: Self.ids[0], modified: Timestamp(secondsSince1970: 0, offset: .zero), title: SceneTitle("S"))
-        #expect(!ReviewCopy.leavesOutErrors(of: scene))
-        scene.errors = [ErrorEntry(.notice, "repaired"), ErrorEntry(.line, "garbled")]
-        #expect(ReviewCopy.leavesOutErrors(of: scene))
+    @Test func aSceneWithOnlyRepairNoticesShowsNoLine() {
+        let notices = ErrorTag.allCases.filter { !$0.holdsUnreadableText }
+        #expect(notices == [.notice], "every tag but notice is unreadable text")
+        let choice = ExportChoice(
+            book: Book(
+                title: "T", scenes: [Self.scene(0, errors: notices.map { ErrorEntry($0, "repaired") })]))
+        #expect(!choice.leavesOutTickedScenesText && ExportWording.notes(for: choice).isEmpty)
+    }
+
+    @Test(arguments: ErrorTag.allCases.filter(\.holdsUnreadableText))
+    func everyTagButNoticeCountsInAScene(_ tag: ErrorTag) {
+        let choice = ExportChoice(
+            book: Book(title: "T", scenes: [Self.scene(0, errors: [ErrorEntry(tag, "x")])]))
+        #expect(choice.leavesOutTickedScenesText)
+        #expect(!choice.leavesOutBookText)
+    }
+
+    @Test func theBookLineShowsWhateverIsTicked() {
+        var choice = Self.choiceWithUnreadableText(bookErrors: [ErrorEntry(.frontMatter, "colour: blue")])
+        #expect(
+            ExportWording.notes(for: choice) == [
+                ExportWording.scenesTextLeftOut, ExportWording.bookTextLeftOut,
+            ])
+        choice.click(Self.ids[1], .single)
+        choice.click(Self.ids[4], .single)
+        #expect(ExportWording.notes(for: choice) == [ExportWording.bookTextLeftOut], "only the book's own")
+        choice.untickAll()
+        #expect(ExportWording.notes(for: choice) == [ExportWording.bookTextLeftOut], "nothing ticked")
+    }
+
+    @Test func theBooksRepairNoticesShowNoLine() {
+        let choice = Self.choiceWithUnreadableText(bookErrors: [ErrorEntry(.notice, "The file wasn't UTF-8.")]
+        )
+        #expect(!choice.leavesOutBookText)
+        #expect(ExportWording.notes(for: choice) == [ExportWording.scenesTextLeftOut])
+    }
+
+    /// The lines claim the export leaves the entries out: the copy holds none of them.
+    @Test func theLinesFollowWhatTheReviewCopyLeavesOut() throws {
+        var book = Book(title: "T", scenes: [Self.scene(0, errors: [ErrorEntry(.notice, "repaired")])])
+        book.errors = [ErrorEntry(.notice, "repaired")]
+        #expect(!ReviewCopy.leavesOutUnreadableText(of: book.scenes[0]), "notices only")
+        #expect(!ReviewCopy.leavesOutUnreadableText(ofBookItself: book), "notices only")
+
+        book.scenes[0].errors.append(ErrorEntry(.line, "garbled"))
+        book.errors.append(ErrorEntry(.line, "before the first scene"))
         let copy = ReviewCopy(
-            projecting: Book(title: "T", scenes: [scene]), chosen: [scene.id],
-            export: ExportID(rawValue: "e"),
+            projecting: book, chosen: [Self.ids[0]], export: ExportID(rawValue: "e"),
             exported: Timestamp(secondsSince1970: 0, offset: .zero))
-        #expect(copy.book.scenes.map(\.errors) == [[]], "precondition: the copy has none of them")
+        try #require(copy.book.scenes.map(\.id) == [Self.ids[0]], "precondition: the scene is in the copy")
+        try #require(
+            copy.book.errors.isEmpty && copy.book.scenes[0].errors.isEmpty,
+            "precondition: the copy drops the book's and the scene's unreadable lines")
+        #expect(ReviewCopy.leavesOutUnreadableText(of: book.scenes[0]))
+        #expect(ReviewCopy.leavesOutUnreadableText(ofBookItself: book))
     }
 
     @Test func aBookWithOneSceneSaysScene() {

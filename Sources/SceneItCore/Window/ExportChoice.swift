@@ -1,4 +1,4 @@
-/// Export as SceneIt…'s scene chooser (ADR 0029): the story scenes, in story order, all ticked to
+/// Export as SceneIt…'s scene chooser (ADR 0029): the book's story scenes, in story order, all ticked to
 /// begin with. A click toggles one scene; a Shift-click sets every scene from the last one
 /// clicked to this one as this one becomes, as Mail and Finder do with checkboxes.
 public struct ExportChoice: Hashable, Sendable {
@@ -11,17 +11,20 @@ public struct ExportChoice: Hashable, Sendable {
 
     public let rows: [Row]
     public private(set) var ticked: Set<SceneID>
-    /// The scenes whose export would leave out error entries.
-    private let holdingErrors: Set<SceneID>
+    /// Whatever is ticked, the export leaves out text of the book's own that Scene It couldn't read.
+    public let leavesOutBookText: Bool
+    /// The scenes whose export would leave out text Scene It couldn't read.
+    private let holdingUnreadableText: Set<SceneID>
     /// Where a Shift-click's range starts: the last scene clicked.
     private var anchor: SceneID?
 
-    public init(story: [BookScene]) {
-        rows = story.enumerated().map { index, scene in
+    public init(book: Book) {
+        rows = book.scenes.enumerated().map { index, scene in
             Row(id: scene.id, number: index + 1, name: WindowWording.sceneName(scene))
         }
         ticked = Set(rows.map(\.id))
-        holdingErrors = Set(story.filter(ReviewCopy.leavesOutErrors(of:)).map(\.id))
+        holdingUnreadableText = Set(book.scenes.filter(ReviewCopy.leavesOutUnreadableText(of:)).map(\.id))
+        leavesOutBookText = ReviewCopy.leavesOutUnreadableText(ofBookItself: book)
     }
 
     public func isTicked(_ id: SceneID) -> Bool {
@@ -55,9 +58,9 @@ public struct ExportChoice: Hashable, Sendable {
         !ticked.isEmpty
     }
 
-    /// Some ticked scene holds error entries the export will leave out.
-    public var leavesOutErrors: Bool {
-        !ticked.isDisjoint(with: holdingErrors)
+    /// Some ticked scene holds text Scene It couldn't read, which the export leaves out.
+    public var leavesOutTickedScenesText: Bool {
+        !ticked.isDisjoint(with: holdingUnreadableText)
     }
 
     public var allTicked: Bool {

@@ -16,8 +16,11 @@ public struct ReviewCopy: Hashable, Sendable {
 
     /// The story scenes of `book` whose ids are in `chosen`; any other id is ignored.
     public init(projecting book: Book, chosen: Set<SceneID>, export: ExportID, exported: Timestamp) {
-        let scenes = book.scenes.filter { chosen.contains($0.id) }.map(Self.projected)
-        self.init(book: Book(title: book.title, scenes: scenes), export: export, exported: exported)
+        self.init(book: Self.projected(book, chosen: chosen), export: export, exported: exported)
+    }
+
+    static func projected(_ book: Book, chosen: Set<SceneID>) -> Book {
+        Book(title: book.title, scenes: book.scenes.filter { chosen.contains($0.id) }.map(Self.projected))
     }
 
     private init(book: Book, export: ExportID, exported: Timestamp) {
@@ -34,10 +37,20 @@ public struct ReviewCopy: Hashable, Sendable {
             })
     }
 
-    /// Whether exporting `scene` leaves out any of its error entries: its `### Unparsed` section,
-    /// the Errors tab's rows for it.
-    public static func leavesOutErrors(of scene: BookScene) -> Bool {
-        projected(scene).errors != scene.errors
+    /// Exporting `scene` leaves out text Scene It couldn't read: an entry of its `### Unparsed`
+    /// section, as the Errors tab lists it, that isn't a repair notice.
+    public static func leavesOutUnreadableText(of scene: BookScene) -> Bool {
+        dropsUnreadableText(scene.errors, keeping: projected(scene).errors)
+    }
+
+    /// Exporting any scenes of `book` leaves out text Scene It couldn't read that belongs to the
+    /// book rather than to a scene: its front matter's and its own `### Unparsed` section's.
+    public static func leavesOutUnreadableText(ofBookItself book: Book) -> Bool {
+        dropsUnreadableText(book.errors, keeping: projected(book, chosen: []).errors)
+    }
+
+    private static func dropsUnreadableText(_ entries: [ErrorEntry], keeping kept: [ErrorEntry]) -> Bool {
+        entries.contains { $0.tag.holdsUnreadableText && !kept.contains($0) }
     }
 
     /// The copy a verified parse describes, for checking that it serializes to the same bytes.

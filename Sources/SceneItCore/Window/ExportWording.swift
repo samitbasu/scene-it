@@ -11,18 +11,21 @@ public enum ExportWording {
     public static let dialogExplanation =
         "Saves the ticked scenes' text, with bold, italic and strikethrough, as one file to send to a "
         + "reader. Notes, comments, tags, colors and the Boneyard stay in your book."
-    public static let errorsLeftOut =
+    public static let scenesTextLeftOut =
         "Some ticked scenes hold text Scene It couldn't read (see the Errors tab). It won't be in the export."
+    public static let bookTextLeftOut =
+        "Some of the book's own text Scene It couldn't read (see the Errors tab) won't be in the export either."
     public static let selectAll = "Select All"
     public static let selectNone = "Select None"
     public static let rangeHint = "Shift-click to tick or untick a run of scenes."
     public static let cancel = "Cancel"
     public static let confirm = "Export…"
 
-    /// The line under the explanation, while a ticked scene holds error entries the export
-    /// leaves out.
-    public static func note(for choice: ExportChoice) -> String? {
-        choice.leavesOutErrors ? errorsLeftOut : nil
+    /// The lines under the explanation: one while a ticked scene holds text Scene It couldn't read,
+    /// and one if the book itself does, since the export leaves both out.
+    public static func notes(for choice: ExportChoice) -> [String] {
+        (choice.leavesOutTickedScenesText ? [scenesTextLeftOut] : [])
+            + (choice.leavesOutBookText ? [bookTextLeftOut] : [])
     }
 
     /// "12 of 24 scenes".
