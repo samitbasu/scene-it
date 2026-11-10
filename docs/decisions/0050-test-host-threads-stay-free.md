@@ -12,10 +12,13 @@ animation (`_NSWindowTransformAnimation`), which runs blocking on a dispatch wor
 host's offscreen windows it never finishes, so every test window kept one or two worker threads for good.
 A process gets 64 of them (`kern.wq_max_constrained_threads`). A sample of the host 60 s into a hosted
 run showed 65 threads parked in `-[NSAnimation _runBlocking]`. From then on, anything queued on a global
-queue never ran (a `WKWebView` load, for one), so its test waited until its time allowance. Xcode then
-kills the host with SIGKILL and starts another for the rest of the run; tests that were running beside it
-are lost, or reported as "crashed with signal kill". A run of 40 page tests beside the web view test
-reproduced it at a load average of 3.
+queue never ran (a `WKWebView` load, for one), so its test waited until its suite's `.timeLimit`. The gate
+doesn't pass `-test-timeouts-enabled`, but Xcode reports a Swift Testing time limit in XCTest's words
+("Test exceeded execution time allowance of 1 minute"), and it then ends that host: the rest of the run
+went on in a host with a new process ID. In a probe, a test that was running beside the one that ran out
+of time never appeared in the results; in the gate, four such tests were reported as "crashed with signal
+kill" at 0.000 s. A run of 40 page tests beside the web view test reproduced the time-out at a load
+average of 3.
 
 **Swift's shared async pool in `swift test`.** `Gate` holds a fake file-system call until the test opens
 it. The store makes those calls synchronously on a thread of Swift's cooperative pool, which has one
@@ -27,13 +30,22 @@ gate step's 15-minute kill, or, once Swift Testing's limits fired, failed every 
 - The scheme's test action passes `-NSAutomaticWindowAnimationsEnabled NO`. It goes to the test host's
   argument domain only: nothing is written to the app's defaults, and the app run normally keeps its
   animations. `theSchemeTurnsWindowAnimationsOffInTheTestHost` fails if it's removed.
-- Making a `Gate` takes one of `GatePermits` (half the pool's threads), waiting for it as an async
-  suspension, never on a pool thread. A held gate still blocks its thread: the store's `FileSystem` is
-  synchronous, so the fake can't suspend inside it. The cap keeps the other half of the pool free.
-  `moreHeldSavesThanThePoolHasThreadsAllFinish` holds more saves than there are cores; uncapped, it hangs.
+- A gate exists only inside `withGate { gate in … }`, which first takes one of `GatePermits` (half the
+  pool's threads), waiting for it as an async suspension, never on a pool thread. However the body ends,
+  `withGate` opens the gate and returns the permit. A held gate still blocks its thread: the store's
+  `FileSystem` is synchronous, so the fake can't suspend inside it. The cap keeps the other half of the
+  pool free. On a one-core host the pool is a single thread, which any held call takes, so the gated
+  tests need two cores or more. `moreHeldSavesThanThePoolHasThreadsAllFinish` holds more saves than
+  there are cores; uncapped, it hangs.
 - Waits on the store wait for the event itself: `whenObserved` checks an `@Observable` condition again
   each time something it read changes, and `Gate.waitForArrival` awaits the arrival. Neither has a budget
-  that load can use up. `eventually` (a poll budget) stays for AppKit's run loop, which isn't observable.
+  that load can use up. Both, and the wait for a permit, end when the task is cancelled, recording an
+  issue, so a suite's time limit turns a real hang into a failure at the limit (checked by hand: a
+  condition that never holds under a 1-minute limit failed after 64 s). `CancelledWaitTests` covers the
+  cancellation itself.
+- `eventually` (a poll budget) stays where the condition isn't observable: AppKit's run loop in the
+  hosted tests, and a few core tests that wait on a plain class or a `ManualClock`'s sleepers
+  (`FileACopyTests` on `queued.result`, `AutosaveDriverTests`, `SceneCardsTests`).
 
 ## Alternatives
 - **Raise the time limits.** The hangs were real hangs: nothing would have finished.

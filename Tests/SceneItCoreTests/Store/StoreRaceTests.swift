@@ -32,19 +32,20 @@ struct StoreRaceTests {
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
-            let gate = await Gate()
-            fileSystem.before(.createDirectory(copyName)) { gate.pass() }
+            try await withGate { gate in
+                fileSystem.before(.createDirectory(copyName)) { gate.pass() }
 
-            book.replaceBody(of: scene, with: [[Run("Mine")]])
-            store.saveNow()
-            await gate.waitForArrival()
-            book.replaceBody(of: scene, with: [[Run("Typed while the copy was created")]])
-            gate.open()
-            await whenObserved { store.current !== book && store.current != nil }
+                book.replaceBody(of: scene, with: [[Run("Mine")]])
+                store.saveNow()
+                await gate.waitForArrival()
+                book.replaceBody(of: scene, with: [[Run("Typed while the copy was created")]])
+                gate.open()
+                await whenObserved { store.current !== book && store.current != nil }
 
-            let copy = try bookOnDisk(folder.appending(path: copyName))
-            #expect(copy == book.book)
-            #expect(copy.scenes.first?.body == [[Run("Typed while the copy was created")]])
+                let copy = try bookOnDisk(folder.appending(path: copyName))
+                #expect(copy == book.book)
+                #expect(copy.scenes.first?.body == [[Run("Typed while the copy was created")]])
+            }
         }
     }
 
@@ -54,19 +55,20 @@ struct StoreRaceTests {
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
-            let gate = await Gate()
-            fileSystem.before(.exchange("\(copyName)/book.md")) { gate.pass() }
+            try await withGate { gate in
+                fileSystem.before(.exchange("\(copyName)/book.md")) { gate.pass() }
 
-            book.replaceBody(of: scene, with: [[Run("Mine")]])
-            store.saveNow()
-            await gate.waitForArrival()
-            book.replaceBody(of: scene, with: [[Run("Typed while the copy was saved")]])
-            gate.open()
-            await whenObserved { store.current !== book && store.current != nil }
+                book.replaceBody(of: scene, with: [[Run("Mine")]])
+                store.saveNow()
+                await gate.waitForArrival()
+                book.replaceBody(of: scene, with: [[Run("Typed while the copy was saved")]])
+                gate.open()
+                await whenObserved { store.current !== book && store.current != nil }
 
-            let copy = try bookOnDisk(folder.appending(path: copyName))
-            #expect(copy == book.book)
-            #expect(copy.scenes.first?.body == [[Run("Typed while the copy was saved")]])
+                let copy = try bookOnDisk(folder.appending(path: copyName))
+                #expect(copy == book.book)
+                #expect(copy.scenes.first?.body == [[Run("Typed while the copy was saved")]])
+            }
         }
     }
 
@@ -76,28 +78,29 @@ struct StoreRaceTests {
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
-            let gate = await Gate()
-            @Sendable func holdEveryCopySave() {
-                fileSystem.before(.exchange("\(copyName)/book.md")) {
-                    gate.pass()
-                    holdEveryCopySave()
+            try await withGate { gate in
+                @Sendable func holdEveryCopySave() {
+                    fileSystem.before(.exchange("\(copyName)/book.md")) {
+                        gate.pass()
+                        holdEveryCopySave()
+                    }
                 }
-            }
-            holdEveryCopySave()
+                holdEveryCopySave()
 
-            book.replaceBody(of: scene, with: [[Run("Mine")]])
-            store.saveNow()
-            for pass in 1...TestStore.copyPasses {
-                await gate.waitForArrival()
-                #expect(book.isEditable == (pass < TestStore.copyPasses))
-                book.replaceBody(of: scene, with: [[Run("Pass \(pass)")]])
-                gate.open()
-            }
-            await whenObserved { store.current !== book && store.current != nil }
+                book.replaceBody(of: scene, with: [[Run("Mine")]])
+                store.saveNow()
+                for pass in 1...TestStore.copyPasses {
+                    await gate.waitForArrival()
+                    #expect(book.isEditable == (pass < TestStore.copyPasses))
+                    book.replaceBody(of: scene, with: [[Run("Pass \(pass)")]])
+                    gate.open()
+                }
+                await whenObserved { store.current !== book && store.current != nil }
 
-            let copy = try bookOnDisk(folder.appending(path: copyName))
-            #expect(copy == book.book)
-            #expect(copy.scenes.first?.body == [[Run("Pass \(TestStore.copyPasses - 1)")]])
+                let copy = try bookOnDisk(folder.appending(path: copyName))
+                #expect(copy == book.book)
+                #expect(copy.scenes.first?.body == [[Run("Pass \(TestStore.copyPasses - 1)")]])
+            }
         }
     }
 
@@ -235,24 +238,26 @@ struct StoreRaceTests {
             let prompts = ScriptedPrompts([ExternalChangeChoice.openOtherVersion])
             let (store, book, scene, _) = try await changedBook(
                 in: folder, prompts: prompts, fileSystem: fileSystem)
-            let gate = await Gate()
-            prompts.beforeAnswering = { _ in
-                fileSystem.before(.read("Novel.sceneit/book.md")) { gate.pass() }
+            try await withGate { gate in
+                prompts.beforeAnswering = { _ in
+                    fileSystem.before(.read("Novel.sceneit/book.md")) { gate.pass() }
+                }
+
+                book.replaceBody(of: scene, with: [[Run("Mine")]])
+                store.saveNow()
+                await gate.waitForArrival()
+
+                try #require(store.current === book, "precondition: in the reload's gap")
+                #expect(!book.isEditable)
+                #expect(book.status == .closed)
+                let before = book.book
+                book.replaceBody(of: scene, with: [[Run("Typed in the gap")]])
+                #expect(book.book == before, "refused")
+                gate.open()
+                await whenObserved { store.current !== book && store.current != nil }
+                #expect(
+                    try bookOnDisk(folder.appending(path: copyName)).scenes.first?.body == [[Run("Mine")]])
             }
-
-            book.replaceBody(of: scene, with: [[Run("Mine")]])
-            store.saveNow()
-            await gate.waitForArrival()
-
-            try #require(store.current === book, "precondition: in the reload's gap")
-            #expect(!book.isEditable)
-            #expect(book.status == .closed)
-            let before = book.book
-            book.replaceBody(of: scene, with: [[Run("Typed in the gap")]])
-            #expect(book.book == before, "refused")
-            gate.open()
-            await whenObserved { store.current !== book && store.current != nil }
-            #expect(try bookOnDisk(folder.appending(path: copyName)).scenes.first?.body == [[Run("Mine")]])
         }
     }
 
@@ -350,26 +355,27 @@ struct StoreRaceTests {
             _ = try BookPackage.create(at: other, title: "Other")
             let url = try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
-            let gate = await Gate()
-            fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
-            book.write("Stuck")
-            await gate.waitForArrival()
+            try await withGate { gate in
+                fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
+                book.write("Stuck")
+                await gate.waitForArrival()
 
-            async let closed = store.closeBook()
-            await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
-            clock.advance(by: AutosavePolicy.quitGracePeriod)
-            #expect(await closed == .left)
-            #expect(prompts.titles == ["Scene It is still saving your book."])
-            #expect(prompts.labels == [["Wait", "Close Anyway"]])
-            #expect(store.isChoosing)
+                async let closed = store.closeBook()
+                await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
+                clock.advance(by: AutosavePolicy.quitGracePeriod)
+                #expect(await closed == .left)
+                #expect(prompts.titles == ["Scene It is still saving your book."])
+                #expect(prompts.labels == [["Wait", "Close Anyway"]])
+                #expect(store.isChoosing)
 
-            #expect(
-                await store.open(url) == .openedReadOnly(.openElsewhere),
-                "the stuck save still holds its lock, so the same book opens read-only, without waiting")
-            #expect(await store.closeBook() == .left)
-            #expect(await store.open(other) == .opened, "and another book opens")
-            #expect(await store.closeBook() == .left)
-            gate.open()
+                #expect(
+                    await store.open(url) == .openedReadOnly(.openElsewhere),
+                    "the stuck save still holds its lock, so the same book opens read-only, without waiting")
+                #expect(await store.closeBook() == .left)
+                #expect(await store.open(other) == .opened, "and another book opens")
+                #expect(await store.closeBook() == .left)
+                gate.open()
+            }
         }
     }
 
@@ -381,19 +387,20 @@ struct StoreRaceTests {
             let store = makeStore(in: folder, prompts: prompts, fileSystem: fileSystem, clock: clock)
             try await createBook("First", in: folder, store: store)
             let book = try #require(store.current)
-            let gate = await Gate()
-            fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
-            book.write("Stuck")
-            await gate.waitForArrival()
+            try await withGate { gate in
+                fileSystem.before(.writeTemporary("First.sceneit/book.md")) { gate.pass() }
+                book.write("Stuck")
+                await gate.waitForArrival()
 
-            async let quit = store.prepareToQuit()
-            await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
-            clock.advance(by: AutosavePolicy.quitGracePeriod)
-            #expect(await quit == .left)
-            #expect(prompts.titles == ["Scene It is still saving your book."])
-            #expect(prompts.labels == [["Wait", "Quit Anyway"]])
-            #expect(store.current == nil)
-            gate.open()
+                async let quit = store.prepareToQuit()
+                await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
+                clock.advance(by: AutosavePolicy.quitGracePeriod)
+                #expect(await quit == .left)
+                #expect(prompts.titles == ["Scene It is still saving your book."])
+                #expect(prompts.labels == [["Wait", "Quit Anyway"]])
+                #expect(store.current == nil)
+                gate.open()
+            }
         }
     }
 
@@ -419,15 +426,16 @@ struct StoreRaceTests {
         let store = makeStore(in: root, fileSystem: fileSystem)
         try await createBook("Held", in: root, store: store)
         let book = try #require(store.current)
-        let gate = await Gate()
-        fileSystem.before(.writeTemporary("Held.sceneit/book.md")) { gate.pass() }
-        book.write("Held")
-        store.saveNow()
-        await gate.waitForArrival()
-        try await Task.sleep(for: .milliseconds(10))
-        gate.open()
-        await whenObserved { book.status == .saved }
-        #expect(await store.closeBook() == .left)
+        try await withGate { gate in
+            fileSystem.before(.writeTemporary("Held.sceneit/book.md")) { gate.pass() }
+            book.write("Held")
+            store.saveNow()
+            await gate.waitForArrival()
+            try await Task.sleep(for: .milliseconds(10))
+            gate.open()
+            await whenObserved { book.status == .saved }
+            #expect(await store.closeBook() == .left)
+        }
     }
 
     // MARK: S2: books asked for together

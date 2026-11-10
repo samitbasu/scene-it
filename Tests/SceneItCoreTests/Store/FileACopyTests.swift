@@ -1086,29 +1086,31 @@ struct FileACopyTests {
             let url = try await createBook("Novel", in: folder, store: store)
             let book = try await Self.fileWithIndexFailing(store, fileSystem)
             fileSystem.clearFault()
-            let gate = await Gate()
-            fileSystem.before(.writeTemporary("Novel.sceneit/book.md")) { gate.pass() }
-            book.write("Stuck")
-            await gate.waitForArrival()
-            prompts.answer([QuitAlertChoice.quitAnyway])
-            async let quit = store.prepareToQuit()
-            await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
-            clock.advance(by: AutosavePolicy.quitGracePeriod)
-            #expect(await quit == .left)
-            let lost = ArchiveWording.unrecorded([(.first, Self.record)], listedOn: Self.listedToday, in: url)
-            try #require(
-                prompts.notices.count == 2 && prompts.notices.last == lost, "precondition: told as lost")
-            try Data("---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-10-30\ntags: theirs\n".utf8)
-                .write(to: PackageLayout(root: url).archiveIndex)
+            try await withGate { gate in
+                fileSystem.before(.writeTemporary("Novel.sceneit/book.md")) { gate.pass() }
+                book.write("Stuck")
+                await gate.waitForArrival()
+                prompts.answer([QuitAlertChoice.quitAnyway])
+                async let quit = store.prepareToQuit()
+                await whenObserved { book.autosave?.quitIsQueuedBehindASave == true }
+                clock.advance(by: AutosavePolicy.quitGracePeriod)
+                #expect(await quit == .left)
+                let lost = ArchiveWording.unrecorded(
+                    [(.first, Self.record)], listedOn: Self.listedToday, in: url)
+                try #require(
+                    prompts.notices.count == 2 && prompts.notices.last == lost, "precondition: told as lost")
+                try Data("---\nformat: 2\n---\n\n## save0001.md\nfiled: 2026-10-30\ntags: theirs\n".utf8)
+                    .write(to: PackageLayout(root: url).archiveIndex)
 
-            gate.open()
-            await whenObserved { book.pendingRecords.isEmpty }
+                gate.open()
+                await whenObserved { book.pendingRecords.isEmpty }
 
-            try #require(
-                try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]],
-                "precondition: the stuck save found the other section")
-            #expect(await store.closeBook() == .left, "runs after any notice the stuck save queued")
-            #expect(prompts.notices.count == 2, "told once")
+                try #require(
+                    try Self.indexOnDisk(url).copies.map(\.tags) == [["theirs"]],
+                    "precondition: the stuck save found the other section")
+                #expect(await store.closeBook() == .left, "runs after any notice the stuck save queued")
+                #expect(prompts.notices.count == 2, "told once")
+            }
         }
     }
 
