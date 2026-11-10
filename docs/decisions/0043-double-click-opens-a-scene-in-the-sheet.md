@@ -47,7 +47,7 @@ hold the single click back until a double click could no longer come.
 
 ## Learning notes
 SwiftUI's `onTapGesture(count: 2)` and `onTapGesture(count: 1)` on the same view compete: the single
-tap is recognised only once the double tap has failed, after the system's double-click interval. On
+tap is recognized only once the double tap has failed, after the system's double-click interval. On
 macOS the click count is already on the `NSEvent` (`clickCount`). The design assumes SwiftUI calls a
 tap's action while AppKit is still handling the mouse-up, so `NSApp.currentEvent` is that event.
 That is widely relied on but unverified here until the owner's hand test (decision log, checklist

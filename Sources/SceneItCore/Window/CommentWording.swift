@@ -14,7 +14,7 @@ public enum CommentWording {
 extension CommentWording {
     public static let searchPlaceholder = "Search \u{00B7} try #green"
     public static let searchHelp =
-        "Type words to match comment text, and #color (e.g. #green, #grey) to filter by color"
+        "Type words to match comment text, and #color (e.g. #green, #gray) to filter by color"
     public static let clearSearch = "Clear Search"
     /// The + button's help; `shortcut` is New Comment's, spelled "Cmd+Shift+M".
     public static func newCommentHelp(_ shortcut: String) -> String {

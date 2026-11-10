@@ -120,10 +120,11 @@ extension WindowRenders {
         }
     }
 
-    /// The sample book with `copies` filed, each of its first `scenes` scenes, then opened through a
+    /// `sample` with `copies` filed, each of its first `scenes` scenes, then opened through a
     /// test-host store; with `.heldElsewhere`, opened read-only.
     func withFiledSample(
-        _ copies: [(FilingRecord, scenes: Int)], lock: TestBookLock = .ours,
+        _ copies: [(FilingRecord, scenes: Int)], of sample: Book = WindowRenders.sampleBook(),
+        lock: TestBookLock = .ours,
         _ body: (AppBookStore, AppOpenBook, AppPreferences) async throws -> Void
     ) async throws {
         try await withTemporaryFolder { folder in
@@ -132,7 +133,6 @@ extension WindowRenders {
             let url = folder.appending(path: "My Novel.sceneit", directoryHint: .isDirectory)
             #expect(await store.create(at: url) == .created)
             #expect(await store.closeBook() == .left)
-            let sample = Self.sampleBook()
             var holder = try BookPackage.open(at: url).editable
             try #require(holder != nil, "precondition: the package opens for filing")
             for (record, count) in copies {

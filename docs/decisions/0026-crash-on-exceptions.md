@@ -41,7 +41,7 @@ a modal loop run from a job, does it also take a `backtrace` into a
 fixed stack buffer and compare each address against one integer range. The range is found once, from `swift_job_run`'s image
 header with `getsegmentdata`. If it can't be found, the trap logs a fault once, at install, and never fires.
 
-The trap relies on two runtime behaviours, both observed on macOS 27 with Swift 6.4, and neither of them promised:
+The trap relies on two runtime behaviors, both observed on macOS 27 with Swift 6.4, and neither of them promised:
 - the job runner restores the thread's task record only by returning, so an unwind leaves it set;
 - while a job runs, the runner's own frame stays on the stack below it.
 
@@ -89,7 +89,7 @@ counts as a job, as a current task does. It's read first, and costs one more thr
 the change, the deinit experiment was trapped 1 ms after HIToolbox swallowed the exception. `anIsolatedDeinitJobIsAJob`
 checks that a deinit job without a task counts as a job, not as nothing.
 
-A third runtime behaviour, also observed rather than promised: outside any job the record is clear, so the identity is null.
+A third runtime behavior, also observed rather than promised: outside any job the record is clear, so the identity is null.
 The runtime ships with the OS, and its `_swift_getActiveExecutor` already falls back to the main executor on the main thread;
 if a later `swift_task_getCurrentExecutor` did the same, every run-loop entry would look like an unwound job and the app would
 stop at launch. So the trap calibrates itself once: `install` schedules a block on the main run loop

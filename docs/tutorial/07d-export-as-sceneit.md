@@ -112,7 +112,7 @@ responsive while the task waits. New Book… does the same.
 `SaveDestination` is a struct holding one closure, a trait object with a single method in Rust
 terms. Save Review… ([chapter 07g](07g-copy-and-save-review.md)) uses it too, with its own wording.
 The app's `BookController` holds `.exportPanel`; the test host's holds `.nowhere`, which
-answers "cancelled" without showing anything, and a hosted test sets `.fixed(url)` to a file in its
+answers "canceled" without showing anything, and a hosted test sets `.fixed(url)` to a file in its
 own temporary folder. `ExportFlow` asks for the destination each time it needs one (it holds a
 `() -> SaveDestination`), so a test can change it after the window exists.
 

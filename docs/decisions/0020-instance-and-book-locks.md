@@ -17,7 +17,7 @@ leave a stale lock and the writer is never asked to "break" one:
    elsewhere. Never two writers.
 
 ## Caveat: network volumes
-`flock` isn't honoured across SMB/NFS clients. On volumes where the lock can't be trusted, the
+`flock` isn't honored across SMB/NFS clients. On volumes where the lock can't be trusted, the
 book lock also writes the holder's host, PID and time into `.lock`, as an advisory check. A different
 host's live record makes the book open read-only, with an "Open Anyway" escape hatch. Detecting
 "untrusted" volumes reuses the volume-capability queries from persistence.

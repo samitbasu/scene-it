@@ -21,35 +21,35 @@ height. The owner chose instead to put the spacing below each line, so that the 
 - **The empty paragraph at the very end** (after a final Return, or an empty scene) has no character to carry a style:
   TextKit lays it out in the typing attributes, which `SceneTextView` gives the style of the caret's paragraph. After
   a line of text it gets the body's indent and no spacing, since that line has its spacing below it; after an empty
-  paragraph, whose gap is above it, it's spaced as an empty paragraph, with the gap before it. (TextKit doesn't honour
+  paragraph, whose gap is above it, it's spaced as an empty paragraph, with the gap before it. (TextKit doesn't honor
   that last case; the page places that line itself, below.)
 - One rule, `ParagraphRole.paragraphStyle(for: ParagraphContent)`, decides the style from what the paragraph holds. The
   codec applies it as it renders text, the editor re-applies it to the paragraphs an edit touches
   (`styleParagraphs(of:around:)`), and `SceneTextView` gives the typing attributes the style of the caret's paragraph,
   laying the end line out again when that style changes.
-- `CaretIndicator` is gone; the page uses the system's caret, **in the system's colour** (the accent colour, as
+- `CaretIndicator` is gone; the page uses the system's caret, **in the system's color** (the accent color, as
   TextEdit's): neither editor sets `insertionPointColor` any more.
 - **The selection is a band per line, text height** (the owner's pick over the system's block, below). Both editors
-  switch the system's highlight off (`selectedTextAttributes` with no background colour) and draw the bands behind
+  switch the system's highlight off (`selectedTextAttributes` with no background color) and draw the bands behind
   the text in `drawBackground(in:)`. `SelectionBands` is the one rule: the selection's text segments, each trimmed to
   its bottom `ParagraphRole.textLineHeight` (14.51 pt, the cursor's height and the line's letters; the double spacing
   sits above a line within its segment), and at least a space wide, so a selected empty paragraph shows.
-  - **Colour:** the accent selection colour while the view has the keyboard focus in the key window, the unemphasized
+  - **Color:** the accent selection color while the view has the keyboard focus in the key window, the unemphasized
     one otherwise, as the system does; the bands are redrawn when the focus or the window's key state changes.
   - **A band ends at the line's last selected letter** (the owner's pick, over the system's way of reaching the
     line's trailing edge whenever the selection goes on past it): the bands come from TextKit's standard segments,
     which cover the selected text alone. A selected empty paragraph is a sliver a space wide at its indent.
-  - **Over highlighted text the selection colour replaces the highlight** (the owner's pick, #98): a highlight is a
+  - **Over highlighted text the selection color replaces the highlight** (the owner's pick, #98): a highlight is a
     background drawn over the bands, so it hid the selection. Within the selection a TextKit 2 rendering attribute
-    (`addRenderingAttribute(.backgroundColor, ...)`) draws the selection's colour in the highlight's place; outside it
-    the highlight keeps its own. It covers the same viewport-clipped ranges as the bands and changes colour with
+    (`addRenderingAttribute(.backgroundColor, ...)`) draws the selection's color in the highlight's place; outside it
+    the highlight keeps its own. It covers the same viewport-clipped ranges as the bands and changes color with
     them. Rejected: the system's selected-text background (it brings the continuous block back, and the highlight
-    still covers it) and a translucent band over the text (it greys the letters).
+    still covers it) and a translucent band over the text (it grays the letters).
   - **The notes get bands too**, for one look across both editors: single-spaced, their lines' bands meet, but the
     6 pt between paragraphs stays clear, as it does on the page.
   - **The plain-text fields keep the system's selection**: the title, and File a Copy's tags and note
     (`AdmittingTextView`). They're single-spaced system-font controls, where the system's highlight is already
-    text height, and they look like every other field in their dialog or window. None of them sets a cursor colour.
+    text height, and they look like every other field in their dialog or window. None of them sets a cursor color.
   - Only the bands that changed are redrawn, so dragging a selection out never redraws the whole text; they follow
     a layout pass (`textViewportLayoutControllerDidLayout(_:)`) as well as the selection, and scale with the zoom.
     Find's indicator is the system's own overlay, unchanged; a match it selects shows as its band.
@@ -63,7 +63,7 @@ height. The owner chose instead to put the spacing below each line, so that the 
 | Caret in an empty paragraph, at the end after Return, in an empty scene | 28.51 pt | 14.51 pt |
 | Selection, one line | 28.51 pt | 14.51 pt band |
 | Selection, each line after the first | 28.51 pt | 14.51 pt band (the system's own: 28.51 pt, reaching up over the gap) |
-| Highlight colour (`.backgroundColor`) | ≈ 12 pt | ≈ 12 pt, unchanged |
+| Highlight color (`.backgroundColor`) | ≈ 12 pt | ≈ 12 pt, unchanged |
 | Spelling underline | below the baseline | unchanged (drawn from the baseline) |
 
 With the spacing below, the system's own selection of two or more lines is still one continuous block, the way

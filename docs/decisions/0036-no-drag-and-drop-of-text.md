@@ -27,7 +27,7 @@ decided text doesn't need drag and drop at all.
 - **The comments panel (#25)**: its comment text fields refuse drag and drop the same way (make them
   `KeyboardTextView`s, or apply the same overrides).
 - Fields that aren't manuscript text (the Errors tab's fix field, search, the sheets' other fields) keep the system's
-  behaviour.
+  behavior.
 
 ## Rejected
 - **Drops as pastes, with moves within the page** (the first version of PR #110): it worked and was tested, but it

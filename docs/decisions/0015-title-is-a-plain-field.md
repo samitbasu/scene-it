@@ -3,17 +3,17 @@
 **Status:** Accepted (2026-11-01). **Deviates from PLAN §6.1** (title as the first paragraph of the page). Supersedes [0014](0014-title-always-bold.md).
 
 ## Decision
-- **Editor:** the title is edited in its own visible, labelled, single-line text field in the
+- **Editor:** the title is edited in its own visible, labeled, single-line text field in the
   editor area *above* the page, not on the page's text surface. The page's `NSTextView` holds
   only the body. PLAN §6.1's title rules (`shouldChangeTextIn` vetoes, the undeletable first
   paragraph, Return jumping to the body) are therefore unnecessary.
 - **Plain text:** no formatting and no comments in the title. The formatting bar is inactive
   while the title field has focus.
-- **Behaviour:** Return or Tab in the title moves focus to the start of the body. Spellcheck is on.
+- **Behavior:** Return or Tab in the title moves focus to the start of the body. Spellcheck is on.
   Find (Cmd+F) searches the body only. The title has its own undo.
 - **Model:** the in-memory title is a plain-text newtype (`SceneTitle`). It encodes to PLAN §5.2's
   shape: `"title": [ { "text": "…" } ]`, or `[]` when empty. Decoding a title that has
-  formatting or comment ids keeps the text and drops the attributes, the same normalising-load
+  formatting or comment ids keeps the text and drops the attributes, the same normalizing-load
   pattern as ADR 0013. Line breaks in a title remain invalid. Pasted line breaks become spaces.
 - **Output:** Print and Export to Word still render the title as an 18 pt bold heading at the top
   of the scene, built from data, so it looks exactly as before.

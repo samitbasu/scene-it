@@ -66,8 +66,8 @@ floats").
 
 ## 3. A real `NSMenu`, built per click
 
-The owner chose a standard pull-down menu for ⋯. A SwiftUI `Menu` can't put a coloured line
-after each colour's name, so the control is an `NSButton` that builds an `NSMenu` when it's
+The owner chose a standard pull-down menu for ⋯. A SwiftUI `Menu` can't put a colored line
+after each color's name, so the control is an `NSButton` that builds an `NSMenu` when it's
 pressed, from the model as it is at that moment, and pops it up right-aligned under itself.
 Each item's target is a small handler object that holds a closure. An item holds its target
 weakly, so the handler is also stored in the item's `representedObject`, which the item holds

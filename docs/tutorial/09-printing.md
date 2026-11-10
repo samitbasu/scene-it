@@ -123,7 +123,7 @@ static func attributedString(forOutput paragraphs: [OutputParagraph]) -> NSAttri
 The editors call the same builder with each run's stored text. Word writes `shown(.sameLook)`, which
 first joins the runs it would format alike ([chapter 07i](07i-export-to-word.md)). Print keeps each run
 a piece, since it underlines each run's comments, so a `--` split only by a comment's edge stays two
-hyphens in print, while Word makes it a dash. The comment colours are the palette's,
+hyphens in print, while Word makes it a dash. The comment colors are the palette's,
 through the page's `CommentPalette`.
 
 ### Connectors that can't be confused

@@ -127,7 +127,7 @@ struct GuardedWrite {
 
 A book's layout is `book.md` with its side files in the package, named `book.md.bak1` and so on, the
 names they always had; a review's is `<name>.review.md` with its side files in
-`Reviews/<review id>/`. The extraction is behaviour-preserving: every existing persistence and store
+`Reviews/<review id>/`. The extraction is behavior-preserving: every existing persistence and store
 test passed unchanged after it, before the review's own persistence used it. That's the check that a
 refactor really is one (CLAUDE.md, "Testing and verification").
 

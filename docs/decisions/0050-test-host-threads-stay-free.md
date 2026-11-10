@@ -39,7 +39,7 @@ gate step's 15-minute kill, or, once Swift Testing's limits fired, failed every 
   there are cores; uncapped, it hangs.
 - Waits on the store wait for the event itself: `whenObserved` checks an `@Observable` condition again
   each time something it read changes, and `Gate.waitForArrival` awaits the arrival. Neither has a budget
-  that load can use up. Both, and the wait for a permit, end when the task is cancelled, recording an
+  that load can use up. Both, and the wait for a permit, end when the task is canceled, recording an
   issue, so a suite's time limit turns a real hang into a failure at the limit (checked by hand: a
   condition that never holds under a 1-minute limit failed after 64 s). `CancelledWaitTests` covers the
   cancellation itself.

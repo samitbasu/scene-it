@@ -18,7 +18,7 @@ offered two language-model features inside it:
   filters, the Comments search) offered it in their context menus (`writingToolsBehavior` was
   `.limited`).
 - **Word predictions.** Every text view, including Scene It's editors, followed the system's inline
-  predictions (the grey suggestion ahead of the caret) and the Touch Bar's word candidates. ADR 0028 only
+  predictions (the gray suggestion ahead of the caret) and the Touch Bar's word candidates. ADR 0028 only
   set where they started (off), and System Settings could turn them on.
 
 ## Decision
@@ -139,7 +139,7 @@ the list above covers.
 
 ## Alternatives
 - **Leave Writing Tools in the menu, disabled.** The views already refuse it, so its items would be
-  greyed out. Rejected: a greyed-out "Rewrite" still suggests the app has it.
+  grayed out. Rejected: a grayed-out "Rewrite" still suggests the app has it.
 - **Keep predictions the writer's choice** (ADR 0028 as it was). Rejected: the claim would then depend
   on a setting.
 - **Turn spell checking off**, since macOS may use on-device models for it. Rejected by the owner:

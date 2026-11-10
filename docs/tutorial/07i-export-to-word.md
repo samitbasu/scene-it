@@ -2,7 +2,7 @@
 
 Issues #37 and #183 (PLAN §10.2, ADR 0045, 0047, 0048). File → Export to Word… saves the open scene as
 a `.docx`: the title in Times New Roman 18 pt bold as Word's Heading 1, the body in 12 pt,
-double-spaced with a half-inch first-line indent, with bold, italic, strikethrough, colours and
+double-spaced with a half-inch first-line indent, with bold, italic, strikethrough, colors and
 highlights, the punctuation smartened as print's is, and, if the save panel's Include comments is
 ticked, the comments as Word's own margin comments. The Swift and macOS lessons: when not to use the
 system's converter, what a `.docx` is inside, generating XML as text behind one escaping function,
@@ -23,7 +23,7 @@ Files: [`Sources/SceneItCore/Word/WordExport.swift`](../../Sources/SceneItCore/W
 AppKit can serialize an attributed string as a `.docx` in one call (`data(from:documentAttributes:)`
 with `.officeOpenXML`), and PLAN §10.2 planned to use it. The project's rule is to prefer what a
 library computes over an in-house copy, so that was tried first. Unzipping what it wrote showed it
-drops line spacing and highlights, writes colours a shade darker (converted to another colour space),
+drops line spacing and highlights, writes colors a shade darker (converted to another color space),
 writes no styles, and uses some Word 2003 names (`w:first-line`, `w:sz-cs`) that aren't in the
 standard.
 
@@ -62,9 +62,9 @@ static let firstLineIndent = Int(ParagraphRole.firstLineIndent * 20)
 ```
 
 Each run carries only its own formatting, and the schema fixes the order of a run's properties
-(bold, italic, strikethrough, colour, shading), so `WordDocument.run` appends them in that order.
-Colours come straight from the palette's hex values, the same ones the page draws with. Uncoloured
-text gets no `w:color` at all, which Word reads as its automatic colour: black on white, light when
+(bold, italic, strikethrough, color, shading), so `WordDocument.run` appends them in that order.
+Colors come straight from the palette's hex values, the same ones the page draws with. Uncoloured
+text gets no `w:color` at all, which Word reads as its automatic color: black on white, light when
 Word shows the document dark.
 
 The text is the stored text smartened (decision 0022): straight quotes become curly, `--` a dash and
@@ -112,7 +112,7 @@ The tests never read our zips with our own code, which could share a bug with th
 macOS's `/usr/bin/unzip -t` (every checksum), `zipinfo -1` (the entries) and `unzip -p` (a part's
 bytes), then parse the XML with Foundation's `XMLDocument` and assert with XPath: the title's
 `pStyle`, the styles' fonts, sizes, spacing and indent, each run's properties in order and its exact
-colour, and that no comment text appears anywhere. `XMLNode`'s XPath can't bind a namespace prefix,
+color, and that no comment text appears anywhere. `XMLNode`'s XPath can't bind a namespace prefix,
 so the tests write `w:p` and a helper turns it into `*[local-name()='p']`.
 
 ## 6. One write for every file the writer chooses

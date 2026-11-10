@@ -32,7 +32,7 @@ there. Since 0047 Scene It writes the .docx itself, so it can write Word's comme
 - **Detached comments** (their text deleted, PLAN §8.1) are left out: Word has nothing to anchor them to. A scene with
   none anchored still gets an empty `comments.xml` when the box is ticked.
 - **Comment text** is smartened as print's comments are (decision 0022), one Word paragraph per line, plain: no
-  colour, since Word colours comments by author.
+  color, since Word colors comments by author.
 - **Author** (the owner's choice): the Mac account's full name (`NSFullUserName()`), with initials from its words'
   first letters; "Scene It" ("SI") when the account has no name. It puts the account's real name in a file sent to
   someone else, as Word does with its own user name.
@@ -58,7 +58,7 @@ there. Since 0047 Scene It writes the .docx itself, so it can write Word's comme
   answers in, and they change the text.
 - **One Word comment per stretch** for a comment in separate stretches. Each stretch exact, but one note shown several
   times.
-- **Writing the comment colour** (Word has no field for it; it could be a highlight on the anchored text). Word colours
+- **Writing the comment color** (Word has no field for it; it could be a highlight on the anchored text). Word colors
   by author, and a highlight would be mistaken for the writer's own highlighting.
 - **The date as UTC with `Z`.** Correct to the letter of xsd:dateTime, but Word would show the UTC time as if it were
   local.

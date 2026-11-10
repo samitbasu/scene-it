@@ -63,7 +63,7 @@ the policy (a spacing `´` would become `'`). Not observed by hand yet (#74).
   - `NSAutomaticTextCompletionEnabled` and `NSAutomaticInlinePredictionEnabled` set the spelling checker's switches.
     Text completion is the Touch Bar's list of candidate words (NSTextView's own `isAutomaticTextCompletionEnabled`,
     which stays on, only allows that list); it never changes the text unless the writer picks a word. Inline
-    prediction is the grey suggestion ahead of the caret. *Both are now off for good (ADR 0049; see
+    prediction is the gray suggestion ahead of the caret. *Both are now off for good (ADR 0049; see
     the amendment below).*
   - `NSAutomaticCapitalizationEnabled` and `NSAutomaticPeriodSubstitutionEnabled` are registered off, but they come
     from System Settings when it sets them, as it does on the owner's Mac; there they're on until the writer turns
