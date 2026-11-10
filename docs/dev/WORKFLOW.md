@@ -23,16 +23,18 @@ gh pr list                                                    # all open PRs
 1. Pick the lowest-numbered open milestone's unblocked issue (check its "Depends on" line).
 2. Claim it: `gh issue edit N --add-label in-progress`.
 3. Branch: `git switch -c issue-N-short-name` (or work in a git worktree).
-4. Implement, with tests. Run `scripts/check.sh` until it's green. Commit first: on a commit
-   that changes only documentation, the gate skips the build and tests and says so, but a dirty
-   tree, or any change outside the docs paths, always gets the full gate (README, "Docs-only
-   changes"). Once the repository is public, GitHub Actions runs the same `scripts/check.sh` on
-   every PR and on `main` (`.github/workflows/check.yml`); until then that workflow is skipped.
+4. Implement, with tests. Push the branch and open the PR early: the gate (`scripts/check.sh`)
+   runs on GitHub Actions on every push to a PR and to `main` (`.github/workflows/check.yml`),
+   and that run is the gate. Don't run `scripts/check.sh` on the owner's Mac; it's kept free for
+   other work. Locally, run only a single test (one you just wrote, or one CI reported failing)
+   and the build it needs; the full suite runs on GitHub. When CI fails, read its log and the
+   `check-<run>-<attempt>` artifact first. On a commit that changes only documentation, the gate skips the build and tests and says
+   so (README, "Docs-only changes").
 5. Add or extend a tutorial chapter if the issue introduced a new Swift/macOS concept (see the issue's "Tutorial" line).
 6. If you added or changed a script, update its section in the top-level `README.md` (usage, example arguments, output products).
 7. Open a PR with `Closes #N` in the body. List any intentional behavior changes or deviations from PLAN.
-8. An independent reviewer (a fresh agent) reviews the PR against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings and re-run the gate.
-9. The **coordinating session** (not the implementing agent) squash-merges once the review is clean and it has re-run `scripts/check.sh` on the PR branch itself. Implementing agents never merge their own work. Work that depends on an unmerged PR may branch from that PR's branch, then rebase with `git rebase --onto origin/main <old-base-tip>` after the squash-merge.
+8. An independent reviewer (a fresh agent) reviews the PR against PLAN, CLAUDE.md and the acceptance criteria. Fix the findings and push; CI reruns the gate.
+9. The **coordinating session** (not the implementing agent) squash-merges once the review is clean and the PR's `check` run on GitHub Actions has passed on its head commit (read the result first, then merge in a separate command with `gh pr merge N --squash --match-head-commit <sha>`). Branch protection on `main` requires `check` to pass, for admins too, and blocks force-pushes. Implementing agents never merge their own work. Work that depends on an unmerged PR may branch from that PR's branch, then rebase with `git rebase --onto origin/main <old-base-tip>` after the squash-merge.
 
 ## Labels
 - `decision`: needs the owner's choice. Ask, don't guess. Record the answer in `docs/decisions/`.
