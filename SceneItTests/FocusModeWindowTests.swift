@@ -210,9 +210,11 @@ extension OneAtATime {
 
                 harness.chrome.set(.off)
                 await settle(harness)
+                await eventually { window.frame.size == size }
                 try #require(
                     window.frame.size == size,
-                    "precondition: the window is its own size again, as the toolbar comes back")
+                    "precondition: the window is its own size again, as the toolbar comes back: \(window.frame)"
+                )
                 #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
                 #expect(harness.preferences.rightPanel == panel)
             }
