@@ -198,11 +198,6 @@ extension OneAtATime {
                 let before = try harness.deskFrame
                 let size = window.frame.size
 
-                var resizes: [NSRect] = []
-                let watching = NotificationCenter.default.addObserver(
-                    forName: NSWindow.didResizeNotification, object: window, queue: nil
-                ) { _ in MainActor.assumeIsolated { resizes.append(window.frame) } }
-                defer { NotificationCenter.default.removeObserver(watching) }
                 harness.chrome.set(.on)
                 await settle(harness)
                 let focused = try harness.deskFrame
@@ -217,8 +212,7 @@ extension OneAtATime {
                 await settle(harness)
                 try #require(
                     window.frame.size == size,
-                    "precondition: the window is its own size again, as the toolbar comes back: TMPDIAG \(resizes)"
-                )
+                    "precondition: the window is its own size again, as the toolbar comes back")
                 #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
                 #expect(harness.preferences.rightPanel == panel)
             }

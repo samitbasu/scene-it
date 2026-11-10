@@ -119,9 +119,8 @@ struct PageHarness {
     }
 }
 
-/// A test's window, which stays where the test puts it, off every screen, at the size it's given.
-/// While the app is active, AppKit moves a titled window it orders in onto the screen, and
-/// shrinks one taller than the screen (GitHub's runners have a 1024 × 768 one) to fit.
+/// A test's window, which stays where the test puts it, off every screen. While the app is
+/// active, as on GitHub's runners, AppKit moves a titled window it orders in onto the screen.
 class OffscreenWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
