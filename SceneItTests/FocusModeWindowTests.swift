@@ -196,6 +196,7 @@ extension OneAtATime {
                 let window = harness.window
                 await settle(harness)
                 let before = try harness.deskFrame
+                let size = window.frame.size
 
                 harness.chrome.set(.on)
                 await settle(harness)
@@ -209,11 +210,10 @@ extension OneAtATime {
 
                 harness.chrome.set(.off)
                 await settle(harness)
-                let after = try harness.deskFrame
-                #expect(
-                    after == before,
-                    "DIAG the chrome is back exactly as it was: before=\(before) focused=\(focused) after=\(after) window=\(window.frame) content=\(window.contentLayoutRect) screens=\(NSScreen.screens.map(\.frame))"
-                )
+                try #require(
+                    window.frame.size == size,
+                    "precondition: the window is its own size again, as the toolbar comes back")
+                #expect(try harness.deskFrame == before, "the chrome is back exactly as it was")
                 #expect(harness.preferences.rightPanel == panel)
             }
         }
@@ -618,8 +618,26 @@ extension OneAtATime {
                         with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                         windowNumber: harness.window.windowNumber, context: nil, characters: "\u{1b}",
                         charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+                var chain: [String] = []
+                var link = harness.window.nextResponder
+                while let current = link {
+                    chain.append(String(describing: type(of: current)))
+                    link = current.nextResponder
+                }
                 let tookIt = harness.window.performKeyEquivalent(with: diagEvent)
                 if !tookIt { harness.window.sendEvent(diagEvent) }
+                let afterSend = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
+                if harness.chrome.focusMode == .on { harness.window.keyDown(with: diagEvent) }
+                let afterKeyDown = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
+                if harness.chrome.focusMode == .on {
+                    harness.window.escapeFallback?.keyDown(with: diagEvent)
+                }
+                let afterFallback = "\(harness.chrome.focusMode) last=\(String(describing: keys.lastEscape))"
+                Issue.record(
+                    Comment(
+                        rawValue:
+                            "DIAG2 chain=\(chain) key=\(harness.window.isKeyWindow) appKey=\(String(describing: NSApp.keyWindow)) frame=\(harness.window.frame) afterSend=\(afterSend) afterKeyDown=\(afterKeyDown) afterFallback=\(afterFallback)"
+                    ))
                 let buttons = subviewTree(of: harness.window.contentView).map {
                     String(describing: type(of: $0))
                 }

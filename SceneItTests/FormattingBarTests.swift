@@ -391,7 +391,11 @@ extension OneAtATime.BookStoreIntegrationTests {
 }
 
 extension OneAtATime.BookStoreIntegrationTests {
-    /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent.
+    /// Decision 0027 keeps Cmd+1 for Scenes; no two menu items share a key equivalent. AppKit
+    /// gives some of the items it adds to the Edit menu a hidden twin with the same action, to
+    /// answer a second shortcut (Start Dictation's, Emoji & Symbols'); where the system's
+    /// shortcut is the visible item's own, the twin repeats it. A twin like that is one command,
+    /// and not a clash: no key may do two things, or show on two items.
     @Test func noTwoMenuItemsShareAKeyEquivalent() {
         @MainActor func items(_ menu: NSMenu?) -> [NSMenuItem] {
             (menu?.items ?? []).flatMap { item -> [NSMenuItem] in
@@ -407,11 +411,10 @@ extension OneAtATime.BookStoreIntegrationTests {
         let byKey = Dictionary(grouping: withKeys) {
             "\($0.keyEquivalent) \($0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).rawValue)"
         }
-        let shared = byKey.filter { $0.value.count > 1 }.mapValues {
-            $0.map {
-                "DIAG \($0.title) hidden=\($0.isHidden) alt=\($0.isAlternate) action=\(String(describing: $0.action)) in=\($0.menu?.title ?? "-") at=\($0.menu?.index(of: $0) ?? -1)"
-            }
+        let shared = byKey.filter { _, items in
+            Set(items.map(\.action)).count > 1 || items.count(where: { !$0.isHidden }) > 1
         }
+        .mapValues { $0.map(\.title) }
         #expect(shared.isEmpty, "\(shared)")
     }
 

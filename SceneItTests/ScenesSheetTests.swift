@@ -503,11 +503,16 @@ extension PageHarness {
     }
 
     /// The window's Undo and Redo (the toolbar's and the Edit menu's) read "Undo `undo`" and
-    /// "Redo `redo`", or are off where `nil`.
+    /// "Redo `redo`", or are off where `nil`. The router looks again at the focus after each event,
+    /// when AppKit updates the window; a test has no events, so it updates the window as AppKit
+    /// would after the last one.
     func expectUndoMenu(undo: String?, redo: String?) async throws {
         let router = try self.undo
         let wanted = UndoState(undo: undo.map { "Undo \($0)" }, redo: redo.map { "Redo \($0)" })
-        await eventually { router.state == wanted }
+        await eventually {
+            window.update()
+            return router.state == wanted
+        }
         let s = book.structureUndo
         #expect(
             router.state == wanted,

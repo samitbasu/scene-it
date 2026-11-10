@@ -12,7 +12,7 @@ func hostOffscreen(
 ) async -> NSWindow {
     let controller = NSHostingController(rootView: view)
     controller.sizingOptions = []
-    let window = NSWindow(
+    let window = OffscreenWindow(
         contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false
     )
     window.isReleasedWhenClosed = false
