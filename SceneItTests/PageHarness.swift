@@ -119,17 +119,9 @@ struct PageHarness {
     }
 }
 
-/// A test's window, which stays where the test puts it, off every screen. While the app is
-/// active, as on GitHub's runners, AppKit moves a titled window it orders in onto the screen.
-class OffscreenWindow: NSWindow {
-    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        frameRect
-    }
-}
-
 /// A window that says it's key, so a test sees what only a key window shows, such as the caret,
 /// without activating the app, which would take the keyboard from whatever the owner is using.
-final class KeyWindow: OffscreenWindow {
+final class KeyWindow: NSWindow {
     nonisolated(unsafe) static var isKey = true
 
     override var isKeyWindow: Bool { Self.isKey }
@@ -151,8 +143,7 @@ enum TestBookLock {
 @MainActor
 func withPage(
     _ scenes: [BookScene], boneyard: [BookScene] = [], lock: TestBookLock = .ours,
-    books: BookController = BookController(role: .testHost),
-    in windowType: NSWindow.Type = OffscreenWindow.self,
+    books: BookController = BookController(role: .testHost), in windowType: NSWindow.Type = NSWindow.self,
     searchIndexing: @escaping SearchSheetModel.Indexing = SearchSheetModel.keywordIndexing,
     scenesSheet: ScenesSheetModel = ScenesSheetModel(),
     cabinet: FileCabinetModel = FileCabinetModel(),
