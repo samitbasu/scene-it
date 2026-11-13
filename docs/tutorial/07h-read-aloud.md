@@ -17,12 +17,7 @@ Files: [`SceneIt/Editor/Speech.swift`](../../SceneIt/Editor/Speech.swift),
 ## 1. `AVSpeechSynthesizer` and its delegate
 
 `AVSpeechSynthesizer` takes an `AVSpeechUtterance` (a string, a voice and a rate) and speaks it on
-the Mac itself; nothing leaves the machine (ADR 0044).
-It speaks in the voice chosen in System Settings › Accessibility › Spoken Content, *except* a Siri
-voice: macOS keeps those for Apple's own programs, and asked for the default then, it hands an app the
-language's standard voice (Samantha) instead. Premium voices work (ADR 0044's correction).
-The trap is that Apple's command-line `swift` tool *can* see Siri voices, so a script run with it can
-play a voice the app will never get; build the experiment as an app-like binary. It reports progress through a **delegate**:
+the Mac itself; nothing leaves the machine (ADR 0044). It reports progress through a **delegate**:
 an object you hand it, conforming to `AVSpeechSynthesizerDelegate`, whose methods it calls as
 things happen. The Rust analog is a `Box<dyn Listener>` the library holds and calls back, except
 that the synthesizer holds its delegate *weakly*: the delegate must be kept alive by someone else.
@@ -41,6 +36,13 @@ extension SystemSpeech: AVSpeechSynthesizerDelegate {
 `willSpeakRangeOfSpeechString` arrives before each word with that word's range in the utterance's
 string; `didFinish` and `didCancel` arrive when it ends either way. Every delegate method names the
 utterance it's about, which matters once one reading can be stopped and another started.
+
+**Which voice.** Without a stored voice, the utterance gets `AVSpeechSynthesisVoice(language: nil)`,
+the voice chosen in System Settings › Accessibility › Spoken Content. A Siri voice is the exception:
+Scene It's process isn't offered Siri voices, so when one is the System voice, it gets the language's
+standard voice (Samantha) instead. Ava (Premium) works (ADR 0044's correction). The trap is that
+Apple's command-line `swift` tool *is* offered Siri voices, so a script run with it can play a voice the
+app will never get. Compile such an experiment into a small program of your own instead.
 
 ## 2. A protocol in front of the system service
 
