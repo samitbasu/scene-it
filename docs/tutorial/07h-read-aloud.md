@@ -37,6 +37,13 @@ extension SystemSpeech: AVSpeechSynthesizerDelegate {
 string; `didFinish` and `didCancel` arrive when it ends either way. Every delegate method names the
 utterance it's about, which matters once one reading can be stopped and another started.
 
+**Which voice.** Without a stored voice, the utterance gets `AVSpeechSynthesisVoice(language: nil)`,
+the voice chosen in System Settings › Accessibility › Spoken Content. A Siri voice is the exception:
+Scene It's process isn't offered Siri voices, so when one is the System voice, it gets the language's
+standard voice (Samantha) instead. Ava (Premium) works (ADR 0044's correction). The trap is that
+Apple's command-line `swift` tool *is* offered Siri voices, so a script run with it can play a voice the
+app will never get. Compile such an experiment into a small program of your own instead.
+
 ## 2. A protocol in front of the system service
 
 The app never talks to `AVSpeechSynthesizer` directly. It talks to a two-method protocol, and
