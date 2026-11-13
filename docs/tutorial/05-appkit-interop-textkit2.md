@@ -842,13 +842,17 @@ the factories differ only in that layout.
 `EditorFormatting`, and only one editor can have the focus, so at most one is *active*:
 
 ```swift
-    func show(_ selection: SelectionFormatting?, from editor: SceneTextEditor) {
+    func show(
+        _ formats: Formats?, commenting comments: CommentTarget = .nothing, from editor: SceneTextEditor
+    ) {
 ```
 
-A non-`nil` selection makes that editor the active one; a `nil` from the active editor clears
+A non-`nil` value makes that editor the active one; a `nil` from the active editor clears
 it; a `nil` from the other is ignored, so whether the page resigns before the notes take the
-focus or after doesn't matter. Each bar asks `selection(in: part)` and dims itself when it gets
-`nil`; the Format menu asks for the active selection and sends its commands to the active
+focus or after doesn't matter. `Formats` is `.changeable(selection)` for text that can be
+formatted, or `.fixed` for a review's page, which takes comments but no formats
+([chapter 07f](07f-review-book.md)). Each bar asks `selection(in: part)` and dims itself when it
+gets `nil`; the Format menu asks for the active selection and sends its commands to the active
 editor. Same `FormattingCommand`, same state function, everywhere.
 
 **Views that outlive SwiftUI's.** Switching the panel to another tab makes SwiftUI dismantle
