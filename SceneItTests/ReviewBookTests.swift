@@ -151,6 +151,220 @@ extension OneAtATime.BookStoreIntegrationTests {
         }
     }
 
+    private static let dawnWord = NSRange(location: 18, length: 4)
+    private static let left = NSRange(location: 10, length: 4)
+
+    @MainActor
+    private static func card(_ comment: CommentID, in window: NSWindow) -> CommentTextView? {
+        subviewTree(of: window.contentView).lazy.compactMap { $0 as? CommentTextView }
+            .first { $0.comment == comment }
+    }
+
+    @MainActor
+    private static func menuControl(of comment: CommentID, in window: NSWindow) -> CommentMenuButton.Control?
+    {
+        subviewTree(of: window.contentView).lazy.compactMap { $0 as? CommentMenuButton.Control }
+            .first { $0.comment == comment }
+    }
+
+    /// The window's undo router, as Edit → Undo and the toolbar use it.
+    @MainActor
+    private static func router(in window: NSWindow) -> UndoRouter? {
+        subviewTree(of: window.contentView).lazy.compactMap { ($0 as? UndoRouterWindow.WindowView)?.router }
+            .first
+    }
+
+    /// The Comments tab shown while `body` runs, and the panel put back after.
+    @MainActor
+    private static func withCommentsTab(_ books: BookController, _ body: () async throws -> Void)
+        async rethrows
+    {
+        let preferences = books.preferences
+        let (panel, tab) = (preferences.rightPanel, preferences.rightPanelTab)
+        defer {
+            preferences.setRightPanel(panel)
+            preferences.showRightPanelTab(tab)
+        }
+        preferences.reveal(.comments)
+        try await body()
+    }
+
+    /// The owner's bug: on a review's page, New Comment worked only when called directly, since
+    /// the page took the focus for formatting alone. Edit → New Comment, the floating Comment
+    /// button and the Comments tab's + each comment the selection, through the window as the
+    /// reviewer reaches them, while the format bar and the Format menu stay off.
+    @Test func aReviewsPageTakesNewCommentsFromTheMenuTheButtonAndThePlus() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            let store = books.store
+            try #require(store.isChoosing, "precondition: the start screen")
+            try await Self.withCommentsTab(books) {
+                let (copy, _) = try Self.writeCopy(in: folder)
+                #expect(await store.openReview(copy) == .opened)
+                let book = try #require(store.current)
+                let window = try #require(books.mainWindow)
+                await eventually { Self.page(in: window)?.string == "The ferry left at dawn." }
+                let page = try #require(Self.page(in: window))
+                try #require(page.editability() == .commentsOnly, "precondition: a review's page")
+                let editor = try #require(page.editor)
+                let formatting = books.formatting
+
+                window.makeFirstResponder(page)
+                page.setSelectedRange(NSRange(location: 2, length: 0))
+                await eventually { formatting.active?.part == .body }
+                #expect(formatting.active?.formats == .fixed)
+                #expect(formatting.commentablePage == nil, "a caret isn't enough")
+                #expect(page.commentButton.isHidden)
+                #expect(newCommentItem()?.isEnabled == false)
+
+                page.setSelectedRange(Self.ferry)
+                await eventually { formatting.commentablePage === editor }
+                #expect(formatting.commentablePage === editor)
+                #expect(formatting.selection == nil, "the Format menu has nothing to format")
+                #expect(formatting.selection(in: .body) == nil, "the page's format bar is off")
+                await eventually { FormattingCommand.toggle(.bold).menuItem != nil }
+                #expect(FormattingCommand.toggle(.bold).menuItem?.isEnabled == false, "Format → Bold is off")
+                #expect(!page.commentButton.isHidden, "the Comment button shows")
+
+                await eventually { newCommentItem()?.isEnabled == true }
+                try perform(try #require(newCommentItem()))
+                let fromMenu = try #require(
+                    book.book.scene(Self.dawn)?.comments.last?.id, "Edit → New Comment")
+                #expect(page.textStorage?.ranges(commentedBy: fromMenu) == [Self.ferry])
+                await eventually { window.firstResponder === Self.card(fromMenu, in: window) }
+                let card = try #require(Self.card(fromMenu, in: window), "its card has the focus")
+                card.insertText("Which ferry?", replacementRange: card.selectedRange())
+                #expect(book.book.scene(Self.dawn)?.comment(fromMenu)?.text == "Which ferry?")
+
+                window.makeFirstResponder(page)
+                page.setSelectedRange(Self.dawnWord)
+                await eventually { !page.commentButton.isHidden }
+                try #require(!page.commentButton.isHidden, "precondition: the button shows")
+                page.commentButton.performClick(nil)
+                let fromButton = try #require(book.book.scene(Self.dawn)?.comments.last?.id)
+                #expect(fromButton != fromMenu, "the Comment button")
+                #expect(page.textStorage?.ranges(commentedBy: fromButton) == [Self.dawnWord])
+
+                window.makeFirstResponder(page)
+                page.setSelectedRange(Self.left)
+                await eventually { formatting.commentablePage === editor }
+                CommentsTab.addComment(through: formatting)
+                let fromPlus = try #require(book.book.scene(Self.dawn)?.comments.last?.id)
+                #expect(![fromMenu, fromButton].contains(fromPlus), "the Comments tab's +")
+                #expect(page.textStorage?.ranges(commentedBy: fromPlus) == [Self.left])
+
+                window.makeFirstResponder(page)
+                let router = try #require(Self.router(in: window))
+                #expect(book.pageUndo(for: Self.dawn).undoActionName == CommentWording.newComment)
+                router.undo()
+                #expect(book.book.scene(Self.dawn)?.comment(fromPlus) == nil, "Edit → Undo takes it back")
+                #expect(page.textStorage?.ranges(commentedBy: fromPlus).isEmpty == true)
+                router.redo()
+                #expect(book.book.scene(Self.dawn)?.comment(fromPlus) != nil, "and Redo brings it back")
+                #expect(page.string == "The ferry left at dawn.")
+                #expect(book.book.scene(Self.dawn)?.body.map(\.text) == ["The ferry left at dawn."])
+
+                store.saveNow()
+                await eventually { book.status == .saved }
+                let text = try String(
+                    decoding: Data(contentsOf: folder.appending(path: "Tide.review.md")), as: UTF8.self)
+                #expect(text.contains(#"| c4-9 | "ferry" | Which ferry?"#))
+                #expect(await store.closeBook() == .left)
+            }
+            expectNoQuestions()
+        }
+    }
+
+    /// A card's ⋯ menu on a review: Re-anchor puts a detached comment on the page's selection,
+    /// recolor and Dismiss work, each one step on the page's undo; and the notes, which a review
+    /// takes, can be formatted.
+    @Test func aReviewsCardMenuReanchorsRecolorsAndDismisses() async throws {
+        try await withTemporaryFolder { folder in
+            let books = BookController.shared
+            let store = books.store
+            try #require(store.isChoosing, "precondition: the start screen")
+            try await Self.withCommentsTab(books) {
+                let (copy, export) = try Self.writeCopy(in: folder)
+                var ids = IDGenerator.system
+                let anchored = CommentID(rawValue: "c1")
+                let detached = CommentID(rawValue: "c2")
+                let review =
+                    Self.frontMatter(copy: export, id: ids.reviewID()) + """
+
+
+                        ## Dawn
+                        id: s1
+
+                        ### Comments
+                        - c1 | red | 2026-11-04T09:12:00-08:00 | c4-9 | "ferry" | Which ferry?
+                        - c2 | gray | 2026-11-04T09:30:00-08:00 | detached | Too short?
+
+                        """
+                try Data(review.utf8).write(to: folder.appending(path: "Tide.review.md"))
+                #expect(await store.openReview(copy) == .opened)
+                let book = try #require(store.current)
+                try #require(
+                    book.book.scene(Self.dawn)?.isDetached(detached) == true, "precondition: detached")
+                let window = try #require(books.mainWindow)
+                await eventually { Self.page(in: window)?.commentPalette.covers(anchored) == true }
+                let page = try #require(Self.page(in: window))
+                let editor = try #require(page.editor)
+                let undo = book.pageUndo(for: Self.dawn)
+                let router = try #require(Self.router(in: window))
+
+                window.makeFirstResponder(page)
+                page.setSelectedRange(Self.dawnWord)
+                await eventually { books.formatting.commentablePage === editor }
+                editor.comments.select(detached, in: Self.dawn)
+                await eventually { Self.menuControl(of: detached, in: window) != nil }
+                let reanchorMenu = try #require(
+                    Self.menuControl(of: detached, in: window)?.makeMenu?() ?? nil)
+                let reanchor = try #require(reanchorMenu.items.first { $0.title == CommentWording.reanchor })
+                #expect(reanchor.isEnabled)
+                await inAnEvent(undo) { try? perform(reanchor) }
+                #expect(page.textStorage?.ranges(commentedBy: detached) == [Self.dawnWord])
+                #expect(book.book.scene(Self.dawn)?.isDetached(detached) == false)
+                #expect(undo.undoActionName == CommentWording.reanchorUndoName)
+                try #require(window.firstResponder === page, "precondition: the page has the focus")
+                router.undo()
+                #expect(book.book.scene(Self.dawn)?.isDetached(detached) == true, "Undo detaches it again")
+                router.redo()
+                #expect(page.textStorage?.ranges(commentedBy: detached) == [Self.dawnWord], "Redo re-anchors")
+
+                editor.comments.select(anchored, in: Self.dawn)
+                await eventually { Self.menuControl(of: anchored, in: window) != nil }
+                let control = try #require(Self.menuControl(of: anchored, in: window))
+                let recolorMenu = try #require(control.makeMenu?() ?? nil)
+                let blue = try #require(recolorMenu.items.first { CommentMenu.color(of: $0) == .blue })
+                await inAnEvent(undo) { try? perform(blue) }
+                #expect(book.book.scene(Self.dawn)?.comment(anchored)?.color == .blue, "recolored")
+
+                let dismissMenu = try #require(control.makeMenu?() ?? nil)
+                let dismiss = try #require(dismissMenu.items.first { $0.title == CommentWording.dismiss })
+                await inAnEvent(undo) { try? perform(dismiss) }
+                #expect(book.book.scene(Self.dawn)?.comment(anchored) == nil, "dismissed")
+                #expect(page.textStorage?.ranges(commentedBy: anchored).isEmpty == true)
+                window.makeFirstResponder(page)
+                router.undo()
+                #expect(book.book.scene(Self.dawn)?.comment(anchored)?.color == .blue, "Undo restores it")
+                #expect(page.textStorage?.ranges(commentedBy: anchored) == [Self.ferry])
+                #expect(book.book.scene(Self.dawn)?.body.map(\.text) == ["The ferry left at dawn."])
+
+                books.preferences.showRightPanelTab(.notes)
+                await eventually { Self.notes(in: window) != nil }
+                let notes = try #require(Self.notes(in: window))
+                window.makeFirstResponder(notes)
+                await eventually { books.formatting.active?.part == .notes }
+                #expect(books.formatting.selection(in: .notes) != nil, "the notes' format bar is on")
+                #expect(books.formatting.commentablePage == nil, "the notes take no comments")
+                notes.insertText("Lovely.", replacementRange: notes.selectedRange())
+                #expect(book.book.scene(Self.dawn)?.notes == [[Run("Lovely.")]])
+                #expect(await store.closeBook() == .left)
+            }
+            expectNoQuestions()
+        }
+    }
+
     /// The TIDE copy, with an export id of its own: the test host's reviews folder is shared, and
     /// a new review's lock is keyed by its copy's export id.
     private static func tide(_ export: ExportID) -> String {

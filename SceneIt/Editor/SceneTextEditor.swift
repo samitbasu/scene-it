@@ -530,20 +530,33 @@ final class SceneTextEditor: NSObject {
         return (scene, view, storage)
     }
 
-    /// The selection's formats, while the text can be formatted.
-    private var formattingSelection: SelectionFormatting? {
-        guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here,
-            view.editability() == .editable
-        else { return nil }
-        let ranges = view.selectedRanges.map(\.rangeValue)
-        return ranges.contains(where: { $0.length > 0 })
-            ? SelectionFormatting(selecting: ranges, in: storage)
-            : SelectionFormatting(typing: view.typingAttributes)
+    /// Whether the text can be formatted, while the view has the focus and can be edited.
+    private var formats: EditorFormatting.Formats? {
+        guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here else {
+            return nil
+        }
+        switch view.editability() {
+        case .editable:
+            let ranges = view.selectedRanges.map(\.rangeValue)
+            return .changeable(
+                ranges.contains(where: { $0.length > 0 })
+                    ? SelectionFormatting(selecting: ranges, in: storage)
+                    : SelectionFormatting(typing: view.typingAttributes))
+        case .commentsOnly:
+            return .fixed
+        case .readOnly:
+            return nil
+        }
     }
 
-    /// Shows the formats of the selection, or none while the text view can't be formatted.
+    /// The selection's formats, while the text can be formatted.
+    private var formattingSelection: SelectionFormatting? {
+        formats?.selection
+    }
+
+    /// Shows what the selection takes, or nothing while the text view can't be edited.
     func showFormatting() {
-        formatting.show(formattingSelection, commenting: commentTarget, from: self)
+        formatting.show(formats, commenting: commentTarget, from: self)
         (textView as? ManuscriptTextView)?.placeCommentButton()
     }
 

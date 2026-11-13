@@ -198,7 +198,42 @@ drops the items that would change the text, and Find loses Replace. Behind it al
 reloads from the model. The hosted test sends `underline:` and `changeColor:` to a review's page and
 checks the page still mirrors the model, then comments the paragraph.
 
-## 6. Where to read next
+## 6. Formatting and commenting are separate facts
+
+Edit → New Comment, the floating Comment button by the selection and the Comments tab's + all ask
+one question, `EditorFormatting.commentablePage` ([chapter 05](05-appkit-interop-textkit2.md)'s
+"Two bars, one target"). The first version answered it only while the page could be *formatted*,
+so on a review's page, which can't be, all three stayed off, and the hosted test missed it because
+it called `newComment()` directly instead of going through the menu. (CLAUDE.md: verify through the
+full real path.)
+
+The fix keeps one answer but splits what it's made of. The editor with the focus reports whether
+its text can be formatted as an enum, rather than as an optional selection that doubled as "is
+there an active editor":
+
+```swift
+    enum Formats: Equatable {
+        /// It can: the selection's formats.
+        case changeable(SelectionFormatting)
+        /// Its text can't change, but comments on it can: a review's page (ADR 0042).
+        case fixed
+```
+
+`SceneTextEditor` maps the view's `Editability` onto it in one `switch`: `.editable` is
+`.changeable(selection)`, `.commentsOnly` is `.fixed`, and `.readOnly` is no active editor at all.
+The format bar and the Format menu read `formats.selection`, which `.fixed` doesn't have, so they
+stay off; the comment routes read the active editor's `comments` target, which a review's page
+has like any other. Two `Bool`s, "can format" and "can comment", would have allowed the state "can
+format but not comment" on the page, which nothing means; the enum can't say it. In Rust terms
+it's `Option<Formats>` where `enum Formats { Changeable(SelectionFormatting), Fixed }`, instead of
+`Option<SelectionFormatting>` doing two jobs.
+
+The hosted tests in [`ReviewBookTests`](../../SceneItTests/ReviewBookTests.swift) now open a
+review, focus its page, select text, and use the Edit menu's item, the button's `performClick`
+and the + button's action, checking that the Format menu's Bold stays disabled; a second test
+re-anchors, recolors and dismisses from a card's ⋯ menu and undoes through the window's router.
+
+## 7. Where to read next
 
 - [ADR 0042](../decisions/0042-a-review-is-a-book-in-memory.md) for the decisions and what's not
   done yet (Recent Books, general-notes UI, Comment on Scene).
