@@ -174,6 +174,16 @@ extension OneAtATime.BookStoreIntegrationTests {
             .first
     }
 
+    /// Chooses `item` as one event does, so what it registers is one step on `undo`.
+    @MainActor
+    private static func perform(_ item: NSMenuItem, inAnEventOf undo: UndoManager) async throws {
+        var failure: (any Error)?
+        await inAnEvent(undo) {
+            do { try SceneItTests.perform(item) } catch { failure = error }
+        }
+        if let failure { throw failure }
+    }
+
     /// The Comments tab shown while `body` runs, and the panel put back after.
     @MainActor
     private static func withCommentsTab(_ books: BookController, _ body: () async throws -> Void)
@@ -189,10 +199,9 @@ extension OneAtATime.BookStoreIntegrationTests {
         try await body()
     }
 
-    /// The owner's bug: on a review's page, New Comment worked only when called directly, since
-    /// the page took the focus for formatting alone. Edit → New Comment, the floating Comment
-    /// button and the Comments tab's + each comment the selection, through the window as the
-    /// reviewer reaches them, while the format bar and the Format menu stay off.
+    /// Edit → New Comment, the floating Comment button and the Comments tab's + each comment a
+    /// review's selection, through the window as the reviewer reaches them, each one step on the
+    /// page's undo, while the format bar and the Format menu stay off.
     @Test func aReviewsPageTakesNewCommentsFromTheMenuTheButtonAndThePlus() async throws {
         try await withTemporaryFolder { folder in
             let books = BookController.shared
@@ -208,6 +217,7 @@ extension OneAtATime.BookStoreIntegrationTests {
                 try #require(page.editability() == .commentsOnly, "precondition: a review's page")
                 let editor = try #require(page.editor)
                 let formatting = books.formatting
+                let undo = book.pageUndo(for: Self.dawn)
 
                 window.makeFirstResponder(page)
                 page.setSelectedRange(NSRange(location: 2, length: 0))
@@ -227,38 +237,47 @@ extension OneAtATime.BookStoreIntegrationTests {
                 #expect(!page.commentButton.isHidden, "the Comment button shows")
 
                 await eventually { newCommentItem()?.isEnabled == true }
-                try perform(try #require(newCommentItem()))
+                try await Self.perform(try #require(newCommentItem()), inAnEventOf: undo)
                 let fromMenu = try #require(
                     book.book.scene(Self.dawn)?.comments.last?.id, "Edit → New Comment")
                 #expect(page.textStorage?.ranges(commentedBy: fromMenu) == [Self.ferry])
                 await eventually { window.firstResponder === Self.card(fromMenu, in: window) }
                 let card = try #require(Self.card(fromMenu, in: window), "its card has the focus")
-                card.insertText("Which ferry?", replacementRange: card.selectedRange())
+                await inAnEvent(undo) {
+                    card.insertText("Which ferry?", replacementRange: card.selectedRange())
+                    window.makeFirstResponder(page)
+                }
                 #expect(book.book.scene(Self.dawn)?.comment(fromMenu)?.text == "Which ferry?")
 
-                window.makeFirstResponder(page)
                 page.setSelectedRange(Self.dawnWord)
                 await eventually { !page.commentButton.isHidden }
                 try #require(!page.commentButton.isHidden, "precondition: the button shows")
-                page.commentButton.performClick(nil)
+                await inAnEvent(undo) { page.commentButton.performClick(nil) }
                 let fromButton = try #require(book.book.scene(Self.dawn)?.comments.last?.id)
                 #expect(fromButton != fromMenu, "the Comment button")
                 #expect(page.textStorage?.ranges(commentedBy: fromButton) == [Self.dawnWord])
 
                 window.makeFirstResponder(page)
+                #expect(undo.groupingLevel == 0, "leaving an untouched card registers nothing")
                 page.setSelectedRange(Self.left)
                 await eventually { formatting.commentablePage === editor }
-                CommentsTab.addComment(through: formatting)
+                await inAnEvent(undo) { CommentsTab.addComment(through: formatting) }
                 let fromPlus = try #require(book.book.scene(Self.dawn)?.comments.last?.id)
                 #expect(![fromMenu, fromButton].contains(fromPlus), "the Comments tab's +")
                 #expect(page.textStorage?.ranges(commentedBy: fromPlus) == [Self.left])
 
                 window.makeFirstResponder(page)
+                #expect(undo.groupingLevel == 0, "leaving an untouched card registers nothing")
                 let router = try #require(Self.router(in: window))
-                #expect(book.pageUndo(for: Self.dawn).undoActionName == CommentWording.newComment)
+                #expect(undo.undoActionName == CommentWording.newComment)
                 router.undo()
                 #expect(book.book.scene(Self.dawn)?.comment(fromPlus) == nil, "Edit → Undo takes it back")
                 #expect(page.textStorage?.ranges(commentedBy: fromPlus).isEmpty == true)
+                #expect(
+                    book.book.scene(Self.dawn)?.comment(fromButton) != nil, "one step: the button's stays")
+                #expect(page.textStorage?.ranges(commentedBy: fromButton) == [Self.dawnWord])
+                #expect(
+                    book.book.scene(Self.dawn)?.comment(fromMenu)?.text == "Which ferry?", "and the menu's")
                 router.redo()
                 #expect(book.book.scene(Self.dawn)?.comment(fromPlus) != nil, "and Redo brings it back")
                 #expect(page.string == "The ferry left at dawn.")
@@ -321,7 +340,7 @@ extension OneAtATime.BookStoreIntegrationTests {
                     Self.menuControl(of: detached, in: window)?.makeMenu?() ?? nil)
                 let reanchor = try #require(reanchorMenu.items.first { $0.title == CommentWording.reanchor })
                 #expect(reanchor.isEnabled)
-                await inAnEvent(undo) { try? perform(reanchor) }
+                try await Self.perform(reanchor, inAnEventOf: undo)
                 #expect(page.textStorage?.ranges(commentedBy: detached) == [Self.dawnWord])
                 #expect(book.book.scene(Self.dawn)?.isDetached(detached) == false)
                 #expect(undo.undoActionName == CommentWording.reanchorUndoName)
@@ -336,12 +355,12 @@ extension OneAtATime.BookStoreIntegrationTests {
                 let control = try #require(Self.menuControl(of: anchored, in: window))
                 let recolorMenu = try #require(control.makeMenu?() ?? nil)
                 let blue = try #require(recolorMenu.items.first { CommentMenu.color(of: $0) == .blue })
-                await inAnEvent(undo) { try? perform(blue) }
+                try await Self.perform(blue, inAnEventOf: undo)
                 #expect(book.book.scene(Self.dawn)?.comment(anchored)?.color == .blue, "recolored")
 
                 let dismissMenu = try #require(control.makeMenu?() ?? nil)
                 let dismiss = try #require(dismissMenu.items.first { $0.title == CommentWording.dismiss })
-                await inAnEvent(undo) { try? perform(dismiss) }
+                try await Self.perform(dismiss, inAnEventOf: undo)
                 #expect(book.book.scene(Self.dawn)?.comment(anchored) == nil, "dismissed")
                 #expect(page.textStorage?.ranges(commentedBy: anchored).isEmpty == true)
                 window.makeFirstResponder(page)

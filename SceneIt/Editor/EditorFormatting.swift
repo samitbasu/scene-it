@@ -3,20 +3,21 @@ import SwiftUI
 
 /// Where the control bars and the Format menu send `FormattingCommand`s (PLAN §6.2, §11), and
 /// where Edit → New Comment, the page's Comment button and the comments panel's + find the page
-/// (ADR 0037): the editor with the focus, the page or the notes, while it can be edited. Never
-/// while the title field has the focus (decision 0015), under a sheet, or in a read-only book. So
-/// at most one bar is active, the one beside that editor, and the menus act on the same editor.
+/// (ADR 0037): the editor with the focus, the page or the notes, while it takes formats or
+/// comments. Never while the title field has the focus (decision 0015), under a sheet, or in a
+/// read-only book. So at most one bar is active, the one beside that editor, and the menus act
+/// on the same editor.
 /// A review's page (ADR 0042) is active for comments alone: its bar and the Format menu stay off.
 ///
 /// One per window (ADR 0038), so the menu finds the editor without asking which window is key.
 @Observable
 final class EditorFormatting {
     let preferences: AppPreferences
-    /// `nil` while no editor can be edited.
+    /// `nil` while no editor with the focus takes formats or comments.
     private(set) var active: Active?
     @ObservationIgnored private weak var editor: SceneTextEditor?
 
-    /// The editor that can be edited, whether its text can be formatted, and whether a new
+    /// The editor with the focus, whether its text can be formatted, and whether a new
     /// comment could cover its selection.
     struct Active: Equatable {
         let part: TextPart
@@ -78,7 +79,7 @@ final class EditorFormatting {
     }
 
     /// Called by an editor whenever its selection, focus or editability changes: `nil` when it
-    /// can't be edited. An editor that can't be edited leaves another's selection be, so the
+    /// takes neither formats nor comments. Such an editor leaves another's selection be, so the
     /// order the focus leaves one and reaches the other doesn't matter.
     func show(
         _ formats: Formats?, commenting comments: CommentTarget = .nothing, from editor: SceneTextEditor

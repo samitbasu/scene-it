@@ -530,7 +530,8 @@ final class SceneTextEditor: NSObject {
         return (scene, view, storage)
     }
 
-    /// Whether the text can be formatted, while the view has the focus and can be edited.
+    /// Whether the text can be formatted, while the view has the focus and takes formats or
+    /// comments.
     private var formats: EditorFormatting.Formats? {
         guard let view = textView, let storage = view.textStorage, view.keyboardFocus == .here else {
             return nil
@@ -554,7 +555,8 @@ final class SceneTextEditor: NSObject {
         formats?.selection
     }
 
-    /// Shows what the selection takes, or nothing while the text view can't be edited.
+    /// Shows what the selection takes, or nothing while the view takes neither formats nor
+    /// comments.
     func showFormatting() {
         formatting.show(formats, commenting: commentTarget, from: self)
         (textView as? ManuscriptTextView)?.placeCommentButton()
